@@ -2607,16 +2607,21 @@ function customerAdminRecord(currentStore: AppStore, organization: Organization)
     .filter(member => member.organizationId === organization.id && member.status === "active")
     .map(member => member.userId));
   const members = currentStore.users.filter(user => memberIds.has(user.id));
-  const entitlementIds = rawEntitledAppIds(currentStore, organization.id);
+  const plan = organizationPlanFor(currentStore, organization.id);
+  const plannedAppIds = plan.appIds?.length ? plan.appIds : rawEntitledAppIds(currentStore, organization.id);
   const mappings = currentStore.appTenantMappings.filter(mapping => mapping.organizationId === organization.id);
-  const apps = entitlementIds.map(appId => {
+  const apps = plannedAppIds.map(appId => {
     const app = currentStore.ecosystemApps.find(item => item.id === appId);
     const mapping = mappings.find(item => item.appId === appId);
     return {
       id: appId,
       name: app?.name || appId,
       shortName: app?.shortName || appId,
-      provisioningStatus: tenantMappedAppIds.has(appId) ? (mapping?.status || "pending") : "not_required",
+      provisioningStatus: ["paused", "cancelled"].includes(plan.status)
+        ? "disabled_by_plan"
+        : tenantMappedAppIds.has(appId)
+          ? (mapping?.status || "pending")
+          : "not_required",
     };
   });
   const invite = [...currentStore.ownerInvitations]
@@ -2643,7 +2648,7 @@ function customerAdminRecord(currentStore: AppStore, organization: Organization)
     } : null,
     memberCount: members.length,
     apps,
-    plan: organizationPlanFor(currentStore, organization.id),
+    plan,
     invitation: invite ? {
       id: invite.id,
       status: invitationStatus(invite),
