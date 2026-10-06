@@ -144,7 +144,7 @@ test("workspace team invitations stay owner-controlled and isolated across SMBs"
     const created = await request("/api/admin/onboarding/invitations", {
       method: "POST",
       headers: operatorHeaders,
-      body: JSON.stringify({ organizationName, email, appIds: ["app-v79pos", "app-tiquet", "app-marketing"], expiresInHours: 24 }),
+      body: JSON.stringify({ organizationName, email, appIds: ["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing"], expiresInHours: 24 }),
     });
     assert.equal(created.status, 201, await created.clone().text());
     const payload = await created.json();
