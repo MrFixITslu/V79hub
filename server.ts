@@ -809,7 +809,7 @@ function sessionCookie(value: string, maxAge: number) {
 }
 
 const posSecret = process.env.V79_PLATFORM_SHARED_SECRET || "";
-const posServiceSecret = process.env.V79_POS_PLATFORM_SHARED_SECRET || "";
+const posServiceSecret = process.env.V79_POS_PLATFORM_SHARED_SECRET || posSecret;
 const posServiceUrl = process.env.POS_BASE_URL || "http://v79-commerce-api:8080";
 const posPublicUrl = process.env.POS_PUBLIC_URL || "https://pos.v79sl.com";
 const posIdentityPath = path.join(DATA_DIR, "pos-identity.json");
