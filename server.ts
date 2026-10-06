@@ -1742,6 +1742,51 @@ function onboardingAudit(nextStore: AppStore, type: string, details: Record<stri
   if (nextStore.auditEvents.length > 5000) nextStore.auditEvents = nextStore.auditEvents.slice(-5000);
 }
 
+function organizationPlanFor(currentStore: AppStore, organizationId: string): OrganizationPlan {
+  const stored = (currentStore.organizationPlans || []).find(plan => plan.organizationId === organizationId);
+  if (stored) return stored;
+
+  const isOwnerWorkspace = organizationId === posIdentity.organizationId;
+  const monthly = Number(process.env.V79_HUB_MONTHLY_PRICE_XCD || "");
+  const annual = Number(process.env.V79_HUB_ANNUAL_PRICE_XCD || "");
+  const renewalDate = String(process.env.V79_HUB_RENEWAL_DATE || "").trim();
+  const fallbackPrice = Number.isFinite(monthly) && monthly >= 0
+    ? monthly
+    : Number.isFinite(annual) && annual >= 0
+      ? annual
+      : undefined;
+
+  return {
+    organizationId,
+    planName: isOwnerWorkspace ? String(process.env.V79_HUB_PLAN_NAME || "V79 Hub Beta").trim() : "Custom",
+    status: "active",
+    billingCycle: isOwnerWorkspace && Number.isFinite(annual) && annual >= 0 && !(Number.isFinite(monthly) && monthly >= 0)
+      ? "annual"
+      : isOwnerWorkspace && Number.isFinite(monthly) && monthly >= 0
+        ? "monthly"
+        : "custom",
+    ...(fallbackPrice !== undefined ? { priceXcd: fallbackPrice } : {}),
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(renewalDate) ? { renewalDate } : {}),
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  };
+}
+
+function rawEntitledAppIds(currentStore: AppStore, organizationId: string) {
+  return (currentStore.appEntitlements || [])
+    .filter(entry => entry.organizationId === organizationId && entry.enabled === true)
+    .map(entry => entry.appId);
+}
+
+function customerLifecycle(currentStore: AppStore, organization: Organization) {
+  if (organization.status === "suspended") return "suspended";
+  const enabled = new Set(rawEntitledAppIds(currentStore, organization.id));
+  const mappedApps = [...tenantMappedAppIds].filter(appId => enabled.has(appId));
+  const mappings = currentStore.appTenantMappings.filter(mapping => mapping.organizationId === organization.id);
+  if (mappedApps.some(appId => mappings.find(mapping => mapping.appId === appId)?.status !== "active")) return "provisioning";
+  return "active";
+}
+
 function sameOriginMutation(req: Request) {
   try {
     const expectedOrigin = process.env.APP_URL
@@ -1807,6 +1852,17 @@ async function completeInvitationAcceptance(
     return res.status(409).json({ error: "This invitation needs manual review before it can be completed" });
   }
 
+  if (!Array.isArray(transition.nextStore.organizationPlans)) transition.nextStore.organizationPlans = [];
+  if (!transition.nextStore.organizationPlans.some((plan: OrganizationPlan) => plan.organizationId === transition.organizationId)) {
+    transition.nextStore.organizationPlans.push({
+      organizationId: transition.organizationId,
+      planName: "Custom",
+      status: "active",
+      billingCycle: "custom",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
   await commitStore(transition.nextStore);
   inviteAttempts.delete(attemptKey);
   const user = store.users.find(item => item.id === transition.userId)!;
