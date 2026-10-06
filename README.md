@@ -36,3 +36,12 @@ npm test
 ```
 
 The active test suite covers private API access, role and organization boundaries, invite-only multi-business onboarding, password recovery, signed single-use launches, service contracts and Owner Assistant access. Older prototype tests for open signup and a removed SQLite owner recovery path are retained in `tests/legacy/` as historical specifications and are excluded from the active suite. Paid checkout remains disabled. Multi-business onboarding is invite-only and restricted to the V79 platform operator; managed product workspaces remain launch-disabled until their tenant mappings are activated. See `docs/multi-business-release-gates.md`.
+
+
+## Account security and billing
+
+Production Compose enables mandatory TOTP MFA for the V79 platform administrator with `V79_REQUIRE_ADMIN_MFA=1`. On the first administrator login after this release, V79 Hub shows an authenticator setup key and requires a valid six-digit code before creating the session. Existing administrator sessions are revoked when mandatory MFA is enabled but the owner has not enrolled yet. Customer users may enable optional MFA from **Security**.
+
+Password reset links are one-time, expire after 30 minutes, revoke existing Hub sessions after use, and are sent only to the registered account email. Automatic delivery is enabled only when `RESEND_API_KEY` and an authorized `V79_HUB_EMAIL_FROM` are configured. The recovery/support address defaults to `vision79slu@gmail.com`; when transactional email is not configured, the login screen directs users there instead of exposing reset links.
+
+**Plans & Billing** is informational in this release. It shows the current plan, enabled V79 modules, configured XCD monthly/annual pricing and renewal date. Self-service card payments and automatic subscription changes remain disabled; plan changes are handled by V79 Digital.
