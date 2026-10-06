@@ -339,7 +339,11 @@ export function Login({ onLoginSuccess }: LoginProps) {
               </div>
               {renderMessage()}
               {mfaSetupSecret && (
-                <div className="rounded-2xl border border-[#1a3854] bg-[#06101d] p-4 space-y-3">
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-3 text-[11px] leading-5 text-amber-100">
+                    Use only the setup key shown on this screen. If you previously added V79 Hub and received an invalid-code error, remove the older V79 Hub entry from your authenticator before adding this key.
+                  </div>
+                  <div className="rounded-2xl border border-[#1a3854] bg-[#06101d] p-4 space-y-3">
                   <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Authenticator setup key</div>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 break-all text-xs text-[#65c9ff]">{mfaSetupSecret}</code>
@@ -352,6 +356,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
                       Open in authenticator app
                     </a>
                   )}
+                  </div>
                 </div>
               )}
               <input inputMode="numeric" pattern="[0-9]*" maxLength={6} required value={mfaCode}
