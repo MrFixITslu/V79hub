@@ -240,8 +240,9 @@ test("workspace team invitations stay owner-controlled and isolated across SMBs"
 
   const badRole = await createTeamInvite(firstOwner.cookie, "bad-admin@example.test", "admin");
   assert.equal(badRole.response.status, 400, "customer owners cannot delegate admin");
-  const badFinanceAccess = await createTeamInvite(firstOwner.cookie, "bad-finance@example.test", "staff", ["app-ffpro"]);
-  assert.equal(badFinanceAccess.response.status, 400, "FFPRO must remain owner-only");
+  const financeAccess = await createTeamInvite(firstOwner.cookie, "finance.member@example.test", "staff", ["app-ffpro"]);
+  assert.equal(financeAccess.response.status, 201, "FFPRO can be explicitly assigned to a team member");
+  assert.deepEqual(financeAccess.body.invitation.appIds, ["app-ffpro"]);
 
   const managerInvite = await createTeamInvite(firstOwner.cookie, "shared.member@example.test", "manager");
   assert.equal(managerInvite.response.status, 201);
@@ -275,7 +276,7 @@ test("workspace team invitations stay owner-controlled and isolated across SMBs"
   assert.deepEqual(managerBody.teamOnboarding.appIds, ["app-v79pos"]);
   assert.deepEqual(managerBody.teamOnboarding.managedProductAccess, {
     pos: "role_mapped",
-    ffpro: "owner_only",
+    ffpro: "role_mapped",
     tiquet: "role_mapped",
     marketing: "role_mapped",
   });
