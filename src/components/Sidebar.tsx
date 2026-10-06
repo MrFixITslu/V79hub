@@ -37,11 +37,11 @@ export function Sidebar({
   const can = (view: ViewState) => view === "overview" || permissions.has(view);
 
   const primary: NavItem[] = [
-    { view: "overview", label: "Overview", icon: Home, visible: true },
+    { view: "overview", label: "Dashboard", icon: Home, visible: true },
     { view: "connections", label: "Apps", icon: Grid3X3, visible: can("connections") },
     { view: "team", label: "Team", icon: Users, visible: can("team") },
     { view: "security", label: "Security", icon: ShieldCheck, visible: can("security") },
-    { view: "billing", label: "Billing", icon: CreditCard, visible: can("billing") },
+    { view: "billing", label: "Plans & Billing", icon: CreditCard, visible: can("billing") },
   ];
 
   const active = (view: ViewState) =>
@@ -69,8 +69,8 @@ export function Sidebar({
               </div>
             </div>
             <div>
-              <div className="text-[13px] font-black tracking-[0.22em] text-white">DIGITAL</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">From Idea to Advantage.</div>
+              <div className="text-[13px] font-black tracking-[0.18em] text-white">V79 HUB</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">by V79 Digital</div>
             </div>
           </div>
         </div>
@@ -111,7 +111,7 @@ export function Sidebar({
               </div>
               <button onClick={() => onViewChange("admin")} className={buttonClass("admin")}>
                 <Settings2 className="w-[17px] h-[17px]" />
-                <span>Admin Console</span>
+                <span>Platform Admin</span>
               </button>
             </div>
           )}
