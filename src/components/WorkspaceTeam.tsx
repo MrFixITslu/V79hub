@@ -435,7 +435,7 @@ export function WorkspaceTeam({
             <div>
               <h3 className="text-sm font-bold text-slate-900">Team invitations</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Invitation links are shown only when created. Managed app launches remain owner-only until app-level team access is provisioned.
+                Invitation links are shown only when created. Team members can launch only the managed apps explicitly assigned to their Hub account.
               </p>
             </div>
             <button
@@ -591,7 +591,7 @@ export function WorkspaceTeam({
                   ))}
                 </fieldset>
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-800">
-                  Only the apps selected above will appear for this member. FFPRO remains owner-only.
+                  Only the apps selected above will appear for this member. FFPRO access is isolated to that member's identity and any FFPRO projects explicitly shared with them.
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <button
@@ -740,7 +740,7 @@ export function WorkspaceTeam({
                       <span>{option.label}</span>
                     </label>
                   ))}
-                  <p className="text-[10px] text-slate-500">FFPRO remains owner-only.</p>
+                  <p className="text-[10px] text-slate-500">FFPRO access is per member; project Owner/Editor/Viewer permissions are managed inside FFPRO.</p>
                 </fieldset>
               )}
 
