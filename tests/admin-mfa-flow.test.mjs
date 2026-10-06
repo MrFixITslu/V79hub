@@ -64,6 +64,16 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(challenge.setupRequired, true);
   assert.match(challenge.secret, /^[A-Z2-7]+$/);
 
+  const retryLogin = await request("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "a-unique-admin-password-1234" }),
+  });
+  assert.equal(retryLogin.status, 202, output);
+  const retryChallenge = await retryLogin.json();
+  assert.equal(retryChallenge.setupRequired, true);
+  assert.equal(retryChallenge.secret, challenge.secret, "pending MFA enrollment must reuse the same setup secret");
+
   const complete = await request("/api/auth/mfa/complete-login", {
     method: "POST",
     headers: { "content-type": "application/json" },
