@@ -54,6 +54,14 @@ async function startMock(product, secret, t) {
       if (product === "pos") {
         return res.end(JSON.stringify({ provisioned: true, organizationId, ownerUserId: payload.user.id }));
       }
+      if (product === "ffpro") {
+        return res.end(JSON.stringify({
+          provisioned: true,
+          organizationId,
+          ownerHubUserId: payload.user.id,
+          financeUserId: `finance-${organizationId}`,
+        }));
+      }
       if (product === "tiquet") {
         return res.end(JSON.stringify({
           provisioned: true,
@@ -157,11 +165,13 @@ async function startMock(product, secret, t) {
 test("team access release gate provisions, scopes and revokes POS Tiquet and Marketing", { timeout: 70000 }, async t => {
   const platformSecret = "platform-test-secret-12345678901234567890";
   const launchSecrets = {
+    ffpro: "ffpro-launch-secret-12345678901234567890",
     tiquet: "tiquet-launch-secret-12345678901234567890",
     marketing: "marketing-launch-secret-12345678901234567890",
   };
   const mocks = {
     pos: await startMock("pos", platformSecret, t),
+    ffpro: await startMock("ffpro", platformSecret, t),
     tiquet: await startMock("tiquet", platformSecret, t),
     marketing: await startMock("marketing", platformSecret, t),
   };
@@ -182,9 +192,9 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
       V79_PLATFORM_SHARED_SECRET: platformSecret,
       POS_BASE_URL: mocks.pos.origin,
       POS_PUBLIC_URL: "https://pos.v79sl.com",
-      FFPRO_INTERNAL_URL: dead,
+      FFPRO_INTERNAL_URL: mocks.ffpro.origin,
       FFPRO_PUBLIC_URL: "https://ffpro.v79sl.com",
-      V79_FFPRO_LAUNCH_SECRET: "ffpro-launch-secret-12345678901234567890",
+      V79_FFPRO_LAUNCH_SECRET: launchSecrets.ffpro,
       TIQUET_INTERNAL_URL: mocks.tiquet.origin,
       TIQUET_PUBLIC_URL: "https://tiquet.v79sl.com",
       V79_TIQUET_LAUNCH_SECRET: launchSecrets.tiquet,
@@ -250,7 +260,7 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
   const ownerCookie = ownerAccepted.headers.get("set-cookie").split(";")[0];
   const organizationId = ownerBody.organization.id;
 
-  for (const product of ["pos", "tiquet", "marketing"]) {
+  for (const product of ["pos", "ffpro", "tiquet", "marketing"]) {
     const provisioned = await request(
       `/api/admin/onboarding/organizations/${organizationId}/apps/${product}/provision`,
       { method: "POST", headers: operatorHeaders, body: "{}" },
@@ -264,7 +274,7 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
     body: JSON.stringify({
       email: "release.manager@example.test",
       role: "manager",
-      appIds: ["app-v79pos", "app-tiquet", "app-marketing"],
+      appIds: ["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing"],
       expiresInHours: 24,
     }),
   });
@@ -281,11 +291,10 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
   const managerCookie = teamAccepted.headers.get("set-cookie").split(";")[0];
   const managerId = teamBody.user.id;
   assert.equal(teamBody.user.platformOperator, false);
-  assert.deepEqual(new Set(teamBody.user.appIds), new Set(["app-v79pos", "app-tiquet", "app-marketing"]));
+  assert.deepEqual(new Set(teamBody.user.appIds), new Set(["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing"]));
 
   const apps = await (await request("/api/ecosystem/apps", { headers: { Cookie: managerCookie } })).json();
-  assert.deepEqual(new Set(apps.map(app => app.id)), new Set(["app-v79pos", "app-tiquet", "app-marketing"]));
-  assert.equal((await request("/api/apps/ffpro/launch", { headers: { Cookie: managerCookie } })).status, 403);
+  assert.deepEqual(new Set(apps.map(app => app.id)), new Set(["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing"]));
   assert.equal((await request("/api/admin/platform/overview", { headers: { Cookie: managerCookie } })).status, 403);
 
   async function launch(product, cookie) {
@@ -319,6 +328,10 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
 
   const posIdentity = await launch("pos", managerCookie);
   assert.equal(posIdentity.tenantId, organizationId);
+  const ffproIdentity = await launch("ffpro", managerCookie);
+  assert.equal(ffproIdentity.organization.id, organizationId);
+  assert.equal(ffproIdentity.role, "manager");
+  assert.equal(ffproIdentity.entitlement.access, "team");
   const tiquetIdentity = await launch("tiquet", managerCookie);
   assert.equal(tiquetIdentity.organization.id, organizationId);
   assert.equal(tiquetIdentity.role, "manager");
@@ -329,6 +342,7 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
   assert.equal(marketingIdentity.entitlement.access, "team");
 
   assert.equal(mocks.pos.teamProvisioned.at(-1).role, "manager");
+  assert.equal(mocks.ffpro.teamProvisioned.length, 0, "FFPRO team identity is provisioned by signed launch consumption, not a duplicate Hub service call");
   assert.equal(mocks.tiquet.teamProvisioned.at(-1).role, "manager");
   assert.equal(mocks.marketing.teamProvisioned.at(-1).role, "manager");
 
@@ -354,6 +368,7 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
   });
   assert.equal(relogin.status, 200);
   let memberCookie = relogin.headers.get("set-cookie").split(";")[0];
+  assert.equal((await request("/api/apps/ffpro/launch", { headers: { Cookie: memberCookie } })).status, 403);
   assert.equal((await request("/api/apps/tiquet/launch", { headers: { Cookie: memberCookie } })).status, 403);
   assert.equal((await request("/api/apps/marketing/launch", { headers: { Cookie: memberCookie } })).status, 403);
   await launch("pos", memberCookie);
@@ -388,7 +403,7 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
   assert.equal(mocks.pos.teamDeprovisioned.length, 2);
   assert.equal((await request("/api/apps/pos/launch", { headers: { Cookie: memberCookie } })).status, 401);
 
-  const forbiddenFfproInvite = await request("/api/team/invitations", {
+  const ffproOnlyInvite = await request("/api/team/invitations", {
     method: "POST",
     headers: { Cookie: ownerCookie, Origin: origin, "content-type": "application/json" },
     body: JSON.stringify({
@@ -398,5 +413,6 @@ test("team access release gate provisions, scopes and revokes POS Tiquet and Mar
       expiresInHours: 24,
     }),
   });
-  assert.equal(forbiddenFfproInvite.status, 400);
+  assert.equal(ffproOnlyInvite.status, 201, await ffproOnlyInvite.clone().text());
+  assert.deepEqual((await ffproOnlyInvite.json()).invitation.appIds, ["app-ffpro"]);
 });
