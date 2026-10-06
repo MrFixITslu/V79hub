@@ -267,9 +267,9 @@ export default function App() {
         organizationName={organizationName}
       />
       <main className="flex-1 min-w-0 overflow-y-auto relative flex flex-col bg-[#07111f]">
-        <header className="h-[72px] px-4 sm:px-5 xl:px-7 border-b border-[#17324d]/80 bg-[#07111f]/95 backdrop-blur-xl flex items-center justify-between shrink-0 sticky top-0 z-30 text-slate-200">
+        <header className="h-[60px] px-4 sm:px-5 xl:px-7 border-b border-[#17324d]/80 bg-[#07111f]/95 backdrop-blur-xl flex items-center justify-between shrink-0 sticky top-0 z-30 text-slate-200">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="hidden sm:flex items-center gap-2.5 px-3 py-2 rounded-xl border border-[#1a3854] bg-[#091728] min-w-0 max-w-[260px]">
+            <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-[#1a3854] bg-[#091728] min-w-0 max-w-[260px]">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0A86FF] to-[#0057b7] flex items-center justify-center text-[11px] font-black text-white shrink-0">V</div>
               <div className="min-w-0">
                 <div className="text-[8px] uppercase tracking-[0.15em] font-bold text-slate-600">Workspace</div>
