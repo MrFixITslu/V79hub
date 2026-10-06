@@ -163,7 +163,8 @@ function statusMeta(summary?: ProductSummary) {
   if (!summary) return { label: "Loading", dot: "bg-slate-500", text: "text-slate-400", score: 35 };
   if (summary.status === "ok") return { label: "Operational", dot: "bg-emerald-400", text: "text-emerald-300", score: 100 };
   if (summary.status === "restricted") return { label: "Restricted", dot: "bg-slate-400", text: "text-slate-300", score: 55 };
-  if (summary.status === "not_enabled" || summary.status === "not_configured") return { label: "Not enabled", dot: "bg-slate-600", text: "text-slate-500", score: 15 };
+  if (summary.status === "not_enabled") return { label: "Not enabled", dot: "bg-slate-600", text: "text-slate-500", score: 15 };
+  if (summary.status === "not_configured") return { label: "Not connected", dot: "bg-slate-500", text: "text-slate-400", score: 30 };
   if (summary.status === "needs_setup") return { label: "Ready to activate", dot: "bg-amber-400", text: "text-amber-300", score: 70 };
   if (summary.status === "misconfigured") return { label: "Needs attention", dot: "bg-amber-400", text: "text-amber-300", score: 45 };
   return { label: "Unavailable", dot: "bg-rose-400", text: "text-rose-300", score: 20 };
