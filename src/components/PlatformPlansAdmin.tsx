@@ -13,6 +13,7 @@ interface CustomerRecord {
     planName: string;
     status: "active" | "trial" | "paused" | "cancelled";
     billingCycle: "monthly" | "annual" | "custom";
+    appIds?: string[];
     priceXcd?: number;
     renewalDate?: string;
   } | null;
@@ -77,7 +78,7 @@ export function PlatformPlansAdmin() {
     setBillingCycle(selected.plan?.billingCycle || "custom");
     setPriceXcd(selected.plan?.priceXcd == null ? "" : String(selected.plan.priceXcd));
     setRenewalDate(selected.plan?.renewalDate || "");
-    setAppIds(selected.apps.map(app => app.id));
+    setAppIds(selected.plan?.appIds?.length ? selected.plan.appIds : selected.apps.map(app => app.id));
     setReason("");
   }, [selectedId]);
 
@@ -207,7 +208,7 @@ export function PlatformPlansAdmin() {
                   <PackageCheck className="w-4 h-4 text-cyan-700" />
                   <div className="text-xs font-bold text-slate-800">Enabled V79 modules</div>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1 mb-3">Removing an app immediately removes Hub entitlement. Re-enabling a tenant-mapped app returns it to provisioning-pending.</p>
+                <p className="text-[11px] text-slate-500 mt-1 mb-3">Active/trial plans grant the selected Hub entitlements. Paused/cancelled plans preserve this selection but disable live app access until reactivated.</p>
                 <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-2">
                   {data.assignableApps.map(app => (
                     <label key={app.id} className={`rounded-xl border p-3 cursor-pointer flex items-start gap-2 ${appIds.includes(app.id) ? "border-cyan-300 bg-cyan-50/60" : "border-slate-200 hover:bg-slate-50"}`}>
