@@ -184,6 +184,15 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
     "content-type": "application/json",
   };
 
+  for (const path of [
+    "/api/admin/platform/tiquet/accounts/example/plan/pro",
+    "/api/admin/platform/tiquet/accounts/example/suspend",
+    "/api/admin/platform/pos/tenants/example/active/disabled",
+  ]) {
+    const response = await request(path, { method: "PUT", headers: operatorHeaders, body: "{}" });
+    assert.equal(response.status, 404, `duplicate product-level access mutation must stay blocked: ${path}`);
+  }
+
   const sharedEmail = "shared-owner@example.test";
   const sharedPassword = "shared-owner-password-12345";
   const assignedAppIds = ["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing", "app-academy"];

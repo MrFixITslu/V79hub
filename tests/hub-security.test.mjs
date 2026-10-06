@@ -140,9 +140,11 @@ test('private data, retired embedded APIs and one-time app launch', {timeout:300
   assert.equal(overviewPayload.apps.academy.status,'ok');
   assert.equal(overviewPayload.apps.academy.metrics.totalCourses,4);
   assert.equal((await request('/api/admin/platform/tiquet/stats',{headers:{Cookie:cookie}})).status,200);
-  assert.equal((await request('/api/admin/platform/tiquet/accounts/a1/suspend',{method:'PUT',headers,body:'{}'})).status,200);
-  assert.equal(tiquetRequests.some(row=>row.pathname==='/api/platform/admin/accounts/a1/suspend'),true);
   const forwardedBefore=tiquetRequests.length;
+  assert.equal((await request('/api/admin/platform/tiquet/accounts/a1/suspend',{method:'PUT',headers,body:'{}'})).status,404);
+  assert.equal((await request('/api/admin/platform/tiquet/accounts/a1/plan/pro',{method:'PUT',headers,body:'{}'})).status,404);
+  assert.equal((await request('/api/admin/platform/pos/tenants/t1/active/disabled',{method:'PUT',headers,body:'{}'})).status,404);
+  assert.equal(tiquetRequests.length,forwardedBefore);
   assert.equal((await request('/api/admin/platform/tiquet/accounts/a1/private-data',{headers:{Cookie:cookie}})).status,404);
   assert.equal((await request('/api/admin/tiquet/accounts/a1/private-data',{headers:{Cookie:cookie}})).status,404);
   assert.equal(tiquetRequests.length,forwardedBefore);
