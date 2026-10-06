@@ -402,9 +402,9 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div>
             <div className="text-cyan-400 text-[11px] font-bold uppercase tracking-wider">Platform administration</div>
-            <h1 className="text-2xl font-extrabold mt-1">V79 Admin Console</h1>
+            <h1 className="text-2xl font-extrabold mt-1">V79 Platform Admin</h1>
             <p className="text-sm text-slate-300 mt-2 max-w-2xl">
-              Platform-owned controls live here. Business and personal settings remain inside each app.
+              Manage customer lifecycle, V79 applications, plans, Academy administration and audited platform controls from one place.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 min-w-[330px]">
@@ -416,46 +416,53 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
       </section>
 
       {message && (
-        <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${message.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+        <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+          message.type === "success"
+            ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+            : "bg-rose-50 border-rose-200 text-rose-800"
+        }`}>
           {message.text}
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
-        {[
-          ["overview", "Overview", Settings2],
-          ["customers", "Customers", Users],
-          ["applications", "Applications", Layers3],
-          ["plans", "Plans & Entitlements", CreditCard],
-          ["academy", "Academy", GraduationCap],
-          ["audit", "Audit & Security", ShieldCheck],
-        ].map(([id, label, Icon]) => {
-          const active = id === "academy"
-            ? section === "academy"
-            : section === "platform" && platformView === id;
-          return (
-            <button
-              key={String(id)}
-              onClick={() => {
-                if (id === "academy") {
-                  setSection("academy");
-                } else {
-                  setSection("platform");
-                  setPlatformView(id as PlatformView);
-                }
-              }}
-              className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-colors ${
-                active
-                  ? "bg-slate-950 border-slate-950 text-white"
-                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {React.createElement(Icon as React.ComponentType<{ className?: string }>, { className: "w-4 h-4" })}
-              {String(label)}
-            </button>
-          );
-        })}
-      </div>
+      <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-3" aria-label="Platform administration">
+        <button onClick={() => { setSection("platform"); setPlatformView("overview"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "overview" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <Settings2 className="w-4 h-4" /> Overview
+        </button>
+        <button onClick={() => { setSection("platform"); setPlatformView("customers"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "customers" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <Users className="w-4 h-4" /> Customers
+        </button>
+        <button onClick={() => { setSection("platform"); setPlatformView("applications"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "applications" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <Layers3 className="w-4 h-4" /> Applications
+        </button>
+        <button onClick={() => { setSection("platform"); setPlatformView("plans"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "plans" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <CreditCard className="w-4 h-4" /> Plans & Entitlements
+        </button>
+        <button onClick={() => setSection("academy")}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "academy" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <GraduationCap className="w-4 h-4" /> Academy
+        </button>
+        <button onClick={() => { setSection("platform"); setPlatformView("audit"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "audit" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <ShieldCheck className="w-4 h-4" /> Audit & Security
+        </button>
+      </nav>
 
       {section === "platform" ? (
         <div className="space-y-4">
@@ -503,6 +510,7 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
                   Academy
                 </button>
               </div>
+
               {platformProductView === "pos" ? (
                 <POSPlatformAdmin />
               ) : platformProductView === "ffpro" ? (
@@ -513,10 +521,6 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
                 <TiquetPlatformAdmin />
               )}
             </div>
-          )}
-        </div>
-      ) : (
-            <TiquetPlatformAdmin />
           )}
         </div>
       ) : (
@@ -692,6 +696,227 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
           </section>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="bg-[#101D35] border border-slate-700/60 rounded-xl px-3 py-3 text-center"><div className="text-xl font-extrabold">{value}</div><div className="text-[9px] text-slate-400 mt-0.5">{label}</div></div>;
+}
+
+function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  return <label className={`space-y-1.5 ${wide ? "md:col-span-2" : ""}`}><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</span>{children}</label>;
+}
+
+function ActionButton({ onClick, icon: Icon, label, primary, danger, disabled, spin }: { onClick: () => void | Promise<void>; icon: React.ComponentType<{ className?: string }>; label: string; primary?: boolean; danger?: boolean; disabled?: boolean; spin?: boolean }) {
+  const style = danger ? "border-rose-200 text-rose-700 hover:bg-rose-50" : primary ? "bg-slate-950 border-slate-950 text-white hover:bg-slate-800" : "border-slate-200 text-slate-700 hover:bg-slate-50";
+  return <button onClick={() => void onClick()} disabled={disabled} className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold disabled:opacity-50 ${style}`}><Icon className={`w-3.5 h-3.5 ${spin ? "animate-spin" : ""}`} />{label}</button>;
+}
+
+function LessonEditor({ lesson, onSave, onDelete }: { lesson: Lesson; onSave: (lesson: Lesson, patch: Partial<Lesson>) => Promise<void>; onDelete: (lesson: Lesson) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(lesson);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setDraft(lesson), [lesson]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(lesson, draft);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <button onClick={() => setOpen(!open)} className="p-1 text-slate-400">{open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</button>
+        <FileText className="w-4 h-4 text-indigo-500" />
+        <div className="flex-1 min-w-0"><div className="text-xs font-semibold text-slate-800 truncate">{lesson.title}</div><div className="text-[10px] text-slate-400">{lesson.estimatedTime || "20 mins"}</div></div>
+        <button onClick={() => void onDelete(lesson)} className="p-1.5 text-slate-400 hover:text-rose-600"><Trash2 className="w-3.5 h-3.5" /></button>
+      </div>
+      {open && (
+        <div className="border-t border-slate-100 p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="Lesson title"><input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} className="admin-input" /></Field>
+          <Field label="Estimated time"><input value={draft.estimatedTime || ""} onChange={(e) => setDraft({ ...draft, estimatedTime: e.target.value })} className="admin-input" /></Field>
+          <Field label="Description" wide><textarea rows={2} value={draft.description || ""} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="admin-input" /></Field>
+          <Field label="Lesson content" wide><textarea rows={8} value={draft.lessonContent || ""} onChange={(e) => setDraft({ ...draft, lessonContent: e.target.value })} className="admin-input font-mono text-[11px]" /></Field>
+          <Field label="Video URL"><input value={draft.videoUrl || ""} onChange={(e) => setDraft({ ...draft, videoUrl: e.target.value })} className="admin-input" /></Field>
+          <Field label="Audio URL"><input value={draft.audioUrl || ""} onChange={(e) => setDraft({ ...draft, audioUrl: e.target.value })} className="admin-input" /></Field>
+          <Field label="Learning objectives — one per line" wide><textarea rows={3} value={(draft.learningObjectives || []).join("\n")} onChange={(e) => setDraft({ ...draft, learningObjectives: e.target.value.split("\n").map((value) => value.trim()).filter(Boolean) })} className="admin-input" /></Field>
+          <Field label="Exercise prompt" wide><textarea rows={3} value={draft.exercisePrompt || ""} onChange={(e) => setDraft({ ...draft, exercisePrompt: e.target.value })} className="admin-input" /></Field>
+          <div className="md:col-span-2">
+            <QuizEditor lessonId={lesson.id} />
+          </div>
+          <div className="md:col-span-2 flex justify-end">
+            <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-950 text-white text-xs font-semibold disabled:opacity-50">
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save lesson
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function QuizEditor({ lessonId }: { lessonId: string }) {
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = async () => {
+    if (loaded) return;
+    try {
+      setQuiz(await academyAdminApi<Quiz | null>(`/lessons/${lessonId}/quiz`));
+      setLoaded(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Quiz could not be loaded.");
+    }
+  };
+
+  const toggle = async () => {
+    if (!open) await load();
+    setOpen(!open);
+  };
+
+  const ensureQuiz = () => {
+    if (quiz) return quiz;
+    const created: Quiz = {
+      id: "",
+      lessonId,
+      title: "Lesson Assessment",
+      passingScore: 80,
+      questions: [],
+    };
+    setQuiz(created);
+    return created;
+  };
+
+  const addQuestion = () => {
+    const current = ensureQuiz();
+    const next: QuizQuestion = {
+      id: crypto.randomUUID(),
+      questionText: "",
+      questionType: "multiple_choice",
+      options: ["Option A", "Option B"],
+      correctAnswer: "Option A",
+      explanation: "",
+      orderNumber: current.questions.length + 1,
+    };
+    setQuiz({ ...current, questions: [...current.questions, next] });
+  };
+
+  const updateQuestion = (id: string, patch: Partial<QuizQuestion>) => {
+    const current = ensureQuiz();
+    setQuiz({
+      ...current,
+      questions: current.questions.map((question) => question.id === id ? { ...question, ...patch } : question),
+    });
+  };
+
+  const removeQuestion = (id: string) => {
+    const current = ensureQuiz();
+    setQuiz({
+      ...current,
+      questions: current.questions
+        .filter((question) => question.id !== id)
+        .map((question, index) => ({ ...question, orderNumber: index + 1 })),
+    });
+  };
+
+  const save = async () => {
+    const current = ensureQuiz();
+    setSaving(true);
+    setError("");
+    try {
+      const saved = await academyAdminApi<Quiz>(`/lessons/${lessonId}/quiz`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: current.title,
+          passingScore: Number(current.passingScore || 80),
+          questions: current.questions,
+        }),
+      });
+      setQuiz(saved);
+      setLoaded(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Quiz could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border border-slate-200 rounded-xl overflow-hidden">
+      <button type="button" onClick={() => void toggle()} className="w-full px-3 py-2.5 flex items-center justify-between bg-slate-50 text-xs font-semibold text-slate-700">
+        <span>Lesson quiz {quiz?.questions?.length ? `· ${quiz.questions.length} question(s)` : ""}</span>
+        {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+      </button>
+      {open && (
+        <div className="p-3 space-y-3">
+          {error && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</div>}
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-2">
+            <input value={quiz?.title || "Lesson Assessment"} onChange={(e) => setQuiz({ ...ensureQuiz(), title: e.target.value })} className="admin-input" placeholder="Quiz title" />
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              Pass %
+              <input type="number" min="1" max="100" value={quiz?.passingScore || 80} onChange={(e) => setQuiz({ ...ensureQuiz(), passingScore: Number(e.target.value) })} className="admin-input w-20" />
+            </label>
+          </div>
+          <div className="space-y-2">
+            {(quiz?.questions || []).map((question) => (
+              <div key={question.id} className="border border-slate-200 rounded-lg p-3 space-y-2">
+                <div className="flex gap-2">
+                  <input value={question.questionText} onChange={(e) => updateQuestion(question.id, { questionText: e.target.value })} className="admin-input flex-1" placeholder="Question" />
+                  <select
+                    value={question.questionType}
+                    onChange={(e) => {
+                      const type = e.target.value as QuizQuestion["questionType"];
+                      updateQuestion(question.id, {
+                        questionType: type,
+                        options: type === "true_false" ? ["True", "False"] : question.options,
+                        correctAnswer: type === "true_false" ? "True" : question.correctAnswer,
+                      });
+                    }}
+                    className="admin-input w-40"
+                  >
+                    <option value="multiple_choice">Multiple choice</option>
+                    <option value="true_false">True / false</option>
+                  </select>
+                  <button type="button" onClick={() => removeQuestion(question.id)} className="p-2 text-rose-600"><Trash2 className="w-4 h-4" /></button>
+                </div>
+                {question.questionType === "multiple_choice" ? (
+                  <>
+                    <textarea
+                      rows={2}
+                      value={question.options.join("\n")}
+                      onChange={(e) => updateQuestion(question.id, { options: e.target.value.split("\n").map((v) => v.trim()).filter(Boolean) })}
+                      className="admin-input"
+                      placeholder="Options — one per line"
+                    />
+                    <input value={String(question.correctAnswer ?? "")} onChange={(e) => updateQuestion(question.id, { correctAnswer: e.target.value })} className="admin-input" placeholder="Correct answer — exact option text" />
+                  </>
+                ) : (
+                  <select value={String(question.correctAnswer || "True")} onChange={(e) => updateQuestion(question.id, { correctAnswer: e.target.value })} className="admin-input">
+                    <option value="True">True</option>
+                    <option value="False">False</option>
+                  </select>
+                )}
+                <textarea rows={2} value={question.explanation || ""} onChange={(e) => updateQuestion(question.id, { explanation: e.target.value })} className="admin-input" placeholder="Explanation shown after answering" />
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between">
+            <button type="button" onClick={addQuestion} className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold inline-flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add question</button>
+            <button type="button" disabled={saving} onClick={() => void save()} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold disabled:opacity-50">
+              {saving ? "Saving..." : "Save quiz"}
+            </button>
+          </div>
         </div>
       )}
     </div>
