@@ -2335,27 +2335,27 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
 app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req, res) => {
   const session = (req as any).user;
   const organization = store.organizations.find(org => org.id === session.organizationId);
-  const enabledIds = new Set(enabledAppIds(store, session.organizationId));
+  const enabledIds = new Set(rawEntitledAppIds(store, session.organizationId));
   const enabledApps = (store.ecosystemApps || [])
     .filter(app => enabledIds.has(app.id))
     .filter(app => !["app-analytics", "app-lifehealth", "app-lasertag"].includes(app.id) || session.organizationId === posIdentity.organizationId)
     .map(app => ({ id: app.id, name: app.shortName || app.name }));
 
-  const monthly = Number(process.env.V79_HUB_MONTHLY_PRICE_XCD || "");
-  const annual = Number(process.env.V79_HUB_ANNUAL_PRICE_XCD || "");
-  const renewalDate = String(process.env.V79_HUB_RENEWAL_DATE || "").trim();
+  const plan = organizationPlanFor(store, session.organizationId);
   res.setHeader("Cache-Control", "no-store");
   res.json({
     organization: organization?.name || "Business workspace",
-    planName: String(process.env.V79_HUB_PLAN_NAME || "V79 Hub Beta").trim(),
-    status: "active",
+    planName: plan.planName,
+    status: plan.status,
+    billingCycle: plan.billingCycle,
     enabledApps,
     pricing: {
       currency: "XCD",
-      monthly: Number.isFinite(monthly) && monthly >= 0 ? monthly : null,
-      annual: Number.isFinite(annual) && annual >= 0 ? annual : null,
+      monthly: plan.billingCycle === "monthly" && Number.isFinite(plan.priceXcd) ? plan.priceXcd : null,
+      annual: plan.billingCycle === "annual" && Number.isFinite(plan.priceXcd) ? plan.priceXcd : null,
+      custom: plan.billingCycle === "custom" && Number.isFinite(plan.priceXcd) ? plan.priceXcd : null,
     },
-    renewalDate: /^\d{4}-\d{2}-\d{2}$/.test(renewalDate) ? renewalDate : null,
+    renewalDate: plan.renewalDate || null,
     billingManagedBy: "V79 Digital",
     supportEmail: normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail,
     selfServicePaymentsEnabled: false,
