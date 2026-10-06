@@ -18,7 +18,7 @@ import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaun
 import { activateMarketingTenantMapping, marketingProvisioningTarget, marketingTenantLaunchReady, marketingTenantMapping } from "./server/marketing-provisioning.mjs";
 import { createHubStorePersistence } from "./server/runtime-store.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
-import { createOpaqueToken, decryptTotpSecret, encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/account-security.mjs";
+import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
