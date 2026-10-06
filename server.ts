@@ -91,6 +91,18 @@ interface AppEntitlement {
   createdAt: string;
 }
 
+interface OrganizationPlan {
+  organizationId: string;
+  planName: string;
+  status: "active" | "trial" | "paused" | "cancelled";
+  billingCycle: "monthly" | "annual" | "custom";
+  appIds: string[];
+  priceXcd?: number;
+  renewalDate?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface OwnerInvitation {
   id: string;
   organizationId: string;
@@ -193,6 +205,7 @@ interface AppStore {
   organizations: Organization[];
   memberships: Membership[];
   appEntitlements: AppEntitlement[];
+  organizationPlans: OrganizationPlan[];
   ownerInvitations: OwnerInvitation[];
   teamInvitations: TeamInvitation[];
   appTenantMappings: AppTenantMapping[];
@@ -543,6 +556,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
   if ((parsed.organizations !== undefined && !Array.isArray(parsed.organizations)) ||
       (parsed.memberships !== undefined && !Array.isArray(parsed.memberships)) ||
       (parsed.appEntitlements !== undefined && !Array.isArray(parsed.appEntitlements)) ||
+      (parsed.organizationPlans !== undefined && !Array.isArray(parsed.organizationPlans)) ||
       (parsed.ownerInvitations !== undefined && !Array.isArray(parsed.ownerInvitations)) ||
       (parsed.teamInvitations !== undefined && !Array.isArray(parsed.teamInvitations)) ||
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
@@ -557,6 +571,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     organizations: Array.isArray(parsed.organizations) ? parsed.organizations : [],
     memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [],
     appEntitlements: Array.isArray(parsed.appEntitlements) ? parsed.appEntitlements : [],
+    organizationPlans: Array.isArray(parsed.organizationPlans) ? parsed.organizationPlans : [],
     ownerInvitations: Array.isArray(parsed.ownerInvitations) ? parsed.ownerInvitations : [],
     teamInvitations: Array.isArray(parsed.teamInvitations) ? parsed.teamInvitations : [],
     appTenantMappings: Array.isArray(parsed.appTenantMappings) ? parsed.appTenantMappings : [],
@@ -570,7 +585,7 @@ function initialStore(): AppStore {
     users: defaultUsers,
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
-    organizations: [], memberships: [], appEntitlements: [], ownerInvitations: [],
+    organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], ownerInvitations: [],
     teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
   };
 }
@@ -1728,6 +1743,57 @@ function onboardingAudit(nextStore: AppStore, type: string, details: Record<stri
   if (nextStore.auditEvents.length > 5000) nextStore.auditEvents = nextStore.auditEvents.slice(-5000);
 }
 
+function organizationPlanFor(currentStore: AppStore, organizationId: string): OrganizationPlan {
+  const stored = (currentStore.organizationPlans || []).find(plan => plan.organizationId === organizationId);
+  if (stored) {
+    return {
+      ...stored,
+      appIds: Array.isArray(stored.appIds) ? stored.appIds : rawEntitledAppIds(currentStore, organizationId),
+    };
+  }
+
+  const isOwnerWorkspace = organizationId === posIdentity.organizationId;
+  const monthly = Number(process.env.V79_HUB_MONTHLY_PRICE_XCD || "");
+  const annual = Number(process.env.V79_HUB_ANNUAL_PRICE_XCD || "");
+  const renewalDate = String(process.env.V79_HUB_RENEWAL_DATE || "").trim();
+  const fallbackPrice = Number.isFinite(monthly) && monthly >= 0
+    ? monthly
+    : Number.isFinite(annual) && annual >= 0
+      ? annual
+      : undefined;
+
+  return {
+    organizationId,
+    planName: isOwnerWorkspace ? String(process.env.V79_HUB_PLAN_NAME || "V79 Hub Beta").trim() : "Custom",
+    status: "active",
+    billingCycle: isOwnerWorkspace && Number.isFinite(annual) && annual >= 0 && !(Number.isFinite(monthly) && monthly >= 0)
+      ? "annual"
+      : isOwnerWorkspace && Number.isFinite(monthly) && monthly >= 0
+        ? "monthly"
+        : "custom",
+    appIds: rawEntitledAppIds(currentStore, organizationId),
+    ...(fallbackPrice !== undefined ? { priceXcd: fallbackPrice } : {}),
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(renewalDate) ? { renewalDate } : {}),
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  };
+}
+
+function rawEntitledAppIds(currentStore: AppStore, organizationId: string) {
+  return (currentStore.appEntitlements || [])
+    .filter(entry => entry.organizationId === organizationId && entry.enabled === true)
+    .map(entry => entry.appId);
+}
+
+function customerLifecycle(currentStore: AppStore, organization: Organization) {
+  if (organization.status === "suspended") return "suspended";
+  const enabled = new Set(rawEntitledAppIds(currentStore, organization.id));
+  const mappedApps = [...tenantMappedAppIds].filter(appId => enabled.has(appId));
+  const mappings = currentStore.appTenantMappings.filter(mapping => mapping.organizationId === organization.id);
+  if (mappedApps.some(appId => mappings.find(mapping => mapping.appId === appId)?.status !== "active")) return "provisioning";
+  return "active";
+}
+
 function sameOriginMutation(req: Request) {
   try {
     const expectedOrigin = process.env.APP_URL
@@ -1793,6 +1859,18 @@ async function completeInvitationAcceptance(
     return res.status(409).json({ error: "This invitation needs manual review before it can be completed" });
   }
 
+  if (!Array.isArray(transition.nextStore.organizationPlans)) transition.nextStore.organizationPlans = [];
+  if (!transition.nextStore.organizationPlans.some((plan: OrganizationPlan) => plan.organizationId === transition.organizationId)) {
+    transition.nextStore.organizationPlans.push({
+      organizationId: transition.organizationId,
+      planName: "Custom",
+      status: "active",
+      billingCycle: "custom",
+      appIds: [...transition.appIds],
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
   await commitStore(transition.nextStore);
   inviteAttempts.delete(attemptKey);
   const user = store.users.find(item => item.id === transition.userId)!;
@@ -2265,27 +2343,27 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
 app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req, res) => {
   const session = (req as any).user;
   const organization = store.organizations.find(org => org.id === session.organizationId);
-  const enabledIds = new Set(enabledAppIds(store, session.organizationId));
+  const enabledIds = new Set(rawEntitledAppIds(store, session.organizationId));
   const enabledApps = (store.ecosystemApps || [])
     .filter(app => enabledIds.has(app.id))
     .filter(app => !["app-analytics", "app-lifehealth", "app-lasertag"].includes(app.id) || session.organizationId === posIdentity.organizationId)
     .map(app => ({ id: app.id, name: app.shortName || app.name }));
 
-  const monthly = Number(process.env.V79_HUB_MONTHLY_PRICE_XCD || "");
-  const annual = Number(process.env.V79_HUB_ANNUAL_PRICE_XCD || "");
-  const renewalDate = String(process.env.V79_HUB_RENEWAL_DATE || "").trim();
+  const plan = organizationPlanFor(store, session.organizationId);
   res.setHeader("Cache-Control", "no-store");
   res.json({
     organization: organization?.name || "Business workspace",
-    planName: String(process.env.V79_HUB_PLAN_NAME || "V79 Hub Beta").trim(),
-    status: "active",
+    planName: plan.planName,
+    status: plan.status,
+    billingCycle: plan.billingCycle,
     enabledApps,
     pricing: {
       currency: "XCD",
-      monthly: Number.isFinite(monthly) && monthly >= 0 ? monthly : null,
-      annual: Number.isFinite(annual) && annual >= 0 ? annual : null,
+      monthly: plan.billingCycle === "monthly" && Number.isFinite(plan.priceXcd) ? plan.priceXcd : null,
+      annual: plan.billingCycle === "annual" && Number.isFinite(plan.priceXcd) ? plan.priceXcd : null,
+      custom: plan.billingCycle === "custom" && Number.isFinite(plan.priceXcd) ? plan.priceXcd : null,
     },
-    renewalDate: /^\d{4}-\d{2}-\d{2}$/.test(renewalDate) ? renewalDate : null,
+    renewalDate: plan.renewalDate || null,
     billingManagedBy: "V79 Digital",
     supportEmail: normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail,
     selfServicePaymentsEnabled: false,
@@ -2506,6 +2584,322 @@ app.post("/api/team/invitations/:id/revoke", requireWorkspaceOwner, async (req, 
   }, session.userId, session.organizationId);
   await commitStore(nextStore);
   res.json({ success: true, status: "revoked" });
+});
+
+const customerProvisionProducts = {
+  pos: "app-v79pos",
+  ffpro: "app-ffpro",
+  tiquet: "app-tiquet",
+  marketing: "app-marketing",
+} as const;
+type CustomerProvisionProduct = keyof typeof customerProvisionProducts;
+
+function customerOwner(currentStore: AppStore, organizationId: string) {
+  const membership = currentStore.memberships.find(member =>
+    member.organizationId === organizationId && member.status === "active" && member.role === "owner"
+  );
+  return membership ? currentStore.users.find(user => user.id === membership.userId) || null : null;
+}
+
+function customerAdminRecord(currentStore: AppStore, organization: Organization) {
+  const owner = customerOwner(currentStore, organization.id);
+  const memberIds = new Set(currentStore.memberships
+    .filter(member => member.organizationId === organization.id && member.status === "active")
+    .map(member => member.userId));
+  const members = currentStore.users.filter(user => memberIds.has(user.id));
+  const plan = organizationPlanFor(currentStore, organization.id);
+  const plannedAppIds = plan.appIds?.length ? plan.appIds : rawEntitledAppIds(currentStore, organization.id);
+  const mappings = currentStore.appTenantMappings.filter(mapping => mapping.organizationId === organization.id);
+  const apps = plannedAppIds.map(appId => {
+    const app = currentStore.ecosystemApps.find(item => item.id === appId);
+    const mapping = mappings.find(item => item.appId === appId);
+    return {
+      id: appId,
+      name: app?.name || appId,
+      shortName: app?.shortName || appId,
+      provisioningStatus: ["paused", "cancelled"].includes(plan.status)
+        ? "disabled_by_plan"
+        : tenantMappedAppIds.has(appId)
+          ? (mapping?.status || "pending")
+          : "not_required",
+    };
+  });
+  const invite = [...currentStore.ownerInvitations]
+    .filter(item => item.organizationId === organization.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const activityTimes = [
+    organization.createdAt,
+    ...members.map(member => member.lastLogin).filter((value): value is string => Boolean(value)),
+    ...currentStore.auditEvents.filter(event => event.organizationId === organization.id).map(event => event.createdAt),
+  ].filter(Boolean);
+  const lastActivityAt = activityTimes.sort().at(-1) || organization.createdAt;
+  return {
+    id: organization.id,
+    name: organization.name,
+    slug: organization.slug,
+    lifecycle: customerLifecycle(currentStore, organization),
+    organizationStatus: organization.status,
+    owner: owner ? {
+      id: owner.id,
+      name: owner.fullName || owner.username,
+      email: normalizeEmail(owner.email) || owner.username,
+      lastLogin: owner.lastLogin || null,
+      mfaEnabled: Boolean(owner.mfaEnabled),
+    } : null,
+    memberCount: members.length,
+    apps,
+    plan,
+    invitation: invite ? {
+      id: invite.id,
+      status: invitationStatus(invite),
+      email: invite.email,
+      createdAt: invite.createdAt,
+      acceptedAt: invite.acceptedAt || null,
+      expiresAt: invite.expiresAt,
+    } : null,
+    createdAt: organization.createdAt,
+    lastActivityAt,
+  };
+}
+
+async function provisionCustomerProduct(product: CustomerProvisionProduct, organizationId: string, actorUserId: string) {
+  const appId = customerProvisionProducts[product];
+  const existing = store.appTenantMappings.find(mapping => mapping.organizationId === organizationId && mapping.appId === appId);
+  if (existing?.status === "active") return { product, appId, status: "active" as const, skipped: true };
+
+  if (product === "pos") {
+    const target = posProvisioningTarget(store, organizationId);
+    const provisioned = await provisionPosWorkspace(target.organization, target.owner.id);
+    if (!provisioned.ok) throw new Error(provisioned.error);
+    await commitStore(activatePosTenantMapping(store, organizationId, provisioned.organizationId, actorUserId, new Date().toISOString()) as AppStore);
+  } else if (product === "ffpro") {
+    const target = ffproProvisioningTarget(store, organizationId);
+    const provisioned = await provisionFfproWorkspace(target.organization, target.owner);
+    if (!provisioned.ok) throw new Error(provisioned.error);
+    await commitStore(activateFfproTenantMapping(store, organizationId, provisioned.organizationId, provisioned.financeUserId, actorUserId, new Date().toISOString()) as AppStore);
+  } else if (product === "tiquet") {
+    const target = tiquetProvisioningTarget(store, organizationId);
+    const provisioned = await provisionTiquetWorkspace(target.organization, target.owner);
+    if (!provisioned.ok) throw new Error(provisioned.error);
+    await commitStore(activateTiquetTenantMapping(store, organizationId, provisioned.organizationId, provisioned.accountId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore);
+  } else {
+    const target = marketingProvisioningTarget(store, organizationId);
+    const provisioned = await provisionMarketingWorkspace(target.organization, target.owner);
+    if (!provisioned.ok) throw new Error(provisioned.error);
+    await commitStore(activateMarketingTenantMapping(store, organizationId, provisioned.organizationId, provisioned.businessId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore);
+  }
+
+  return { product, appId, status: "active" as const, skipped: false };
+}
+
+app.get("/api/admin/customers", requirePlatformOperator, (_req, res) => {
+  const customers = store.organizations
+    .filter(organization => organization.id !== posIdentity.organizationId)
+    .map(organization => customerAdminRecord(store, organization))
+    .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+
+  const invited = store.ownerInvitations
+    .filter(invitation => !store.organizations.some(org => org.id === invitation.organizationId))
+    .filter(invitation => invitationStatus(invitation) === "pending")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map(invitation => ({
+      id: invitation.organizationId,
+      name: invitation.organizationName,
+      slug: invitation.organizationSlug,
+      lifecycle: "invited",
+      organizationStatus: null,
+      owner: { id: null, name: invitation.email, email: invitation.email, lastLogin: null, mfaEnabled: false },
+      memberCount: 0,
+      apps: invitation.appIds.map(appId => {
+        const app = store.ecosystemApps.find(item => item.id === appId);
+        return { id: appId, name: app?.name || appId, shortName: app?.shortName || appId, provisioningStatus: "waiting_for_acceptance" };
+      }),
+      plan: null,
+      invitation: {
+        id: invitation.id,
+        status: "pending",
+        email: invitation.email,
+        createdAt: invitation.createdAt,
+        acceptedAt: null,
+        expiresAt: invitation.expiresAt,
+      },
+      createdAt: invitation.createdAt,
+      lastActivityAt: invitation.createdAt,
+    }));
+
+  const assignableApps = customerAssignableAppIds
+    .map(appId => store.ecosystemApps.find(app => app.id === appId))
+    .filter((app): app is EcosystemApp => Boolean(app))
+    .map(app => ({ id: app.id, name: app.name, shortName: app.shortName }));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ customers, invited, assignableApps });
+});
+
+app.post("/api/admin/customers/:organizationId/provision", requirePlatformOperator, async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin" });
+  const organizationId = String(req.params.organizationId || "");
+  const organization = store.organizations.find(org => org.id === organizationId && org.id !== posIdentity.organizationId);
+  if (!organization) return res.status(404).json({ error: "Customer organization not found" });
+  if (organization.status !== "active") return res.status(409).json({ error: "Customer organization must be active before provisioning." });
+
+  const enabled = new Set(rawEntitledAppIds(store, organizationId));
+  const requested = Array.isArray(req.body?.appIds) ? req.body.appIds : [...tenantMappedAppIds].filter(appId => enabled.has(appId));
+  if (requested.some((appId: unknown) => typeof appId !== "string" || !tenantMappedAppIds.has(appId as string) || !enabled.has(appId as string))) {
+    return res.status(400).json({ error: "Provision only enabled tenant-mapped apps for this customer." });
+  }
+
+  const actorUserId = (req as any).user.userId;
+  const products = [...new Set(requested as string[])]
+    .map(appId => (Object.entries(customerProvisionProducts).find(([, value]) => value === appId)?.[0] || "") as CustomerProvisionProduct)
+    .filter(Boolean);
+
+  const results: Array<{ product: string; appId: string; status: string; skipped?: boolean; error?: string }> = [];
+  for (const product of products) {
+    try {
+      results.push(await provisionCustomerProduct(product, organizationId, actorUserId));
+    } catch (error) {
+      results.push({
+        product,
+        appId: customerProvisionProducts[product],
+        status: "failed",
+        error: error instanceof Error ? error.message : "Provisioning failed",
+      });
+    }
+  }
+
+  const failed = results.filter(result => result.status === "failed");
+  res.setHeader("Cache-Control", "no-store");
+  res.status(failed.length ? 207 : 200).json({
+    success: failed.length === 0,
+    organizationId,
+    lifecycle: customerLifecycle(store, store.organizations.find(org => org.id === organizationId)!),
+    results,
+  });
+});
+
+app.put("/api/admin/customers/:organizationId/plan", requirePlatformOperator, async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin" });
+  const organizationId = String(req.params.organizationId || "");
+  const organization = store.organizations.find(org => org.id === organizationId && org.id !== posIdentity.organizationId);
+  if (!organization) return res.status(404).json({ error: "Customer organization not found" });
+
+  const planName = typeof req.body?.planName === "string" ? req.body.planName.trim() : "";
+  const status = String(req.body?.status || "");
+  const billingCycle = String(req.body?.billingCycle || "");
+  const priceValue = req.body?.priceXcd;
+  const priceXcd = priceValue === null || priceValue === "" || priceValue === undefined ? undefined : Number(priceValue);
+  const renewalDate = typeof req.body?.renewalDate === "string" && req.body.renewalDate.trim() ? req.body.renewalDate.trim() : undefined;
+  const appIds = req.body?.appIds;
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+
+  if (planName.length < 2 || planName.length > 80 ||
+      !["active", "trial", "paused", "cancelled"].includes(status) ||
+      !["monthly", "annual", "custom"].includes(billingCycle) ||
+      (priceXcd !== undefined && (!Number.isFinite(priceXcd) || priceXcd < 0 || priceXcd > 1_000_000)) ||
+      (renewalDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(renewalDate)) ||
+      !Array.isArray(appIds) || appIds.some((appId: unknown) => typeof appId !== "string" || !customerAssignableAppIds.includes(appId as string)) ||
+      reason.length < 5 || reason.length > 500) {
+    return res.status(400).json({ error: "Valid plan, billing, app selection and a change reason are required." });
+  }
+
+  const selected = new Set(appIds as string[]);
+  const now = new Date().toISOString();
+  const nextStore = cloneStore();
+  if (!Array.isArray(nextStore.organizationPlans)) nextStore.organizationPlans = [];
+  const existingPlan = nextStore.organizationPlans.find(plan => plan.organizationId === organizationId);
+  const nextPlan: OrganizationPlan = {
+    organizationId,
+    planName,
+    status: status as OrganizationPlan["status"],
+    billingCycle: billingCycle as OrganizationPlan["billingCycle"],
+    appIds: [...selected],
+    ...(priceXcd !== undefined ? { priceXcd } : {}),
+    ...(renewalDate ? { renewalDate } : {}),
+    createdAt: existingPlan?.createdAt || now,
+    updatedAt: now,
+  };
+  if (existingPlan) Object.assign(existingPlan, nextPlan);
+  else nextStore.organizationPlans.push(nextPlan);
+
+  for (const appId of customerAssignableAppIds) {
+    const entitlement = nextStore.appEntitlements.find(entry => entry.organizationId === organizationId && entry.appId === appId);
+    const enabled = selected.has(appId) && ["active", "trial"].includes(status);
+    if (entitlement) entitlement.enabled = enabled;
+    else if (enabled) nextStore.appEntitlements.push({ organizationId, appId, enabled: true, createdAt: now });
+
+    if (tenantMappedAppIds.has(appId)) {
+      const mapping = nextStore.appTenantMappings.find(item => item.organizationId === organizationId && item.appId === appId);
+      if (enabled) {
+        if (!mapping) nextStore.appTenantMappings.push({ organizationId, appId, status: "pending", createdAt: now, updatedAt: now });
+        else if (mapping.status === "disabled") {
+          mapping.status = "pending";
+          mapping.updatedAt = now;
+        }
+      } else if (mapping && mapping.status !== "disabled") {
+        mapping.status = "disabled";
+        mapping.updatedAt = now;
+      }
+    }
+  }
+
+  onboardingAudit(nextStore, "customer_plan_updated", {
+    planName,
+    status,
+    billingCycle,
+    priceXcd: priceXcd ?? null,
+    renewalDate: renewalDate || null,
+    appIds: [...selected],
+    reason,
+  }, (req as any).user.userId, organizationId);
+  await commitStore(nextStore);
+  res.json({ success: true, customer: customerAdminRecord(store, store.organizations.find(org => org.id === organizationId)!) });
+});
+
+app.post("/api/admin/customers/:organizationId/status", requirePlatformOperator, async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin" });
+  const organizationId = String(req.params.organizationId || "");
+  const organization = store.organizations.find(org => org.id === organizationId && org.id !== posIdentity.organizationId);
+  if (!organization) return res.status(404).json({ error: "Customer organization not found" });
+  const status = String(req.body?.status || "");
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  const confirmName = typeof req.body?.confirmName === "string" ? req.body.confirmName.trim() : "";
+  if (!["active", "suspended"].includes(status) || reason.length < 5 || reason.length > 500 || confirmName !== organization.name) {
+    return res.status(400).json({ error: "Type the exact business name and provide a reason to change customer status." });
+  }
+
+  const nextStore = cloneStore();
+  const target = nextStore.organizations.find(org => org.id === organizationId)!;
+  target.status = status as Organization["status"];
+  onboardingAudit(nextStore, status === "suspended" ? "customer_suspended" : "customer_reactivated", {
+    reason,
+    previousStatus: organization.status,
+  }, (req as any).user.userId, organizationId);
+  await commitStore(nextStore);
+  if (status === "suspended") deleteSessionsWhere(session => session.organizationId === organizationId);
+  res.json({ success: true, customer: customerAdminRecord(store, store.organizations.find(org => org.id === organizationId)!) });
+});
+
+app.get("/api/admin/audit", requirePlatformOperator, (req, res) => {
+  const requestedLimit = Number(req.query.limit || 200);
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(500, Math.floor(requestedLimit))) : 200;
+  const organizationId = typeof req.query.organizationId === "string" ? req.query.organizationId : "";
+  const type = typeof req.query.type === "string" ? req.query.type.trim().toLowerCase() : "";
+  const events = [...store.auditEvents]
+    .filter(event => !organizationId || event.organizationId === organizationId)
+    .filter(event => !type || event.type.toLowerCase().includes(type))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit)
+    .map(event => {
+      const actor = event.actorUserId ? store.users.find(user => user.id === event.actorUserId) : null;
+      const organization = event.organizationId ? store.organizations.find(org => org.id === event.organizationId) : null;
+      return {
+        ...event,
+        actor: actor ? { id: actor.id, name: actor.fullName || actor.username, email: normalizeEmail(actor.email) || actor.username } : null,
+        organization: organization ? { id: organization.id, name: organization.name, slug: organization.slug } : null,
+      };
+    });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ events });
 });
 
 app.get("/api/admin/onboarding/invitations", requirePlatformOperator, (_req, res) => {
@@ -3228,8 +3622,27 @@ app.get("/api/admin/platform/overview", requirePlatformOperator, async (_req, re
       error: response.status === 200 ? null : (data?.error || "Platform stats unavailable."),
     }] as const;
   }));
+
+  const customerOrganizations = store.organizations.filter(org => org.id !== posIdentity.organizationId);
+  const pendingInvitations = store.ownerInvitations.filter(invitation =>
+    !store.organizations.some(org => org.id === invitation.organizationId) &&
+    invitationStatus(invitation) === "pending"
+  );
+  const provisioningCustomers = customerOrganizations.filter(org => customerLifecycle(store, org) === "provisioning");
+  const suspendedCustomers = customerOrganizations.filter(org => org.status === "suspended");
+
   res.setHeader("Cache-Control", "no-store");
-  res.json({ generatedAt: new Date().toISOString(), apps: Object.fromEntries(entries) });
+  res.json({
+    generatedAt: new Date().toISOString(),
+    hub: {
+      customers: customerOrganizations.length,
+      activeCustomers: customerOrganizations.length - suspendedCustomers.length,
+      suspendedCustomers: suspendedCustomers.length,
+      pendingInvitations: pendingInvitations.length,
+      provisioningCustomers: provisioningCustomers.length,
+    },
+    apps: Object.fromEntries(entries),
+  });
 });
 
 app.use("/api/admin/platform/:product", requirePlatformOperator, async (req, res) => {
