@@ -34,7 +34,10 @@ export function Sidebar({
   organizationName = "V79 Digital",
 }: SidebarProps) {
   const permissions = new Set<ViewState>(user.permissions || ["overview"]);
-  const can = (view: ViewState) => view === "overview" || permissions.has(view);
+  const can = (view: ViewState) =>
+    view === "overview" ||
+    (user.platformOperator === true && ["connections", "team", "security", "billing"].includes(view)) ||
+    permissions.has(view);
 
   const primary: NavItem[] = [
     { view: "overview", label: "Dashboard", icon: Home, visible: true },
