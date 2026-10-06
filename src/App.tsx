@@ -18,7 +18,7 @@ import { WorkspaceSecurity } from "./components/WorkspaceSecurity";
 import { WorkspaceBilling } from "./components/WorkspaceBilling";
 import { AdminConsole } from "./components/AdminConsole";
 import { OwnerAssistant } from "./components/OwnerAssistant";
-import { CheckCircle2, AlertCircle, RotateCw, Bell } from "lucide-react";
+import { CheckCircle2, AlertCircle, RotateCw, Bell, Sun, Moon } from "lucide-react";
 
 export default function App() {
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -32,6 +32,10 @@ export default function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [ecosystemApps, setEcosystemApps] = useState<EcosystemApp[]>([]);
   const [currentView, setCurrentView] = useState<ViewState>("overview");
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    try { return (localStorage.getItem("v79-hub-theme") as "light" | "dark") || "dark"; }
+    catch { return "dark"; }
+  });
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
@@ -51,6 +55,11 @@ export default function App() {
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
   }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem("v79-hub-theme", theme); } catch {}
+    document.documentElement.style.colorScheme = theme;
+  }, [theme]);
 
   useEffect(() => {
     if (inviteToken || teamInviteToken) {
@@ -230,19 +239,19 @@ export default function App() {
     (view === "admin" ? isAdmin : view === "assistant" ? user.ownerAgent === true : Boolean(user.permissions?.includes(view)));
 
   const viewLabel: Record<string, string> = {
-    overview: "Business Pulse",
-    dashboard: "Business Pulse",
+    overview: "Dashboard",
+    dashboard: "Dashboard",
     connections: "Connections",
     team: "Team",
     security: "Security",
-    billing: "Billing",
-    admin: "Admin Console",
+    billing: "Plans & Billing",
+    admin: "Platform Admin",
     users: "User Management",
     assistant: "Owner Assistant",
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 font-sans text-slate-800 antialiased overflow-hidden">
+    <div className={"hub-theme-" + theme + " flex h-screen bg-slate-100 font-sans text-slate-800 antialiased overflow-hidden"}>
       <Sidebar
         currentView={currentView}
         onViewChange={setCurrentView}
@@ -268,10 +277,18 @@ export default function App() {
 
           <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center gap-2">
             <span className="text-[13px] font-black tracking-[-0.03em] text-white"><span className="text-[#55c7ff]">V</span>79</span>
-            <span className="text-[9px] font-black tracking-[0.2em] text-slate-500">DIGITAL HUB</span>
+            <span className="text-[9px] font-black tracking-[0.2em] text-slate-500">HUB BY V79 DIGITAL</span>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="w-9 h-9 rounded-xl border border-[#1a3854] bg-[#091728] text-slate-500 hover:text-[#55c7ff] hover:border-[#2b5275] flex items-center justify-center transition-colors"
+            >
+              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
             <button
               onClick={() => {
                 fetchHubData();
