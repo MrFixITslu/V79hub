@@ -2304,7 +2304,7 @@ app.get("/api/security/mfa/status", requireAuth, (req, res) => {
   });
 });
 
-app.post("/api/security/mfa/setup", requireAuth, (req, res) => {
+app.post("/api/security/mfa/setup", requireAuth, async (req, res) => {
   const session = (req as any).user;
   const user = store.users.find(item => item.id === session.userId);
   if (!user) return res.status(404).json({ error: "User record not found" });
@@ -2319,7 +2319,7 @@ app.post("/api/security/mfa/setup", requireAuth, (req, res) => {
     secret = generateTotpSecret();
     user.mfaPendingSecretEnc = encryptTotpSecret(secret, hubSecurityKey);
     user.mfaPendingCreatedAt = new Date().toISOString();
-    void saveStore(store);
+    await saveStore(store);
   }
   const challenge = createMfaChallenge(user.id, session.organizationId, "setup", secret);
   res.json({
