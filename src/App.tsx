@@ -386,5 +386,3 @@ export default function App() {
     </div>
   );
 }
-
-[executed on device: firelion-Aspire-A315-51 (729abacc-4888-407d-b7ef-15ffed4122f0)]
