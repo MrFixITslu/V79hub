@@ -15,6 +15,13 @@ interface ProductResult {
 
 interface OverviewResponse {
   generatedAt: string;
+  hub: {
+    customers: number;
+    activeCustomers: number;
+    suspendedCustomers: number;
+    pendingInvitations: number;
+    provisioningCustomers: number;
+  };
   apps: Record<Product, ProductResult>;
 }
 
@@ -114,6 +121,14 @@ export function PlatformAdminOverview({ onOpen }: { onOpen: (product: Product) =
   const issues = useMemo(() => {
     if (!data) return [] as Array<{ product: Product; title: string; detail: string; severity: "error" | "warning" }>;
     const result: Array<{ product: Product; title: string; detail: string; severity: "error" | "warning" }> = [];
+    if ((data.hub?.provisioningCustomers || 0) > 0) {
+      result.push({
+        product: "pos",
+        title: "Customers awaiting provisioning",
+        detail: `${data.hub.provisioningCustomers} customer workspace(s) still have tenant-mapped apps pending.`,
+        severity: "warning",
+      });
+    }
 
     for (const product of productConfig) {
       const item = data.apps?.[product.id];
@@ -142,17 +157,19 @@ export function PlatformAdminOverview({ onOpen }: { onOpen: (product: Product) =
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h2 className="font-bold text-slate-900">Platform operations overview</h2>
-          <p className="text-xs text-slate-500 mt-1">Service health and aggregate usage only. Private business and learner content is not exposed here.</p>
+          <p className="text-xs text-slate-500 mt-1">Customer lifecycle, provisioning workload and real service health. Private customer and learner content is not exposed here.</p>
         </div>
         <button onClick={() => void refresh()} className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 self-start md:self-auto">
           <RefreshCw className={`w-3.5 h-3.5 ${busy ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Summary icon={Activity} label="Services reporting" value={busy && !data ? "…" : `${onlineCount}/5`} />
-        <Summary icon={AlertTriangle} label="Attention items" value={data ? String(issues.length) : "—"} />
-        <Summary icon={CreditCard} label="Platform scope" value="5 products" />
+      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+        <Summary icon={Building2} label="Customers" value={busy && !data ? "…" : String(data?.hub?.customers ?? 0)} />
+        <Summary icon={CheckCircle2} label="Active" value={busy && !data ? "…" : String(data?.hub?.activeCustomers ?? 0)} />
+        <Summary icon={AlertTriangle} label="Provisioning" value={busy && !data ? "…" : String(data?.hub?.provisioningCustomers ?? 0)} />
+        <Summary icon={CreditCard} label="Pending invites" value={busy && !data ? "…" : String(data?.hub?.pendingInvitations ?? 0)} />
+        <Summary icon={Activity} label="Core services healthy" value={busy && !data ? "…" : `${onlineCount}/5`} />
       </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
