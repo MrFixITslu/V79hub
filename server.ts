@@ -809,6 +809,7 @@ function sessionCookie(value: string, maxAge: number) {
 }
 
 const posSecret = process.env.V79_PLATFORM_SHARED_SECRET || "";
+const posServiceSecret = process.env.V79_POS_PLATFORM_SHARED_SECRET || "";
 const posServiceUrl = process.env.POS_BASE_URL || "http://v79-commerce-api:8080";
 const posPublicUrl = process.env.POS_PUBLIC_URL || "https://pos.v79sl.com";
 const posIdentityPath = path.join(DATA_DIR, "pos-identity.json");
@@ -963,7 +964,7 @@ function posJwt(userId: string, tenantId: string) {
 }
 
 async function provisionPosWorkspace(organization: Organization, hubUserId: string, requireReturnedIdentity = true) {
-  if (posSecret.length < 32) {
+  if (posServiceSecret.length < 32) {
     return { ok: false as const, status: 503, error: "POS shared secret is not configured" };
   }
   const ownerUserId = posUserId(hubUserId, organization.id);
@@ -981,7 +982,7 @@ async function provisionPosWorkspace(organization: Organization, hubUserId: stri
         "content-type": "application/json",
         "x-v79-service-id": "v79-hub",
         "x-v79-timestamp": timestamp,
-        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret: posSecret }),
+        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret: posServiceSecret }),
       },
       body,
       signal: AbortSignal.timeout(5000),
@@ -1004,7 +1005,7 @@ async function provisionPosWorkspace(organization: Organization, hubUserId: stri
 }
 
 async function provisionPosTeamMember(organization: Organization, hubUserId: string, role: keyof typeof posTeamRoleMap) {
-  if (posSecret.length < 32) {
+  if (posServiceSecret.length < 32) {
     return { ok: false as const, status: 503, error: "POS shared secret is not configured" };
   }
   const userId = posUserId(hubUserId, organization.id);
@@ -1022,7 +1023,7 @@ async function provisionPosTeamMember(organization: Organization, hubUserId: str
         "content-type": "application/json",
         "x-v79-service-id": "v79-hub",
         "x-v79-timestamp": timestamp,
-        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret: posSecret }),
+        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret: posServiceSecret }),
       },
       body,
       signal: AbortSignal.timeout(5000),
@@ -1050,7 +1051,7 @@ async function provisionPosTeamMember(organization: Organization, hubUserId: str
 }
 
 async function deprovisionPosTeamMember(organizationId: string, hubUserId: string) {
-  if (posSecret.length < 32) {
+  if (posServiceSecret.length < 32) {
     return { ok: false as const, status: 503, error: "POS shared secret is not configured" };
   }
   const userId = posUserId(hubUserId, organizationId);
@@ -1064,7 +1065,7 @@ async function deprovisionPosTeamMember(organizationId: string, hubUserId: strin
         "content-type": "application/json",
         "x-v79-service-id": "v79-hub",
         "x-v79-timestamp": timestamp,
-        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret: posSecret }),
+        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret: posServiceSecret }),
       },
       body,
       signal: AbortSignal.timeout(5000),
@@ -1452,7 +1453,7 @@ app.post("/api/platform/session/consume", (req, res) => {
   const source = req.get("x-v79-service-id") || "";
   const managed = managedProduct(source);
   const expectedProduct: LaunchProduct | null = source === "v79-pos" ? "pos" : managed;
-  const secret = expectedProduct === "pos" ? posSecret : managed ? process.env[managedLaunch[managed].secretEnv] || "" : "";
+  const secret = expectedProduct === "pos" ? posServiceSecret : managed ? process.env[managedLaunch[managed].secretEnv] || "" : "";
   if (!expectedProduct || !verifyPlatformRequest({ method: "POST", pathname: "/api/platform/session/consume", timestamp: req.get("x-v79-timestamp") || "", signature: req.get("x-v79-signature") || "", body, secret })) return res.status(401).json({ error: "Invalid service signature" });
   const { product, ticket } = req.body || {};
   if (product !== expectedProduct || typeof ticket !== "string" || !/^[A-Za-z0-9_-]{32,180}$/.test(ticket)) return res.status(400).json({ error: "Invalid ticket" });
@@ -3236,6 +3237,7 @@ function readReadonlyPlatformSecret() {
   try { return fs.readFileSync(readonlyPlatformSecretFile, "utf8").trim(); } catch { return ""; }
 }
 function platformSigningSecret(product: string) {
+  if (product === "pos") return posServiceSecret;
   return readonlyPlatformProducts.has(product) ? (readReadonlyPlatformSecret() || posSecret) : posSecret;
 }
 
