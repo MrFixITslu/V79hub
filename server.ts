@@ -924,6 +924,12 @@ const posTeamRoleMap = {
   viewer: "AUDITOR",
 } as const;
 
+const ffproTeamRoles = new Set(["manager", "staff", "viewer"]);
+
+function ffproTeamRole(role: string | undefined) {
+  return role && ffproTeamRoles.has(role) ? role as "manager" | "staff" | "viewer" : null;
+}
+
 const tiquetTeamPermissions = {
   manager: ["dashboard", "jobs", "clients", "invoices", "files", "new-request"],
   staff: ["dashboard", "jobs", "clients", "files", "new-request"],
@@ -1464,11 +1470,15 @@ app.post("/api/platform/session/consume", (req, res) => {
     organizationCanAccessApp(store, entry.tenantId, "app-v79pos") &&
     posTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
+  const ffproTicketMembership = entry
+    ? activeMembership(store, entry.userId, entry.tenantId)
+    : null;
   const validFfproTicket = product === "ffpro" && Boolean(
     entry &&
     entry.product === "ffpro" &&
     entry.expiresAt >= Date.now() &&
-    activeMembership(store, entry.userId, entry.tenantId)?.role === "owner" &&
+    (ffproTicketMembership?.role === "owner" || ffproTeamRole(ffproTicketMembership?.role)) &&
+    membershipCanAccessApp(ffproTicketMembership, "app-ffpro") &&
     organizationCanAccessApp(store, entry.tenantId, "app-ffpro") &&
     ffproTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
@@ -1519,11 +1529,12 @@ app.post("/api/platform/session/consume", (req, res) => {
   if (!organization) return res.status(409).json({ error: "Hub organization is unavailable." });
 
   const consumedMembership = activeMembership(store, entry.userId, entry.tenantId);
+  const consumedFfproTeamRole = product === "ffpro" ? ffproTeamRole(consumedMembership?.role) : null;
   const consumedTiquetTeamRole = product === "tiquet" ? tiquetTeamRole(consumedMembership?.role) : null;
   const consumedMarketingTeamRole = product === "marketing" ? marketingTeamRole(consumedMembership?.role) : null;
   const consumedRole = consumedMembership?.role === "owner"
     ? "owner"
-    : consumedTiquetTeamRole || consumedMarketingTeamRole;
+    : consumedFfproTeamRole || consumedTiquetTeamRole || consumedMarketingTeamRole;
   if (!consumedRole) return res.status(401).json({ error: "Ticket role is no longer eligible" });
 
   res.json({
@@ -1667,7 +1678,7 @@ function sanitizeUserForOrganization(u: StoredUser, organizationId: string) {
 
 const customerAssignableAppIds = ["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing", "app-academy"];
 const tenantMappedAppIds = new Set(["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing"]);
-const teamAssignableAppIds = new Set(["app-v79pos", "app-tiquet", "app-marketing"]);
+const teamAssignableAppIds = new Set(["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing"]);
 
 function normalizeTeamAppIds(value: unknown, organizationId: string) {
   if (!Array.isArray(value)) return [];
@@ -1936,7 +1947,7 @@ async function completeTeamInvitationAcceptance(
       appIds: transition.appIds,
       managedProductAccess: {
         pos: "role_mapped",
-        ffpro: "owner_only",
+        ffpro: "role_mapped",
         tiquet: "role_mapped",
         marketing: "role_mapped",
       },
@@ -3876,9 +3887,14 @@ app.get("/api/apps/:product/launch", async (req, res) => {
   if (membership?.role !== "owner" && !membershipCanAccessApp(membership, assignedAppId)) {
     return res.status(403).json({ error: "This app is not assigned to your workspace account" });
   }
+  const teamFfproRole = product === "ffpro" ? ffproTeamRole(membership?.role) : null;
   const teamTiquetRole = product === "tiquet" ? tiquetTeamRole(membership?.role) : null;
   const teamMarketingRole = product === "marketing" ? marketingTeamRole(membership?.role) : null;
-  if (product === "tiquet") {
+  if (product === "ffpro") {
+    if (membership?.role !== "owner" && !teamFfproRole) {
+      return res.status(403).json({ error: "Your workspace role is not eligible for FFPRO access" });
+    }
+  } else if (product === "tiquet") {
     if (membership?.role !== "owner" && !teamTiquetRole) {
       return res.status(403).json({ error: "Your workspace role is not eligible for Tiquet access" });
     }
@@ -3886,8 +3902,6 @@ app.get("/api/apps/:product/launch", async (req, res) => {
     if (membership?.role !== "owner" && !teamMarketingRole) {
       return res.status(403).json({ error: "Your workspace role is not eligible for Marketing access" });
     }
-  } else if (membership?.role !== "owner") {
-    return res.status(403).json({ error: "Only the workspace owner can launch this app" });
   }
   if (session.organizationId === posIdentity.organizationId && session.userId !== posIdentity.ownerUserId) {
     return res.status(403).json({ error: "Only the V79 workspace owner can launch this app" });
