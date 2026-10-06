@@ -3520,14 +3520,11 @@ const platformAdminAllowed: Record<PlatformAdminProduct, Array<{ method: string;
   pos: [
     { method: "GET", path: /^\/api\/platform\/admin\/stats$/ },
     { method: "GET", path: /^\/api\/platform\/admin\/tenants$/ },
-    { method: "PUT", path: /^\/api\/platform\/admin\/tenants\/[^/]+\/active\/(?:enabled|disabled)$/ },
     { method: "PUT", path: /^\/api\/platform\/admin\/tenants\/[^/]+\/offline-sales\/(?:enabled|disabled)$/ },
   ],
   tiquet: [
     { method: "GET", path: /^\/api\/platform\/admin\/stats$/ },
     { method: "GET", path: /^\/api\/platform\/admin\/accounts$/ },
-    { method: "PUT", path: /^\/api\/platform\/admin\/accounts\/[^/]+\/(?:suspend|unsuspend)$/ },
-    { method: "PUT", path: /^\/api\/platform\/admin\/accounts\/[^/]+\/plan\/(?:trial|starter|pro|enterprise)$/ },
   ],
   marketing: [
     { method: "GET", path: /^\/api\/platform\/admin\/stats$/ },
