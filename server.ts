@@ -96,6 +96,7 @@ interface OrganizationPlan {
   planName: string;
   status: "active" | "trial" | "paused" | "cancelled";
   billingCycle: "monthly" | "annual" | "custom";
+  appIds: string[];
   priceXcd?: number;
   renewalDate?: string;
   createdAt: string;
@@ -1744,7 +1745,12 @@ function onboardingAudit(nextStore: AppStore, type: string, details: Record<stri
 
 function organizationPlanFor(currentStore: AppStore, organizationId: string): OrganizationPlan {
   const stored = (currentStore.organizationPlans || []).find(plan => plan.organizationId === organizationId);
-  if (stored) return stored;
+  if (stored) {
+    return {
+      ...stored,
+      appIds: Array.isArray(stored.appIds) ? stored.appIds : rawEntitledAppIds(currentStore, organizationId),
+    };
+  }
 
   const isOwnerWorkspace = organizationId === posIdentity.organizationId;
   const monthly = Number(process.env.V79_HUB_MONTHLY_PRICE_XCD || "");
@@ -1765,6 +1771,7 @@ function organizationPlanFor(currentStore: AppStore, organizationId: string): Or
       : isOwnerWorkspace && Number.isFinite(monthly) && monthly >= 0
         ? "monthly"
         : "custom",
+    appIds: rawEntitledAppIds(currentStore, organizationId),
     ...(fallbackPrice !== undefined ? { priceXcd: fallbackPrice } : {}),
     ...(/^\d{4}-\d{2}-\d{2}$/.test(renewalDate) ? { renewalDate } : {}),
     createdAt: new Date(0).toISOString(),
@@ -1859,6 +1866,7 @@ async function completeInvitationAcceptance(
       planName: "Custom",
       status: "active",
       billingCycle: "custom",
+      appIds: [...transition.appIds],
       createdAt: now,
       updatedAt: now,
     });
@@ -2799,6 +2807,7 @@ app.put("/api/admin/customers/:organizationId/plan", requirePlatformOperator, as
     planName,
     status: status as OrganizationPlan["status"],
     billingCycle: billingCycle as OrganizationPlan["billingCycle"],
+    appIds: [...selected],
     ...(priceXcd !== undefined ? { priceXcd } : {}),
     ...(renewalDate ? { renewalDate } : {}),
     createdAt: existingPlan?.createdAt || now,
@@ -2809,7 +2818,7 @@ app.put("/api/admin/customers/:organizationId/plan", requirePlatformOperator, as
 
   for (const appId of customerAssignableAppIds) {
     const entitlement = nextStore.appEntitlements.find(entry => entry.organizationId === organizationId && entry.appId === appId);
-    const enabled = selected.has(appId);
+    const enabled = selected.has(appId) && ["active", "trial"].includes(status);
     if (entitlement) entitlement.enabled = enabled;
     else if (enabled) nextStore.appEntitlements.push({ organizationId, appId, enabled: true, createdAt: now });
 
