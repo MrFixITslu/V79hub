@@ -3608,8 +3608,27 @@ app.get("/api/admin/platform/overview", requirePlatformOperator, async (_req, re
       error: response.status === 200 ? null : (data?.error || "Platform stats unavailable."),
     }] as const;
   }));
+
+  const customerOrganizations = store.organizations.filter(org => org.id !== posIdentity.organizationId);
+  const pendingInvitations = store.ownerInvitations.filter(invitation =>
+    !store.organizations.some(org => org.id === invitation.organizationId) &&
+    invitationStatus(invitation) === "pending"
+  );
+  const provisioningCustomers = customerOrganizations.filter(org => customerLifecycle(store, org) === "provisioning");
+  const suspendedCustomers = customerOrganizations.filter(org => org.status === "suspended");
+
   res.setHeader("Cache-Control", "no-store");
-  res.json({ generatedAt: new Date().toISOString(), apps: Object.fromEntries(entries) });
+  res.json({
+    generatedAt: new Date().toISOString(),
+    hub: {
+      customers: customerOrganizations.length,
+      activeCustomers: customerOrganizations.length - suspendedCustomers.length,
+      suspendedCustomers: suspendedCustomers.length,
+      pendingInvitations: pendingInvitations.length,
+      provisioningCustomers: provisioningCustomers.length,
+    },
+    apps: Object.fromEntries(entries),
+  });
 });
 
 app.use("/api/admin/platform/:product", requirePlatformOperator, async (req, res) => {
