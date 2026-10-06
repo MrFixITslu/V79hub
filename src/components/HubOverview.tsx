@@ -458,19 +458,19 @@ export function HubOverview({
         <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
           <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-white">App launcher</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Your approved V79 Digital workspace applications</div>
+              <div className="text-sm font-bold text-white">Your apps</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">Only the V79 modules enabled for this workspace appear here</div>
             </div>
-            <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff]">
-              Open all apps
+            <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff] hover:text-white">
+              Manage apps
             </button>
           </div>
           <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-            {appCards.map((card) => {
+            {visibleAppCards.map((card) => {
               const app = appFor(card.id, card.shortName);
               const summary = summaries?.[card.key];
               const meta = statusMeta(summary);
-              const metrics = card.metrics(summary?.metrics || {});
+              const metrics = card.metrics(summary?.metrics || {}).slice(0, 2);
               const launchUrl = appLaunchUrl(app, card.fallback);
               const Icon = card.icon;
               return (
@@ -480,7 +480,7 @@ export function HubOverview({
                   target={launchUrl ? "_blank" : undefined}
                   rel={launchUrl ? "noopener noreferrer" : undefined}
                   aria-disabled={!launchUrl}
-                  className={`group relative overflow-hidden min-h-[190px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
+                  className={`group relative overflow-hidden min-h-[150px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
                 >
                   <div className="absolute -right-8 -bottom-10 w-28 h-28 rounded-full blur-2xl opacity-25" style={{ backgroundColor: card.accent }} />
                   <div className="relative h-full flex flex-col">
@@ -488,26 +488,27 @@ export function HubOverview({
                       <div className="w-10 h-10 rounded-xl border border-white/10 bg-[#07111f]/85 flex items-center justify-center shadow-lg">
                         <Icon className={`w-5 h-5 ${card.iconClass}`} />
                       </div>
-                      <span className={`text-[8px] font-bold uppercase tracking-[0.12em] ${meta.text}`}>{meta.label}</span>
+                      <span className={`inline-flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] ${meta.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} /> {meta.label}
+                      </span>
                     </div>
-                    <div className="mt-4">
-                      <div className="text-[9px] uppercase tracking-[0.13em] text-slate-500 font-bold">{card.category}</div>
-                      <div className="mt-1 text-[13px] font-black text-white leading-tight">{card.title}</div>
-                      <div className="mt-2 text-[9px] leading-relaxed text-slate-500 line-clamp-2">{card.description}</div>
+                    <div className="mt-3">
+                      <div className="text-[13px] font-black text-white leading-tight">{card.title}</div>
+                      <div className="mt-1 text-[9px] text-slate-500">{card.category}</div>
                     </div>
-                    <div className="mt-auto pt-4 grid grid-cols-3 gap-1.5">
+                    <div className="mt-3 flex gap-4">
                       {metrics.map((metric) => (
-                        <div key={metric.label} className="rounded-lg bg-black/15 border border-white/[0.06] px-2 py-1.5 min-w-0">
-                          <div className="text-[7px] text-slate-600 truncate">{metric.label}</div>
-                          <div className="text-[10px] font-bold text-slate-200 truncate">
+                        <div key={metric.label} className="min-w-0">
+                          <div className="text-[7px] uppercase tracking-wide text-slate-600">{metric.label}</div>
+                          <div className="mt-0.5 text-[10px] font-bold text-slate-200 truncate">
                             {summary?.status === "ok" ? metric.value : "-"}
                           </div>
                         </div>
                       ))}
                     </div>
-                    <div className="mt-3 flex items-center justify-between text-[9px]">
-                      <span className="text-slate-600">{launchUrl ? "Ready" : app?.accessMessage || "Setup pending"}</span>
-                      <span className="inline-flex items-center gap-1 font-bold" style={{ color: card.accent }}>
+                    <div className="mt-auto pt-3 flex items-center justify-between">
+                      <span className="text-[9px] text-slate-600">{launchUrl ? "Ready to open" : app?.accessMessage || "Setup pending"}</span>
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-black/10 px-2.5 py-1.5 text-[9px] font-bold" style={{ color: card.accent }}>
                         Open <ArrowUpRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                       </span>
                     </div>
