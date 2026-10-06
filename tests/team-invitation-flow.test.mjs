@@ -302,7 +302,7 @@ test("workspace team invitations stay owner-controlled and isolated across SMBs"
   assert.equal(managerDashboard.status, 200);
   const managerDashboardBody = await managerDashboard.json();
   assert.equal(managerDashboardBody.apps.pos.status, "restricted");
-  assert.equal(managerDashboardBody.apps.ffpro.status, "not_enabled");
+  assert.equal(managerDashboardBody.apps.ffpro.status, "restricted");
   assert.equal(managerDashboardBody.apps.tiquet.status, "restricted");
   assert.equal(managerDashboardBody.apps.marketing.status, "restricted");
   for (const product of ["pos", "ffpro", "tiquet", "marketing"]) {
