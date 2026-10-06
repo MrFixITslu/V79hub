@@ -78,37 +78,6 @@ export function TiquetPlatformAdmin() {
     return accounts.filter((account) => !term || [account.name, account.id, account.plan, account.status].some((value) => String(value || "").toLowerCase().includes(term)));
   }, [accounts, search]);
 
-  const setStatus = async (account: TiquetAccount, action: "suspend" | "unsuspend") => {
-    const question = action === "suspend"
-      ? `Suspend "${account.name}" from Tiquet? Users in that workspace will lose access until restored.`
-      : `Restore "${account.name}" to active status?`;
-    if (!window.confirm(question)) return;
-    setBusy(account.id);
-    try {
-      await tiquetAdminApi(`/accounts/${encodeURIComponent(account.id)}/${action}`, { method: "PUT" });
-      await refresh();
-      flash(action === "suspend" ? "Tiquet workspace suspended." : "Tiquet workspace restored.");
-    } catch (error) {
-      flash(error instanceof Error ? error.message : "Account status could not be changed.", "error");
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const changePlan = async (account: TiquetAccount, plan: string) => {
-    if (plan === account.plan) return;
-    setBusy(account.id);
-    try {
-      await tiquetAdminApi(`/accounts/${encodeURIComponent(account.id)}/plan/${encodeURIComponent(plan)}`, { method: "PUT" });
-      await refresh();
-      flash(`${account.name} changed to ${plan}.`);
-    } catch (error) {
-      flash(error instanceof Error ? error.message : "Plan could not be changed.", "error");
-    } finally {
-      setBusy("");
-    }
-  };
-
   return (
     <div className="space-y-5">
       {message && (
@@ -120,7 +89,7 @@ export function TiquetPlatformAdmin() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-bold text-slate-900">Tiquet platform administration</h2>
-          <p className="text-xs text-slate-500 mt-1">Workspace status, plans and usage counts only. Customer/job content stays inside each business workspace.</p>
+          <p className="text-xs text-slate-500 mt-1">Operational workspace metadata only. Customer access and plan entitlements are managed centrally from Customers and Plans & Entitlements.</p>
         </div>
         <button onClick={() => void refresh()} className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold inline-flex items-center gap-1.5">
           <RefreshCw className={`w-3.5 h-3.5 ${busy === "refresh" ? "animate-spin" : ""}`} /> Refresh
@@ -158,7 +127,7 @@ export function TiquetPlatformAdmin() {
                 <th className="p-3">Users</th>
                 <th className="p-3">Jobs</th>
                 <th className="p-3">Joined</th>
-                <th className="p-3 text-right">Control</th>
+                <th className="p-3 text-right">Authority</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -166,21 +135,11 @@ export function TiquetPlatformAdmin() {
                 <tr key={account.id} className="text-xs">
                   <td className="p-3"><div className="font-semibold text-slate-900">{account.name}</div><div className="text-[10px] text-slate-400 mt-0.5">{account.hubOrganizationId ? "Hub managed" : "Legacy/local"}</div></td>
                   <td className="p-3"><span className={`px-2 py-1 rounded-full text-[9px] font-bold ${account.status === "suspended" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>{account.status}</span></td>
-                  <td className="p-3">
-                    <select disabled={busy === account.id} value={account.plan || "trial"} onChange={(e) => void changePlan(account, e.target.value)} className="admin-input w-32">
-                      {["trial","starter","pro","enterprise"].map((plan) => <option key={plan} value={plan}>{plan}</option>)}
-                    </select>
-                  </td>
+                  <td className="p-3"><span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[9px] font-bold">{account.plan || "trial"}</span></td>
                   <td className="p-3 text-slate-600">{account.userCount}</td>
                   <td className="p-3 text-slate-600">{account.jobCount}</td>
                   <td className="p-3 text-slate-500">{account.createdAt ? new Date(account.createdAt).toLocaleDateString() : "—"}</td>
-                  <td className="p-3 text-right">
-                    {account.status === "suspended" ? (
-                      <button disabled={busy === account.id} onClick={() => void setStatus(account, "unsuspend")} className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-semibold disabled:opacity-40">Restore</button>
-                    ) : (
-                      <button disabled={busy === account.id || account.id === "default_account"} onClick={() => void setStatus(account, "suspend")} className="px-3 py-2 rounded-lg border border-rose-200 text-rose-700 text-[10px] font-semibold disabled:opacity-40">Suspend</button>
-                    )}
-                  </td>
+                  <td className="p-3 text-right"><span className="text-[9px] font-semibold text-slate-400">Managed in Hub</span></td>
                 </tr>
               ))}
             </tbody>
