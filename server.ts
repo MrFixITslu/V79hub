@@ -806,6 +806,13 @@ const organizationMigration = posIdentity.ownerUserId
   ? migrateLegacyOrganization(store, posIdentity.organizationId, posIdentity.ownerUserId)
   : null;
 if (process.env.NODE_ENV === "production" && !organizationMigration) throw new Error("The Hub owner identity is missing.");
+if (process.env.V79_REQUIRE_ADMIN_MFA === "1") {
+  const platformOwner = store.users.find(user => user.id === posIdentity.ownerUserId);
+  if (platformOwner && !platformOwner.mfaEnabled) {
+    deleteSessionsWhere(session => session.userId === platformOwner.id);
+  }
+}
+
 if (organizationMigration?.changed) {
   const backupPath = path.join(DATA_DIR, "v79_store_pre_organizations.json");
   if (!fs.existsSync(backupPath)) {
