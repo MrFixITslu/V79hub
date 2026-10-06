@@ -927,10 +927,6 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <div className="bg-[#101D35] border border-slate-700/60 rounded-xl px-3 py-3 text-center"><div className="text-xl font-extrabold">{value}</div><div className="text-[9px] text-slate-400 mt-0.5">{label}</div></div>;
 }
 
-function Tab({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: React.ComponentType<{ className?: string }>; label: string }) {
-  return <button onClick={onClick} className={`inline-flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 ${active ? "border-cyan-500 text-cyan-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}><Icon className="w-4 h-4" />{label}</button>;
-}
-
 function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
   return <label className={`space-y-1.5 ${wide ? "md:col-span-2" : ""}`}><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</span>{children}</label>;
 }
