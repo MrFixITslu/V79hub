@@ -300,12 +300,13 @@ test("workspace team invitations stay owner-controlled and isolated across SMBs"
   const managerDashboard = await request("/api/dashboard/summary", { headers: { Cookie: managerCookie } });
   assert.equal(managerDashboard.status, 200);
   const managerDashboardBody = await managerDashboard.json();
+  assert.equal(managerDashboardBody.apps.pos.status, "restricted");
+  assert.equal(managerDashboardBody.apps.ffpro.status, "not_enabled");
+  assert.equal(managerDashboardBody.apps.tiquet.status, "restricted");
+  assert.equal(managerDashboardBody.apps.marketing.status, "restricted");
   for (const product of ["pos", "ffpro", "tiquet", "marketing"]) {
-    assert.equal(managerDashboardBody.apps[product].status, "restricted");
     assert.deepEqual(managerDashboardBody.apps[product].metrics, {});
   }
-  assert.match(managerDashboardBody.apps.ffpro.accessMessage, /full-account finance access.*workspace-owner only/i);
-  assert.match(managerDashboardBody.apps.ffpro.accessMessage, /specific FFPRO projects/i);
 
   assert.equal((await createTeamInvite(managerCookie, "nope@example.test", "staff")).response.status, 403);
   assert.equal((await request("/api/users/" + firstOwner.body.user.id, {

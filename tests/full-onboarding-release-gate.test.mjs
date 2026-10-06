@@ -362,8 +362,10 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
       assert.equal(summary.apps[product].metrics.organizationMarker, customer.organization.id);
       assert.equal(summary.apps[product].metrics.productMarker, product);
     }
-    for (const product of ["academy", "lasertag", "website", "games"]) {
-      assert.equal(summary.apps[product].status, "not_configured");
+    assert.equal(summary.apps.academy.status, "not_configured");
+    assert.deepEqual(summary.apps.academy.metrics, {});
+    for (const product of ["lasertag", "website", "games"]) {
+      assert.equal(summary.apps[product].status, "not_enabled");
       assert.deepEqual(summary.apps[product].metrics, {});
     }
   }

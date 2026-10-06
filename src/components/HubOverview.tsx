@@ -17,7 +17,7 @@ import { EcosystemApp, User, ViewState } from "../types";
 import { appLaunchUrl } from "../lib/appLaunch";
 
 type ProductKey = "pos" | "ffpro" | "tiquet" | "marketing" | "academy";
-type ProductStatus = "ok" | "needs_setup" | "unavailable" | "misconfigured" | "restricted";
+type ProductStatus = "ok" | "needs_setup" | "unavailable" | "misconfigured" | "restricted" | "not_enabled" | "not_configured";
 
 interface ProductSummary {
   status: ProductStatus;
@@ -163,6 +163,8 @@ function statusMeta(summary?: ProductSummary) {
   if (!summary) return { label: "Loading", dot: "bg-slate-500", text: "text-slate-400", score: 35 };
   if (summary.status === "ok") return { label: "Operational", dot: "bg-emerald-400", text: "text-emerald-300", score: 100 };
   if (summary.status === "restricted") return { label: "Restricted", dot: "bg-slate-400", text: "text-slate-300", score: 55 };
+  if (summary.status === "not_enabled") return { label: "Not enabled", dot: "bg-slate-600", text: "text-slate-500", score: 15 };
+  if (summary.status === "not_configured") return { label: "Not connected", dot: "bg-slate-500", text: "text-slate-400", score: 30 };
   if (summary.status === "needs_setup") return { label: "Ready to activate", dot: "bg-amber-400", text: "text-amber-300", score: 70 };
   if (summary.status === "misconfigured") return { label: "Needs attention", dot: "bg-amber-400", text: "text-amber-300", score: 45 };
   return { label: "Unavailable", dot: "bg-rose-400", text: "text-rose-300", score: 20 };
@@ -200,6 +202,8 @@ export function HubOverview({
 
   const appFor = (id: string, shortName: string) =>
     ecosystemApps.find((app) => app.id === id || app.shortName === shortName);
+  const visibleAppCards = appCards.filter((card) => Boolean(appFor(card.id, card.shortName)));
+  const visibleKeys = new Set(visibleAppCards.map((card) => card.key));
 
   const summaries = dashboard?.apps;
   const ffpro = summaries?.ffpro?.metrics || {};
@@ -207,7 +211,7 @@ export function HubOverview({
   const marketing = summaries?.marketing?.metrics || {};
   const academy = summaries?.academy?.metrics || {};
   const pos = summaries?.pos?.metrics || {};
-  const onlineCount = appCards.filter((card) => summaries?.[card.key]?.status === "ok").length;
+  const onlineCount = visibleAppCards.filter((card) => summaries?.[card.key]?.status === "ok").length;
 
   const openJobs = useMemo(() => {
     const byStatus =
@@ -321,6 +325,7 @@ export function HubOverview({
       glow: "from-[#10B981]/22 to-transparent",
     },
   ] as const;
+  const visibleMetricCards = metricCards.filter((metric) => visibleKeys.has(metric.key));
 
   return (
     <div className="min-h-full bg-[#07111f] text-slate-100 pb-24 lg:pb-10">
@@ -338,7 +343,7 @@ export function HubOverview({
                 {greeting}, <span className="text-[#55c7ff]">{firstName}</span>
               </h1>
               <p className="mt-2 text-sm text-slate-400 max-w-2xl">
-                Here is what is happening across your V79 Digital ecosystem right now.
+                Your business pulse: performance, customer activity and the items that need your attention.
               </p>
             </div>
             <div className="flex items-center gap-3 xl:pl-8">
@@ -346,14 +351,13 @@ export function HubOverview({
                 <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Live feeds</div>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <span className="text-2xl font-black text-white">{loading ? "..." : onlineCount}</span>
-                  <span className="text-xs text-slate-500">of 5</span>
+                  <span className="text-xs text-slate-500">of {visibleAppCards.length}</span>
                 </div>
               </div>
               <div className="hidden sm:block h-12 w-px bg-gradient-to-b from-transparent via-[#36536d] to-transparent" />
               <div className="hidden sm:block">
-                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[#ff9a3d]">Bigger.</div>
-                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[#ff9a3d]">Brighter.</div>
-                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[#ff9a3d]">Together.</div>
+                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[#ff9a3d]">From Idea</div>
+                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[#ff9a3d]">to Advantage.</div>
               </div>
               <button
                 onClick={() => void loadDashboard()}
@@ -374,7 +378,7 @@ export function HubOverview({
         )}
 
         <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-          {metricCards.map((metric) => {
+          {visibleMetricCards.map((metric) => {
             const Icon = metric.icon;
             const summary = summaries?.[metric.key];
             const meta = statusMeta(summary);
@@ -407,8 +411,8 @@ export function HubOverview({
           <div className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
             <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
               <div>
-                <div className="text-sm font-bold text-white">Ecosystem health</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Live connectivity and provisioning status</div>
+                <div className="text-sm font-bold text-white">Your V79 apps</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Availability of the modules enabled for this workspace</div>
               </div>
               <button
                 onClick={() => onNavigate("connections")}
@@ -418,7 +422,7 @@ export function HubOverview({
               </button>
             </div>
             <div className="p-5 grid grid-cols-1 md:grid-cols-5 gap-4 min-h-[220px] items-end">
-              {appCards.map((card) => {
+              {visibleAppCards.map((card) => {
                 const summary = summaries?.[card.key];
                 const meta = statusMeta(summary);
                 const Icon = card.icon;
@@ -467,8 +471,8 @@ export function HubOverview({
           <div className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
             <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between">
               <div>
-                <div className="text-sm font-bold text-white">Activity and attention</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Signals that may need action</div>
+                <div className="text-sm font-bold text-white">Needs your attention</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Business signals worth reviewing next</div>
               </div>
               <Activity className="w-4 h-4 text-[#55c7ff]" />
             </div>
@@ -608,5 +612,3 @@ export function HubOverview({
     </div>
   );
 }
-
-[executed on device: firelion-Aspire-A315-51 (729abacc-4888-407d-b7ef-15ffed4122f0)]
