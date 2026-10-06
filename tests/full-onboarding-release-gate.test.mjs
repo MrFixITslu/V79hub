@@ -413,6 +413,30 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
     }
   }
 
+  const pausedPlan = await request(`/api/admin/customers/${a.organization.id}/plan`, {
+    method: "PUT",
+    headers: operatorHeaders,
+    body: JSON.stringify({
+      planName: "Business",
+      status: "paused",
+      billingCycle: "monthly",
+      priceXcd: 199,
+      renewalDate: "2027-01-15",
+      appIds: assignedAppIds,
+      reason: "Release gate verifies paused plans disable live Hub app access.",
+    }),
+  });
+  assert.equal(pausedPlan.status, 200, await pausedPlan.clone().text());
+  const pausedBilling = await (await request("/api/billing/summary", { headers: { Cookie: a.cookie } })).json();
+  assert.equal(pausedBilling.status, "paused");
+  assert.deepEqual(pausedBilling.enabledApps, []);
+  const pausedApps = await (await request("/api/ecosystem/apps", { headers: { Cookie: a.cookie } })).json();
+  assert.deepEqual(pausedApps, []);
+  const pausedCustomer = (await (await request("/api/admin/customers", { headers: operatorHeaders })).json()).customers
+    .find(customer => customer.id === a.organization.id);
+  assert.deepEqual(new Set(pausedCustomer.plan.appIds), new Set(assignedAppIds));
+  assert.equal(pausedCustomer.apps.every(app => app.provisioningStatus === "disabled_by_plan"), true);
+
   const audit = await request(`/api/admin/audit?organizationId=${a.organization.id}`, { headers: operatorHeaders });
   assert.equal(audit.status, 200);
   const auditBody = await audit.json();
