@@ -83,3 +83,24 @@ export function decryptSecret(payload, keyMaterial) {
     decipher.final(),
   ]).toString("utf8");
 }
+
+
+export function totpProvisioningUri({ secret, account, issuer = "V79 Hub" }) {
+  const label = encodeURIComponent(`${issuer}:${account}`);
+  const query = new URLSearchParams({
+    secret: String(secret),
+    issuer: String(issuer),
+    algorithm: "SHA1",
+    digits: "6",
+    period: "30",
+  });
+  return `otpauth://totp/${label}?${query.toString()}`;
+}
+
+export function createOpaqueToken(bytes = 32) {
+  return crypto.randomBytes(bytes).toString("base64url");
+}
+
+export function opaqueTokenHash(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
