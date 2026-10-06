@@ -2237,6 +2237,36 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
 });
 
 
+app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req, res) => {
+  const session = (req as any).user;
+  const organization = store.organizations.find(org => org.id === session.organizationId);
+  const enabledIds = new Set(enabledAppIds(store, session.organizationId));
+  const enabledApps = (store.ecosystemApps || [])
+    .filter(app => enabledIds.has(app.id))
+    .filter(app => !["app-analytics", "app-lifehealth", "app-lasertag"].includes(app.id) || session.organizationId === posIdentity.organizationId)
+    .map(app => ({ id: app.id, name: app.shortName || app.name }));
+
+  const monthly = Number(process.env.V79_HUB_MONTHLY_PRICE_XCD || "");
+  const annual = Number(process.env.V79_HUB_ANNUAL_PRICE_XCD || "");
+  const renewalDate = String(process.env.V79_HUB_RENEWAL_DATE || "").trim();
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    organization: organization?.name || "Business workspace",
+    planName: String(process.env.V79_HUB_PLAN_NAME || "V79 Hub Beta").trim(),
+    status: "active",
+    enabledApps,
+    pricing: {
+      currency: "XCD",
+      monthly: Number.isFinite(monthly) && monthly >= 0 ? monthly : null,
+      annual: Number.isFinite(annual) && annual >= 0 ? annual : null,
+    },
+    renewalDate: /^\d{4}-\d{2}-\d{2}$/.test(renewalDate) ? renewalDate : null,
+    billingManagedBy: "V79 Digital",
+    supportEmail: normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail,
+    selfServicePaymentsEnabled: false,
+  });
+});
+
 app.get("/api/security/mfa/status", requireAuth, (req, res) => {
   const session = (req as any).user;
   const user = store.users.find(item => item.id === session.userId);
@@ -2872,19 +2902,33 @@ app.get("/api/dashboard/summary", async (req, res) => {
   const session = (req as any).user;
   const membership = activeMembership(store, session.userId, session.organizationId);
   const workspaceOwner = membership?.role === "owner";
+  const platformOperator = isPlatformOperatorIdentity(session.userId, session.organizationId);
   const ownerOnlyProducts = new Set<DashboardProduct>(["pos", "ffpro", "tiquet", "marketing"]);
-  const results = await Promise.all(products.map(async product => [product,
-    ownerOnlyProducts.has(product) && !workspaceOwner
-      ? {
-          status: "restricted",
-          metrics: {},
-          generatedAt: null,
-          accessMessage: product === "ffpro"
-            ? "FFPRO finance metrics and full-account finance access are workspace-owner only. Share specific FFPRO projects with editors or viewers inside FFPRO."
-            : "Workspace business KPIs remain owner-only even when a team member has role-mapped product access.",
-        }
-      : await readDashboardSummary(product, session.organizationId)
-  ] as const));
+
+  const results = await Promise.all(products.map(async product => {
+    const appId = dashboardProductAppIds[product];
+    if (appId && !organizationCanAccessApp(store, session.organizationId, appId)) {
+      return [product, { status: "not_enabled", metrics: {}, generatedAt: null }] as const;
+    }
+    if (!appId && !platformOperator) {
+      return [product, { status: "not_enabled", metrics: {}, generatedAt: null }] as const;
+    }
+    if (appId && membership?.role !== "owner" && !membershipCanAccessApp(membership, appId)) {
+      return [product, { status: "restricted", metrics: {}, generatedAt: null, accessMessage: "This app is not assigned to your Hub account." }] as const;
+    }
+    if (ownerOnlyProducts.has(product) && !workspaceOwner) {
+      return [product, {
+        status: "restricted",
+        metrics: {},
+        generatedAt: null,
+        accessMessage: product === "ffpro"
+          ? "FFPRO finance metrics and full-account finance access are workspace-owner only. Share specific FFPRO projects with editors or viewers inside FFPRO."
+          : "Workspace business KPIs remain owner-only even when a team member has role-mapped product access.",
+      }] as const;
+    }
+    return [product, await readDashboardSummary(product, session.organizationId)] as const;
+  }));
+
   res.setHeader("Cache-Control", "no-store");
   res.json({
     generatedAt: new Date().toISOString(),
