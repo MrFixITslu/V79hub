@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, CreditCard, Loader2, PackageCheck, RefreshCw, Search } from "lucide-react";
 
 interface AssignableApp { id: string; name: string; shortName: string; }
@@ -242,6 +242,6 @@ export function PlatformPlansAdmin() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="space-y-1.5"><span className="text-[10px] uppercase tracking-wider font-bold text-slate-500">{label}</span>{children}</label>;
 }
