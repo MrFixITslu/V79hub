@@ -21,7 +21,8 @@ services:
       V79_HUB_MONTHLY_PRICE_XCD: ${V79_HUB_MONTHLY_PRICE_XCD:-}
       V79_HUB_ANNUAL_PRICE_XCD: ${V79_HUB_ANNUAL_PRICE_XCD:-}
       V79_HUB_RENEWAL_DATE: ${V79_HUB_RENEWAL_DATE:-}
-      V79_PLATFORM_SHARED_SECRET: ${V79_PLATFORM_SHARED_SECRET:?Set the same 32+ character secret as POS}
+      V79_PLATFORM_SHARED_SECRET: ${V79_PLATFORM_SHARED_SECRET:?Set the general platform shared secret}
+      V79_POS_PLATFORM_SHARED_SECRET: ${V79_POS_PLATFORM_SHARED_SECRET:?Set a dedicated 32+ character Hub-POS secret}
       POS_BASE_URL: ${POS_BASE_URL:-http://v79-commerce-api:8080}
       POS_PUBLIC_URL: ${POS_PUBLIC_URL:-https://pos.v79sl.com}
       FFPRO_PUBLIC_URL: ${FFPRO_PUBLIC_URL:-https://ffpro.v79sl.com}
