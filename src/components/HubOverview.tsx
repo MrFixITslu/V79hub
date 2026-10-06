@@ -39,13 +39,15 @@ interface HubOverviewProps {
   organizationName?: string;
 }
 
-const money = new Intl.NumberFormat("en-LC", {
-  style: "currency",
-  currency: "XCD",
-  maximumFractionDigits: 0,
-});
 const whole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const n = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+const money = {
+  format(value: unknown) {
+    const amount = n(value);
+    const sign = amount < 0 ? "-" : "";
+    return `${sign}EC${whole.format(Math.abs(amount))}`;
+  },
+};
 
 const appCards: Array<{
   key: ProductKey;
@@ -152,8 +154,8 @@ const appCards: Array<{
     border: "hover:border-[#EF4444]/65",
     description: "Sales, stock, purchasing and register operations.",
     metrics: (m) => [
-      { label: "Sales", value: whole.format(n(m.sales)) },
-      { label: "Products", value: whole.format(n(m.products)) },
+      { label: "30d revenue", value: money.format(n(m.revenue30d)) },
+      { label: "30d sales", value: whole.format(n(m.sales30d)) },
       { label: "Open POs", value: whole.format(n(m.openPurchaseOrders)) },
     ],
   },
@@ -244,17 +246,6 @@ export function HubOverview({
         key: "marketing",
       });
     }
-    if (
-      summaries?.academy?.status === "ok" &&
-      n(academy.enrolledCourses) > 0 &&
-      n(academy.overallProgressPercent) < 100
-    ) {
-      result.push({
-        title: "Training is in progress",
-        detail: `Academy progress is ${whole.format(n(academy.overallProgressPercent))}% with ${whole.format(n(academy.certificates))} certificate(s).`,
-        key: "academy",
-      });
-    }
     if (summaries?.pos?.status === "ok" && n(pos.openPurchaseOrders) > 0) {
       result.push({
         title: "Purchase orders require follow-up",
@@ -268,9 +259,6 @@ export function HubOverview({
     ffpro.currentMonthNet,
     openJobs,
     marketing.activeCampaigns,
-    academy.enrolledCourses,
-    academy.overallProgressPercent,
-    academy.certificates,
     pos.openPurchaseOrders,
   ]);
 
@@ -286,9 +274,9 @@ export function HubOverview({
   const metricCards = [
     {
       key: "pos",
-      label: "Recorded sales",
-      value: summaries?.pos?.status === "ok" ? whole.format(n(pos.sales)) : "-",
-      detail: summaries?.pos?.status === "ok" ? `Current POS snapshot · ${whole.format(n(pos.products))} products` : "Awaiting POS data",
+      label: "Sales · last 30 days",
+      value: summaries?.pos?.status === "ok" ? money.format(n(pos.revenue30d)) : "-",
+      detail: summaries?.pos?.status === "ok" ? `${whole.format(n(pos.sales30d))} completed sale${n(pos.sales30d) === 1 ? "" : "s"} · XCD` : "Awaiting POS data",
       icon: CreditCard,
       color: "text-[#ff6b72]",
       glow: "from-[#EF4444]/20 to-transparent",
@@ -388,7 +376,6 @@ export function HubOverview({
                   action.key === "ffpro" ? "Review cash flow" :
                   action.key === "tiquet" ? "Review open jobs" :
                   action.key === "marketing" ? "Open marketing" :
-                  action.key === "academy" ? "Continue training" :
                   "Review in app";
                 return (
                   <div key={action.title} className="rounded-2xl border border-[#18324b] bg-[#07121f] p-4 flex items-start gap-3">
