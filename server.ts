@@ -18,6 +18,7 @@ import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaun
 import { activateMarketingTenantMapping, marketingProvisioningTarget, marketingTenantLaunchReady, marketingTenantMapping } from "./server/marketing-provisioning.mjs";
 import { createHubStorePersistence } from "./server/runtime-store.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
+import { createOpaqueToken, decryptTotpSecret, encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/account-security.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,6 +56,8 @@ interface StoredUser {
   permissions: string[];
   lastLogin?: string;
   createdAt: string;
+  mfaEnabled?: boolean;
+  mfaSecretEnc?: string;
 }
 
 interface WorkspaceProfile {
@@ -132,6 +135,15 @@ interface AppTenantMapping {
   updatedAt: string;
 }
 
+interface PasswordResetRequest {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: string;
+  createdAt: string;
+  usedAt?: string;
+}
+
 interface AuditEvent {
   id: string;
   organizationId?: string;
@@ -182,6 +194,7 @@ interface AppStore {
   ownerInvitations: OwnerInvitation[];
   teamInvitations: TeamInvitation[];
   appTenantMappings: AppTenantMapping[];
+  passwordResetRequests: PasswordResetRequest[];
   auditEvents: AuditEvent[];
 }
 
@@ -531,6 +544,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.ownerInvitations !== undefined && !Array.isArray(parsed.ownerInvitations)) ||
       (parsed.teamInvitations !== undefined && !Array.isArray(parsed.teamInvitations)) ||
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
+      (parsed.passwordResetRequests !== undefined && !Array.isArray(parsed.passwordResetRequests)) ||
       (parsed.auditEvents !== undefined && !Array.isArray(parsed.auditEvents))) {
     throw new Error("Organization records are malformed.");
   }
@@ -544,6 +558,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     ownerInvitations: Array.isArray(parsed.ownerInvitations) ? parsed.ownerInvitations : [],
     teamInvitations: Array.isArray(parsed.teamInvitations) ? parsed.teamInvitations : [],
     appTenantMappings: Array.isArray(parsed.appTenantMappings) ? parsed.appTenantMappings : [],
+    passwordResetRequests: Array.isArray(parsed.passwordResetRequests) ? parsed.passwordResetRequests : [],
     auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
   };
 }
@@ -554,7 +569,7 @@ function initialStore(): AppStore {
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
     organizations: [], memberships: [], appEntitlements: [], ownerInvitations: [],
-    teamInvitations: [], appTenantMappings: [], auditEvents: [],
+    teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
   };
 }
 
@@ -675,6 +690,37 @@ function loadPersistedSessions() {
 const sessions = loadPersistedSessions();
 const loginAttempts = new Map<string, { count: number; until: number }>();
 const inviteAttempts = new Map<string, { count: number; until: number }>();
+const recoveryAttempts = new Map<string, { count: number; until: number }>();
+
+type PendingMfaChallenge = {
+  id: string;
+  userId: string;
+  organizationId: string;
+  mode: "setup" | "verify";
+  secret?: string;
+  expiresAt: number;
+  attempts: number;
+};
+const mfaChallenges = new Map<string, PendingMfaChallenge>();
+const hubSecurityKey = String(process.env.V79_HUB_SECURITY_KEY || process.env.V79_PLATFORM_SHARED_SECRET || "").trim();
+
+function pruneMfaChallenges() {
+  const now = Date.now();
+  for (const [id, challenge] of mfaChallenges) if (challenge.expiresAt <= now) mfaChallenges.delete(id);
+  while (mfaChallenges.size > 2_000) {
+    const oldest = mfaChallenges.keys().next().value;
+    if (oldest === undefined) break;
+    mfaChallenges.delete(oldest);
+  }
+}
+
+function createMfaChallenge(userId: string, organizationId: string, mode: "setup" | "verify", secret?: string) {
+  pruneMfaChallenges();
+  const id = createOpaqueToken(24);
+  const challenge: PendingMfaChallenge = { id, userId, organizationId, mode, secret, expiresAt: Date.now() + 5 * 60_000, attempts: 0 };
+  mfaChallenges.set(id, challenge);
+  return challenge;
+}
 
 function persistSessions() {
   const temp = `${SESSION_FILE}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
@@ -1577,8 +1623,8 @@ function requirePermission(permission: string) {
   };
 }
 function sanitizeUser(u: StoredUser) {
-  const { password, ...safeUser } = u;
-  return { ...safeUser, permissions: normalizePermissions(safeUser.permissions, safeUser.role) };
+  const { password, mfaSecretEnc, ...safeUser } = u;
+  return { ...safeUser, mfaEnabled: Boolean(u.mfaEnabled), permissions: normalizePermissions(safeUser.permissions, safeUser.role) };
 }
 function sanitizeUserForOrganization(u: StoredUser, organizationId: string) {
   const membership = activeMembership(store, u.id, organizationId);
@@ -1815,6 +1861,44 @@ async function completeTeamInvitationAcceptance(
 // AUTHENTICATION ROUTES
 // ==========================================
 
+async function completeHubLogin(foundUser: StoredUser, organizationId: string, res: Response) {
+  const token = createHubSession(foundUser.id, organizationId);
+  foundUser.lastLogin = new Date().toISOString();
+  await saveStore(store);
+  res.setHeader("Set-Cookie", sessionCookie(token, 12 * 60 * 60));
+  res.setHeader("Cache-Control", "no-store");
+  const membership = activeMembership(store, foundUser.id, organizationId);
+  const ownerAgent = hasOwnerAssistantAccess({ user: foundUser, membership, organizationId, ownerOrganizationId: posIdentity.organizationId, ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL });
+  return res.json({
+    user: { ...sanitizeUserForOrganization(foundUser, organizationId), platformOperator: isPlatformOperatorIdentity(foundUser.id, organizationId), ownerAgent },
+    organization: store.organizations.find(org => org.id === organizationId)
+  });
+}
+
+function startLoginMfa(foundUser: StoredUser, organizationId: string, res: Response) {
+  const platformOperator = isPlatformOperatorIdentity(foundUser.id, organizationId);
+  if (!platformOperator && !foundUser.mfaEnabled) return null;
+  if (hubSecurityKey.length < 32) {
+    return res.status(503).json({ error: "Hub MFA encryption is not configured. Contact V79 Digital." });
+  }
+  const mode: "setup" | "verify" = foundUser.mfaEnabled ? "verify" : "setup";
+  const secret = mode === "setup" ? generateTotpSecret() : undefined;
+  const challenge = createMfaChallenge(foundUser.id, organizationId, mode, secret);
+  return res.status(202).json({
+    mfaRequired: true,
+    setupRequired: mode === "setup",
+    challengeId: challenge.id,
+    ...(secret ? {
+      secret,
+      provisioningUri: totpProvisioningUri({
+        secret,
+        account: normalizeEmail(foundUser.email) || foundUser.username,
+        issuer: "V79 Hub",
+      }),
+    } : {}),
+  });
+}
+
 app.post("/api/auth/login", async (req, res) => {
   const { username, password, organizationId } = req.body || {};
   if (typeof username !== "string" || typeof password !== "string" || !username.trim() || username.length > 120 || !password || password.length > 1024 ||
@@ -1825,12 +1909,12 @@ app.post("/api/auth/login", async (req, res) => {
   const attempts = loginAttempts.get(attemptKey);
   if (attempts && attempts.count >= 10 && attempts.until > Date.now()) return res.status(429).json({ error: "Too many login attempts. Try again later." });
 
+  const lookup = String(username).trim().toLowerCase();
   const foundUser = store.users.find(
-    (u) => u.username.toLowerCase() === String(username).trim().toLowerCase() && checkPassword(password, u.password)
+    (u) => (u.username.toLowerCase() === lookup || normalizeEmail(u.email) === lookup) && checkPassword(password, u.password)
   );
 
   if (!foundUser) {
-    // A stream of distinct invalid usernames must not retain unbounded keys.
     if (!loginAttempts.has(attemptKey) && loginAttempts.size >= 10_000) {
       const oldest = loginAttempts.keys().next().value;
       if (oldest !== undefined) loginAttempts.delete(oldest);
@@ -1857,20 +1941,45 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(401).json({ error: "Invalid username, password, or workspace" });
   }
 
-  const token = createHubSession(foundUser.id, selectedMembership.organizationId);
+  const mfaResponse = startLoginMfa(foundUser, selectedMembership.organizationId, res);
+  if (mfaResponse) return mfaResponse;
+  return completeHubLogin(foundUser, selectedMembership.organizationId, res);
+});
 
-  // Update last login
-  foundUser.lastLogin = new Date().toISOString();
-  await saveStore(store);
+app.post("/api/auth/mfa/complete-login", async (req, res) => {
+  const challengeId = String(req.body?.challengeId || "");
+  const code = String(req.body?.code || "");
+  pruneMfaChallenges();
+  const challenge = mfaChallenges.get(challengeId);
+  if (!challenge || challenge.expiresAt <= Date.now()) return res.status(401).json({ error: "MFA challenge expired. Sign in again." });
+  if (challenge.attempts >= 6) {
+    mfaChallenges.delete(challengeId);
+    return res.status(429).json({ error: "Too many MFA attempts. Sign in again." });
+  }
+  challenge.attempts += 1;
+  const user = store.users.find(item => item.id === challenge.userId);
+  const membership = activeMembership(store, challenge.userId, challenge.organizationId);
+  if (!user || !membership) {
+    mfaChallenges.delete(challengeId);
+    return res.status(401).json({ error: "MFA challenge is no longer valid." });
+  }
 
-  res.setHeader("Set-Cookie", sessionCookie(token, 12 * 60 * 60));
-  res.setHeader("Cache-Control", "no-store");
-  const membership = activeMembership(store, foundUser.id, selectedMembership.organizationId);
-  const ownerAgent = hasOwnerAssistantAccess({ user: foundUser, membership, organizationId: selectedMembership.organizationId, ownerOrganizationId: posIdentity.organizationId, ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL });
-  res.json({
-    user: { ...sanitizeUserForOrganization(foundUser, selectedMembership.organizationId), platformOperator: isPlatformOperatorIdentity(foundUser.id, selectedMembership.organizationId), ownerAgent },
-    organization: store.organizations.find(org => org.id === selectedMembership.organizationId)
-  });
+  let secret = challenge.secret;
+  if (challenge.mode === "verify") {
+    if (!user.mfaEnabled || !user.mfaSecretEnc) return res.status(401).json({ error: "MFA enrollment is missing." });
+    try { secret = decryptTotpSecret(user.mfaSecretEnc, hubSecurityKey); }
+    catch { return res.status(503).json({ error: "MFA verification is unavailable. Contact V79 Digital." }); }
+  }
+  if (!secret || !verifyTotp(secret, code)) return res.status(401).json({ error: "Invalid authentication code." });
+
+  if (challenge.mode === "setup") {
+    user.mfaSecretEnc = encryptTotpSecret(secret, hubSecurityKey);
+    user.mfaEnabled = true;
+    onboardingAudit(store, "mfa_enabled", { method: "totp", mandatory: isPlatformOperatorIdentity(user.id, challenge.organizationId) }, user.id, challenge.organizationId);
+    await saveStore(store);
+  }
+  mfaChallenges.delete(challengeId);
+  return completeHubLogin(user, challenge.organizationId, res);
 });
 
 app.post("/api/auth/register", (_req, res) => {
@@ -2019,6 +2128,95 @@ app.post("/api/team-invitation/accept", async (req, res) => {
   return completeTeamInvitationAcceptance(invitation, existingUser, fullName, password, attemptKey, res);
 });
 
+const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
+const hubEmailFrom = String(process.env.V79_HUB_EMAIL_FROM || "").trim();
+const hubRecoveryContact = normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail;
+const appPublicUrl = String(process.env.APP_URL || "").replace(/\/$/, "");
+const recoveryEmailEnabled = Boolean(resendApiKey && hubEmailFrom && /^https:\/\//i.test(appPublicUrl));
+
+async function deliverPasswordReset(email: string, resetUrl: string) {
+  if (!recoveryEmailEnabled) return false;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "authorization": `Bearer ${resendApiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      from: hubEmailFrom,
+      to: [email],
+      reply_to: hubRecoveryContact,
+      subject: "Reset your V79 Hub password",
+      text: `A password reset was requested for your V79 Hub account. Use this link within 30 minutes: ${resetUrl}\n\nIf you did not request this, ignore this message. For help contact ${hubRecoveryContact}.`,
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+  return response.ok;
+}
+
+app.get("/api/auth/recovery-status", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ emailRecoveryEnabled: recoveryEmailEnabled, supportEmail: hubRecoveryContact });
+});
+
+app.post("/api/auth/password-reset/request", async (req, res) => {
+  const generic = { accepted: true, message: "If that email is eligible for recovery, reset instructions will be sent." };
+  const email = validEmail(req.body?.email);
+  const key = `${req.ip}:${email || "invalid"}`;
+  const attempts = recoveryAttempts.get(key);
+  if (attempts && attempts.count >= 5 && attempts.until > Date.now()) return res.status(202).json(generic);
+  recoveryAttempts.set(key, { count: (attempts?.until && attempts.until > Date.now() ? attempts.count : 0) + 1, until: Date.now() + 30 * 60_000 });
+  if (!email || !recoveryEmailEnabled) return res.status(202).json(generic);
+
+  const user = store.users.find(item => normalizeEmail(item.email) === email || item.username.toLowerCase() === email);
+  if (!user) return res.status(202).json(generic);
+
+  const token = createOpaqueToken(32);
+  const now = new Date();
+  store.passwordResetRequests = (store.passwordResetRequests || [])
+    .filter(item => new Date(item.expiresAt).getTime() > Date.now() - 24 * 60 * 60_000)
+    .map(item => item.userId === user.id && !item.usedAt ? { ...item, usedAt: now.toISOString() } : item);
+  store.passwordResetRequests.push({
+    id: crypto.randomUUID(),
+    userId: user.id,
+    tokenHash: opaqueTokenHash(token),
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(),
+  });
+  await saveStore(store);
+
+  try {
+    const delivered = await deliverPasswordReset(email, `${appPublicUrl}/?reset=${encodeURIComponent(token)}`);
+    if (!delivered) console.warn("[Hub Recovery] Reset email provider rejected the request.");
+  } catch (error) {
+    console.error("[Hub Recovery] Reset email delivery failed.");
+  }
+  return res.status(202).json(generic);
+});
+
+app.post("/api/auth/password-reset/complete", async (req, res) => {
+  const token = String(req.body?.token || "");
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  if (!/^[A-Za-z0-9_-]{30,180}$/.test(token) || password.length < 12 || password.length > 1024) {
+    return res.status(400).json({ error: "A valid reset token and password of at least 12 characters are required." });
+  }
+  const hash = opaqueTokenHash(token);
+  const reset = (store.passwordResetRequests || []).find(item => item.tokenHash === hash && !item.usedAt);
+  if (!reset || new Date(reset.expiresAt).getTime() <= Date.now()) {
+    return res.status(400).json({ error: "This reset link is invalid or has expired." });
+  }
+  const user = store.users.find(item => item.id === reset.userId);
+  if (!user) return res.status(400).json({ error: "This reset link is invalid or has expired." });
+
+  user.password = hashPassword(password);
+  reset.usedAt = new Date().toISOString();
+  deleteSessionsWhere(session => session.userId === user.id);
+  onboardingAudit(store, "password_reset_completed", {}, user.id);
+  await saveStore(store);
+  res.setHeader("Set-Cookie", sessionCookie("", 0));
+  return res.json({ success: true });
+});
+
 app.get("/api/auth/me", requireAuth, (req, res) => {
   const session = (req as any).user;
   const user = store.users.find((u) => u.id === session.userId);
@@ -2037,6 +2235,77 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+
+app.get("/api/security/mfa/status", requireAuth, (req, res) => {
+  const session = (req as any).user;
+  const user = store.users.find(item => item.id === session.userId);
+  if (!user) return res.status(404).json({ error: "User record not found" });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    enabled: Boolean(user.mfaEnabled),
+    mandatory: isPlatformOperatorIdentity(user.id, session.organizationId),
+    method: user.mfaEnabled ? "totp" : null,
+  });
+});
+
+app.post("/api/security/mfa/setup", requireAuth, (req, res) => {
+  const session = (req as any).user;
+  const user = store.users.find(item => item.id === session.userId);
+  if (!user) return res.status(404).json({ error: "User record not found" });
+  if (hubSecurityKey.length < 32) return res.status(503).json({ error: "MFA encryption is not configured." });
+  if (user.mfaEnabled) return res.status(409).json({ error: "MFA is already enabled." });
+  const secret = generateTotpSecret();
+  const challenge = createMfaChallenge(user.id, session.organizationId, "setup", secret);
+  res.json({
+    challengeId: challenge.id,
+    secret,
+    provisioningUri: totpProvisioningUri({
+      secret,
+      account: normalizeEmail(user.email) || user.username,
+      issuer: "V79 Hub",
+    }),
+  });
+});
+
+app.post("/api/security/mfa/confirm", requireAuth, async (req, res) => {
+  const session = (req as any).user;
+  const challenge = mfaChallenges.get(String(req.body?.challengeId || ""));
+  const code = String(req.body?.code || "");
+  if (!challenge || challenge.userId !== session.userId || challenge.organizationId !== session.organizationId || challenge.mode !== "setup" || challenge.expiresAt <= Date.now()) {
+    return res.status(400).json({ error: "MFA setup expired. Start again." });
+  }
+  if (!challenge.secret || !verifyTotp(challenge.secret, code)) return res.status(400).json({ error: "Invalid authentication code." });
+  const user = store.users.find(item => item.id === session.userId);
+  if (!user) return res.status(404).json({ error: "User record not found" });
+  user.mfaSecretEnc = encryptTotpSecret(challenge.secret, hubSecurityKey);
+  user.mfaEnabled = true;
+  mfaChallenges.delete(challenge.id);
+  onboardingAudit(store, "mfa_enabled", { method: "totp" }, user.id, session.organizationId);
+  await saveStore(store);
+  res.json({ success: true, enabled: true });
+});
+
+app.post("/api/security/mfa/disable", requireAuth, async (req, res) => {
+  const session = (req as any).user;
+  const user = store.users.find(item => item.id === session.userId);
+  if (!user) return res.status(404).json({ error: "User record not found" });
+  if (isPlatformOperatorIdentity(user.id, session.organizationId)) {
+    return res.status(403).json({ error: "MFA is mandatory for the V79 platform administrator." });
+  }
+  if (!user.mfaEnabled || !user.mfaSecretEnc) return res.status(409).json({ error: "MFA is not enabled." });
+  const password = String(req.body?.password || "");
+  const code = String(req.body?.code || "");
+  if (!checkPassword(password, user.password)) return res.status(401).json({ error: "Current password is incorrect." });
+  let secret = "";
+  try { secret = decryptTotpSecret(user.mfaSecretEnc, hubSecurityKey); }
+  catch { return res.status(503).json({ error: "MFA verification is unavailable." }); }
+  if (!verifyTotp(secret, code)) return res.status(401).json({ error: "Invalid authentication code." });
+  user.mfaEnabled = false;
+  delete user.mfaSecretEnc;
+  onboardingAudit(store, "mfa_disabled", {}, user.id, session.organizationId);
+  await saveStore(store);
+  res.json({ success: true, enabled: false });
+});
 
 app.use("/api", requireAuth);
 
