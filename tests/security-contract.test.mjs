@@ -7,6 +7,9 @@ import {
   encryptSecret,
   totpCode,
   verifyTotp,
+  createOpaqueToken,
+  opaqueTokenHash,
+  totpProvisioningUri,
 } from "../server/security-contract.mjs";
 
 test("base32 round-trips bytes", () => {
@@ -39,4 +42,20 @@ test("MFA secrets are encrypted and authenticated at rest", () => {
   const tampered = [version, iv, tag, tamperedBytes.toString("base64url")].join(".");
   assert.notEqual(tampered, encrypted);
   assert.throws(() => decryptSecret(tampered, key));
+});
+
+
+test("recovery tokens are opaque and hashed before persistence", () => {
+  const one = createOpaqueToken();
+  const two = createOpaqueToken();
+  assert.notEqual(one, two);
+  assert.match(opaqueTokenHash(one), /^[a-f0-9]{64}$/);
+  assert.notEqual(opaqueTokenHash(one), opaqueTokenHash(two));
+});
+
+test("TOTP provisioning URI identifies V79 Hub and the account", () => {
+  const uri = totpProvisioningUri({ secret: "JBSWY3DPEHPK3PXP", account: "vision79slu@gmail.com", issuer: "V79 Hub" });
+  assert.match(uri, /^otpauth:\/\/totp\//);
+  assert.match(uri, /secret=JBSWY3DPEHPK3PXP/);
+  assert.match(uri, /issuer=V79\+Hub/);
 });
