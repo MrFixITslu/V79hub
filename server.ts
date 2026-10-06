@@ -58,6 +58,8 @@ interface StoredUser {
   createdAt: string;
   mfaEnabled?: boolean;
   mfaSecretEnc?: string;
+  mfaPendingSecretEnc?: string;
+  mfaPendingCreatedAt?: string;
 }
 
 interface WorkspaceProfile {
@@ -1630,7 +1632,7 @@ function requirePermission(permission: string) {
   };
 }
 function sanitizeUser(u: StoredUser) {
-  const { password, mfaSecretEnc, ...safeUser } = u;
+  const { password, mfaSecretEnc, mfaPendingSecretEnc, mfaPendingCreatedAt, ...safeUser } = u;
   return { ...safeUser, mfaEnabled: Boolean(u.mfaEnabled), permissions: normalizePermissions(safeUser.permissions, safeUser.role) };
 }
 function sanitizeUserForOrganization(u: StoredUser, organizationId: string) {
@@ -1882,7 +1884,7 @@ async function completeHubLogin(foundUser: StoredUser, organizationId: string, r
   });
 }
 
-function startLoginMfa(foundUser: StoredUser, organizationId: string, res: Response) {
+async function startLoginMfa(foundUser: StoredUser, organizationId: string, res: Response) {
   const platformOperator = isPlatformOperatorIdentity(foundUser.id, organizationId);
   const adminMfaRequired = platformOperator && process.env.V79_REQUIRE_ADMIN_MFA === "1";
   if (!adminMfaRequired && !foundUser.mfaEnabled) return null;
@@ -1890,12 +1892,26 @@ function startLoginMfa(foundUser: StoredUser, organizationId: string, res: Respo
     return res.status(503).json({ error: "Hub MFA encryption is not configured. Contact V79 Digital." });
   }
   const mode: "setup" | "verify" = foundUser.mfaEnabled ? "verify" : "setup";
-  const secret = mode === "setup" ? generateTotpSecret() : undefined;
+  let secret: string | undefined;
+  if (mode === "setup") {
+    const pendingAge = foundUser.mfaPendingCreatedAt ? Date.now() - new Date(foundUser.mfaPendingCreatedAt).getTime() : Number.POSITIVE_INFINITY;
+    if (foundUser.mfaPendingSecretEnc && Number.isFinite(pendingAge) && pendingAge >= 0 && pendingAge < 30 * 60_000) {
+      try { secret = decryptTotpSecret(foundUser.mfaPendingSecretEnc, hubSecurityKey); }
+      catch { secret = undefined; }
+    }
+    if (!secret) {
+      secret = generateTotpSecret();
+      foundUser.mfaPendingSecretEnc = encryptTotpSecret(secret, hubSecurityKey);
+      foundUser.mfaPendingCreatedAt = new Date().toISOString();
+      await saveStore(store);
+    }
+  }
   const challenge = createMfaChallenge(foundUser.id, organizationId, mode, secret);
   return res.status(202).json({
     mfaRequired: true,
     setupRequired: mode === "setup",
     challengeId: challenge.id,
+    serverTime: Date.now(),
     ...(secret ? {
       secret,
       provisioningUri: totpProvisioningUri({
@@ -1949,7 +1965,7 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(401).json({ error: "Invalid username, password, or workspace" });
   }
 
-  const mfaResponse = startLoginMfa(foundUser, selectedMembership.organizationId, res);
+  const mfaResponse = await startLoginMfa(foundUser, selectedMembership.organizationId, res);
   if (mfaResponse) return mfaResponse;
   return completeHubLogin(foundUser, selectedMembership.organizationId, res);
 });
@@ -1978,11 +1994,13 @@ app.post("/api/auth/mfa/complete-login", async (req, res) => {
     try { secret = decryptTotpSecret(user.mfaSecretEnc, hubSecurityKey); }
     catch { return res.status(503).json({ error: "MFA verification is unavailable. Contact V79 Digital." }); }
   }
-  if (!secret || !verifyTotp(secret, code)) return res.status(401).json({ error: "Invalid authentication code." });
+  if (!secret || !verifyTotp(secret, code, Date.now(), 2)) return res.status(401).json({ error: "Invalid authentication code. Confirm your authenticator uses the current V79 Hub setup key and that automatic date/time is enabled on the device." });
 
   if (challenge.mode === "setup") {
     user.mfaSecretEnc = encryptTotpSecret(secret, hubSecurityKey);
     user.mfaEnabled = true;
+    delete user.mfaPendingSecretEnc;
+    delete user.mfaPendingCreatedAt;
     onboardingAudit(store, "mfa_enabled", { method: "totp", mandatory: isPlatformOperatorIdentity(user.id, challenge.organizationId) && process.env.V79_REQUIRE_ADMIN_MFA === "1" }, user.id, challenge.organizationId);
     await saveStore(store);
   }
@@ -2286,13 +2304,23 @@ app.get("/api/security/mfa/status", requireAuth, (req, res) => {
   });
 });
 
-app.post("/api/security/mfa/setup", requireAuth, (req, res) => {
+app.post("/api/security/mfa/setup", requireAuth, async (req, res) => {
   const session = (req as any).user;
   const user = store.users.find(item => item.id === session.userId);
   if (!user) return res.status(404).json({ error: "User record not found" });
   if (hubSecurityKey.length < 32) return res.status(503).json({ error: "MFA encryption is not configured." });
   if (user.mfaEnabled) return res.status(409).json({ error: "MFA is already enabled." });
-  const secret = generateTotpSecret();
+  let secret: string | undefined;
+  const pendingAge = user.mfaPendingCreatedAt ? Date.now() - new Date(user.mfaPendingCreatedAt).getTime() : Number.POSITIVE_INFINITY;
+  if (user.mfaPendingSecretEnc && Number.isFinite(pendingAge) && pendingAge >= 0 && pendingAge < 30 * 60_000) {
+    try { secret = decryptTotpSecret(user.mfaPendingSecretEnc, hubSecurityKey); } catch {}
+  }
+  if (!secret) {
+    secret = generateTotpSecret();
+    user.mfaPendingSecretEnc = encryptTotpSecret(secret, hubSecurityKey);
+    user.mfaPendingCreatedAt = new Date().toISOString();
+    await saveStore(store);
+  }
   const challenge = createMfaChallenge(user.id, session.organizationId, "setup", secret);
   res.json({
     challengeId: challenge.id,
@@ -2312,11 +2340,13 @@ app.post("/api/security/mfa/confirm", requireAuth, async (req, res) => {
   if (!challenge || challenge.userId !== session.userId || challenge.organizationId !== session.organizationId || challenge.mode !== "setup" || challenge.expiresAt <= Date.now()) {
     return res.status(400).json({ error: "MFA setup expired. Start again." });
   }
-  if (!challenge.secret || !verifyTotp(challenge.secret, code)) return res.status(400).json({ error: "Invalid authentication code." });
+  if (!challenge.secret || !verifyTotp(challenge.secret, code, Date.now(), 2)) return res.status(400).json({ error: "Invalid authentication code. Confirm the setup key and automatic date/time on your authenticator device." });
   const user = store.users.find(item => item.id === session.userId);
   if (!user) return res.status(404).json({ error: "User record not found" });
   user.mfaSecretEnc = encryptTotpSecret(challenge.secret, hubSecurityKey);
   user.mfaEnabled = true;
+  delete user.mfaPendingSecretEnc;
+  delete user.mfaPendingCreatedAt;
   mfaChallenges.delete(challenge.id);
   onboardingAudit(store, "mfa_enabled", { method: "totp" }, user.id, session.organizationId);
   await saveStore(store);
@@ -2337,7 +2367,7 @@ app.post("/api/security/mfa/disable", requireAuth, async (req, res) => {
   let secret = "";
   try { secret = decryptTotpSecret(user.mfaSecretEnc, hubSecurityKey); }
   catch { return res.status(503).json({ error: "MFA verification is unavailable." }); }
-  if (!verifyTotp(secret, code)) return res.status(401).json({ error: "Invalid authentication code." });
+  if (!verifyTotp(secret, code, Date.now(), 2)) return res.status(401).json({ error: "Invalid authentication code." });
   user.mfaEnabled = false;
   delete user.mfaSecretEnc;
   onboardingAudit(store, "mfa_disabled", {}, user.id, session.organizationId);
