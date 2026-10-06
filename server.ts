@@ -91,6 +91,17 @@ interface AppEntitlement {
   createdAt: string;
 }
 
+interface OrganizationPlan {
+  organizationId: string;
+  planName: string;
+  status: "active" | "trial" | "paused" | "cancelled";
+  billingCycle: "monthly" | "annual" | "custom";
+  priceXcd?: number;
+  renewalDate?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface OwnerInvitation {
   id: string;
   organizationId: string;
@@ -193,6 +204,7 @@ interface AppStore {
   organizations: Organization[];
   memberships: Membership[];
   appEntitlements: AppEntitlement[];
+  organizationPlans: OrganizationPlan[];
   ownerInvitations: OwnerInvitation[];
   teamInvitations: TeamInvitation[];
   appTenantMappings: AppTenantMapping[];
@@ -543,6 +555,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
   if ((parsed.organizations !== undefined && !Array.isArray(parsed.organizations)) ||
       (parsed.memberships !== undefined && !Array.isArray(parsed.memberships)) ||
       (parsed.appEntitlements !== undefined && !Array.isArray(parsed.appEntitlements)) ||
+      (parsed.organizationPlans !== undefined && !Array.isArray(parsed.organizationPlans)) ||
       (parsed.ownerInvitations !== undefined && !Array.isArray(parsed.ownerInvitations)) ||
       (parsed.teamInvitations !== undefined && !Array.isArray(parsed.teamInvitations)) ||
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
@@ -557,6 +570,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     organizations: Array.isArray(parsed.organizations) ? parsed.organizations : [],
     memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [],
     appEntitlements: Array.isArray(parsed.appEntitlements) ? parsed.appEntitlements : [],
+    organizationPlans: Array.isArray(parsed.organizationPlans) ? parsed.organizationPlans : [],
     ownerInvitations: Array.isArray(parsed.ownerInvitations) ? parsed.ownerInvitations : [],
     teamInvitations: Array.isArray(parsed.teamInvitations) ? parsed.teamInvitations : [],
     appTenantMappings: Array.isArray(parsed.appTenantMappings) ? parsed.appTenantMappings : [],
@@ -570,7 +584,7 @@ function initialStore(): AppStore {
     users: defaultUsers,
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
-    organizations: [], memberships: [], appEntitlements: [], ownerInvitations: [],
+    organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], ownerInvitations: [],
     teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
   };
 }
