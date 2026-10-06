@@ -369,142 +369,89 @@ export function HubOverview({
           </div>
         )}
 
-        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-          {visibleMetricCards.map((metric) => {
-            const Icon = metric.icon;
-            const summary = summaries?.[metric.key];
-            const meta = statusMeta(summary);
-            return (
-              <div
-                key={metric.key}
-                className="group relative overflow-hidden rounded-2xl border border-[#1a3854] bg-[#0a1727] p-4 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
-              >
-                <div className={`absolute inset-0 bg-gradient-to-br ${metric.glow} opacity-90 pointer-events-none`} />
-                <div className="relative">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#07111f]/75 border border-white/10 flex items-center justify-center">
-                      <Icon className={`w-5 h-5 ${metric.color}`} />
-                    </div>
-                    <span className={`inline-flex items-center gap-1.5 text-[9px] font-semibold ${meta.text}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                      {meta.label}
-                    </span>
-                  </div>
-                  <div className="mt-4 text-[10px] uppercase tracking-[0.13em] text-slate-500 font-bold">{metric.label}</div>
-                  <div className="mt-1 text-[24px] leading-none font-black tracking-tight text-white truncate">{metric.value}</div>
-                  <div className="mt-2 text-[10px] text-slate-500 truncate">{metric.detail}</div>
-                </div>
-              </div>
-            );
-          })}
-        </section>
-
-        <section className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
-          <div className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
-            <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-bold text-white">Your V79 apps</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Availability of the modules enabled for this workspace</div>
-              </div>
-              <button
-                onClick={() => onNavigate("connections")}
-                className="text-[10px] font-bold text-[#55c7ff] hover:text-white transition-colors"
-              >
-                Manage apps
-              </button>
+        <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
+          <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-bold text-white">Needs your attention</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">The most useful next actions across your business apps</div>
             </div>
-            <div className="p-5 grid grid-cols-1 md:grid-cols-5 gap-4 min-h-[220px] items-end">
-              {visibleAppCards.map((card) => {
-                const summary = summaries?.[card.key];
-                const meta = statusMeta(summary);
-                const Icon = card.icon;
-                return (
-                  <div key={card.key} className="flex md:flex-col items-center md:items-stretch gap-3">
-                    <div className="flex md:block items-center gap-3 md:gap-0 flex-1">
-                      <div className="md:mb-3 flex items-center justify-between gap-3">
-                        <div className="w-9 h-9 rounded-xl border border-white/10 bg-[#07111f] flex items-center justify-center">
-                          <Icon className={`w-4 h-4 ${card.iconClass}`} />
-                        </div>
-                        <span className="hidden md:inline text-[9px] text-slate-500">{meta.score}%</span>
-                      </div>
-                      <div className="md:hidden flex-1">
-                        <div className="w-full h-2 rounded-full bg-[#07111f] border border-[#162d45] overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${meta.score}%`,
-                              background: `linear-gradient(90deg, ${card.accent}88, ${card.accent})`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <div className="hidden md:flex h-[110px] items-end">
-                        <div className="w-full h-full rounded-full bg-[#07111f] border border-[#162d45] overflow-hidden flex items-end">
-                          <div
-                            className="w-full rounded-full transition-all duration-500"
-                            style={{
-                              height: `${meta.score}%`,
-                              background: `linear-gradient(180deg, ${card.accent}, ${card.accent}66)`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="w-[110px] md:w-auto">
-                      <div className="text-[10px] font-bold text-slate-200 truncate">{card.shortName}</div>
-                      <div className={`text-[9px] mt-0.5 ${meta.text} truncate`}>{meta.label}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <Activity className="w-4 h-4 text-[#55c7ff]" />
           </div>
-
-          <div className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
-            <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between">
-              <div>
-                <div className="text-sm font-bold text-white">Needs your attention</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Business signals worth reviewing next</div>
-              </div>
-              <Activity className="w-4 h-4 text-[#55c7ff]" />
-            </div>
-            <div className="p-4 space-y-2">
-              {actions.length ? (
-                actions.map((action) => {
-                  const card = appCards.find((item) => item.key === action.key)!;
-                  const app = appFor(card.id, card.shortName);
-                  const launchUrl = appLaunchUrl(app, card.fallback);
-                  const Icon = card.icon;
-                  return (
-                    <div key={action.title} className="rounded-xl border border-[#18324b] bg-[#07121f] p-3 flex items-start gap-3">
-                      <div className="w-8 h-8 shrink-0 rounded-lg border border-white/10 flex items-center justify-center" style={{ backgroundColor: `${card.accent}18` }}>
-                        <Icon className={`w-4 h-4 ${card.iconClass}`} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-bold text-slate-200">{action.title}</div>
-                        <div className="text-[9px] text-slate-500 mt-1 leading-relaxed">{action.detail}</div>
-                      </div>
+          <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {actions.length ? (
+              actions.map((action) => {
+                const card = appCards.find((item) => item.key === action.key)!;
+                const app = appFor(card.id, card.shortName);
+                const launchUrl = appLaunchUrl(app, card.fallback);
+                const Icon = card.icon;
+                const actionText =
+                  action.key === "ffpro" ? "Review cash flow" :
+                  action.key === "tiquet" ? "Review open jobs" :
+                  action.key === "marketing" ? "Open marketing" :
+                  action.key === "academy" ? "Continue training" :
+                  "Review in app";
+                return (
+                  <div key={action.title} className="rounded-2xl border border-[#18324b] bg-[#07121f] p-4 flex items-start gap-3">
+                    <div className="w-9 h-9 shrink-0 rounded-xl border border-white/10 flex items-center justify-center" style={{ backgroundColor: `${card.accent}18` }}>
+                      <Icon className={`w-4 h-4 ${card.iconClass}`} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-slate-100">{action.title}</div>
+                      <div className="text-[10px] text-slate-500 mt-1 leading-relaxed">{action.detail}</div>
                       {launchUrl && (
-                        <a href={launchUrl} target="_blank" rel="noopener noreferrer" className="text-[#55c7ff] hover:text-white">
-                          <ArrowUpRight className="w-4 h-4" />
+                        <a href={launchUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-bold text-[#55c7ff] hover:text-white no-underline">
+                          {actionText} <ArrowUpRight className="w-3 h-3" />
                         </a>
                       )}
                     </div>
-                  );
-                })
-              ) : (
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 flex items-start gap-3">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />
-                  <div>
-                    <div className="text-[11px] font-bold text-emerald-200">No urgent signals</div>
-                    <div className="text-[9px] text-slate-500 mt-1">Connected applications are not surfacing urgent actions right now.</div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="lg:col-span-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 flex items-start gap-3">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />
+                <div>
+                  <div className="text-xs font-bold text-emerald-200">Nothing urgent right now</div>
+                  <div className="text-[10px] text-slate-500 mt-1">Your connected business apps are not surfacing urgent actions.</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-2 px-1">
+            <div className="text-sm font-bold text-white">Business KPIs</div>
+            <div className="text-[10px] text-slate-500 mt-0.5">Current operational snapshot. Time periods are shown where the source app defines them.</div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {visibleMetricCards.map((metric) => {
+              const Icon = metric.icon;
+              const summary = summaries?.[metric.key];
+              const meta = statusMeta(summary);
+              return (
+                <div
+                  key={metric.key}
+                  className="group relative overflow-hidden rounded-2xl border border-[#1a3854] bg-[#0a1727] p-4 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
+                >
+                  <div className={`absolute inset-0 bg-gradient-to-br ${metric.glow} opacity-90 pointer-events-none`} />
+                  <div className="relative">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#07111f]/75 border border-white/10 flex items-center justify-center">
+                        <Icon className={`w-5 h-5 ${metric.color}`} />
+                      </div>
+                      <span className={`inline-flex items-center gap-1.5 text-[9px] font-semibold ${meta.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="mt-4 text-[10px] uppercase tracking-[0.13em] text-slate-500 font-bold">{metric.label}</div>
+                    <div className="mt-1 text-[24px] leading-none font-black tracking-tight text-white truncate">{metric.value}</div>
+                    <div className="mt-2 text-[10px] text-slate-500">{metric.detail}</div>
                   </div>
                 </div>
-              )}
-              <div className="pt-2 text-[9px] text-slate-600">
-                Last KPI refresh: {dashboard?.generatedAt ? new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}
-              </div>
-            </div>
+              );
+            })}
           </div>
         </section>
 
