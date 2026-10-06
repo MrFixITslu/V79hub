@@ -248,6 +248,10 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
       (await request("/api/admin/onboarding/invitations", { headers: { Cookie: customer.cookie } })).status,
       403,
     );
+    assert.equal(
+      (await request("/api/admin/customers", { headers: { Cookie: customer.cookie } })).status,
+      403,
+    );
 
     const apps = await (await request("/api/ecosystem/apps", { headers: { Cookie: customer.cookie } })).json();
     assert.deepEqual(new Set(apps.map(app => app.id)), new Set(assignedAppIds));
@@ -266,22 +270,61 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
     }
   }
 
+  const customerControl = await request("/api/admin/customers", { headers: operatorHeaders });
+  assert.equal(customerControl.status, 200);
+  const customerControlBody = await customerControl.json();
+  assert.deepEqual(
+    new Set(customerControlBody.customers.map(row => row.id)),
+    new Set([a.organization.id, b.organization.id]),
+  );
+  for (const customer of customerControlBody.customers) {
+    assert.equal(customer.lifecycle, "provisioning");
+    assert.equal(customer.owner.email, sharedEmail);
+    assert.equal(customer.memberCount, 1);
+    assert.equal(customer.plan.planName, "Custom");
+  }
+
+  const planUpdate = await request(`/api/admin/customers/${a.organization.id}/plan`, {
+    method: "PUT",
+    headers: operatorHeaders,
+    body: JSON.stringify({
+      planName: "Business",
+      status: "active",
+      billingCycle: "monthly",
+      priceXcd: 199,
+      renewalDate: "2027-01-15",
+      appIds: assignedAppIds,
+      reason: "Release gate verifies centralized Hub plan and entitlements.",
+    }),
+  });
+  assert.equal(planUpdate.status, 200, await planUpdate.clone().text());
+
+  const billing = await request("/api/billing/summary", { headers: { Cookie: a.cookie } });
+  assert.equal(billing.status, 200);
+  const billingBody = await billing.json();
+  assert.equal(billingBody.planName, "Business");
+  assert.equal(billingBody.pricing.monthly, 199);
+  assert.equal(billingBody.renewalDate, "2027-01-15");
+  assert.deepEqual(new Set(billingBody.enabledApps.map(app => app.id)), new Set(assignedAppIds));
+
   for (const customer of [a, b]) {
-    for (const product of ["pos", "ffpro", "tiquet", "marketing"]) {
-      const provisioned = await request(
-        `/api/admin/onboarding/organizations/${customer.organization.id}/apps/${product}/provision`,
-        { method: "POST", headers: operatorHeaders, body: "{}" },
-      );
-      assert.equal(provisioned.status, 200, `${product}: ${await provisioned.clone().text()}`);
-      const body = await provisioned.json();
-      assert.equal(body.mapping.status, "active");
-      const expectedExternalTenant = product === "tiquet"
-        ? `account-${customer.organization.id}`
-        : product === "marketing"
-          ? `business-${customer.organization.id}`
-          : customer.organization.id;
-      assert.equal(body.mapping.externalTenantId, expectedExternalTenant);
-    }
+    const provisioned = await request(
+      `/api/admin/customers/${customer.organization.id}/provision`,
+      {
+        method: "POST",
+        headers: operatorHeaders,
+        body: JSON.stringify({ appIds: ["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing"] }),
+      },
+    );
+    assert.equal(provisioned.status, 200, await provisioned.clone().text());
+    const provisionedBody = await provisioned.json();
+    assert.equal(provisionedBody.success, true);
+    assert.equal(provisionedBody.lifecycle, "active");
+    assert.deepEqual(
+      new Set(provisionedBody.results.map(result => result.appId)),
+      new Set(["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing"]),
+    );
+    assert.equal(provisionedBody.results.every(result => result.status === "active"), true);
   }
 
   for (const product of ["pos", "ffpro", "tiquet", "marketing"]) {
@@ -369,4 +412,33 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
       assert.deepEqual(summary.apps[product].metrics, {});
     }
   }
+
+  const audit = await request(`/api/admin/audit?organizationId=${a.organization.id}`, { headers: operatorHeaders });
+  assert.equal(audit.status, 200);
+  const auditBody = await audit.json();
+  assert.equal(auditBody.events.some(event => event.type === "customer_plan_updated"), true);
+  assert.equal(auditBody.events.some(event => event.type === "pos_tenant_provisioned"), true);
+
+  const suspended = await request(`/api/admin/customers/${a.organization.id}/status`, {
+    method: "POST",
+    headers: operatorHeaders,
+    body: JSON.stringify({
+      status: "suspended",
+      reason: "Release gate verifies high-impact customer suspension and session revocation.",
+      confirmName: a.organization.name,
+    }),
+  });
+  assert.equal(suspended.status, 200, await suspended.clone().text());
+  assert.equal((await request("/api/users", { headers: { Cookie: a.cookie } })).status, 401);
+
+  const reactivated = await request(`/api/admin/customers/${a.organization.id}/status`, {
+    method: "POST",
+    headers: operatorHeaders,
+    body: JSON.stringify({
+      status: "active",
+      reason: "Release gate restores customer after suspension verification.",
+      confirmName: a.organization.name,
+    }),
+  });
+  assert.equal(reactivated.status, 200, await reactivated.clone().text());
 });
