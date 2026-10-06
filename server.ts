@@ -1877,7 +1877,8 @@ async function completeHubLogin(foundUser: StoredUser, organizationId: string, r
 
 function startLoginMfa(foundUser: StoredUser, organizationId: string, res: Response) {
   const platformOperator = isPlatformOperatorIdentity(foundUser.id, organizationId);
-  if (!platformOperator && !foundUser.mfaEnabled) return null;
+  const adminMfaRequired = platformOperator && process.env.V79_REQUIRE_ADMIN_MFA === "1";
+  if (!adminMfaRequired && !foundUser.mfaEnabled) return null;
   if (hubSecurityKey.length < 32) {
     return res.status(503).json({ error: "Hub MFA encryption is not configured. Contact V79 Digital." });
   }
@@ -1975,7 +1976,7 @@ app.post("/api/auth/mfa/complete-login", async (req, res) => {
   if (challenge.mode === "setup") {
     user.mfaSecretEnc = encryptTotpSecret(secret, hubSecurityKey);
     user.mfaEnabled = true;
-    onboardingAudit(store, "mfa_enabled", { method: "totp", mandatory: isPlatformOperatorIdentity(user.id, challenge.organizationId) }, user.id, challenge.organizationId);
+    onboardingAudit(store, "mfa_enabled", { method: "totp", mandatory: isPlatformOperatorIdentity(user.id, challenge.organizationId) && process.env.V79_REQUIRE_ADMIN_MFA === "1" }, user.id, challenge.organizationId);
     await saveStore(store);
   }
   mfaChallenges.delete(challengeId);
@@ -2243,7 +2244,7 @@ app.get("/api/security/mfa/status", requireAuth, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json({
     enabled: Boolean(user.mfaEnabled),
-    mandatory: isPlatformOperatorIdentity(user.id, session.organizationId),
+    mandatory: isPlatformOperatorIdentity(user.id, session.organizationId) && process.env.V79_REQUIRE_ADMIN_MFA === "1",
     method: user.mfaEnabled ? "totp" : null,
   });
 });
@@ -2289,7 +2290,7 @@ app.post("/api/security/mfa/disable", requireAuth, async (req, res) => {
   const session = (req as any).user;
   const user = store.users.find(item => item.id === session.userId);
   if (!user) return res.status(404).json({ error: "User record not found" });
-  if (isPlatformOperatorIdentity(user.id, session.organizationId)) {
+  if (isPlatformOperatorIdentity(user.id, session.organizationId) && process.env.V79_REQUIRE_ADMIN_MFA === "1") {
     return res.status(403).json({ error: "MFA is mandatory for the V79 platform administrator." });
   }
   if (!user.mfaEnabled || !user.mfaSecretEnc) return res.status(409).json({ error: "MFA is not enabled." });
