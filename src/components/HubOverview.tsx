@@ -274,55 +274,51 @@ export function HubOverview({
     pos.openPurchaseOrders,
   ]);
 
-  const firstName = (user.fullName || user.username || "there").trim().split(/\s+/)[0];
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const lastUpdated = dashboard?.generatedAt
+    ? new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "-";
+  const attentionLabel = actions.length === 0
+    ? "Nothing urgent"
+    : `${actions.length} item${actions.length === 1 ? "" : "s"} need attention`;
 
   const metricCards = [
     {
       key: "pos",
-      label: "POS sales",
+      label: "Recorded sales",
       value: summaries?.pos?.status === "ok" ? whole.format(n(pos.sales)) : "-",
-      detail: summaries?.pos?.status === "ok" ? `${whole.format(n(pos.products))} products tracked` : "Awaiting live feed",
+      detail: summaries?.pos?.status === "ok" ? `Current POS snapshot · ${whole.format(n(pos.products))} products` : "Awaiting POS data",
       icon: CreditCard,
       color: "text-[#ff6b72]",
       glow: "from-[#EF4444]/20 to-transparent",
     },
     {
       key: "ffpro",
-      label: "FFPRO cash flow",
+      label: "Net cash flow · this month",
       value: summaries?.ffpro?.status === "ok" ? money.format(n(ffpro.currentMonthNet)) : "-",
-      detail: summaries?.ffpro?.status === "ok" ? `${whole.format(n(ffpro.transactionCount))} transactions` : "Awaiting live feed",
+      detail: summaries?.ffpro?.status === "ok" ? `${whole.format(n(ffpro.transactionCount))} transactions this period` : "Awaiting finance data",
       icon: Wallet,
       color: "text-[#a78bfa]",
       glow: "from-[#8b5cf6]/22 to-transparent",
     },
     {
       key: "tiquet",
-      label: "Tiquet open jobs",
+      label: "Open service jobs",
       value: summaries?.tiquet?.status === "ok" ? whole.format(openJobs) : "-",
-      detail: summaries?.tiquet?.status === "ok" ? `${whole.format(n(tiquet.clients))} clients` : "Awaiting live feed",
+      detail: summaries?.tiquet?.status === "ok" ? `Current workload · ${whole.format(n(tiquet.clients))} clients` : "Awaiting service data",
       icon: Headphones,
       color: "text-[#62c7ff]",
       glow: "from-[#0A86FF]/22 to-transparent",
     },
     {
       key: "marketing",
-      label: "Marketing campaigns",
+      label: "Active campaigns",
       value: summaries?.marketing?.status === "ok" ? whole.format(n(marketing.activeCampaigns)) : "-",
-      detail: summaries?.marketing?.status === "ok" ? `${whole.format(n(marketing.customers))} customers` : "Awaiting live feed",
+      detail: summaries?.marketing?.status === "ok" ? `Current activity · ${whole.format(n(marketing.customers))} customers` : "Awaiting marketing data",
       icon: Megaphone,
       color: "text-[#ff9a3d]",
       glow: "from-[#FF7A00]/22 to-transparent",
-    },
-    {
-      key: "academy",
-      label: "Academy progress",
-      value: summaries?.academy?.status === "ok" ? `${whole.format(n(academy.overallProgressPercent))}%` : "-",
-      detail: summaries?.academy?.status === "ok" ? `${whole.format(n(academy.certificates))} certificates` : "Awaiting live feed",
-      icon: GraduationCap,
-      color: "text-[#52e6c2]",
-      glow: "from-[#10B981]/22 to-transparent",
     },
   ] as const;
   const visibleMetricCards = metricCards.filter((metric) => visibleKeys.has(metric.key));
@@ -337,27 +333,23 @@ export function HubOverview({
             <div>
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#65c9ff]">
                 <Sparkles className="w-3.5 h-3.5" />
-                {organizationName}
+                Business dashboard
               </div>
-              <h1 className="mt-2 text-3xl sm:text-[38px] leading-tight font-black tracking-[-0.03em] text-white">
-                {greeting}, <span className="text-[#55c7ff]">{firstName}</span>
-              </h1>
+              <h1 className="mt-2 text-3xl sm:text-[38px] leading-tight font-black tracking-[-0.03em] text-white">{greeting}</h1>
+              <div className="mt-1 text-sm font-semibold text-[#55c7ff]">{organizationName}</div>
               <p className="mt-2 text-sm text-slate-400 max-w-2xl">
-                Your business pulse: performance, customer activity and the items that need your attention.
+                See how the business is performing, what needs attention and the V79 tools available to your team.
               </p>
             </div>
-            <div className="flex items-center gap-3 xl:pl-8">
-              <div className="rounded-2xl border border-[#21405d] bg-[#081422]/80 px-5 py-3 min-w-[135px]">
-                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Live feeds</div>
-                <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-2xl font-black text-white">{loading ? "..." : onlineCount}</span>
-                  <span className="text-xs text-slate-500">of {visibleAppCards.length}</span>
-                </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 xl:pl-8">
+              <div className={`rounded-2xl border px-5 py-3 min-w-[190px] ${actions.length ? "border-amber-500/25 bg-amber-500/10" : "border-emerald-500/25 bg-emerald-500/10"}`}>
+                <div className={`text-[10px] uppercase tracking-[0.16em] font-bold ${actions.length ? "text-amber-300" : "text-emerald-300"}`}>Next action</div>
+                <div className="mt-1 text-sm font-black text-white">{attentionLabel}</div>
               </div>
-              <div className="hidden sm:block h-12 w-px bg-gradient-to-b from-transparent via-[#36536d] to-transparent" />
-              <div className="hidden sm:block">
-                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[#ff9a3d]">From Idea</div>
-                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[#ff9a3d]">to Advantage.</div>
+              <div className="rounded-2xl border border-[#21405d] bg-[#081422]/80 px-4 py-3 min-w-[135px]">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Updated</div>
+                <div className="mt-1 text-sm font-bold text-white">{lastUpdated}</div>
               </div>
               <button
                 onClick={() => void loadDashboard()}
