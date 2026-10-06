@@ -525,23 +525,27 @@ export function HubOverview({
               <ShieldCheck className="w-5 h-5 text-[#55c7ff]" />
             </div>
             <div>
-              <div className="text-[11px] font-bold text-white">System health</div>
+              <div className="text-[11px] font-bold text-white">System status</div>
               <div className="text-[9px] text-slate-500 mt-1">
-                {onlineCount === 5 ? "All connected KPI feeds are operational." : `${onlineCount} of 5 KPI feeds are currently operational.`}
+                {onlineCount === visibleAppCards.length
+                  ? "All enabled Hub data connections are operational."
+                  : `${onlineCount} of ${visibleAppCards.length} enabled Hub data connections are operational.`}
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {appCards.map((card) => {
-              const meta = statusMeta(summaries?.[card.key]);
-              return (
-                <div key={card.key} className="rounded-full border border-[#1d3c58] bg-[#07121f] px-2.5 py-1.5 flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                  <span className="text-[8px] font-bold text-slate-400">{card.shortName}</span>
-                </div>
-              );
-            })}
-          </div>
+          {user.platformOperator && (
+            <div className="flex flex-wrap gap-2">
+              {visibleAppCards.map((card) => {
+                const meta = statusMeta(summaries?.[card.key]);
+                return (
+                  <div key={card.key} className="rounded-full border border-[#1d3c58] bg-[#07121f] px-2.5 py-1.5 flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                    <span className="text-[8px] font-bold text-slate-400">{card.shortName}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <footer className="px-1 pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[9px] text-slate-600">
