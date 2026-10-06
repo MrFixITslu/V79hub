@@ -274,55 +274,51 @@ export function HubOverview({
     pos.openPurchaseOrders,
   ]);
 
-  const firstName = (user.fullName || user.username || "there").trim().split(/\s+/)[0];
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const lastUpdated = dashboard?.generatedAt
+    ? new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "-";
+  const attentionLabel = actions.length === 0
+    ? "Nothing urgent"
+    : `${actions.length} item${actions.length === 1 ? "" : "s"} need attention`;
 
   const metricCards = [
     {
       key: "pos",
-      label: "POS sales",
+      label: "Recorded sales",
       value: summaries?.pos?.status === "ok" ? whole.format(n(pos.sales)) : "-",
-      detail: summaries?.pos?.status === "ok" ? `${whole.format(n(pos.products))} products tracked` : "Awaiting live feed",
+      detail: summaries?.pos?.status === "ok" ? `Current POS snapshot · ${whole.format(n(pos.products))} products` : "Awaiting POS data",
       icon: CreditCard,
       color: "text-[#ff6b72]",
       glow: "from-[#EF4444]/20 to-transparent",
     },
     {
       key: "ffpro",
-      label: "FFPRO cash flow",
+      label: "Net cash flow · this month",
       value: summaries?.ffpro?.status === "ok" ? money.format(n(ffpro.currentMonthNet)) : "-",
-      detail: summaries?.ffpro?.status === "ok" ? `${whole.format(n(ffpro.transactionCount))} transactions` : "Awaiting live feed",
+      detail: summaries?.ffpro?.status === "ok" ? `${whole.format(n(ffpro.transactionCount))} transactions this period` : "Awaiting finance data",
       icon: Wallet,
       color: "text-[#a78bfa]",
       glow: "from-[#8b5cf6]/22 to-transparent",
     },
     {
       key: "tiquet",
-      label: "Tiquet open jobs",
+      label: "Open service jobs",
       value: summaries?.tiquet?.status === "ok" ? whole.format(openJobs) : "-",
-      detail: summaries?.tiquet?.status === "ok" ? `${whole.format(n(tiquet.clients))} clients` : "Awaiting live feed",
+      detail: summaries?.tiquet?.status === "ok" ? `Current workload · ${whole.format(n(tiquet.clients))} clients` : "Awaiting service data",
       icon: Headphones,
       color: "text-[#62c7ff]",
       glow: "from-[#0A86FF]/22 to-transparent",
     },
     {
       key: "marketing",
-      label: "Marketing campaigns",
+      label: "Active campaigns",
       value: summaries?.marketing?.status === "ok" ? whole.format(n(marketing.activeCampaigns)) : "-",
-      detail: summaries?.marketing?.status === "ok" ? `${whole.format(n(marketing.customers))} customers` : "Awaiting live feed",
+      detail: summaries?.marketing?.status === "ok" ? `Current activity · ${whole.format(n(marketing.customers))} customers` : "Awaiting marketing data",
       icon: Megaphone,
       color: "text-[#ff9a3d]",
       glow: "from-[#FF7A00]/22 to-transparent",
-    },
-    {
-      key: "academy",
-      label: "Academy progress",
-      value: summaries?.academy?.status === "ok" ? `${whole.format(n(academy.overallProgressPercent))}%` : "-",
-      detail: summaries?.academy?.status === "ok" ? `${whole.format(n(academy.certificates))} certificates` : "Awaiting live feed",
-      icon: GraduationCap,
-      color: "text-[#52e6c2]",
-      glow: "from-[#10B981]/22 to-transparent",
     },
   ] as const;
   const visibleMetricCards = metricCards.filter((metric) => visibleKeys.has(metric.key));
@@ -337,27 +333,23 @@ export function HubOverview({
             <div>
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#65c9ff]">
                 <Sparkles className="w-3.5 h-3.5" />
-                {organizationName}
+                Business dashboard
               </div>
-              <h1 className="mt-2 text-3xl sm:text-[38px] leading-tight font-black tracking-[-0.03em] text-white">
-                {greeting}, <span className="text-[#55c7ff]">{firstName}</span>
-              </h1>
+              <h1 className="mt-2 text-3xl sm:text-[38px] leading-tight font-black tracking-[-0.03em] text-white">{greeting}</h1>
+              <div className="mt-1 text-sm font-semibold text-[#55c7ff]">{organizationName}</div>
               <p className="mt-2 text-sm text-slate-400 max-w-2xl">
-                Your business pulse: performance, customer activity and the items that need your attention.
+                See how the business is performing, what needs attention and the V79 tools available to your team.
               </p>
             </div>
-            <div className="flex items-center gap-3 xl:pl-8">
-              <div className="rounded-2xl border border-[#21405d] bg-[#081422]/80 px-5 py-3 min-w-[135px]">
-                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Live feeds</div>
-                <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-2xl font-black text-white">{loading ? "..." : onlineCount}</span>
-                  <span className="text-xs text-slate-500">of {visibleAppCards.length}</span>
-                </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 xl:pl-8">
+              <div className={`rounded-2xl border px-5 py-3 min-w-[190px] ${actions.length ? "border-amber-500/25 bg-amber-500/10" : "border-emerald-500/25 bg-emerald-500/10"}`}>
+                <div className={`text-[10px] uppercase tracking-[0.16em] font-bold ${actions.length ? "text-amber-300" : "text-emerald-300"}`}>Next action</div>
+                <div className="mt-1 text-sm font-black text-white">{attentionLabel}</div>
               </div>
-              <div className="hidden sm:block h-12 w-px bg-gradient-to-b from-transparent via-[#36536d] to-transparent" />
-              <div className="hidden sm:block">
-                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[#ff9a3d]">From Idea</div>
-                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[#ff9a3d]">to Advantage.</div>
+              <div className="rounded-2xl border border-[#21405d] bg-[#081422]/80 px-4 py-3 min-w-[135px]">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Updated</div>
+                <div className="mt-1 text-sm font-bold text-white">{lastUpdated}</div>
               </div>
               <button
                 onClick={() => void loadDashboard()}
@@ -377,161 +369,108 @@ export function HubOverview({
           </div>
         )}
 
-        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-          {visibleMetricCards.map((metric) => {
-            const Icon = metric.icon;
-            const summary = summaries?.[metric.key];
-            const meta = statusMeta(summary);
-            return (
-              <div
-                key={metric.key}
-                className="group relative overflow-hidden rounded-2xl border border-[#1a3854] bg-[#0a1727] p-4 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
-              >
-                <div className={`absolute inset-0 bg-gradient-to-br ${metric.glow} opacity-90 pointer-events-none`} />
-                <div className="relative">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#07111f]/75 border border-white/10 flex items-center justify-center">
-                      <Icon className={`w-5 h-5 ${metric.color}`} />
-                    </div>
-                    <span className={`inline-flex items-center gap-1.5 text-[9px] font-semibold ${meta.text}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                      {meta.label}
-                    </span>
-                  </div>
-                  <div className="mt-4 text-[10px] uppercase tracking-[0.13em] text-slate-500 font-bold">{metric.label}</div>
-                  <div className="mt-1 text-[24px] leading-none font-black tracking-tight text-white truncate">{metric.value}</div>
-                  <div className="mt-2 text-[10px] text-slate-500 truncate">{metric.detail}</div>
-                </div>
-              </div>
-            );
-          })}
-        </section>
-
-        <section className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
-          <div className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
-            <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-bold text-white">Your V79 apps</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Availability of the modules enabled for this workspace</div>
-              </div>
-              <button
-                onClick={() => onNavigate("connections")}
-                className="text-[10px] font-bold text-[#55c7ff] hover:text-white transition-colors"
-              >
-                Manage apps
-              </button>
+        <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
+          <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-bold text-white">Needs your attention</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">The most useful next actions across your business apps</div>
             </div>
-            <div className="p-5 grid grid-cols-1 md:grid-cols-5 gap-4 min-h-[220px] items-end">
-              {visibleAppCards.map((card) => {
-                const summary = summaries?.[card.key];
-                const meta = statusMeta(summary);
-                const Icon = card.icon;
-                return (
-                  <div key={card.key} className="flex md:flex-col items-center md:items-stretch gap-3">
-                    <div className="flex md:block items-center gap-3 md:gap-0 flex-1">
-                      <div className="md:mb-3 flex items-center justify-between gap-3">
-                        <div className="w-9 h-9 rounded-xl border border-white/10 bg-[#07111f] flex items-center justify-center">
-                          <Icon className={`w-4 h-4 ${card.iconClass}`} />
-                        </div>
-                        <span className="hidden md:inline text-[9px] text-slate-500">{meta.score}%</span>
-                      </div>
-                      <div className="md:hidden flex-1">
-                        <div className="w-full h-2 rounded-full bg-[#07111f] border border-[#162d45] overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${meta.score}%`,
-                              background: `linear-gradient(90deg, ${card.accent}88, ${card.accent})`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <div className="hidden md:flex h-[110px] items-end">
-                        <div className="w-full h-full rounded-full bg-[#07111f] border border-[#162d45] overflow-hidden flex items-end">
-                          <div
-                            className="w-full rounded-full transition-all duration-500"
-                            style={{
-                              height: `${meta.score}%`,
-                              background: `linear-gradient(180deg, ${card.accent}, ${card.accent}66)`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="w-[110px] md:w-auto">
-                      <div className="text-[10px] font-bold text-slate-200 truncate">{card.shortName}</div>
-                      <div className={`text-[9px] mt-0.5 ${meta.text} truncate`}>{meta.label}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <Activity className="w-4 h-4 text-[#55c7ff]" />
           </div>
-
-          <div className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
-            <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between">
-              <div>
-                <div className="text-sm font-bold text-white">Needs your attention</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Business signals worth reviewing next</div>
-              </div>
-              <Activity className="w-4 h-4 text-[#55c7ff]" />
-            </div>
-            <div className="p-4 space-y-2">
-              {actions.length ? (
-                actions.map((action) => {
-                  const card = appCards.find((item) => item.key === action.key)!;
-                  const app = appFor(card.id, card.shortName);
-                  const launchUrl = appLaunchUrl(app, card.fallback);
-                  const Icon = card.icon;
-                  return (
-                    <div key={action.title} className="rounded-xl border border-[#18324b] bg-[#07121f] p-3 flex items-start gap-3">
-                      <div className="w-8 h-8 shrink-0 rounded-lg border border-white/10 flex items-center justify-center" style={{ backgroundColor: `${card.accent}18` }}>
-                        <Icon className={`w-4 h-4 ${card.iconClass}`} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-bold text-slate-200">{action.title}</div>
-                        <div className="text-[9px] text-slate-500 mt-1 leading-relaxed">{action.detail}</div>
-                      </div>
+          <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {actions.length ? (
+              actions.map((action) => {
+                const card = appCards.find((item) => item.key === action.key)!;
+                const app = appFor(card.id, card.shortName);
+                const launchUrl = appLaunchUrl(app, card.fallback);
+                const Icon = card.icon;
+                const actionText =
+                  action.key === "ffpro" ? "Review cash flow" :
+                  action.key === "tiquet" ? "Review open jobs" :
+                  action.key === "marketing" ? "Open marketing" :
+                  action.key === "academy" ? "Continue training" :
+                  "Review in app";
+                return (
+                  <div key={action.title} className="rounded-2xl border border-[#18324b] bg-[#07121f] p-4 flex items-start gap-3">
+                    <div className="w-9 h-9 shrink-0 rounded-xl border border-white/10 flex items-center justify-center" style={{ backgroundColor: `${card.accent}18` }}>
+                      <Icon className={`w-4 h-4 ${card.iconClass}`} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-slate-100">{action.title}</div>
+                      <div className="text-[10px] text-slate-500 mt-1 leading-relaxed">{action.detail}</div>
                       {launchUrl && (
-                        <a href={launchUrl} target="_blank" rel="noopener noreferrer" className="text-[#55c7ff] hover:text-white">
-                          <ArrowUpRight className="w-4 h-4" />
+                        <a href={launchUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-bold text-[#55c7ff] hover:text-white no-underline">
+                          {actionText} <ArrowUpRight className="w-3 h-3" />
                         </a>
                       )}
                     </div>
-                  );
-                })
-              ) : (
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 flex items-start gap-3">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />
-                  <div>
-                    <div className="text-[11px] font-bold text-emerald-200">No urgent signals</div>
-                    <div className="text-[9px] text-slate-500 mt-1">Connected applications are not surfacing urgent actions right now.</div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="lg:col-span-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 flex items-start gap-3">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />
+                <div>
+                  <div className="text-xs font-bold text-emerald-200">Nothing urgent right now</div>
+                  <div className="text-[10px] text-slate-500 mt-1">Your connected business apps are not surfacing urgent actions.</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-2 px-1">
+            <div className="text-sm font-bold text-white">Business KPIs</div>
+            <div className="text-[10px] text-slate-500 mt-0.5">Current operational snapshot. Time periods are shown where the source app defines them.</div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {visibleMetricCards.map((metric) => {
+              const Icon = metric.icon;
+              const summary = summaries?.[metric.key];
+              const meta = statusMeta(summary);
+              return (
+                <div
+                  key={metric.key}
+                  className="group relative overflow-hidden rounded-2xl border border-[#1a3854] bg-[#0a1727] p-4 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
+                >
+                  <div className={`absolute inset-0 bg-gradient-to-br ${metric.glow} opacity-90 pointer-events-none`} />
+                  <div className="relative">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#07111f]/75 border border-white/10 flex items-center justify-center">
+                        <Icon className={`w-5 h-5 ${metric.color}`} />
+                      </div>
+                      <span className={`inline-flex items-center gap-1.5 text-[9px] font-semibold ${meta.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="mt-4 text-[10px] uppercase tracking-[0.13em] text-slate-500 font-bold">{metric.label}</div>
+                    <div className="mt-1 text-[24px] leading-none font-black tracking-tight text-white truncate">{metric.value}</div>
+                    <div className="mt-2 text-[10px] text-slate-500">{metric.detail}</div>
                   </div>
                 </div>
-              )}
-              <div className="pt-2 text-[9px] text-slate-600">
-                Last KPI refresh: {dashboard?.generatedAt ? new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}
-              </div>
-            </div>
+              );
+            })}
           </div>
         </section>
 
         <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
           <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-white">App launcher</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Your approved V79 Digital workspace applications</div>
+              <div className="text-sm font-bold text-white">Your apps</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">Only the V79 modules enabled for this workspace appear here</div>
             </div>
-            <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff]">
-              Open all apps
+            <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff] hover:text-white">
+              Manage apps
             </button>
           </div>
           <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-            {appCards.map((card) => {
+            {visibleAppCards.map((card) => {
               const app = appFor(card.id, card.shortName);
               const summary = summaries?.[card.key];
               const meta = statusMeta(summary);
-              const metrics = card.metrics(summary?.metrics || {});
+              const metrics = card.metrics(summary?.metrics || {}).slice(0, 2);
               const launchUrl = appLaunchUrl(app, card.fallback);
               const Icon = card.icon;
               return (
@@ -541,7 +480,7 @@ export function HubOverview({
                   target={launchUrl ? "_blank" : undefined}
                   rel={launchUrl ? "noopener noreferrer" : undefined}
                   aria-disabled={!launchUrl}
-                  className={`group relative overflow-hidden min-h-[190px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
+                  className={`group relative overflow-hidden min-h-[150px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
                 >
                   <div className="absolute -right-8 -bottom-10 w-28 h-28 rounded-full blur-2xl opacity-25" style={{ backgroundColor: card.accent }} />
                   <div className="relative h-full flex flex-col">
@@ -549,26 +488,27 @@ export function HubOverview({
                       <div className="w-10 h-10 rounded-xl border border-white/10 bg-[#07111f]/85 flex items-center justify-center shadow-lg">
                         <Icon className={`w-5 h-5 ${card.iconClass}`} />
                       </div>
-                      <span className={`text-[8px] font-bold uppercase tracking-[0.12em] ${meta.text}`}>{meta.label}</span>
+                      <span className={`inline-flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] ${meta.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} /> {meta.label}
+                      </span>
                     </div>
-                    <div className="mt-4">
-                      <div className="text-[9px] uppercase tracking-[0.13em] text-slate-500 font-bold">{card.category}</div>
-                      <div className="mt-1 text-[13px] font-black text-white leading-tight">{card.title}</div>
-                      <div className="mt-2 text-[9px] leading-relaxed text-slate-500 line-clamp-2">{card.description}</div>
+                    <div className="mt-3">
+                      <div className="text-[13px] font-black text-white leading-tight">{card.title}</div>
+                      <div className="mt-1 text-[9px] text-slate-500">{card.category}</div>
                     </div>
-                    <div className="mt-auto pt-4 grid grid-cols-3 gap-1.5">
+                    <div className="mt-3 flex gap-4">
                       {metrics.map((metric) => (
-                        <div key={metric.label} className="rounded-lg bg-black/15 border border-white/[0.06] px-2 py-1.5 min-w-0">
-                          <div className="text-[7px] text-slate-600 truncate">{metric.label}</div>
-                          <div className="text-[10px] font-bold text-slate-200 truncate">
+                        <div key={metric.label} className="min-w-0">
+                          <div className="text-[7px] uppercase tracking-wide text-slate-600">{metric.label}</div>
+                          <div className="mt-0.5 text-[10px] font-bold text-slate-200 truncate">
                             {summary?.status === "ok" ? metric.value : "-"}
                           </div>
                         </div>
                       ))}
                     </div>
-                    <div className="mt-3 flex items-center justify-between text-[9px]">
-                      <span className="text-slate-600">{launchUrl ? "Ready" : app?.accessMessage || "Setup pending"}</span>
-                      <span className="inline-flex items-center gap-1 font-bold" style={{ color: card.accent }}>
+                    <div className="mt-auto pt-3 flex items-center justify-between">
+                      <span className="text-[9px] text-slate-600">{launchUrl ? "Ready to open" : app?.accessMessage || "Setup pending"}</span>
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-black/10 px-2.5 py-1.5 text-[9px] font-bold" style={{ color: card.accent }}>
                         Open <ArrowUpRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                       </span>
                     </div>
@@ -585,23 +525,27 @@ export function HubOverview({
               <ShieldCheck className="w-5 h-5 text-[#55c7ff]" />
             </div>
             <div>
-              <div className="text-[11px] font-bold text-white">System health</div>
+              <div className="text-[11px] font-bold text-white">System status</div>
               <div className="text-[9px] text-slate-500 mt-1">
-                {onlineCount === 5 ? "All connected KPI feeds are operational." : `${onlineCount} of 5 KPI feeds are currently operational.`}
+                {onlineCount === visibleAppCards.length
+                  ? "All enabled Hub data connections are operational."
+                  : `${onlineCount} of ${visibleAppCards.length} enabled Hub data connections are operational.`}
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {appCards.map((card) => {
-              const meta = statusMeta(summaries?.[card.key]);
-              return (
-                <div key={card.key} className="rounded-full border border-[#1d3c58] bg-[#07121f] px-2.5 py-1.5 flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                  <span className="text-[8px] font-bold text-slate-400">{card.shortName}</span>
-                </div>
-              );
-            })}
-          </div>
+          {user.platformOperator && (
+            <div className="flex flex-wrap gap-2">
+              {visibleAppCards.map((card) => {
+                const meta = statusMeta(summaries?.[card.key]);
+                return (
+                  <div key={card.key} className="rounded-full border border-[#1d3c58] bg-[#07121f] px-2.5 py-1.5 flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                    <span className="text-[8px] font-bold text-slate-400">{card.shortName}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <footer className="px-1 pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[9px] text-slate-600">

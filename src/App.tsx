@@ -18,7 +18,7 @@ import { WorkspaceSecurity } from "./components/WorkspaceSecurity";
 import { WorkspaceBilling } from "./components/WorkspaceBilling";
 import { AdminConsole } from "./components/AdminConsole";
 import { OwnerAssistant } from "./components/OwnerAssistant";
-import { CheckCircle2, AlertCircle, RotateCw, Bell, Sun, Moon } from "lucide-react";
+import { CheckCircle2, AlertCircle, RotateCw, Bell, Sun, Moon, ShieldCheck, LogOut, ChevronDown } from "lucide-react";
 
 export default function App() {
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -37,6 +37,7 @@ export default function App() {
     catch { return "dark"; }
   });
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -236,12 +237,18 @@ export default function App() {
   const canView = (view: ViewState) =>
     view === "overview" ||
     view === "dashboard" ||
-    (view === "admin" ? isAdmin : view === "assistant" ? user.ownerAgent === true : Boolean(user.permissions?.includes(view)));
+    (view === "admin"
+      ? isAdmin
+      : view === "assistant"
+        ? user.ownerAgent === true
+        : isAdmin && ["connections", "team", "security", "billing"].includes(view)
+          ? true
+          : Boolean(user.permissions?.includes(view)));
 
   const viewLabel: Record<string, string> = {
     overview: "Dashboard",
     dashboard: "Dashboard",
-    connections: "Connections",
+    connections: "Apps",
     team: "Team",
     security: "Security",
     billing: "Plans & Billing",
@@ -313,14 +320,48 @@ export default function App() {
               onNavigateToEcosystem={() => setCurrentView("overview")}
               authToken={authToken}
             />
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-[#17324d]">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#0A86FF] to-[#6d5dfc] flex items-center justify-center text-[10px] font-black text-white">
-                {(user.fullName || user.username || "U").trim().split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase()}
-              </div>
-              <div className="hidden xl:block min-w-0 max-w-[130px]">
-                <div className="text-[10px] font-bold text-white truncate">{user.fullName || user.username}</div>
-                <div className="text-[8px] text-slate-600 capitalize">{user.workspaceOwner ? "Owner" : user.role}</div>
-              </div>
+            <div className="relative hidden sm:block pl-2 border-l border-[#17324d]">
+              <button
+                type="button"
+                onClick={() => setAccountMenuOpen(open => !open)}
+                aria-expanded={accountMenuOpen}
+                aria-haspopup="menu"
+                className="flex items-center gap-2 rounded-xl px-1.5 py-1 hover:bg-white/[0.04] transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#0A86FF] to-[#6d5dfc] flex items-center justify-center text-[10px] font-black text-white">
+                  {(user.fullName || user.username || "U").trim().split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase()}
+                </div>
+                <div className="hidden xl:block min-w-0 max-w-[130px] text-left">
+                  <div className="text-[10px] font-bold text-white truncate">{user.fullName || user.username}</div>
+                  <div className="text-[8px] text-slate-600 capitalize">{user.workspaceOwner ? "Owner" : user.role}</div>
+                </div>
+                <ChevronDown className={"w-3.5 h-3.5 text-slate-600 transition-transform " + (accountMenuOpen ? "rotate-180" : "")} />
+              </button>
+
+              {accountMenuOpen && (
+                <div role="menu" className="absolute right-0 top-12 w-56 rounded-2xl border border-[#1a3854] bg-[#091728] shadow-2xl p-2 z-50">
+                  <div className="px-3 py-2 border-b border-[#17324d] mb-1">
+                    <div className="text-[10px] font-bold text-white truncate">{user.fullName || user.username}</div>
+                    <div className="text-[9px] text-slate-500 truncate">{organizationName}</div>
+                  </div>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setCurrentView("security"); setAccountMenuOpen(false); }}
+                    className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/[0.05]"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-[#55c7ff]" />
+                    Security
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setAccountMenuOpen(false); void handleLogout(); }}
+                    className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-rose-300 hover:text-white hover:bg-rose-500/10"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign out
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
