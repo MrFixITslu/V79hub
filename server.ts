@@ -2496,14 +2496,16 @@ app.post("/api/billing/internal/order", async (req, res) => {
 
   // Tiquet invoice collection is intentionally owner-only until WiPay confirms
   // a marketplace/sub-merchant settlement model for third-party V79 tenants.
-  if (service.sourceApp === "tiquet" && req.body?.merchantScope !== "v79-owner") {
+  const requestedOrganizationId = String(req.body?.organizationId || "").trim();
+  if (service.sourceApp === "tiquet" &&
+      (req.body?.merchantScope !== "v79-owner" || requestedOrganizationId !== posIdentity.organizationId)) {
     return res.status(403).json({ error: "Tiquet WiPay invoice collection is restricted to the V79 Digital merchant workspace." });
   }
 
   const now = new Date().toISOString();
   const order: BillingOrder = {
     id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
-    ...(service.sourceApp === "tiquet" ? { organizationId: posIdentity.organizationId } : {}),
+    ...(service.sourceApp === "tiquet" ? { organizationId: requestedOrganizationId } : {}),
     subjectReference,
     sourceApp: service.sourceApp,
     kind: kind as BillingOrder["kind"],
