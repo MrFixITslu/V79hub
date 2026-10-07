@@ -2483,6 +2483,7 @@ app.post("/api/billing/internal/order", async (req, res) => {
   const description = String(req.body?.description || "").trim();
   const returnPath = validBillingReturnPath(req.body?.returnPath);
   const amount = normalizeMoney(req.body?.amount);
+  const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
 
   if ((service.sourceApp === "academy" && kind !== "course") ||
       (service.sourceApp === "tiquet" && kind !== "invoice") ||
@@ -2490,8 +2491,12 @@ app.post("/api/billing/internal/order", async (req, res) => {
       !subjectReference || subjectReference.length > 160 ||
       !description || description.length > 220 ||
       !returnPath ||
-      amount === null || amount <= 0 || amount > 1_000_000) {
+      amount === null || amount <= 0 || amount > 1_000_000 ||
+      !/^[A-Z]{3}$/.test(sourceCurrency)) {
     return res.status(400).json({ error: "Valid billing order details are required." });
+  }
+  if (config.environment === "live" && sourceCurrency !== config.currency) {
+    return res.status(409).json({ error: "The source application's currency does not match the live WiPay merchant currency.", code: "BILLING_CURRENCY_MISMATCH" });
   }
 
   // Tiquet invoice collection is intentionally owner-only until WiPay confirms
