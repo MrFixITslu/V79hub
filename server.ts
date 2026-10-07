@@ -2425,7 +2425,8 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     renewalDate: plan.renewalDate || null,
     billingManagedBy: "V79 Digital",
     supportEmail: normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail,
-    selfServicePaymentsEnabled: provider.ready && ["monthly", "annual"].includes(plan.billingCycle) && Number(plan.priceXcd) > 0,
+    selfServicePaymentsEnabled: provider.ready && provider.environment === "live" && ["monthly", "annual"].includes(plan.billingCycle) && Number(plan.priceXcd) > 0,
+    sandboxTestPaymentsEnabled: provider.ready && provider.environment === "sandbox",
     paymentProvider: provider,
   });
 });
@@ -2670,6 +2671,53 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
     amount: order.amount,
     currency: order.currency,
     billingCycle: plan.billingCycle,
+  }, session.userId, session.organizationId);
+  await commitStore(nextStore);
+
+  res.status(201).json({
+    order: {
+      id: order.id,
+      description: order.description,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+    },
+    checkout,
+  });
+});
+
+app.post("/api/billing/sandbox-test", requireAuth, requirePermission("billing"), async (req, res) => {
+  const session = (req as any).user;
+  const config = getWipayConfig(process.env);
+  if (!config.ready || config.environment !== "sandbox") {
+    return res.status(409).json({ error: "WiPay sandbox testing is not enabled." });
+  }
+
+  const amount = 10;
+  const now = new Date().toISOString();
+  const order: BillingOrder = {
+    id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
+    organizationId: session.organizationId,
+    sourceApp: "hub",
+    kind: "subscription",
+    description: "WiPay sandbox integration test",
+    amount,
+    currency: config.currency,
+    provider: "wipay",
+    providerEnvironment: "sandbox",
+    status: "pending",
+    createdByUserId: session.userId,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const checkout = createWipayCheckout({ order, config });
+  const nextStore = cloneStore();
+  nextStore.billingOrders.push(order);
+  onboardingAudit(nextStore, "billing_sandbox_checkout_created", {
+    orderId: order.id,
+    amount: order.amount,
+    currency: order.currency,
   }, session.userId, session.organizationId);
   await commitStore(nextStore);
 
