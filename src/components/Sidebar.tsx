@@ -1,13 +1,16 @@
+import { useState } from "react";
 import {
   Bot,
   CreditCard,
   Grid3X3,
   Home,
   LogOut,
+  MoreHorizontal,
   Settings2,
   ShieldCheck,
   Sparkles,
   Users,
+  X,
 } from "lucide-react";
 import { ViewState, User } from "../types";
 
@@ -33,6 +36,7 @@ export function Sidebar({
   user,
   organizationName = "V79 Digital",
 }: SidebarProps) {
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const permissions = new Set<ViewState>(user.permissions || ["overview"]);
   const can = (view: ViewState) =>
     view === "overview" ||
@@ -148,23 +152,137 @@ export function Sidebar({
         </div>
       </aside>
 
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-[70] bg-[#06101d]/95 backdrop-blur-xl border-t border-[#17324d] px-2 py-2 flex items-center gap-1 overflow-x-auto">
-        {primary.filter((item) => item.visible).map((item) => {
+      <nav
+        className="lg:hidden fixed bottom-0 inset-x-0 z-[70] bg-[#06101d]/95 backdrop-blur-xl border-t border-[#17324d] px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex items-center gap-1"
+        aria-label="Mobile workspace navigation"
+      >
+        {primary.filter((item) => item.visible).slice(0, 4).map((item) => {
           const Icon = item.icon;
           return (
             <button
               key={item.view}
-              onClick={() => onViewChange(item.view)}
-              className={`min-w-[68px] flex-1 flex flex-col items-center gap-1 rounded-xl py-2 px-2 text-[10px] font-semibold ${
-                active(item.view) ? "text-[#55c7ff] bg-[#0A86FF]/10" : "text-slate-500"
+              onClick={() => {
+                onViewChange(item.view);
+                setMobileMoreOpen(false);
+              }}
+              className={`min-w-0 flex-1 min-h-12 flex flex-col items-center justify-center gap-1 rounded-xl py-1.5 px-1 text-[11px] font-semibold ${
+                active(item.view) ? "text-[#55c7ff] bg-[#0A86FF]/10" : "text-slate-400"
               }`}
             >
-              <Icon className="w-4 h-4" />
-              {item.label}
+              <Icon className="w-5 h-5" />
+              <span className="max-w-full truncate">{item.label}</span>
             </button>
           );
         })}
+
+        <button
+          type="button"
+          onClick={() => setMobileMoreOpen((open) => !open)}
+          aria-expanded={mobileMoreOpen}
+          aria-controls="hub-mobile-more"
+          className={`min-w-0 flex-1 min-h-12 flex flex-col items-center justify-center gap-1 rounded-xl py-1.5 px-1 text-[11px] font-semibold ${
+            mobileMoreOpen ? "text-[#55c7ff] bg-[#0A86FF]/10" : "text-slate-400"
+          }`}
+        >
+          <MoreHorizontal className="w-5 h-5" />
+          <span>More</span>
+        </button>
       </nav>
+
+      {mobileMoreOpen && (
+        <div className="lg:hidden fixed inset-0 z-[80]">
+          <button
+            type="button"
+            aria-label="Close mobile menu"
+            className="absolute inset-0 bg-[#020711]/75 backdrop-blur-sm"
+            onClick={() => setMobileMoreOpen(false)}
+          />
+          <section
+            id="hub-mobile-more"
+            role="dialog"
+            aria-modal="true"
+            aria-label="More workspace options"
+            className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-[#1a3854] bg-[#07111f] px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl"
+          >
+            <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-slate-700" />
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-black text-white">Workspace menu</div>
+                <div className="mt-0.5 truncate text-xs text-slate-500">{organizationName}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileMoreOpen(false)}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#1a3854] bg-[#091728] text-slate-300"
+                aria-label="Close menu"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              {primary.filter((item) => item.visible).slice(4).map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.view}
+                    type="button"
+                    onClick={() => {
+                      onViewChange(item.view);
+                      setMobileMoreOpen(false);
+                    }}
+                    className="flex min-h-12 items-center gap-3 rounded-xl border border-[#1a3854] bg-[#091728] px-4 text-left text-sm font-semibold text-slate-200"
+                  >
+                    <Icon className="h-5 w-5 text-[#55c7ff]" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+
+              {user.ownerAgent && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onViewChange("assistant");
+                    setMobileMoreOpen(false);
+                  }}
+                  className="flex min-h-12 items-center gap-3 rounded-xl border border-[#1a3854] bg-[#091728] px-4 text-left text-sm font-semibold text-slate-200"
+                >
+                  <Bot className="h-5 w-5 text-[#a78bfa]" />
+                  <span>Owner Assistant</span>
+                  <Sparkles className="ml-auto h-4 w-4 text-amber-400" />
+                </button>
+              )}
+
+              {user.platformOperator && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onViewChange("admin");
+                    setMobileMoreOpen(false);
+                  }}
+                  className="flex min-h-12 items-center gap-3 rounded-xl border border-[#1a3854] bg-[#091728] px-4 text-left text-sm font-semibold text-slate-200"
+                >
+                  <Settings2 className="h-5 w-5 text-[#55c7ff]" />
+                  <span>Platform Admin</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                  onLogout();
+                }}
+                className="flex min-h-12 items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 text-left text-sm font-semibold text-rose-200"
+              >
+                <LogOut className="h-5 w-5" />
+                <span>Sign out</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 }

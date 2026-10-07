@@ -266,7 +266,7 @@ export default function App() {
         user={user}
         organizationName={organizationName}
       />
-      <main className="flex-1 min-w-0 overflow-y-auto relative flex flex-col bg-[#07111f]">
+      <main className="flex-1 min-w-0 overflow-y-auto relative flex flex-col bg-[#07111f] pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:pb-0">
         <header className="h-[60px] px-4 sm:px-5 xl:px-7 border-b border-[#17324d]/80 bg-[#07111f]/95 backdrop-blur-xl flex items-center justify-between shrink-0 sticky top-0 z-30 text-slate-200">
           <div className="flex items-center gap-3 min-w-0">
             <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-[#1a3854] bg-[#091728] min-w-0 max-w-[260px]">
