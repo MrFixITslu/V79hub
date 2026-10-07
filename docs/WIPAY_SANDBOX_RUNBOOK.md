@@ -124,9 +124,10 @@ Do not switch to `WIPAY_ENV=live` until WiPay provides and confirms all of the f
 - production payment-request endpoint
 - accepted country code
 - accepted settlement/transaction currency
+- confirmation that Hub/Aggregated Academy prices can be charged in XCD (Hub self-service remains disabled if the live merchant currency is not XCD)
 - fee structure expectations
 - callback/verification requirements
 - whether recurring/tokenized billing is supported for Academy/Hub subscriptions
 - whether marketplace/sub-merchant settlement is supported before enabling Tiquet payments for customer SMB tenants
 
-When those values are known, replace the sandbox configuration and perform a low-value live transaction before enabling customer-facing payment buttons broadly.
+Before switching environments, let any in-flight sandbox checkout finish or expire so a callback is never verified against the wrong environment key. When the live values are known, replace the sandbox configuration and perform a low-value live transaction before enabling customer-facing payment buttons broadly.
