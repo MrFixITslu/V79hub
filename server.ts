@@ -19,6 +19,8 @@ import { activateMarketingTenantMapping, marketingProvisioningTarget, marketingT
 import { createHubStorePersistence } from "./server/runtime-store.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
+import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
+import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +103,42 @@ interface OrganizationPlan {
   renewalDate?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+interface BillingOrder {
+  id: string;
+  organizationId?: string;
+  subjectReference?: string;
+  sourceApp: "hub" | "academy" | "tiquet";
+  kind: "subscription" | "course" | "invoice";
+  externalReference?: string;
+  returnPath?: string;
+  description: string;
+  amount: number;
+  currency: string;
+  provider: "wipay";
+  providerEnvironment: "sandbox" | "live";
+  status: "pending" | "paid" | "failed" | "cancelled";
+  createdByUserId?: string;
+  providerTransactionId?: string;
+  providerMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+  paidAt?: string;
+}
+
+interface BillingPaymentEvent {
+  id: string;
+  provider: "wipay";
+  orderId?: string;
+  transactionId?: string;
+  status: string;
+  verified: boolean;
+  reason: string;
+  amount?: number;
+  currency?: string;
+  message?: string;
+  createdAt: string;
 }
 
 interface OwnerInvitation {
@@ -206,6 +244,8 @@ interface AppStore {
   memberships: Membership[];
   appEntitlements: AppEntitlement[];
   organizationPlans: OrganizationPlan[];
+  billingOrders: BillingOrder[];
+  billingPaymentEvents: BillingPaymentEvent[];
   ownerInvitations: OwnerInvitation[];
   teamInvitations: TeamInvitation[];
   appTenantMappings: AppTenantMapping[];
@@ -220,7 +260,7 @@ const defaultWorkspace: WorkspaceProfile = {
   companyName: process.env.V79_HUB_ORG_NAME || "V79 Digital",
 };
 
-const academyPublicUrl = String(process.env.ACADEMY_PUBLIC_URL || "https://academy.v79sl.com").replace(/\/$/, "");
+const academyPublicUrl = String(process.env.ACADEMY_PUBLIC_URL || "https://v79academy.v79sl.com").replace(/\/$/, "");
 
 const defaultEcosystemApps: EcosystemApp[] = [
   {
@@ -559,6 +599,8 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.memberships !== undefined && !Array.isArray(parsed.memberships)) ||
       (parsed.appEntitlements !== undefined && !Array.isArray(parsed.appEntitlements)) ||
       (parsed.organizationPlans !== undefined && !Array.isArray(parsed.organizationPlans)) ||
+      (parsed.billingOrders !== undefined && !Array.isArray(parsed.billingOrders)) ||
+      (parsed.billingPaymentEvents !== undefined && !Array.isArray(parsed.billingPaymentEvents)) ||
       (parsed.ownerInvitations !== undefined && !Array.isArray(parsed.ownerInvitations)) ||
       (parsed.teamInvitations !== undefined && !Array.isArray(parsed.teamInvitations)) ||
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
@@ -574,6 +616,8 @@ function normalizeLoadedStore(parsed: any): AppStore {
     memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [],
     appEntitlements: Array.isArray(parsed.appEntitlements) ? parsed.appEntitlements : [],
     organizationPlans: Array.isArray(parsed.organizationPlans) ? parsed.organizationPlans : [],
+    billingOrders: Array.isArray(parsed.billingOrders) ? parsed.billingOrders : [],
+    billingPaymentEvents: Array.isArray(parsed.billingPaymentEvents) ? parsed.billingPaymentEvents : [],
     ownerInvitations: Array.isArray(parsed.ownerInvitations) ? parsed.ownerInvitations : [],
     teamInvitations: Array.isArray(parsed.teamInvitations) ? parsed.teamInvitations : [],
     appTenantMappings: Array.isArray(parsed.appTenantMappings) ? parsed.appTenantMappings : [],
@@ -587,7 +631,7 @@ function initialStore(): AppStore {
     users: defaultUsers,
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
-    organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], ownerInvitations: [],
+    organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
     teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
   };
 }
@@ -2364,6 +2408,7 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     .map(app => ({ id: app.id, name: app.shortName || app.name }));
 
   const plan = organizationPlanFor(store, session.organizationId);
+  const provider = publicWipayConfig(getWipayConfig(process.env));
   res.setHeader("Cache-Control", "no-store");
   res.json({
     organization: organization?.name || "Business workspace",
@@ -2380,8 +2425,430 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     renewalDate: plan.renewalDate || null,
     billingManagedBy: "V79 Digital",
     supportEmail: normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail,
-    selfServicePaymentsEnabled: false,
+    selfServicePaymentsEnabled: provider.ready && provider.environment === "live" && provider.currency === "XCD" && ["monthly", "annual"].includes(plan.billingCycle) && Number(plan.priceXcd) > 0,
+    sandboxTestPaymentsEnabled: provider.ready && provider.environment === "sandbox",
+    paymentProvider: provider,
   });
+});
+
+function billingServiceFromRequest(req: Request) {
+  const source = String(req.get("x-v79-service-id") || "");
+  const entries: Record<string, { sourceApp: "academy" | "tiquet"; secret: string }> = {
+    "v79-academy-billing": { sourceApp: "academy", secret: String(process.env.V79_ACADEMY_BILLING_SECRET || "") },
+    "v79-tiquet-billing": { sourceApp: "tiquet", secret: String(process.env.V79_TIQUET_BILLING_SECRET || "") },
+  };
+  const entry = entries[source];
+  if (!entry) return null;
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  const pathname = req.path;
+  const verified = verifyPlatformRequest({
+    method: req.method,
+    pathname,
+    timestamp: req.get("x-v79-timestamp") || "",
+    signature: req.get("x-v79-signature") || "",
+    body,
+    secret: entry.secret,
+  });
+  return verified ? entry : null;
+}
+
+function validBillingReturnPath(value: unknown) {
+  const returnPath = typeof value === "string" ? value.trim() : "";
+  if (!returnPath || returnPath.length > 500 || !returnPath.startsWith("/") || returnPath.startsWith("//") || /[\r\n]/.test(returnPath)) return "";
+  return returnPath;
+}
+
+function billingOrderReturnUrl(order: BillingOrder) {
+  const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
+  const base = order.sourceApp === "academy"
+    ? String(process.env.ACADEMY_PUBLIC_URL || "https://v79academy.v79sl.com").replace(/\/$/, "")
+    : order.sourceApp === "tiquet"
+      ? String(process.env.TIQUET_PUBLIC_URL || "https://tiquet.v79sl.com").replace(/\/$/, "")
+      : appUrl;
+  const safePath = validBillingReturnPath(order.returnPath) || "/";
+  const target = new URL(safePath, base + "/");
+  if (target.origin !== new URL(base).origin) return new URL("/", base).toString();
+  return target.toString();
+}
+
+app.post("/api/billing/internal/order", async (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+
+  const config = getWipayConfig(process.env);
+  if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+
+  const kind = String(req.body?.kind || "");
+  const externalReference = String(req.body?.externalReference || "").trim();
+  const subjectReference = String(req.body?.subjectReference || "").trim();
+  const description = String(req.body?.description || "").trim();
+  const returnPath = validBillingReturnPath(req.body?.returnPath);
+  const amount = normalizeMoney(req.body?.amount);
+  const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
+
+  if ((service.sourceApp === "academy" && kind !== "course") ||
+      (service.sourceApp === "tiquet" && kind !== "invoice") ||
+      !externalReference || externalReference.length > 160 ||
+      !subjectReference || subjectReference.length > 160 ||
+      !description || description.length > 220 ||
+      !returnPath ||
+      amount === null || amount <= 0 || amount > 1_000_000 ||
+      !/^[A-Z]{3}$/.test(sourceCurrency)) {
+    return res.status(400).json({ error: "Valid billing order details are required." });
+  }
+  if (config.environment === "live" && sourceCurrency !== config.currency) {
+    return res.status(409).json({ error: "The source application's currency does not match the live WiPay merchant currency.", code: "BILLING_CURRENCY_MISMATCH" });
+  }
+
+  // Tiquet invoice collection is intentionally owner-only until WiPay confirms
+  // a marketplace/sub-merchant settlement model for third-party V79 tenants.
+  const requestedOrganizationId = String(req.body?.organizationId || "").trim();
+  if (service.sourceApp === "tiquet" &&
+      (req.body?.merchantScope !== "v79-owner" || requestedOrganizationId !== posIdentity.organizationId)) {
+    return res.status(403).json({ error: "Tiquet WiPay invoice collection is restricted to the V79 Digital merchant workspace." });
+  }
+
+  const now = new Date().toISOString();
+  const order: BillingOrder = {
+    id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
+    ...(service.sourceApp === "tiquet" ? { organizationId: requestedOrganizationId } : {}),
+    subjectReference,
+    sourceApp: service.sourceApp,
+    kind: kind as BillingOrder["kind"],
+    externalReference,
+    returnPath,
+    description,
+    amount,
+    currency: config.currency,
+    provider: "wipay",
+    providerEnvironment: config.environment as BillingOrder["providerEnvironment"],
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const checkout = createWipayCheckout({ order, config });
+  const nextStore = cloneStore();
+  nextStore.billingOrders.push(order);
+  onboardingAudit(nextStore, "billing_service_checkout_created", {
+    orderId: order.id,
+    sourceApp: order.sourceApp,
+    kind: order.kind,
+    externalReference: order.externalReference,
+    amount: order.amount,
+    currency: order.currency,
+    providerEnvironment: order.providerEnvironment,
+  }, undefined, order.organizationId);
+  await commitStore(nextStore);
+
+  res.status(201).json({
+    order: {
+      id: order.id,
+      sourceApp: order.sourceApp,
+      kind: order.kind,
+      externalReference: order.externalReference,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+    },
+    checkout,
+  });
+});
+
+app.post("/api/billing/internal/capabilities", (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+
+  const provider = publicWipayConfig(getWipayConfig(process.env));
+  const requestedOrganizationId = String(req.body?.organizationId || "").trim();
+  const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
+  const currencyCompatible = /^[A-Z]{3}$/.test(sourceCurrency) &&
+    (provider.environment !== "live" || sourceCurrency === provider.currency);
+  const checkoutAvailable = service.sourceApp === "tiquet"
+    ? Boolean(provider.ready && currencyCompatible && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
+    : Boolean(provider.ready && currencyCompatible);
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    sourceApp: service.sourceApp,
+    checkoutAvailable,
+    currencyCompatible,
+    provider: {
+      provider: provider.provider,
+      environment: provider.environment,
+      currency: provider.currency,
+      countryCode: provider.countryCode,
+      ready: provider.ready,
+    },
+  });
+});
+
+app.post("/api/billing/internal/status", (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+  const orderId = String(req.body?.orderId || "").trim();
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return res.status(400).json({ error: "Invalid billing order." });
+  const order = (store.billingOrders || []).find(item => item.id === orderId && item.sourceApp === service.sourceApp);
+  if (!order) return res.status(404).json({ error: "Billing order not found." });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    order: {
+      id: order.id,
+      sourceApp: order.sourceApp,
+      kind: order.kind,
+      externalReference: order.externalReference || null,
+      subjectReference: order.subjectReference || null,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+      providerEnvironment: order.providerEnvironment,
+      providerTransactionId: order.status === "paid" ? order.providerTransactionId || null : null,
+      paidAt: order.paidAt || null,
+    },
+  });
+});
+
+app.get("/api/billing/orders", requireAuth, requirePermission("billing"), (req, res) => {
+  const session = (req as any).user;
+  const orders = (store.billingOrders || [])
+    .filter(order => order.organizationId === session.organizationId)
+    .slice(-25)
+    .reverse()
+    .map(order => ({
+      id: order.id,
+      sourceApp: order.sourceApp,
+      kind: order.kind,
+      description: order.description,
+      amount: order.amount,
+      currency: order.currency,
+      provider: order.provider,
+      providerEnvironment: order.providerEnvironment,
+      status: order.status,
+      providerTransactionId: order.providerTransactionId || null,
+      createdAt: order.createdAt,
+      paidAt: order.paidAt || null,
+    }));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ orders });
+});
+
+app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), async (req, res) => {
+  const session = (req as any).user;
+  const config = getWipayConfig(process.env);
+  if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+
+  if (config.environment !== "live") {
+    return res.status(409).json({ error: "Use the dedicated sandbox test checkout while WiPay is in sandbox mode." });
+  }
+  if (config.currency !== "XCD") {
+    return res.status(409).json({
+      error: "Hub plan prices are stored in XCD and cannot be charged through a different live merchant currency.",
+      code: "BILLING_CURRENCY_MISMATCH",
+    });
+  }
+
+  const plan = organizationPlanFor(store, session.organizationId);
+  if (!["monthly", "annual"].includes(plan.billingCycle)) {
+    return res.status(409).json({ error: "This workspace plan is not configured for self-service monthly or annual renewal." });
+  }
+  const amount = normalizeMoney(plan.priceXcd);
+  if (amount === null || amount <= 0) return res.status(409).json({ error: "A positive workspace plan price must be configured before checkout." });
+
+  const now = new Date().toISOString();
+  const order: BillingOrder = {
+    id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
+    organizationId: session.organizationId,
+    sourceApp: "hub",
+    kind: "subscription",
+    description: `${plan.planName} ${plan.billingCycle} renewal`,
+    amount,
+    currency: config.currency,
+    provider: "wipay",
+    providerEnvironment: config.environment as BillingOrder["providerEnvironment"],
+    status: "pending",
+    createdByUserId: session.userId,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const checkout = createWipayCheckout({ order, config });
+  const nextStore = cloneStore();
+  nextStore.billingOrders.push(order);
+  onboardingAudit(nextStore, "billing_checkout_created", {
+    orderId: order.id,
+    provider: order.provider,
+    providerEnvironment: order.providerEnvironment,
+    amount: order.amount,
+    currency: order.currency,
+    billingCycle: plan.billingCycle,
+  }, session.userId, session.organizationId);
+  await commitStore(nextStore);
+
+  res.status(201).json({
+    order: {
+      id: order.id,
+      description: order.description,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+    },
+    checkout,
+  });
+});
+
+app.post("/api/billing/sandbox-test", requireAuth, requirePermission("billing"), async (req, res) => {
+  const session = (req as any).user;
+  const config = getWipayConfig(process.env);
+  if (!config.ready || config.environment !== "sandbox") {
+    return res.status(409).json({ error: "WiPay sandbox testing is not enabled." });
+  }
+
+  const amount = 10;
+  const now = new Date().toISOString();
+  const order: BillingOrder = {
+    id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
+    organizationId: session.organizationId,
+    sourceApp: "hub",
+    kind: "subscription",
+    description: "WiPay sandbox integration test",
+    amount,
+    currency: config.currency,
+    provider: "wipay",
+    providerEnvironment: "sandbox",
+    status: "pending",
+    createdByUserId: session.userId,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const checkout = createWipayCheckout({ order, config });
+  const nextStore = cloneStore();
+  nextStore.billingOrders.push(order);
+  onboardingAudit(nextStore, "billing_sandbox_checkout_created", {
+    orderId: order.id,
+    amount: order.amount,
+    currency: order.currency,
+  }, session.userId, session.organizationId);
+  await commitStore(nextStore);
+
+  res.status(201).json({
+    order: {
+      id: order.id,
+      description: order.description,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+    },
+    checkout,
+  });
+});
+
+app.get("/api/billing/wipay/return", async (req, res) => {
+  const config = getWipayConfig(process.env);
+  const orderId = String(req.query.order_id || "").trim();
+  const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
+  const redirect = (status: string, reason = "", order?: BillingOrder) => {
+    const url = new URL(order ? billingOrderReturnUrl(order) : (appUrl || "https://hub.v79sl.com"));
+    url.searchParams.set("payment", status);
+    if (orderId) url.searchParams.set("order", orderId);
+    if (reason) url.searchParams.set("payment_reason", reason);
+    return res.redirect(302, url.toString());
+  };
+
+  if (!orderId || orderId.length > 64) return redirect("error", "invalid_order");
+  const nextStore = cloneStore();
+  const order = nextStore.billingOrders.find(item => item.id === orderId);
+  if (!order) return redirect("error", "order_not_found");
+
+  const query = req.query as Record<string, unknown>;
+  const verification = verifyWipayReturn({ query, expectedOrder: order, config });
+  const now = new Date().toISOString();
+
+  if (order.status === "paid") {
+    const sameTransaction = Boolean(order.providerTransactionId && order.providerTransactionId === verification.transactionId);
+    return redirect(sameTransaction ? "success" : "error", sameTransaction ? "already_processed" : "order_already_paid", order);
+  }
+
+  const replay = verification.ok && nextStore.billingOrders.some(
+    item => item.id !== order.id && item.providerTransactionId && item.providerTransactionId === verification.transactionId,
+  );
+  const verified = Boolean(verification.ok && !replay);
+  const reason = replay ? "transaction_replay" : verification.reason;
+
+  nextStore.billingPaymentEvents.push({
+    id: crypto.randomUUID(),
+    provider: "wipay",
+    orderId: order.id,
+    ...(verification.transactionId ? { transactionId: verification.transactionId } : {}),
+    status: String(req.query.status || "unknown").slice(0, 30),
+    verified,
+    reason,
+    ...(verification.amount !== undefined ? { amount: verification.amount } : {}),
+    ...(verification.currency ? { currency: verification.currency } : {}),
+    ...(verification.message ? { message: verification.message } : {}),
+    createdAt: now,
+  });
+  if (nextStore.billingPaymentEvents.length > 5000) nextStore.billingPaymentEvents = nextStore.billingPaymentEvents.slice(-5000);
+
+  if (!verified) {
+    if (["failed", "error"].includes(String(req.query.status || "").toLowerCase())) {
+      order.status = "failed";
+      order.updatedAt = now;
+    }
+    onboardingAudit(nextStore, "billing_payment_rejected", { orderId: order.id, reason }, order.createdByUserId, order.organizationId);
+    await commitStore(nextStore);
+    return redirect("failed", reason, order);
+  }
+
+  order.status = "paid";
+  order.providerTransactionId = verification.transactionId;
+  order.providerMessage = verification.message || "WiPay payment verified";
+  order.paidAt = now;
+  order.updatedAt = now;
+
+  if (order.providerEnvironment === "sandbox") {
+    onboardingAudit(nextStore, "billing_sandbox_payment_verified", {
+      orderId: order.id,
+      transactionId: verification.transactionId,
+      amount: order.amount,
+      currency: order.currency,
+      sourceApp: order.sourceApp,
+    }, order.createdByUserId, order.organizationId);
+    await commitStore(nextStore);
+    return redirect("success", "sandbox_verified_no_entitlement_change", order);
+  }
+
+  if (order.sourceApp === "hub" && order.kind === "subscription") {
+    const billedOrganizationId = order.organizationId;
+    if (!billedOrganizationId) {
+      onboardingAudit(nextStore, "billing_payment_rejected", { orderId: order.id, reason: "subscription_organization_missing" }, order.createdByUserId);
+      await commitStore(nextStore);
+      return redirect("error", "subscription_organization_missing", order);
+    }
+    let plan = nextStore.organizationPlans.find(item => item.organizationId === billedOrganizationId);
+    if (!plan) {
+      const fallback = organizationPlanFor(nextStore, billedOrganizationId);
+      plan = { ...fallback, createdAt: now, updatedAt: now };
+      nextStore.organizationPlans.push(plan);
+    }
+    if (plan.billingCycle === "monthly" || plan.billingCycle === "annual") {
+      const currentRenewal = /^\d{4}-\d{2}-\d{2}$/.test(plan.renewalDate || "") ? new Date(`${plan.renewalDate}T00:00:00.000Z`) : null;
+      const base = currentRenewal && currentRenewal.getTime() > Date.now() ? currentRenewal : new Date();
+      plan.renewalDate = addBillingPeriod(base, plan.billingCycle).toISOString().slice(0, 10);
+      plan.status = "active";
+      plan.updatedAt = now;
+    }
+  }
+
+  onboardingAudit(nextStore, "billing_payment_verified", {
+    orderId: order.id,
+    transactionId: verification.transactionId,
+    amount: order.amount,
+    currency: order.currency,
+    providerEnvironment: order.providerEnvironment,
+  }, order.createdByUserId, order.organizationId);
+  await commitStore(nextStore);
+  return redirect("success", "", order);
 });
 
 app.get("/api/security/mfa/status", requireAuth, (req, res) => {

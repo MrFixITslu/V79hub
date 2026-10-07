@@ -31,7 +31,7 @@ export default function App() {
   const [isVerifyingSession, setIsVerifyingSession] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [ecosystemApps, setEcosystemApps] = useState<EcosystemApp[]>([]);
-  const [currentView, setCurrentView] = useState<ViewState>("overview");
+  const [currentView, setCurrentView] = useState<ViewState>(() => searchParams.get("payment") ? "billing" : "overview");
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     try { return (localStorage.getItem("v79-hub-theme") as "light" | "dark") || "dark"; }
     catch { return "dark"; }
