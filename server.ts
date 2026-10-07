@@ -220,6 +220,8 @@ const defaultWorkspace: WorkspaceProfile = {
   companyName: process.env.V79_HUB_ORG_NAME || "V79 Digital",
 };
 
+const academyPublicUrl = String(process.env.ACADEMY_PUBLIC_URL || "https://academy.v79sl.com").replace(/\/$/, "");
+
 const defaultEcosystemApps: EcosystemApp[] = [
   {
     id: "app-ffpro",
@@ -334,8 +336,8 @@ const defaultEcosystemApps: EcosystemApp[] = [
     description: "Public training stays independent; businesses can link learner progress to their Hub.",
     category: "team",
     status: "active",
-    appUrl: "https://v79academy.v79sl.com/academy",
-    githubRepo: "https://github.com/MrFixITslu/V79Academy",
+    appUrl: academyPublicUrl,
+    githubRepo: "https://github.com/MrFixITslu/V79acaedmy",
     iconName: "GraduationCap",
     colorScheme: {
       primary: "from-blue-600 to-indigo-700",
@@ -531,7 +533,7 @@ function normalizeEcosystemApps(value: unknown): EcosystemApp[] {
     if (app.id === "app-tiquet" || app.shortName === "Tiquet") return { ...app, appUrl: "https://tiquet.v79sl.com" };
     if (app.id === "app-marketing" || app.shortName === "Marketing") return { ...app, appUrl: "https://marketing.v79sl.com" };
     if (app.id === "app-v79pos" || app.shortName === "V79 POS") return { ...app, appUrl: "https://pos.v79sl.com" };
-    if (app.id === "app-academy" || app.shortName === "Academy") return { ...app, appUrl: "https://v79academy.v79sl.com/academy" };
+    if (app.id === "app-academy" || app.shortName === "Academy") return { ...app, appUrl: academyPublicUrl };
     if (app.id === "app-lasertag" || app.shortName === "CombatZone") return { ...app, appUrl: "https://combatzone.v79sl.com" };
     if (app.id === "app-ordely" || app.shortName === "Ordely" || app.name?.toLowerCase().includes("ordely")) return { ...v79posApp };
     return app;
@@ -4249,7 +4251,7 @@ app.get("/api/ecosystem/apps", async (req, res) => {
             : managedDescriptions[a.id] || a.description,
         features: managedDescriptions[a.id] ? [] : a.features,
         ssoSupported: ["app-ffpro","app-tiquet","app-marketing","app-v79pos"].includes(a.id) && !launchBlocked,
-        appUrl: a.id === "app-academy" ? "https://v79academy.v79sl.com/academy" : a.appUrl,
+        appUrl: a.id === "app-academy" ? academyPublicUrl : a.appUrl,
         launchReady: !launchBlocked,
         accessMessage: setupPending
           ? "Product workspace setup pending"
