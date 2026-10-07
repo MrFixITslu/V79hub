@@ -2720,6 +2720,18 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   order.paidAt = now;
   order.updatedAt = now;
 
+  if (order.providerEnvironment === "sandbox") {
+    onboardingAudit(nextStore, "billing_sandbox_payment_verified", {
+      orderId: order.id,
+      transactionId: verification.transactionId,
+      amount: order.amount,
+      currency: order.currency,
+      sourceApp: order.sourceApp,
+    }, order.createdByUserId, order.organizationId);
+    await commitStore(nextStore);
+    return redirect("success", "sandbox_verified_no_entitlement_change", order);
+  }
+
   if (order.sourceApp === "hub" && order.kind === "subscription") {
     const billedOrganizationId = order.organizationId;
     if (!billedOrganizationId) {
