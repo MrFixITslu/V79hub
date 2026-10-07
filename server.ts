@@ -2425,7 +2425,7 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     renewalDate: plan.renewalDate || null,
     billingManagedBy: "V79 Digital",
     supportEmail: normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail,
-    selfServicePaymentsEnabled: provider.ready && provider.environment === "live" && ["monthly", "annual"].includes(plan.billingCycle) && Number(plan.priceXcd) > 0,
+    selfServicePaymentsEnabled: provider.ready && provider.environment === "live" && provider.currency === "XCD" && ["monthly", "annual"].includes(plan.billingCycle) && Number(plan.priceXcd) > 0,
     sandboxTestPaymentsEnabled: provider.ready && provider.environment === "sandbox",
     paymentProvider: provider,
   });
@@ -2636,6 +2636,16 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
   const session = (req as any).user;
   const config = getWipayConfig(process.env);
   if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+
+  if (config.environment !== "live") {
+    return res.status(409).json({ error: "Use the dedicated sandbox test checkout while WiPay is in sandbox mode." });
+  }
+  if (config.currency !== "XCD") {
+    return res.status(409).json({
+      error: "Hub plan prices are stored in XCD and cannot be charged through a different live merchant currency.",
+      code: "BILLING_CURRENCY_MISMATCH",
+    });
+  }
 
   const plan = organizationPlanFor(store, session.organizationId);
   if (!["monthly", "annual"].includes(plan.billingCycle)) {
