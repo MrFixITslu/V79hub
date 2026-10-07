@@ -2560,14 +2560,18 @@ app.post("/api/billing/internal/capabilities", (req, res) => {
 
   const provider = publicWipayConfig(getWipayConfig(process.env));
   const requestedOrganizationId = String(req.body?.organizationId || "").trim();
+  const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
+  const currencyCompatible = /^[A-Z]{3}$/.test(sourceCurrency) &&
+    (provider.environment !== "live" || sourceCurrency === provider.currency);
   const checkoutAvailable = service.sourceApp === "tiquet"
-    ? Boolean(provider.ready && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
-    : Boolean(provider.ready);
+    ? Boolean(provider.ready && currencyCompatible && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
+    : Boolean(provider.ready && currencyCompatible);
 
   res.setHeader("Cache-Control", "no-store");
   res.json({
     sourceApp: service.sourceApp,
     checkoutAvailable,
+    currencyCompatible,
     provider: {
       provider: provider.provider,
       environment: provider.environment,
