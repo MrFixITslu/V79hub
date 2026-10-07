@@ -107,10 +107,12 @@ interface OrganizationPlan {
 
 interface BillingOrder {
   id: string;
-  organizationId: string;
+  organizationId?: string;
+  subjectReference?: string;
   sourceApp: "hub" | "academy" | "tiquet";
   kind: "subscription" | "course" | "invoice";
   externalReference?: string;
+  returnPath?: string;
   description: string;
   amount: number;
   currency: string;
@@ -2428,6 +2430,148 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
   });
 });
 
+function billingServiceFromRequest(req: Request) {
+  const source = String(req.get("x-v79-service-id") || "");
+  const entries: Record<string, { sourceApp: "academy" | "tiquet"; secret: string }> = {
+    "v79-academy-billing": { sourceApp: "academy", secret: String(process.env.V79_ACADEMY_BILLING_SECRET || "") },
+    "v79-tiquet-billing": { sourceApp: "tiquet", secret: String(process.env.V79_TIQUET_BILLING_SECRET || "") },
+  };
+  const entry = entries[source];
+  if (!entry) return null;
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  const pathname = req.path;
+  const verified = verifyPlatformRequest({
+    method: req.method,
+    pathname,
+    timestamp: req.get("x-v79-timestamp") || "",
+    signature: req.get("x-v79-signature") || "",
+    body,
+    secret: entry.secret,
+  });
+  return verified ? entry : null;
+}
+
+function validBillingReturnPath(value: unknown) {
+  const returnPath = typeof value === "string" ? value.trim() : "";
+  if (!returnPath || returnPath.length > 500 || !returnPath.startsWith("/") || returnPath.startsWith("//") || /[\r\n]/.test(returnPath)) return "";
+  return returnPath;
+}
+
+function billingOrderReturnUrl(order: BillingOrder) {
+  const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
+  const base = order.sourceApp === "academy"
+    ? String(process.env.ACADEMY_PUBLIC_URL || "https://academy.v79sl.com").replace(/\/$/, "")
+    : order.sourceApp === "tiquet"
+      ? String(process.env.TIQUET_PUBLIC_URL || "https://tiquet.v79sl.com").replace(/\/$/, "")
+      : appUrl;
+  const safePath = validBillingReturnPath(order.returnPath) || "/";
+  const target = new URL(safePath, base + "/");
+  if (target.origin !== new URL(base).origin) return new URL("/", base).toString();
+  return target.toString();
+}
+
+app.post("/api/billing/internal/order", async (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+
+  const config = getWipayConfig(process.env);
+  if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+
+  const kind = String(req.body?.kind || "");
+  const externalReference = String(req.body?.externalReference || "").trim();
+  const subjectReference = String(req.body?.subjectReference || "").trim();
+  const description = String(req.body?.description || "").trim();
+  const returnPath = validBillingReturnPath(req.body?.returnPath);
+  const amount = normalizeMoney(req.body?.amount);
+
+  if ((service.sourceApp === "academy" && kind !== "course") ||
+      (service.sourceApp === "tiquet" && kind !== "invoice") ||
+      !externalReference || externalReference.length > 160 ||
+      !subjectReference || subjectReference.length > 160 ||
+      !description || description.length > 220 ||
+      !returnPath ||
+      amount === null || amount <= 0 || amount > 1_000_000) {
+    return res.status(400).json({ error: "Valid billing order details are required." });
+  }
+
+  // Tiquet invoice collection is intentionally owner-only until WiPay confirms
+  // a marketplace/sub-merchant settlement model for third-party V79 tenants.
+  if (service.sourceApp === "tiquet" && req.body?.merchantScope !== "v79-owner") {
+    return res.status(403).json({ error: "Tiquet WiPay invoice collection is restricted to the V79 Digital merchant workspace." });
+  }
+
+  const now = new Date().toISOString();
+  const order: BillingOrder = {
+    id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
+    ...(service.sourceApp === "tiquet" ? { organizationId: posIdentity.organizationId } : {}),
+    subjectReference,
+    sourceApp: service.sourceApp,
+    kind: kind as BillingOrder["kind"],
+    externalReference,
+    returnPath,
+    description,
+    amount,
+    currency: config.currency,
+    provider: "wipay",
+    providerEnvironment: config.environment,
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const checkout = createWipayCheckout({ order, config });
+  const nextStore = cloneStore();
+  nextStore.billingOrders.push(order);
+  onboardingAudit(nextStore, "billing_service_checkout_created", {
+    orderId: order.id,
+    sourceApp: order.sourceApp,
+    kind: order.kind,
+    externalReference: order.externalReference,
+    amount: order.amount,
+    currency: order.currency,
+    providerEnvironment: order.providerEnvironment,
+  }, undefined, order.organizationId);
+  await commitStore(nextStore);
+
+  res.status(201).json({
+    order: {
+      id: order.id,
+      sourceApp: order.sourceApp,
+      kind: order.kind,
+      externalReference: order.externalReference,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+    },
+    checkout,
+  });
+});
+
+app.post("/api/billing/internal/status", (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+  const orderId = String(req.body?.orderId || "").trim();
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return res.status(400).json({ error: "Invalid billing order." });
+  const order = (store.billingOrders || []).find(item => item.id === orderId && item.sourceApp === service.sourceApp);
+  if (!order) return res.status(404).json({ error: "Billing order not found." });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    order: {
+      id: order.id,
+      sourceApp: order.sourceApp,
+      kind: order.kind,
+      externalReference: order.externalReference || null,
+      subjectReference: order.subjectReference || null,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+      providerEnvironment: order.providerEnvironment,
+      providerTransactionId: order.status === "paid" ? order.providerTransactionId || null : null,
+      paidAt: order.paidAt || null,
+    },
+  });
+});
+
 app.get("/api/billing/orders", requireAuth, requirePermission("billing"), (req, res) => {
   const session = (req as any).user;
   const orders = (store.billingOrders || [])
@@ -2510,15 +2654,15 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   const config = getWipayConfig(process.env);
   const orderId = String(req.query.order_id || "").trim();
   const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
-  const redirect = (status: string, reason = "") => {
-    const url = new URL(appUrl || "https://hub.v79sl.com");
+  const redirect = (status: string, reason = "", order?: BillingOrder) => {
+    const url = new URL(order ? billingOrderReturnUrl(order) : (appUrl || "https://hub.v79sl.com"));
     url.searchParams.set("payment", status);
     if (orderId) url.searchParams.set("order", orderId);
     if (reason) url.searchParams.set("payment_reason", reason);
     return res.redirect(302, url.toString());
   };
 
-  if (!orderId || orderId.length > 48) return redirect("error", "invalid_order");
+  if (!orderId || orderId.length > 64) return redirect("error", "invalid_order");
   const nextStore = cloneStore();
   const order = nextStore.billingOrders.find(item => item.id === orderId);
   if (!order) return redirect("error", "order_not_found");
@@ -2529,7 +2673,7 @@ app.get("/api/billing/wipay/return", async (req, res) => {
 
   if (order.status === "paid") {
     const sameTransaction = Boolean(order.providerTransactionId && order.providerTransactionId === verification.transactionId);
-    return redirect(sameTransaction ? "success" : "error", sameTransaction ? "already_processed" : "order_already_paid");
+    return redirect(sameTransaction ? "success" : "error", sameTransaction ? "already_processed" : "order_already_paid", order);
   }
 
   const replay = verification.ok && nextStore.billingOrders.some(
@@ -2560,7 +2704,7 @@ app.get("/api/billing/wipay/return", async (req, res) => {
     }
     onboardingAudit(nextStore, "billing_payment_rejected", { orderId: order.id, reason }, order.createdByUserId, order.organizationId);
     await commitStore(nextStore);
-    return redirect("failed", reason);
+    return redirect("failed", reason, order);
   }
 
   order.status = "paid";
@@ -2593,7 +2737,7 @@ app.get("/api/billing/wipay/return", async (req, res) => {
     providerEnvironment: order.providerEnvironment,
   }, order.createdByUserId, order.organizationId);
   await commitStore(nextStore);
-  return redirect("success");
+  return redirect("success", "", order);
 });
 
 app.get("/api/security/mfa/status", requireAuth, (req, res) => {
