@@ -260,7 +260,7 @@ const defaultWorkspace: WorkspaceProfile = {
   companyName: process.env.V79_HUB_ORG_NAME || "V79 Digital",
 };
 
-const academyPublicUrl = String(process.env.ACADEMY_PUBLIC_URL || "https://academy.v79sl.com").replace(/\/$/, "");
+const academyPublicUrl = String(process.env.ACADEMY_PUBLIC_URL || "https://v79academy.v79sl.com").replace(/\/$/, "");
 
 const defaultEcosystemApps: EcosystemApp[] = [
   {
@@ -2460,7 +2460,7 @@ function validBillingReturnPath(value: unknown) {
 function billingOrderReturnUrl(order: BillingOrder) {
   const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
   const base = order.sourceApp === "academy"
-    ? String(process.env.ACADEMY_PUBLIC_URL || "https://academy.v79sl.com").replace(/\/$/, "")
+    ? String(process.env.ACADEMY_PUBLIC_URL || "https://v79academy.v79sl.com").replace(/\/$/, "")
     : order.sourceApp === "tiquet"
       ? String(process.env.TIQUET_PUBLIC_URL || "https://tiquet.v79sl.com").replace(/\/$/, "")
       : appUrl;
