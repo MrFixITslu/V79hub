@@ -2513,7 +2513,7 @@ app.post("/api/billing/internal/order", async (req, res) => {
     amount,
     currency: config.currency,
     provider: "wipay",
-    providerEnvironment: config.environment,
+    providerEnvironment: config.environment as BillingOrder["providerEnvironment"],
     status: "pending",
     createdAt: now,
     updatedAt: now,
@@ -2618,7 +2618,7 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
     amount,
     currency: config.currency,
     provider: "wipay",
-    providerEnvironment: config.environment,
+    providerEnvironment: config.environment as BillingOrder["providerEnvironment"],
     status: "pending",
     createdByUserId: session.userId,
     createdAt: now,
@@ -2714,9 +2714,15 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   order.updatedAt = now;
 
   if (order.sourceApp === "hub" && order.kind === "subscription") {
-    let plan = nextStore.organizationPlans.find(item => item.organizationId === order.organizationId);
+    const billedOrganizationId = order.organizationId;
+    if (!billedOrganizationId) {
+      onboardingAudit(nextStore, "billing_payment_rejected", { orderId: order.id, reason: "subscription_organization_missing" }, order.createdByUserId);
+      await commitStore(nextStore);
+      return redirect("error", "subscription_organization_missing", order);
+    }
+    let plan = nextStore.organizationPlans.find(item => item.organizationId === billedOrganizationId);
     if (!plan) {
-      const fallback = organizationPlanFor(nextStore, order.organizationId);
+      const fallback = organizationPlanFor(nextStore, billedOrganizationId);
       plan = { ...fallback, createdAt: now, updatedAt: now };
       nextStore.organizationPlans.push(plan);
     }
