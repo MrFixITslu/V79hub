@@ -2554,6 +2554,30 @@ app.post("/api/billing/internal/order", async (req, res) => {
   });
 });
 
+app.post("/api/billing/internal/capabilities", (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+
+  const provider = publicWipayConfig(getWipayConfig(process.env));
+  const requestedOrganizationId = String(req.body?.organizationId || "").trim();
+  const checkoutAvailable = service.sourceApp === "tiquet"
+    ? Boolean(provider.ready && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
+    : Boolean(provider.ready);
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    sourceApp: service.sourceApp,
+    checkoutAvailable,
+    provider: {
+      provider: provider.provider,
+      environment: provider.environment,
+      currency: provider.currency,
+      countryCode: provider.countryCode,
+      ready: provider.ready,
+    },
+  });
+});
+
 app.post("/api/billing/internal/status", (req, res) => {
   const service = billingServiceFromRequest(req);
   if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
