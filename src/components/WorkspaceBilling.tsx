@@ -27,6 +27,7 @@ interface BillingSummary {
   billingManagedBy: string;
   supportEmail: string;
   selfServicePaymentsEnabled: boolean;
+  sandboxTestPaymentsEnabled?: boolean;
   paymentProvider?: PaymentProviderSummary;
 }
 
@@ -96,7 +97,8 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
     setCheckoutBusy(true);
     setCheckoutError("");
     try {
-      const res = await fetch("/api/billing/checkout", {
+      const endpoint = provider?.environment === "sandbox" ? "/api/billing/sandbox-test" : "/api/billing/checkout";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
@@ -181,7 +183,7 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
               </div>
 
               <div className="rounded-2xl border border-[#1a3854] bg-[#091728] p-5 sm:p-6">
-                {summary.selfServicePaymentsEnabled ? (
+                {(summary.selfServicePaymentsEnabled || summary.sandboxTestPaymentsEnabled) ? (
                   <>
                     <div className="flex items-center justify-between gap-3">
                       {isSandbox ? <FlaskConical className="w-5 h-5 text-amber-300" /> : <ShieldCheck className="w-5 h-5 text-emerald-300" />}
@@ -192,7 +194,7 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
                     <h2 className="mt-3 font-bold text-white">{isSandbox ? "Test payment flow" : "Renew with WiPay"}</h2>
                     <p className="mt-2 text-xs leading-5 text-slate-400">
                       {isSandbox
-                        ? `Sandbox checkout is enabled for integration testing only. The current provider test configuration uses ${provider?.currency || "test"} currency and does not represent a live Saint Lucia charge.`
+                        ? `Sandbox checkout is enabled for integration testing only. This uses a fixed 10.00 ${provider?.currency || "test"} test charge and never changes plan access, course access or Tiquet revenue.`
                         : "You will be sent to WiPay's hosted checkout. V79 activates the renewal only after the server verifies the returned transaction."}
                     </p>
                     {checkoutError && <div className="mt-3 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-200">{checkoutError}</div>}
