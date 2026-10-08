@@ -43,7 +43,10 @@ const products=[
 function scoped(product,customer){
   const org="synthetic-customer-"+customer;
   const user="synthetic-user-"+customer;
-  if(product!=="pos")return user;
+  // Hub's entitlement verifier currently resolves POS-style hashed IDs
+  // for all service products, not raw Hub user IDs. Preserve this check.
+  if(!["pos","ffpro","tiquet","marketing"].includes(product))
+    throw Error("Unsupported staged product");
   const hash=createHash("sha256").update(org+":"+user).digest("hex");
   return hash.slice(0,8)+"-"+hash.slice(8,12)+"-4"+hash.slice(13,16)+"-a"+hash.slice(17,20)+"-"+hash.slice(20,32);
 }

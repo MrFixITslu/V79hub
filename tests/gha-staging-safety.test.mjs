@@ -67,3 +67,9 @@ test("FFPRO test encryption key uses distinct 32-byte base64 material",()=>{
   assert.match(yaml,/base64\.b64encode\(secrets\.token_bytes\(32\)\)/);
   assert.match(compose,/DATA_ENCRYPTION_KEY: "\$\{STAGE_FFPRO_ENCRYPTION_KEY/);
 });
+
+test("staging product entitlement identities use the Hub's scoped hash contract",()=>{
+  const smoke=readFileSync("staging/gha-smoke.mjs","utf8");
+  assert.match(smoke,/createHash\("sha256"\)\.update\(org\+":"\+user\)/);
+  assert.doesNotMatch(smoke,/if\(product!=="pos"\)return user/);
+});
