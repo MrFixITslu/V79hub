@@ -53,3 +53,23 @@ confirmation. The URL fragments, expiry, invite IDs and hashed Resend
 idempotency keys are validated in isolated tests. No customer invitation
 was sent. Latest Hub test suite: 129 tests passed, TypeScript and
 application build passed. The actual live Hub mail key remains unset.
+
+
+## Five-app synthetic GitHub staging — passed, 8 October 2026
+
+[Successful GitHub Actions run #37838312344](https://github.com/MrFixITslu/V79hub/actions/runs/37838312344)
+tested commit 09dbf085. All five image builds and the integrated job succeeded.
+Hub, POS, FFPRO, Tiquet and Marketing responded healthy. POS, FFPRO,
+Tiquet and Marketing each passed active-trial grant, cancellation denial,
+cross-tenant denial and invalid-signature denial. Real Hub login of two
+synthetic customer owners passed: sessions stayed within their
+organisations, customer accounts could not view platform-admin customer
+records, and anonymous /api/auth/me was rejected.
+
+The runner deleted its private PostgreSQL/SQLite data, Redis, application
+containers, Docker volumes and network. No customer data, production
+application changes, subscription activation or outbound emails occurred.
+
+Still outstanding: test product-to-Hub session flows and launches in a
+fully restored app stack; coordinated restart and rollback; encrypted
+off-site backup key custody; final founder production approval.
