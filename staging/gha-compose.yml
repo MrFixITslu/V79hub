@@ -64,6 +64,7 @@ services:
       GITHUB_ACTIONS: "true"
       V79_EPHEMERAL_CI: "1"
       STAGE_CUSTOMER_PASSWORD: "${STAGE_CUSTOMER_PASSWORD}"
+      STAGE_ADMIN_PASSWORD: "${STAGE_ADMIN_PASSWORD}"
       NODE_ENV: production
       PORT: "3040"
       DATA_DIR: /app/data

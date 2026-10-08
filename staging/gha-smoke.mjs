@@ -32,6 +32,39 @@ for(const [name,url] of hosts){
   await waitHealthy(name,url);
   console.log("EPHEMERAL_HEALTH_PASS "+name);
 }
+// Stage A must travel through the real four-app provisioners before any
+// entitlement or launch test. Neither the secrets nor invite/launch tickets
+// are logged. MFA is deliberately disabled ONLY in this disposable CI stack.
+const base="http://v79-hub:3040";
+if (process.env.STAGE_ADMIN_PASSWORD?.length < 24) {
+  throw Error("Synthetic administrator secret missing from CI-only staging container");
+}
+const adminLogin=await fetch(base+"/api/auth/login",{
+  method:"POST",redirect:"manual",
+  headers:{"content-type":"application/json"},
+  body:JSON.stringify({username:"admin",password:process.env.STAGE_ADMIN_PASSWORD}),
+});
+assert.equal(adminLogin.status,200,"synthetic founder should authenticate only in this disposable CI environment");
+const adminCookie=adminLogin.headers.get("set-cookie")?.split(";")[0];
+assert.match(adminCookie||"",/^v79_hub_session=/,"founder session cookie required");
+const requestApps=["app-v79pos","app-ffpro","app-tiquet","app-marketing"];
+const provision=await fetch(base+"/api/admin/customers/synthetic-customer-a/provision",{
+  method:"POST",redirect:"manual",
+  headers:{cookie:adminCookie,origin:"https://hub.v79sl.com","content-type":"application/json"},
+  body:JSON.stringify({appIds:requestApps}),
+  signal:AbortSignal.timeout(30000),
+});
+const provisionResult=await provision.json();
+if(provision.status!==200){
+  const failures=(provisionResult.results||[]).map(r=>({product:r.product,status:r.status,error:r.error,upstream:r.upstreamStatus}));
+  console.error("EPHEMERAL_REAL_PROVISION_FAILURE",JSON.stringify(failures));
+}
+assert.equal(provision.status,200,"all four real products must provision the synthetic customer");
+assert.deepEqual((provisionResult.results||[]).map(r=>r.product).sort(),["ffpro","marketing","pos","tiquet"]);
+assert.ok(provisionResult.results.every(r=>r.status==="active"&&r.skipped!==true),
+  "the synthetic customer must actually provision, not skip a pre-seeded mapping");
+console.log("EPHEMERAL_REAL_PROVISION_PASS all_four_products=true");
+
 const endpoint="http://v79-hub:3040/api/platform/entitlement/check";
 const pathname="/api/platform/entitlement/check";
 const products=[
@@ -81,7 +114,6 @@ for(const [product,serviceId,secret] of products){
 }
 // Exercise real Hub authentication using actual production login and /me
 // routes, while rejecting cross-tenant session reuse and operator access.
-const base="http://v79-hub:3040";
 async function loginCustomer(letter) {
   const login=await fetch(base+"/api/auth/login",{
     method:"POST",headers:{"content-type":"application/json"},
@@ -108,6 +140,62 @@ async function loginCustomer(letter) {
 const cookieA=await loginCustomer("a");
 const cookieB=await loginCustomer("b");
 assert.notEqual(cookieA,cookieB,"tenant sessions are distinct");
+
+// Exercise real redirects, HMAC ticket consumption by each independently
+// running product, authenticated downstream sessions, and one-time replay
+// rejection. Public URLs are parsed but never fetched: CI has no route to
+// production and all subsequent requests use Docker-internal origins.
+const stageProducts=[
+  {name:"pos",host:"pos.v79sl.com",origin:"http://pos:8080",path:"/auth/launch",cookie:"v79_pos_session",me:"/v1/me"},
+  {name:"ffpro",host:"ffpro.v79sl.com",origin:"http://ffpro:3010",path:"/api/platform/launch",cookie:"ffpro.sid",me:"/api/auth/session-state"},
+  {name:"tiquet",host:"tiquet.v79sl.com",origin:"http://tiquet:3050",path:"/api/platform/launch",cookie:"tiquet_session",me:"/api/auth/me"},
+  {name:"marketing",host:"marketing.v79sl.com",origin:"http://marketing:3070",path:"/api/platform/launch",cookie:"v79_marketing_session",me:"/api/auth/me"},
+];
+for(const product of stageProducts){
+  const grant=await fetch(base+"/api/apps/"+product.name+"/launch",{
+    redirect:"manual",headers:{cookie:cookieA},signal:AbortSignal.timeout(15000),
+  });
+  assert.equal(grant.status,302,product.name+" eligible customer A launch should redirect");
+  const target=new URL(grant.headers.get("location")||"");
+  assert.equal(target.protocol,"https:");
+  assert.equal(target.hostname,product.host,"redirect must target designated app only");
+  const ticket=product.name==="pos"
+    ? new URLSearchParams(target.hash.slice(1)).get("ticket")
+    : target.searchParams.get("ticket");
+  assert.match(ticket||"",/^[A-Za-z0-9_-]{32,180}$/);
+  const internalUrl=new URL(product.path,product.origin);
+  const request=product.name==="pos"
+    ? {method:"POST",redirect:"manual",headers:{"content-type":"application/json",origin:"https://pos.v79sl.com"},
+       body:JSON.stringify({ticket}),signal:AbortSignal.timeout(15000)}
+    : {redirect:"manual",signal:AbortSignal.timeout(15000)};
+  if(product.name!=="pos") internalUrl.searchParams.set("ticket",ticket);
+  const exchanged=await fetch(internalUrl,request);
+  assert.equal(exchanged.status,product.name==="pos"?200:302,
+    product.name+" real application must consume the Hub ticket");
+  const productCookie=(exchanged.headers.get("set-cookie")||"").split(";")[0];
+  assert.ok(productCookie.startsWith(product.cookie+"="),
+    product.name+" downstream authenticated session cookie missing");
+  const identity=await fetch(new URL(product.me,product.origin),{
+    headers:{cookie:productCookie,accept:"application/json"},signal:AbortSignal.timeout(10000),
+  });
+  assert.equal(identity.status,200,product.name+" authenticated downstream profile");
+  if(product.name==="ffpro"){
+    const details=await identity.json();
+    assert.equal(details.authenticated,true,"FFPRO must report authenticated");
+  }
+  const replay=await fetch(internalUrl,request);
+  const replayCookie=replay.headers.get("set-cookie")||"";
+  assert.ok(replay.status!==200&&replay.status!==302&&!replayCookie.includes(product.cookie+"="),
+    product.name+" must not issue a second authenticated session from a consumed ticket");
+  console.log("EPHEMERAL_REAL_LAUNCH_PASS "+product.name+" authenticated=true replay_denied=true");
+
+  const cancelled=await fetch(base+"/api/apps/"+product.name+"/launch",{
+    redirect:"manual",headers:{cookie:cookieB},signal:AbortSignal.timeout(15000),
+  });
+  assert.equal(cancelled.status,403,product.name+" cancelled customer B cannot receive a launch ticket");
+  console.log("EPHEMERAL_CANCELLED_LAUNCH_DENIED "+product.name);
+}
+
 for(const [cookie,org] of [[cookieA,"synthetic-customer-a"],[cookieB,"synthetic-customer-b"]]){
   const response=await fetch(base+"/api/auth/me",{headers:{Cookie:cookie}});
   assert.equal(response.status,200);

@@ -52,7 +52,9 @@ const appTenantMappings = customerOrgs.flatMap(org =>
   ["pos","ffpro","tiquet","marketing"].map(product=>({
     organizationId:org.id,
     appId: product==="pos"?"app-v79pos":"app-"+product,
-    status:"active",
+    // Stage A must be provisioned through the real downstream API, not
+    // silently considered ready just because the Hub has a mapping row.
+    status:org.id==="synthetic-customer-a"?"pending":"active",
     externalTenantId:["pos","ffpro"].includes(product)?org.id:product+"-"+org.id,
     externalOwnerId:"synthetic-"+product+"-"+org.id,
   }))
