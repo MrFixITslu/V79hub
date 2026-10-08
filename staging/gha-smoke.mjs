@@ -79,16 +79,41 @@ for(const [product,serviceId,secret] of products){
   assert.equal(unsigned.status,401,product+" invalid signature must be rejected");
   console.log("EPHEMERAL_ENTITLEMENT_PASS "+product+" active/cancelled/cross-tenant/HMAC");
 }
-// Exercise real Hub auth with a synthetic account. Never log the cookie or password.
-const login=await fetch("http://v79-hub:3040/api/auth/login",{method:"POST",
-  headers:{"content-type":"application/json"},
-  body:JSON.stringify({username:"owner-a@example.invalid",password:process.env.STAGE_CUSTOMER_PASSWORD})});
-assert.equal(login.status,200,"synthetic customer login should succeed");
-const cookie=login.headers.get("set-cookie");
-assert.ok(cookie?.startsWith("v79_hub_session="),"HTTP-only session cookie expected");
-const dashboard=await fetch("http://v79-hub:3040/api/platform/dashboard",{headers:{Cookie:cookie.split(";")[0]}});
-assert.equal(dashboard.status,200,"authenticated dashboard must be accessible");
-const summary=await dashboard.json();
-assert.equal(summary.organization?.id,"synthetic-customer-a","authenticated session must be tenant-scoped");
-console.log("EPHEMERAL_AUTH_PASS isolated_customer_session=true");
+// Exercise real Hub authentication using actual production login and /me
+// routes, while rejecting cross-tenant session reuse and operator access.
+const base="http://v79-hub:3040";
+async function loginCustomer(letter) {
+  const login=await fetch(base+"/api/auth/login",{
+    method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify({
+      username:"owner-"+letter+"@example.invalid",
+      password:process.env.STAGE_CUSTOMER_PASSWORD,
+      organizationId:"synthetic-customer-"+letter,
+    }),
+  });
+  assert.equal(login.status,200,"synthetic customer "+letter+" login succeeds");
+  const cookie=login.headers.get("set-cookie");
+  assert.ok(cookie && /session=/i.test(cookie),"HTTP session cookie expected");
+  const sessionCookie=cookie.split(";")[0];
+  const me=await fetch(base+"/api/auth/me",{headers:{Cookie:sessionCookie}});
+  assert.equal(me.status,200,"authenticated /me must succeed");
+  const data=await me.json();
+  assert.equal(data.organization?.id,"synthetic-customer-"+letter);
+  assert.equal(data.user?.platformOperator,false,
+    "customer owner may not act as internal Hub platform operator");
+  const forbidden=await fetch(base+"/api/admin/customers",{headers:{Cookie:sessionCookie}});
+  assert.equal(forbidden.status,403,"customer cannot access platform admin customer records");
+  return sessionCookie;
+}
+const cookieA=await loginCustomer("a");
+const cookieB=await loginCustomer("b");
+assert.notEqual(cookieA,cookieB,"tenant sessions are distinct");
+for(const [cookie,org] of [[cookieA,"synthetic-customer-a"],[cookieB,"synthetic-customer-b"]]){
+  const response=await fetch(base+"/api/auth/me",{headers:{Cookie:cookie}});
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).organization?.id,org);
+}
+const anonymous=await fetch(base+"/api/auth/me");
+assert.equal(anonymous.status,401,"anonymous requests cannot recover tenant sessions");
+console.log("EPHEMERAL_AUTH_PASS isolated_customer_sessions=true operator_denied=true");
 console.log("EPHEMERAL_STAGE_PASS all_five_runtime=true real_isolated_databases=true");

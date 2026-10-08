@@ -73,3 +73,13 @@ test("staging product entitlement identities use the Hub's scoped hash contract"
   assert.match(smoke,/createHash\("sha256"\)\.update\(org\+":"\+user\)/);
   assert.doesNotMatch(smoke,/if\(product!=="pos"\)return user/);
 });
+
+test("staging login uses supported owner role and real auth endpoints",()=>{
+  assert.match(seed,/role:"admin", permissions:/);
+  assert.doesNotMatch(seed,/role:"user"/);
+  const smoke=readFileSync("staging/gha-smoke.mjs","utf8");
+  assert.match(smoke,/\/api\/auth\/me/);
+  assert.match(smoke,/\/api\/admin\/customers/);
+  assert.doesNotMatch(smoke,/\/api\/platform\/dashboard/);
+  assert.match(smoke,/anonymous.status,401/);
+});

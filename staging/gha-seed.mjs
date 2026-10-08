@@ -28,7 +28,7 @@ const appIds = ["app-v79pos","app-ffpro","app-tiquet","app-marketing","app-acade
 const customerUsers = ["a","b"].map(k => ({
   id:"synthetic-user-"+k, username:"owner-"+k+"@example.invalid",
   email:"owner-"+k+"@example.invalid", fullName:"Synthetic Owner "+k.toUpperCase(),
-  password:hashPassword(customerPassword), role:"user", permissions:[],
+  password:hashPassword(customerPassword), role:"admin", permissions:["overview","connections","team","security","billing","admin","users"],
   createdAt:new Date().toISOString(),
 }));
 // The Hub refuses to retrofit the internal owner into customer data.
