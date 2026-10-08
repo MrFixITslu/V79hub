@@ -157,3 +157,47 @@ backup of application secrets and full recovery rehearsal; trial reminders
 and customer communications; and final founder GO/NO-GO decision. If the
 live database changes from the observed baseline, migration must stop
 pending re-review.
+
+## Authenticated downstream application staging — 8 October 2026
+
+This iteration validated real application authentication middleware with
+synthetic identities and isolated transport/data fixtures. All development
+code remains on its own unmerged feature branch. No production revalidation
+feature flag was enabled.
+
+| Product | Staging evidence | Local result |
+|---|---|---|
+| FFPRO | Actual Express Hub-session guard and signed mock Hub checks; existing session, different scoped user, cancellation, Hub outage, expiry, and public health route | 90 tests passed; TS and build passed |
+| Tiquet | Actual JWT-authenticated Express route with mocked data adapter; tenant mismatch, suspended/deleted accounts, cancellation, outage, invalid JWT | 8 HTTP/contract tests passed |
+| Tiquet staff WebSocket | Admission/heartbeat guard verifies JWT expiry, current staff account and signed Hub access; isolated policy tests | 5 WS policy tests passed; TS and build passed |
+| Marketing | Actual JWT-authenticated Express middleware, isolated SQLite, signed local Hub simulation, two tenant mappings, revocation and outage | 39 tests passed; TS and build passed |
+| POS | Actual Fastify authentication hook, real signed POS sessions, isolated Prisma membership fixture; tenant scope, entitlement revocation, error path, membership deactivation | 21 tests passed; TS and build passed |
+
+Two additional integration defects were fixed on their feature branches:
+- FFPRO rejected health requests carrying an expired Hub session cookie; public
+  health/liveness/logout no longer depend on customer trial validity.
+- POS turned an unexpected Hub-entitlement-check exception into HTTP 500;
+  it now returns controlled access denial.
+
+All connected app updates were pushed as drafts, not merged. The isolated
+tests are NOT equivalent to a five-service environment backed by independent
+real databases and full queue/worker/WebSocket production routes.
+
+### Residual release gates
+
+1. Current unlinked native/local customer sessions can bypass Hub revalidation
+   in some products; decide and implement an explicit migration/enforcement
+   policy without inadvertently blocking authorised internal owner operations.
+2. Marketing publisher and platform-event workers, Tiquet non-HTTP paths,
+   and POS offline/payment/outbox jobs require cancellation and expiry policy
+   verification. A customer session guard does not automatically revoke
+   asynchronous work already queued.
+3. Tiquet WS heartbeat runs every 15s and shares the standard up-to-30s
+   positive Hub cache; revocation is bounded but is not instantaneous at the
+   millisecond expiry boundary. Confirm the maximum permissible revocation SLA.
+4. Full feature-enabled service-to-service tests must verify actual secret
+   mapping, DNS/Docker routing, callback URLs, existing sessions, account
+   mappings, customer app entitlements, and operator-only admin isolation.
+5. Reconcile dirty production working trees, prove full app/key/file recovery,
+   confirm backup confidentiality and trial messaging, and obtain a separate
+   final founder GO/NO-GO decision.
