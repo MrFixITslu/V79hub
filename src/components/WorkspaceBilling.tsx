@@ -20,6 +20,10 @@ interface BillingSummary {
   organization: string;
   planName: string;
   status: string;
+  accessStatus: string;
+  trialStartedAt: string | null;
+  trialEndsAt: string | null;
+  paidThroughAt: string | null;
   billingCycle: "monthly" | "annual" | "custom";
   enabledApps: Array<{ id: string; name: string }>;
   pricing: { currency: string; monthly: number | null; annual: number | null; custom?: number | null };
@@ -158,7 +162,7 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
               <InfoCard icon={WalletCards} label="Current plan" value={summary.planName} detail={summary.organization} />
               <InfoCard icon={CreditCard} label="Monthly price" value={money(summary.pricing.monthly, summary.pricing.currency)} detail="V79 plan price" />
               <InfoCard icon={CreditCard} label="Annual price" value={money(summary.pricing.annual, summary.pricing.currency)} detail="V79 plan price" />
-              <InfoCard icon={CalendarDays} label="Renewal" value={summary.renewalDate ? new Date(summary.renewalDate + "T00:00:00").toLocaleDateString() : "Managed by V79"} detail="Updated only after verified payment" />
+              <InfoCard icon={CalendarDays} label={summary.status === "trial" ? "Trial expires" : "Renewal"} value={summary.status === "trial" ? (summary.trialEndsAt ? new Date(summary.trialEndsAt).toLocaleString() : "Not configured") : (summary.renewalDate ? new Date(summary.renewalDate + "T00:00:00").toLocaleDateString() : "Managed by V79")} detail={summary.status === "trial" ? (summary.accessStatus === "trial_expired" ? "Trial ended — paid app access restricted" : "14-day V79 pilot trial") : "Updated only after verified payment"} />
             </div>
 
             <section className="grid lg:grid-cols-[1fr_380px] gap-5">

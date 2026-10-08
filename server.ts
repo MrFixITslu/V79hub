@@ -20,6 +20,10 @@ import { createHubStorePersistence } from "./server/runtime-store.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
+import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
+import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
+import { createResendTransactionalSender } from "./server/resend-transactional.mjs";
+import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -101,9 +105,15 @@ interface OrganizationPlan {
   appIds: string[];
   priceXcd?: number;
   renewalDate?: string;
+  accessPolicyType?: "internal" | "trial" | "paid" | "legacy_review";
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  paidThroughAt?: string;
   createdAt: string;
   updatedAt: string;
 }
+
+interface TrialReminderEvent { key:string; organizationId:string; kind:string; status:"sending"|"sent"|"failed"; attempts:number; claimedAt:string; sentAt?:string; nextAttemptAt?:string; }
 
 interface BillingOrder {
   id: string;
@@ -244,6 +254,7 @@ interface AppStore {
   memberships: Membership[];
   appEntitlements: AppEntitlement[];
   organizationPlans: OrganizationPlan[];
+  trialReminderEvents: TrialReminderEvent[];
   billingOrders: BillingOrder[];
   billingPaymentEvents: BillingPaymentEvent[];
   ownerInvitations: OwnerInvitation[];
@@ -599,6 +610,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.memberships !== undefined && !Array.isArray(parsed.memberships)) ||
       (parsed.appEntitlements !== undefined && !Array.isArray(parsed.appEntitlements)) ||
       (parsed.organizationPlans !== undefined && !Array.isArray(parsed.organizationPlans)) ||
+      (parsed.trialReminderEvents !== undefined && !Array.isArray(parsed.trialReminderEvents)) ||
       (parsed.billingOrders !== undefined && !Array.isArray(parsed.billingOrders)) ||
       (parsed.billingPaymentEvents !== undefined && !Array.isArray(parsed.billingPaymentEvents)) ||
       (parsed.ownerInvitations !== undefined && !Array.isArray(parsed.ownerInvitations)) ||
@@ -616,6 +628,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [],
     appEntitlements: Array.isArray(parsed.appEntitlements) ? parsed.appEntitlements : [],
     organizationPlans: Array.isArray(parsed.organizationPlans) ? parsed.organizationPlans : [],
+    trialReminderEvents: Array.isArray(parsed.trialReminderEvents) ? parsed.trialReminderEvents : [],
     billingOrders: Array.isArray(parsed.billingOrders) ? parsed.billingOrders : [],
     billingPaymentEvents: Array.isArray(parsed.billingPaymentEvents) ? parsed.billingPaymentEvents : [],
     ownerInvitations: Array.isArray(parsed.ownerInvitations) ? parsed.ownerInvitations : [],
@@ -631,7 +644,7 @@ function initialStore(): AppStore {
     users: defaultUsers,
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
-    organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
+    organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], trialReminderEvents: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
     teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
   };
 }
@@ -1494,6 +1507,53 @@ app.get("/.well-known/jwks.json", (_req, res) => {
   res.json({ keys: [{ ...posPublicKey.export({ format: "jwk" }), kid: posKeyId, alg: "EdDSA", use: "sig" }] });
 });
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+// Read-only, authenticated entitlement revalidation for existing product sessions.
+// The downstream app MUST fail closed if this check fails or becomes unreachable.
+// HMAC service IDs are bound to the product so one app cannot query another.
+app.post("/api/platform/entitlement/check", (req, res) => {
+  const pathname = "/api/platform/entitlement/check";
+  const source = req.get("x-v79-service-id") || "";
+  const product = source === "v79-pos" ? "pos" : managedProduct(source);
+  const secret = product === "pos"
+    ? posServiceSecret
+    : product ? process.env[managedLaunch[product].secretEnv] || "" : "";
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  if (!product || !verifyPlatformRequest({
+    method: "POST", pathname, body,
+    timestamp: req.get("x-v79-timestamp") || "",
+    signature: req.get("x-v79-signature") || "", secret,
+  })) return res.status(401).json({ error: "Invalid service signature" });
+
+  const requestedProduct = String(req.body?.product || "");
+  const organizationId = String(req.body?.organizationId || "");
+  const scopedUserId = String(req.body?.scopedUserId || "");
+  if (requestedProduct !== product || !ENTITLEMENT_PRODUCTS[requestedProduct as keyof typeof ENTITLEMENT_PRODUCTS] ||
+      organizationId.length < 5 || organizationId.length > 180 ||
+      scopedUserId.length < 5 || scopedUserId.length > 180) {
+    return res.status(400).json({ error: "Invalid entitlement identity" });
+  }
+
+  const readyByProduct = {
+    pos: posTenantLaunchReady, ffpro: ffproTenantLaunchReady,
+    tiquet: tiquetTenantLaunchReady, marketing: marketingTenantLaunchReady,
+  };
+  const roleEligible = (selected: string, role: string) => role === "owner" || Boolean(
+    selected === "pos" ? posTeamRole(role) :
+    selected === "ffpro" ? ffproTeamRole(role) :
+    selected === "tiquet" ? tiquetTeamRole(role) : marketingTeamRole(role)
+  );
+  const result = validateProductEntitlement(store, {
+    product, organizationId, scopedUserId, ownerOrganizationId: posIdentity.organizationId,
+    resolveScopedUserId: posUserId,
+    memberCanAccessApp: membershipCanAccessApp,
+    roleEligible,
+    tenantReady: (selected: string, org: string, owner: string) =>
+      readyByProduct[selected as keyof typeof readyByProduct](store, org, owner),
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(result);
+});
+
 app.post("/api/platform/session/consume", (req, res) => {
   const body = (req as any).rawBody?.toString("utf8") || "";
   const source = req.get("x-v79-service-id") || "";
@@ -1514,7 +1574,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry.expiresAt >= Date.now() &&
     (posTicketMembership?.role === "owner" || posTeamRole(posTicketMembership?.role)) &&
     membershipCanAccessApp(posTicketMembership, "app-v79pos") &&
-    organizationCanAccessApp(store, entry.tenantId, "app-v79pos") &&
+    organizationCanAccessApp(store, entry.tenantId, "app-v79pos", posIdentity.organizationId) &&
     posTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
   const ffproTicketMembership = entry
@@ -1526,7 +1586,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry.expiresAt >= Date.now() &&
     (ffproTicketMembership?.role === "owner" || ffproTeamRole(ffproTicketMembership?.role)) &&
     membershipCanAccessApp(ffproTicketMembership, "app-ffpro") &&
-    organizationCanAccessApp(store, entry.tenantId, "app-ffpro") &&
+    organizationCanAccessApp(store, entry.tenantId, "app-ffpro", posIdentity.organizationId) &&
     ffproTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
   const tiquetTicketMembership = entry
@@ -1538,7 +1598,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry.expiresAt >= Date.now() &&
     (tiquetTicketMembership?.role === "owner" || tiquetTeamRole(tiquetTicketMembership?.role)) &&
     membershipCanAccessApp(tiquetTicketMembership, "app-tiquet") &&
-    organizationCanAccessApp(store, entry.tenantId, "app-tiquet") &&
+    organizationCanAccessApp(store, entry.tenantId, "app-tiquet", posIdentity.organizationId) &&
     tiquetTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
   const marketingTicketMembership = entry
@@ -1550,7 +1610,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry.expiresAt >= Date.now() &&
     (marketingTicketMembership?.role === "owner" || marketingTeamRole(marketingTicketMembership?.role)) &&
     membershipCanAccessApp(marketingTicketMembership, "app-marketing") &&
-    organizationCanAccessApp(store, entry.tenantId, "app-marketing") &&
+    organizationCanAccessApp(store, entry.tenantId, "app-marketing", posIdentity.organizationId) &&
     marketingTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
   const validTicket = product === "pos"
@@ -1589,7 +1649,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     organization: { id: organization.id, name: organization.name, slug: organization.slug },
     role: consumedRole, plan: "beta", accessMode: "beta",
     entitlement: { product, enabled: true, access: consumedRole === "owner" ? "owner" : "team" },
-    assignedProducts: enabledAppIds(store, entry.tenantId)
+    assignedProducts: enabledAppIds(store, entry.tenantId, posIdentity.organizationId)
       .map((appId: string) => ({ "app-ffpro": "ffpro", "app-tiquet": "tiquet", "app-marketing": "marketing" } as Record<string,string>)[appId])
       .filter(Boolean),
   });
@@ -1615,7 +1675,7 @@ function broadcast(organizationId: string, data: any, sender?: WebSocket) {
     const payload = data.type === "USERS_UPDATED"
       ? { ...data, payload: store.users.map(user => sanitizeUserForOrganization(user, organizationId)).filter(Boolean) }
       : data.type === "ECOSYSTEM_APPS_UPDATED"
-        ? { ...data, apps: visibleEcosystemApps(store, organizationId) }
+        ? { ...data, apps: visibleEcosystemApps(store, organizationId, posIdentity.organizationId) }
         : data;
     client.send(JSON.stringify(payload));
   });
@@ -1718,7 +1778,7 @@ function sanitizeUserForOrganization(u: StoredUser, organizationId: string) {
     workspaceOwner: membership.role === "owner",
     permissions: normalizePermissions(membership.permissions ?? u.permissions, role),
     appIds: membership.role === "owner"
-      ? enabledAppIds(store, organizationId)
+      ? enabledAppIds(store, organizationId, posIdentity.organizationId)
       : normalizeTeamAppIds(membership.appIds, organizationId),
   };
 }
@@ -1729,7 +1789,7 @@ const teamAssignableAppIds = new Set(["app-v79pos", "app-ffpro", "app-tiquet", "
 
 function normalizeTeamAppIds(value: unknown, organizationId: string) {
   if (!Array.isArray(value)) return [];
-  const enabled = new Set(enabledAppIds(store, organizationId));
+  const enabled = new Set(enabledAppIds(store, organizationId, posIdentity.organizationId));
   return [...new Set(value.filter((appId): appId is string =>
     typeof appId === "string" &&
     teamAssignableAppIds.has(appId) &&
@@ -1921,8 +1981,8 @@ async function completeInvitationAcceptance(
   if (!transition.nextStore.organizationPlans.some((plan: OrganizationPlan) => plan.organizationId === transition.organizationId)) {
     transition.nextStore.organizationPlans.push({
       organizationId: transition.organizationId,
-      planName: "Custom",
-      status: "active",
+      planName: "V79 Hub Beta Trial",
+      ...beginTrial(new Date(now)),
       billingCycle: "custom",
       appIds: [...transition.appIds],
       createdAt: now,
@@ -2294,26 +2354,45 @@ const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
 const hubEmailFrom = String(process.env.V79_HUB_EMAIL_FROM || "").trim();
 const hubRecoveryContact = normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail;
 const appPublicUrl = String(process.env.APP_URL || "").replace(/\/$/, "");
-const recoveryEmailEnabled = Boolean(resendApiKey && hubEmailFrom && /^https:\/\//i.test(appPublicUrl));
+let transactionalEmail: ReturnType<typeof createResendTransactionalSender> | null = null;
+if (resendApiKey && hubEmailFrom) {
+  try {
+    transactionalEmail = createResendTransactionalSender({
+      apiKey: resendApiKey, from: hubEmailFrom,
+      replyTo: hubRecoveryContact, hubUrl: appPublicUrl,
+    });
+  } catch {
+    // Sender/config errors fail closed, without printing credentials or addresses.
+    console.warn("[Hub Email] Transactional email configuration is invalid; delivery disabled.");
+  }
+}
+const recoveryEmailEnabled = transactionalEmail !== null;
+
+// Off by default. Single nominated leader only; stale sending claims require manual review.
+const trialReminderLeader = process.env.V79_TRIAL_REMINDERS_ENABLED === "1" &&
+  process.env.V79_TRIAL_REMINDERS_WORKER_LEADER === "1";
+let reminderBusy=false;
+async function dispatchTrialReminderEmail(reminder: {
+  email:string; kind:string; trialEndsAt:string; key:string;
+}) {
+  return transactionalEmail ? transactionalEmail.sendTrialReminder(reminder) : false;
+}
+async function dispatchTrialReminders() {
+  if (!trialReminderLeader || !recoveryEmailEnabled || reminderBusy) return;
+  reminderBusy=true;
+  try {
+    await dispatchDueTrialReminders({
+      ownerOrganizationId:posIdentity.organizationId,
+      getStore:()=>store,
+      commit:async (next: AppStore)=>commitStore(next),
+      send:dispatchTrialReminderEmail,
+    });
+  } catch {console.warn("[Hub Trial] Review stuck notification claims before next attempt");}
+  finally {reminderBusy=false;}
+}
 
 async function deliverPasswordReset(email: string, resetUrl: string) {
-  if (!recoveryEmailEnabled) return false;
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "authorization": `Bearer ${resendApiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from: hubEmailFrom,
-      to: [email],
-      reply_to: hubRecoveryContact,
-      subject: "Reset your V79 Hub password",
-      text: `A password reset was requested for your V79 Hub account. Use this link within 30 minutes: ${resetUrl}\n\nIf you did not request this, ignore this message. For help contact ${hubRecoveryContact}.`,
-    }),
-    signal: AbortSignal.timeout(8000),
-  });
-  return response.ok;
+  return transactionalEmail ? transactionalEmail.sendPasswordReset(email,resetUrl) : false;
 }
 
 app.get("/api/auth/recovery-status", (_req, res) => {
@@ -2401,7 +2480,7 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
 app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req, res) => {
   const session = (req as any).user;
   const organization = store.organizations.find(org => org.id === session.organizationId);
-  const enabledIds = new Set(rawEntitledAppIds(store, session.organizationId));
+  const enabledIds = new Set(enabledAppIds(store, session.organizationId, posIdentity.organizationId));
   const enabledApps = (store.ecosystemApps || [])
     .filter(app => enabledIds.has(app.id))
     .filter(app => !["app-analytics", "app-lifehealth", "app-lasertag"].includes(app.id) || session.organizationId === posIdentity.organizationId)
@@ -2414,6 +2493,10 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     organization: organization?.name || "Business workspace",
     planName: plan.planName,
     status: plan.status,
+    accessStatus: accessDecision(plan, Date.now(), session.organizationId === posIdentity.organizationId).reason,
+    trialStartedAt: plan.trialStartedAt || null,
+    trialEndsAt: plan.trialEndsAt || null,
+    paidThroughAt: plan.paidThroughAt || null,
     billingCycle: plan.billingCycle,
     enabledApps,
     pricing: {
@@ -2832,9 +2915,16 @@ app.get("/api/billing/wipay/return", async (req, res) => {
       nextStore.organizationPlans.push(plan);
     }
     if (plan.billingCycle === "monthly" || plan.billingCycle === "annual") {
-      const currentRenewal = /^\d{4}-\d{2}-\d{2}$/.test(plan.renewalDate || "") ? new Date(`${plan.renewalDate}T00:00:00.000Z`) : null;
-      const base = currentRenewal && currentRenewal.getTime() > Date.now() ? currentRenewal : new Date();
-      plan.renewalDate = addBillingPeriod(base, plan.billingCycle).toISOString().slice(0, 10);
+      // Never extend a paid period from an administrator-editable renewal label.
+      // Only a previously verified paid-through value may carry forward.
+      const currentPaidThrough = plan.accessPolicyType === "paid" && plan.paidThroughAt
+        ? new Date(plan.paidThroughAt) : null;
+      const base = currentPaidThrough && Number.isFinite(currentPaidThrough.getTime()) &&
+        currentPaidThrough.getTime() > Date.now() ? currentPaidThrough : new Date();
+      const paidThroughAt = addBillingPeriod(base, plan.billingCycle).toISOString();
+      plan.renewalDate = paidThroughAt.slice(0, 10);
+      plan.paidThroughAt = paidThroughAt;
+      plan.accessPolicyType = "paid";
       plan.status = "active";
       plan.updatedAt = now;
     }
@@ -2974,7 +3064,7 @@ app.post("/api/team/invitations", requireWorkspaceOwner, async (req, res) => {
   if (!Array.isArray(requestedAppIds) || requestedAppIds.some(appId =>
     typeof appId !== "string" ||
     !teamAssignableAppIds.has(appId) ||
-    !organizationCanAccessApp(store, organizationId, appId)
+    !organizationCanAccessApp(store, organizationId, appId, posIdentity.organizationId)
   )) {
     return res.status(400).json({ error: "Team app access must use enabled POS, Tiquet or Marketing apps only" });
   }
@@ -3028,6 +3118,19 @@ app.post("/api/team/invitations", requireWorkspaceOwner, async (req, res) => {
   const baseUrl = process.env.APP_URL
     ? new URL(process.env.APP_URL).origin
     : `${req.protocol}://${req.get("host")}`;
+  const inviteUrl = new URL("/", baseUrl);
+  inviteUrl.hash = "teamInvite=" + encodeURIComponent(token);
+  let emailDeliveryStatus = "not_configured";
+  if (transactionalEmail) {
+    try {
+      emailDeliveryStatus = await transactionalEmail.sendInvitation({
+        to:email,inviteUrl:inviteUrl.toString(),invitationId:invitation.id,
+        kind:"team",expiresAt:invitation.expiresAt,
+      }) ? "accepted_by_provider" : "provider_rejected";
+    } catch {
+      emailDeliveryStatus = "delivery_unavailable";
+    }
+  }
   res.setHeader("Cache-Control", "no-store");
   res.status(201).json({
     invitation: {
@@ -3040,7 +3143,8 @@ app.post("/api/team/invitations", requireWorkspaceOwner, async (req, res) => {
       expiresAt: invitation.expiresAt,
       createdAt: invitation.createdAt,
     },
-    inviteUrl: `${baseUrl}/#teamInvite=${encodeURIComponent(token)}`,
+    inviteUrl: inviteUrl.toString(),
+    emailDeliveryStatus,
   });
 });
 
@@ -3288,10 +3392,23 @@ app.put("/api/admin/customers/:organizationId/plan", requirePlatformOperator, as
   const nextStore = cloneStore();
   if (!Array.isArray(nextStore.organizationPlans)) nextStore.organizationPlans = [];
   const existingPlan = nextStore.organizationPlans.find(plan => plan.organizationId === organizationId);
+  // Trials cannot be restarted by editing a plan. Paid activation needs verified billing.
+  if (status === "active" && !(existingPlan?.accessPolicyType === "paid" &&
+      Number.isFinite(Date.parse(existingPlan.paidThroughAt || "")) &&
+      Date.parse(existingPlan.paidThroughAt || "") > Date.now())) {
+    return res.status(409).json({ error: "Verified payment required before activating a paid customer plan." });
+  }
+  if (status === "trial" && existingPlan?.status !== "trial") {
+    return res.status(409).json({ error: "A trial cannot be restarted through plan administration." });
+  }
   const nextPlan: OrganizationPlan = {
     organizationId,
     planName,
     status: status as OrganizationPlan["status"],
+    ...(existingPlan?.accessPolicyType ? { accessPolicyType: existingPlan.accessPolicyType } : {}),
+    ...(existingPlan?.trialStartedAt ? { trialStartedAt: existingPlan.trialStartedAt } : {}),
+    ...(existingPlan?.trialEndsAt ? { trialEndsAt: existingPlan.trialEndsAt } : {}),
+    ...(existingPlan?.paidThroughAt ? { paidThroughAt: existingPlan.paidThroughAt } : {}),
     billingCycle: billingCycle as OrganizationPlan["billingCycle"],
     appIds: [...selected],
     ...(priceXcd !== undefined ? { priceXcd } : {}),
@@ -3478,6 +3595,17 @@ app.post("/api/admin/onboarding/invitations", requirePlatformOperator, async (re
 
   const inviteUrl = new URL("/", appUrl);
   inviteUrl.hash = `invite=${encodeURIComponent(token)}`;
+  let emailDeliveryStatus = "not_configured";
+  if (transactionalEmail) {
+    try {
+      emailDeliveryStatus = await transactionalEmail.sendInvitation({
+        to:email,inviteUrl:inviteUrl.toString(),invitationId:invitation.id,
+        kind:"owner",expiresAt:invitation.expiresAt,
+      }) ? "accepted_by_provider" : "provider_rejected";
+    } catch {
+      emailDeliveryStatus = "delivery_unavailable";
+    }
+  }
   res.setHeader("Cache-Control", "no-store");
   res.status(201).json({
     invitation: {
@@ -3492,6 +3620,7 @@ app.post("/api/admin/onboarding/invitations", requirePlatformOperator, async (re
       createdAt: invitation.createdAt,
     },
     inviteUrl: inviteUrl.toString(),
+    emailDeliveryStatus,
   });
 });
 
@@ -3820,7 +3949,7 @@ app.get("/api/dashboard/summary", async (req, res) => {
 
   const results = await Promise.all(products.map(async product => {
     const appId = dashboardProductAppIds[product];
-    if (appId && !organizationCanAccessApp(store, session.organizationId, appId)) {
+    if (appId && !organizationCanAccessApp(store, session.organizationId, appId, posIdentity.organizationId)) {
       return [product, { status: "not_enabled", metrics: {}, generatedAt: null }] as const;
     }
     if (!appId && !platformOperator) {
@@ -3874,9 +4003,9 @@ function connectionProductsForSession(userId: string, organizationId: string) {
     const appId = dashboardProductAppIds[product];
     if (organizationId === posIdentity.organizationId) {
       if (!appId) return isPlatformOperatorIdentity(userId, organizationId);
-      return organizationCanAccessApp(store, organizationId, appId);
+      return organizationCanAccessApp(store, organizationId, appId, posIdentity.organizationId);
     }
-    if (!appId || !organizationCanAccessApp(store, organizationId, appId)) return false;
+    if (!appId || !organizationCanAccessApp(store, organizationId, appId, posIdentity.organizationId)) return false;
     if (membership?.role === "owner") return true;
     return membershipCanAccessApp(membership, appId);
   });
@@ -4263,7 +4392,7 @@ app.get("/internal/agent/snapshot", async (req, res) => {
     },
     hubAdmin: {
       users: activeMembers.length,
-      enabledApps: enabledAppIds(store, organizationId),
+      enabledApps: enabledAppIds(store, organizationId, posIdentity.organizationId),
       activeSessions: [...sessions.values()].filter(session => session.organizationId === organizationId && session.expiresAt > Date.now()).length,
     },
     connections,
@@ -4305,7 +4434,7 @@ app.use("/api/ecosystem/apps", (req, res, next) => req.method === "GET" ? next()
 
 app.get("/api/apps/pos/launch", async (req, res) => {
   const session = (req as any).user;
-  if (!organizationCanAccessApp(store, session.organizationId, "app-v79pos")) {
+  if (!organizationCanAccessApp(store, session.organizationId, "app-v79pos", posIdentity.organizationId)) {
     return res.status(403).json({ error: "POS is not enabled for this Hub organization" });
   }
   const membership = activeMembership(store, session.userId, session.organizationId);
@@ -4351,7 +4480,7 @@ app.get("/api/apps/:product/launch", async (req, res) => {
   if (!(product in managedLaunch)) return res.status(404).json({ error: "Unknown managed app" });
   const session = (req as any).user;
   const appIdByProduct = { ffpro: "app-ffpro", tiquet: "app-tiquet", marketing: "app-marketing" } as const;
-  if (!organizationCanAccessApp(store, session.organizationId, appIdByProduct[product])) return res.status(403).json({ error: "This app is not enabled for this Hub organization" });
+  if (!organizationCanAccessApp(store, session.organizationId, appIdByProduct[product], posIdentity.organizationId)) return res.status(403).json({ error: "This app is not enabled for this Hub organization" });
 
   const membership = activeMembership(store, session.userId, session.organizationId);
   const assignedAppId = appIdByProduct[product];
@@ -4523,7 +4652,7 @@ app.put("/api/users/:id", async (req, res) => {
     if (!Array.isArray(appIds) || appIds.some(appId =>
       typeof appId !== "string" ||
       !teamAssignableAppIds.has(appId) ||
-      !organizationCanAccessApp(store, organizationId, appId)
+      !organizationCanAccessApp(store, organizationId, appId, posIdentity.organizationId)
     )) {
       return res.status(400).json({ error: "Team app access must use enabled POS, Tiquet or Marketing apps only" });
     }
@@ -4686,7 +4815,7 @@ app.get("/api/ecosystem/apps", async (req, res) => {
   const session = (req as any).user;
   const organizationId = session.organizationId;
   const membership = activeMembership(store, session.userId, organizationId);
-  const visibleApps = visibleEcosystemApps(store, organizationId) as EcosystemApp[];
+  const visibleApps = visibleEcosystemApps(store, organizationId, posIdentity.organizationId) as EcosystemApp[];
   const memberVisibleApps = membership?.role === "owner"
     ? visibleApps
     : visibleApps.filter((app: EcosystemApp) => membershipCanAccessApp(membership, app.id));
@@ -4735,7 +4864,7 @@ app.get("/api/ecosystem/apps", async (req, res) => {
 app.put("/api/ecosystem/apps/:id", async (req, res) => {
   const { id } = req.params;
   const organizationId = (req as any).user.organizationId;
-  if (!organizationCanMutateApp(store, organizationId, id)) return res.status(403).json({ error: "Only custom apps owned by this workspace can be changed" });
+  if (!organizationCanMutateApp(store, organizationId, id, posIdentity.organizationId)) return res.status(403).json({ error: "Only custom apps owned by this workspace can be changed" });
   const index = store.ecosystemApps.findIndex((a) => a.id === id && a.ownerOrganizationId === organizationId);
   if (index === -1) {
     return res.status(404).json({ error: "Ecosystem app not found" });
@@ -4821,7 +4950,7 @@ app.post("/api/ecosystem/apps", async (req, res) => {
 
   store.ecosystemApps.push(newApp);
   const organizationId = (req as any).user.organizationId;
-  if (!organizationCanAccessApp(store, organizationId, newApp.id)) {
+  if (!organizationCanAccessApp(store, organizationId, newApp.id, posIdentity.organizationId)) {
     store.appEntitlements.push({ organizationId, appId: newApp.id, enabled: true, createdAt: new Date().toISOString() });
   }
   await saveStore(store);
@@ -4863,6 +4992,11 @@ async function startServer() {
 
   const PORT = Number(process.env.PORT || 3040);
   server.listen(PORT, "0.0.0.0", () => {
+    if (trialReminderLeader && recoveryEmailEnabled) {
+      void dispatchTrialReminders();
+      const reminderTimer=setInterval(()=>{void dispatchTrialReminders();},3600000);
+      reminderTimer.unref?.();
+    }
     console.log(`V79 Client Hub Server running on http://0.0.0.0:${PORT}`);
   });
 }

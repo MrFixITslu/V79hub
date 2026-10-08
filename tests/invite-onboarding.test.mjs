@@ -151,6 +151,10 @@ test("platform operator invite-only onboarding is single-use and workspace isola
 
   const storeAfterAccept = JSON.parse(await readFile(join(dir, "v79_store.json"), "utf8"));
   assert.equal(storeAfterAccept.organizations.some(org => org.id === firstOrgId && org.name === "Island Tech Ltd"), true);
+  const trialPlan = storeAfterAccept.organizationPlans.find(plan => plan.organizationId === firstOrgId);
+  assert.equal(trialPlan.status, "trial");
+  assert.equal(trialPlan.accessPolicyType, "trial");
+  assert.equal(Date.parse(trialPlan.trialEndsAt) - Date.parse(trialPlan.trialStartedAt), 14 * 86400000);
   assert.equal(storeAfterAccept.memberships.some(member => member.organizationId === firstOrgId && member.role === "owner"), true);
   assert.deepEqual(
     storeAfterAccept.appEntitlements.filter(row => row.organizationId === firstOrgId).map(row => row.appId).sort(),
