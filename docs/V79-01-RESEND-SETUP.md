@@ -1,3 +1,31 @@
+# CURRENT RESEND STATUS — 8 OCTOBER 2026
+
+Resend now marks all 3 sending-specific records verified (one DKIM TXT and
+two Forge routing CNAMEs). Sending is enabled. Overall status remains
+partially_verified because optional tracking is not verified; open/click
+tracking is disabled.
+
+IMPORTANT: the Hub application must not be used as an email tracking
+subdomain. DNS has intermittently returned BOTH A 199.223.249.193 and
+CNAME links2.resend-dns.com for hub.v79sl.com, leading to normal HTTP 400
+responses while direct origin HTTPS returned HTTP 200. A DNS administrator
+must REMOVE the hub CNAME and preserve ONLY hub A 199.223.249.193.
+Do not change the Resend DKIM, rsend or send records, or other apps.
+
+The provider's ACTUAL verified sending DNS uses:
+  resend._domainkey = DKIM TXT (account-generated public key)
+  rsend = CNAME rsend.forge.rmta.net
+  send = CNAME send.forge.rmta.net
+Generic SPF TXT and MX instructions do not describe this domain's Forge
+configuration and should not be applied.
+
+Hub development integration now uses a shared transactional sender with
+strict sender-domain checking, canonical reset links, consistent reply-to,
+and hashed provider idempotency for trial reminders. Its mock-provider tests
+passed. Real delivery has not been tested and production remains unchanged.
+
+---
+
 # V79-01 — Resend onboarding and public DNS staging gate
 
 **Status (8 October 2026):** No Resend key or sender configured on the running Hub. Sending remains disabled. No production DNS, server environment, service, or database was modified.

@@ -22,6 +22,7 @@ import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
 import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
+import { createResendTransactionalSender } from "./server/resend-transactional.mjs";
 import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
@@ -2353,29 +2354,28 @@ const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
 const hubEmailFrom = String(process.env.V79_HUB_EMAIL_FROM || "").trim();
 const hubRecoveryContact = normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail;
 const appPublicUrl = String(process.env.APP_URL || "").replace(/\/$/, "");
-const recoveryEmailEnabled = Boolean(resendApiKey && hubEmailFrom && /^https:\/\//i.test(appPublicUrl));
+let transactionalEmail: ReturnType<typeof createResendTransactionalSender> | null = null;
+if (resendApiKey && hubEmailFrom) {
+  try {
+    transactionalEmail = createResendTransactionalSender({
+      apiKey: resendApiKey, from: hubEmailFrom,
+      replyTo: hubRecoveryContact, hubUrl: appPublicUrl,
+    });
+  } catch {
+    // Sender/config errors fail closed, without printing credentials or addresses.
+    console.warn("[Hub Email] Transactional email configuration is invalid; delivery disabled.");
+  }
+}
+const recoveryEmailEnabled = transactionalEmail !== null;
 
 // Off by default. Single nominated leader only; stale sending claims require manual review.
 const trialReminderLeader = process.env.V79_TRIAL_REMINDERS_ENABLED === "1" &&
   process.env.V79_TRIAL_REMINDERS_WORKER_LEADER === "1";
 let reminderBusy=false;
-async function dispatchTrialReminderEmail(reminder: {email:string;kind:string;trialEndsAt:string}) {
-  if (!recoveryEmailEnabled) return false;
-  const expired=reminder.kind==="expired";
-  const subject=expired ? "Your V79 Hub beta trial has ended" :
-    reminder.kind==="one_day" ? "Your V79 Hub beta trial ends tomorrow" :
-      "Your V79 Hub beta trial ends in seven days";
-  const message=expired ? "Your beta trial has ended." :
-    "Your beta trial ends on " + new Date(reminder.trialEndsAt).toUTCString() + ".";
-  const response=await fetch("https://api.resend.com/emails",{
-    method:"POST",
-    headers:{"authorization":"Bearer "+resendApiKey,"content-type":"application/json"},
-    body:JSON.stringify({from:hubEmailFrom,to:[reminder.email],reply_to:hubRecoveryContact,
-      subject,text:message+"\nReview subscription options: "+appPublicUrl+
-        "\nFor help contact "+hubRecoveryContact+"."}),
-    signal:AbortSignal.timeout(8000),
-  });
-  return response.ok;
+async function dispatchTrialReminderEmail(reminder: {
+  email:string; kind:string; trialEndsAt:string; key:string;
+}) {
+  return transactionalEmail ? transactionalEmail.sendTrialReminder(reminder) : false;
 }
 async function dispatchTrialReminders() {
   if (!trialReminderLeader || !recoveryEmailEnabled || reminderBusy) return;
@@ -2392,23 +2392,7 @@ async function dispatchTrialReminders() {
 }
 
 async function deliverPasswordReset(email: string, resetUrl: string) {
-  if (!recoveryEmailEnabled) return false;
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "authorization": `Bearer ${resendApiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from: hubEmailFrom,
-      to: [email],
-      reply_to: hubRecoveryContact,
-      subject: "Reset your V79 Hub password",
-      text: `A password reset was requested for your V79 Hub account. Use this link within 30 minutes: ${resetUrl}\n\nIf you did not request this, ignore this message. For help contact ${hubRecoveryContact}.`,
-    }),
-    signal: AbortSignal.timeout(8000),
-  });
-  return response.ok;
+  return transactionalEmail ? transactionalEmail.sendPasswordReset(email,resetUrl) : false;
 }
 
 app.get("/api/auth/recovery-status", (_req, res) => {

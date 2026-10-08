@@ -335,3 +335,27 @@ Resend account has three older API keys named Onboarding; permissions are
 not established by the names. Do not reuse these for production Hub.
 Create a domain-restricted sending-only key after verification, with secure
 storage and sender tests. No production email credentials have been changed.
+
+## Resend transactional transport staging — 8 October 2026
+
+Resend confirms DKIM and both Forge routing CNAMEs as verified, with
+sending enabled. Domain overall remains partially verified because
+optional tracking records remain pending; tracking has been disabled.
+The public Hub hostname has intermittently served a conflicting Resend
+tracking CNAME alongside its correct A record, resulting in public HTTP
+400 responses. Do not enable password-reset or customer invitation links
+until Hub DNS is stable and normal public HTTPS consistently returns 200.
+
+The new server/resend-transactional.mjs module is used by both password
+reset and trial-reminder handlers in the isolated Hub branch. It validates
+a sender on v79sl.com, canonical HTTPS Hub reset links, Reply-To and recipient
+syntax, sends a stable hashed provider idempotency key for each claimed
+trial reminder, and handles API rejection without logging credentials.
+The new mock-provider tests passed, as did the complete Hub test suite
+(119 tests), TypeScript checks and Vite build.
+
+This is NOT proof of live delivery: no sending-only key is configured on
+the running Hub and no real test message was sent. Before deployment,
+the founder must confirm From and Reply-To addresses, securely configure a
+domain-restricted sending key, confirm actual test inbox receipt, and
+complete the remaining V79-01 staging and final GO/NO-GO gates.
