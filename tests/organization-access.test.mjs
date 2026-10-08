@@ -26,6 +26,10 @@ function makeStore() {
       { organizationId: 'v79', userId: 'revoked', role: 'staff', status: 'revoked' },
       { organizationId: 'suspended', userId: 'blocked', role: 'owner', status: 'active' },
     ],
+    organizationPlans: [
+      { organizationId: 'v79', status: 'active', accessPolicyType: 'internal' },
+      { organizationId: 'business-b', status: 'active', accessPolicyType: 'paid', paidThroughAt: '2099-01-01T00:00:00.000Z' },
+    ],
     appEntitlements: [
       { organizationId: 'v79', appId: 'app-v79pos', enabled: true },
       { organizationId: 'v79', appId: 'app-custom-a', enabled: true },
@@ -63,11 +67,11 @@ test('a shared account keeps separate roles in separate workspaces', () => {
 
 test('app entitlements and private custom apps do not cross organizations', () => {
   const store = makeStore();
-  assert.deepEqual(enabledAppIds(store, 'v79').sort(), ['app-custom-a', 'app-v79pos']);
+  assert.deepEqual(enabledAppIds(store, 'v79', 'v79').sort(), ['app-custom-a', 'app-v79pos']);
   assert.deepEqual(enabledAppIds(store, 'business-b').sort(), ['app-custom-b', 'app-custom-unowned', 'app-tiquet']);
 
   assert.deepEqual(
-    visibleEcosystemApps(store, 'v79').map(app => app.id).sort(),
+    visibleEcosystemApps(store, 'v79', 'v79').map(app => app.id).sort(),
     ['app-custom-a', 'app-v79pos']
   );
   assert.deepEqual(
@@ -75,9 +79,9 @@ test('app entitlements and private custom apps do not cross organizations', () =
     ['app-custom-b', 'app-tiquet']
   );
 
-  assert.equal(organizationCanMutateApp(store, 'v79', 'app-custom-a'), true);
+  assert.equal(organizationCanMutateApp(store, 'v79', 'app-custom-a', 'v79'), true);
   assert.equal(organizationCanMutateApp(store, 'business-b', 'app-custom-a'), false);
-  assert.equal(organizationCanMutateApp(store, 'v79', 'app-v79pos'), false);
+  assert.equal(organizationCanMutateApp(store, 'v79', 'app-v79pos', 'v79'), false);
   assert.equal(organizationCanAccessApp(store, 'business-b', 'app-v79pos'), false);
 });
 

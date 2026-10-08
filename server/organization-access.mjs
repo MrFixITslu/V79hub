@@ -1,3 +1,4 @@
+import { accessDecision } from "./subscription-access.mjs";
 export function activeMembership(store, userId, organizationId) {
   const organization = store.organizations.find(org => org.id === organizationId && org.status === 'active');
   if (!organization) return null;
@@ -27,33 +28,36 @@ export function legacyWorkspaceAccess(store, userId, organizationId, legacyOrgan
     : null;
 }
 
-export function enabledAppIds(store, organizationId) {
+export function enabledAppIds(store, organizationId, ownerOrganizationId = "", now = Date.now()) {
   const organization = store.organizations.find(org => org.id === organizationId && org.status === 'active');
   if (!organization) return [];
+  const isOwner = Boolean(ownerOrganizationId && organizationId === ownerOrganizationId);
+  const plan = (store.organizationPlans || []).find(row => row.organizationId === organizationId);
+  if (!accessDecision(plan, now, isOwner).allowed) return [];
   return (store.appEntitlements || [])
     .filter(entry => entry.organizationId === organizationId && entry.enabled === true)
     .map(entry => entry.appId);
 }
 
-export function organizationCanAccessApp(store, organizationId, appId) {
-  return enabledAppIds(store, organizationId).includes(appId);
+export function organizationCanAccessApp(store, organizationId, appId, ownerOrganizationId = "", now = Date.now()) {
+  return enabledAppIds(store, organizationId, ownerOrganizationId, now).includes(appId);
 }
 
-export function visibleEcosystemApps(store, organizationId) {
-  const allowed = new Set(enabledAppIds(store, organizationId));
+export function visibleEcosystemApps(store, organizationId, ownerOrganizationId = "", now = Date.now()) {
+  const allowed = new Set(enabledAppIds(store, organizationId, ownerOrganizationId, now));
   return (store.ecosystemApps || []).filter(app =>
     allowed.has(app.id) &&
     (!app.id.startsWith('app-custom-') || app.ownerOrganizationId === organizationId)
   );
 }
 
-export function organizationCanMutateApp(store, organizationId, appId) {
+export function organizationCanMutateApp(store, organizationId, appId, ownerOrganizationId = "") {
   const app = (store.ecosystemApps || []).find(item => item.id === appId);
   return Boolean(
     app &&
     app.id.startsWith('app-custom-') &&
     app.ownerOrganizationId === organizationId &&
-    organizationCanAccessApp(store, organizationId, appId)
+    organizationCanAccessApp(store, organizationId, appId, ownerOrganizationId)
   );
 }
 
@@ -67,6 +71,6 @@ export function validLegacyLaunch(store, entry, product, legacyOrganizationId, o
     entry.tenantId === legacyOrganizationId &&
     entry.userId === ownerUserId &&
     activeMembership(store, entry.userId, entry.tenantId)?.role === 'owner' &&
-    organizationCanAccessApp(store, entry.tenantId, appId)
+    organizationCanAccessApp(store, entry.tenantId, appId, legacyOrganizationId)
   );
 }

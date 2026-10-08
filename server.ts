@@ -20,6 +20,7 @@ import { createHubStorePersistence } from "./server/runtime-store.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
+import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -101,6 +102,10 @@ interface OrganizationPlan {
   appIds: string[];
   priceXcd?: number;
   renewalDate?: string;
+  accessPolicyType?: "internal" | "trial" | "paid" | "legacy_review";
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  paidThroughAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1514,7 +1519,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry.expiresAt >= Date.now() &&
     (posTicketMembership?.role === "owner" || posTeamRole(posTicketMembership?.role)) &&
     membershipCanAccessApp(posTicketMembership, "app-v79pos") &&
-    organizationCanAccessApp(store, entry.tenantId, "app-v79pos") &&
+    organizationCanAccessApp(store, entry.tenantId, "app-v79pos", posIdentity.organizationId) &&
     posTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
   const ffproTicketMembership = entry
@@ -1526,7 +1531,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry.expiresAt >= Date.now() &&
     (ffproTicketMembership?.role === "owner" || ffproTeamRole(ffproTicketMembership?.role)) &&
     membershipCanAccessApp(ffproTicketMembership, "app-ffpro") &&
-    organizationCanAccessApp(store, entry.tenantId, "app-ffpro") &&
+    organizationCanAccessApp(store, entry.tenantId, "app-ffpro", posIdentity.organizationId) &&
     ffproTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
   const tiquetTicketMembership = entry
@@ -1538,7 +1543,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry.expiresAt >= Date.now() &&
     (tiquetTicketMembership?.role === "owner" || tiquetTeamRole(tiquetTicketMembership?.role)) &&
     membershipCanAccessApp(tiquetTicketMembership, "app-tiquet") &&
-    organizationCanAccessApp(store, entry.tenantId, "app-tiquet") &&
+    organizationCanAccessApp(store, entry.tenantId, "app-tiquet", posIdentity.organizationId) &&
     tiquetTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
   const marketingTicketMembership = entry
@@ -1550,7 +1555,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry.expiresAt >= Date.now() &&
     (marketingTicketMembership?.role === "owner" || marketingTeamRole(marketingTicketMembership?.role)) &&
     membershipCanAccessApp(marketingTicketMembership, "app-marketing") &&
-    organizationCanAccessApp(store, entry.tenantId, "app-marketing") &&
+    organizationCanAccessApp(store, entry.tenantId, "app-marketing", posIdentity.organizationId) &&
     marketingTenantLaunchReady(store, entry.tenantId, posIdentity.organizationId)
   );
   const validTicket = product === "pos"
@@ -1589,7 +1594,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     organization: { id: organization.id, name: organization.name, slug: organization.slug },
     role: consumedRole, plan: "beta", accessMode: "beta",
     entitlement: { product, enabled: true, access: consumedRole === "owner" ? "owner" : "team" },
-    assignedProducts: enabledAppIds(store, entry.tenantId)
+    assignedProducts: enabledAppIds(store, entry.tenantId, posIdentity.organizationId)
       .map((appId: string) => ({ "app-ffpro": "ffpro", "app-tiquet": "tiquet", "app-marketing": "marketing" } as Record<string,string>)[appId])
       .filter(Boolean),
   });
@@ -1615,7 +1620,7 @@ function broadcast(organizationId: string, data: any, sender?: WebSocket) {
     const payload = data.type === "USERS_UPDATED"
       ? { ...data, payload: store.users.map(user => sanitizeUserForOrganization(user, organizationId)).filter(Boolean) }
       : data.type === "ECOSYSTEM_APPS_UPDATED"
-        ? { ...data, apps: visibleEcosystemApps(store, organizationId) }
+        ? { ...data, apps: visibleEcosystemApps(store, organizationId, posIdentity.organizationId) }
         : data;
     client.send(JSON.stringify(payload));
   });
@@ -1718,7 +1723,7 @@ function sanitizeUserForOrganization(u: StoredUser, organizationId: string) {
     workspaceOwner: membership.role === "owner",
     permissions: normalizePermissions(membership.permissions ?? u.permissions, role),
     appIds: membership.role === "owner"
-      ? enabledAppIds(store, organizationId)
+      ? enabledAppIds(store, organizationId, posIdentity.organizationId)
       : normalizeTeamAppIds(membership.appIds, organizationId),
   };
 }
@@ -1729,7 +1734,7 @@ const teamAssignableAppIds = new Set(["app-v79pos", "app-ffpro", "app-tiquet", "
 
 function normalizeTeamAppIds(value: unknown, organizationId: string) {
   if (!Array.isArray(value)) return [];
-  const enabled = new Set(enabledAppIds(store, organizationId));
+  const enabled = new Set(enabledAppIds(store, organizationId, posIdentity.organizationId));
   return [...new Set(value.filter((appId): appId is string =>
     typeof appId === "string" &&
     teamAssignableAppIds.has(appId) &&
@@ -1921,8 +1926,8 @@ async function completeInvitationAcceptance(
   if (!transition.nextStore.organizationPlans.some((plan: OrganizationPlan) => plan.organizationId === transition.organizationId)) {
     transition.nextStore.organizationPlans.push({
       organizationId: transition.organizationId,
-      planName: "Custom",
-      status: "active",
+      planName: "V79 Hub Beta Trial",
+      ...beginTrial(new Date(now)),
       billingCycle: "custom",
       appIds: [...transition.appIds],
       createdAt: now,
@@ -2401,7 +2406,7 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
 app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req, res) => {
   const session = (req as any).user;
   const organization = store.organizations.find(org => org.id === session.organizationId);
-  const enabledIds = new Set(rawEntitledAppIds(store, session.organizationId));
+  const enabledIds = new Set(enabledAppIds(store, session.organizationId, posIdentity.organizationId));
   const enabledApps = (store.ecosystemApps || [])
     .filter(app => enabledIds.has(app.id))
     .filter(app => !["app-analytics", "app-lifehealth", "app-lasertag"].includes(app.id) || session.organizationId === posIdentity.organizationId)
@@ -2414,6 +2419,10 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     organization: organization?.name || "Business workspace",
     planName: plan.planName,
     status: plan.status,
+    accessStatus: accessDecision(plan, Date.now(), session.organizationId === posIdentity.organizationId).reason,
+    trialStartedAt: plan.trialStartedAt || null,
+    trialEndsAt: plan.trialEndsAt || null,
+    paidThroughAt: plan.paidThroughAt || null,
     billingCycle: plan.billingCycle,
     enabledApps,
     pricing: {
@@ -2832,9 +2841,16 @@ app.get("/api/billing/wipay/return", async (req, res) => {
       nextStore.organizationPlans.push(plan);
     }
     if (plan.billingCycle === "monthly" || plan.billingCycle === "annual") {
-      const currentRenewal = /^\d{4}-\d{2}-\d{2}$/.test(plan.renewalDate || "") ? new Date(`${plan.renewalDate}T00:00:00.000Z`) : null;
-      const base = currentRenewal && currentRenewal.getTime() > Date.now() ? currentRenewal : new Date();
-      plan.renewalDate = addBillingPeriod(base, plan.billingCycle).toISOString().slice(0, 10);
+      // Never extend a paid period from an administrator-editable renewal label.
+      // Only a previously verified paid-through value may carry forward.
+      const currentPaidThrough = plan.accessPolicyType === "paid" && plan.paidThroughAt
+        ? new Date(plan.paidThroughAt) : null;
+      const base = currentPaidThrough && Number.isFinite(currentPaidThrough.getTime()) &&
+        currentPaidThrough.getTime() > Date.now() ? currentPaidThrough : new Date();
+      const paidThroughAt = addBillingPeriod(base, plan.billingCycle).toISOString();
+      plan.renewalDate = paidThroughAt.slice(0, 10);
+      plan.paidThroughAt = paidThroughAt;
+      plan.accessPolicyType = "paid";
       plan.status = "active";
       plan.updatedAt = now;
     }
@@ -2974,7 +2990,7 @@ app.post("/api/team/invitations", requireWorkspaceOwner, async (req, res) => {
   if (!Array.isArray(requestedAppIds) || requestedAppIds.some(appId =>
     typeof appId !== "string" ||
     !teamAssignableAppIds.has(appId) ||
-    !organizationCanAccessApp(store, organizationId, appId)
+    !organizationCanAccessApp(store, organizationId, appId, posIdentity.organizationId)
   )) {
     return res.status(400).json({ error: "Team app access must use enabled POS, Tiquet or Marketing apps only" });
   }
@@ -3288,10 +3304,23 @@ app.put("/api/admin/customers/:organizationId/plan", requirePlatformOperator, as
   const nextStore = cloneStore();
   if (!Array.isArray(nextStore.organizationPlans)) nextStore.organizationPlans = [];
   const existingPlan = nextStore.organizationPlans.find(plan => plan.organizationId === organizationId);
+  // Trials cannot be restarted by editing a plan. Paid activation needs verified billing.
+  if (status === "active" && !(existingPlan?.accessPolicyType === "paid" &&
+      Number.isFinite(Date.parse(existingPlan.paidThroughAt || "")) &&
+      Date.parse(existingPlan.paidThroughAt || "") > Date.now())) {
+    return res.status(409).json({ error: "Verified payment required before activating a paid customer plan." });
+  }
+  if (status === "trial" && existingPlan?.status !== "trial") {
+    return res.status(409).json({ error: "A trial cannot be restarted through plan administration." });
+  }
   const nextPlan: OrganizationPlan = {
     organizationId,
     planName,
     status: status as OrganizationPlan["status"],
+    ...(existingPlan?.accessPolicyType ? { accessPolicyType: existingPlan.accessPolicyType } : {}),
+    ...(existingPlan?.trialStartedAt ? { trialStartedAt: existingPlan.trialStartedAt } : {}),
+    ...(existingPlan?.trialEndsAt ? { trialEndsAt: existingPlan.trialEndsAt } : {}),
+    ...(existingPlan?.paidThroughAt ? { paidThroughAt: existingPlan.paidThroughAt } : {}),
     billingCycle: billingCycle as OrganizationPlan["billingCycle"],
     appIds: [...selected],
     ...(priceXcd !== undefined ? { priceXcd } : {}),
@@ -3820,7 +3849,7 @@ app.get("/api/dashboard/summary", async (req, res) => {
 
   const results = await Promise.all(products.map(async product => {
     const appId = dashboardProductAppIds[product];
-    if (appId && !organizationCanAccessApp(store, session.organizationId, appId)) {
+    if (appId && !organizationCanAccessApp(store, session.organizationId, appId, posIdentity.organizationId)) {
       return [product, { status: "not_enabled", metrics: {}, generatedAt: null }] as const;
     }
     if (!appId && !platformOperator) {
@@ -3874,9 +3903,9 @@ function connectionProductsForSession(userId: string, organizationId: string) {
     const appId = dashboardProductAppIds[product];
     if (organizationId === posIdentity.organizationId) {
       if (!appId) return isPlatformOperatorIdentity(userId, organizationId);
-      return organizationCanAccessApp(store, organizationId, appId);
+      return organizationCanAccessApp(store, organizationId, appId, posIdentity.organizationId);
     }
-    if (!appId || !organizationCanAccessApp(store, organizationId, appId)) return false;
+    if (!appId || !organizationCanAccessApp(store, organizationId, appId, posIdentity.organizationId)) return false;
     if (membership?.role === "owner") return true;
     return membershipCanAccessApp(membership, appId);
   });
@@ -4263,7 +4292,7 @@ app.get("/internal/agent/snapshot", async (req, res) => {
     },
     hubAdmin: {
       users: activeMembers.length,
-      enabledApps: enabledAppIds(store, organizationId),
+      enabledApps: enabledAppIds(store, organizationId, posIdentity.organizationId),
       activeSessions: [...sessions.values()].filter(session => session.organizationId === organizationId && session.expiresAt > Date.now()).length,
     },
     connections,
@@ -4305,7 +4334,7 @@ app.use("/api/ecosystem/apps", (req, res, next) => req.method === "GET" ? next()
 
 app.get("/api/apps/pos/launch", async (req, res) => {
   const session = (req as any).user;
-  if (!organizationCanAccessApp(store, session.organizationId, "app-v79pos")) {
+  if (!organizationCanAccessApp(store, session.organizationId, "app-v79pos", posIdentity.organizationId)) {
     return res.status(403).json({ error: "POS is not enabled for this Hub organization" });
   }
   const membership = activeMembership(store, session.userId, session.organizationId);
@@ -4351,7 +4380,7 @@ app.get("/api/apps/:product/launch", async (req, res) => {
   if (!(product in managedLaunch)) return res.status(404).json({ error: "Unknown managed app" });
   const session = (req as any).user;
   const appIdByProduct = { ffpro: "app-ffpro", tiquet: "app-tiquet", marketing: "app-marketing" } as const;
-  if (!organizationCanAccessApp(store, session.organizationId, appIdByProduct[product])) return res.status(403).json({ error: "This app is not enabled for this Hub organization" });
+  if (!organizationCanAccessApp(store, session.organizationId, appIdByProduct[product], posIdentity.organizationId)) return res.status(403).json({ error: "This app is not enabled for this Hub organization" });
 
   const membership = activeMembership(store, session.userId, session.organizationId);
   const assignedAppId = appIdByProduct[product];
@@ -4523,7 +4552,7 @@ app.put("/api/users/:id", async (req, res) => {
     if (!Array.isArray(appIds) || appIds.some(appId =>
       typeof appId !== "string" ||
       !teamAssignableAppIds.has(appId) ||
-      !organizationCanAccessApp(store, organizationId, appId)
+      !organizationCanAccessApp(store, organizationId, appId, posIdentity.organizationId)
     )) {
       return res.status(400).json({ error: "Team app access must use enabled POS, Tiquet or Marketing apps only" });
     }
@@ -4686,7 +4715,7 @@ app.get("/api/ecosystem/apps", async (req, res) => {
   const session = (req as any).user;
   const organizationId = session.organizationId;
   const membership = activeMembership(store, session.userId, organizationId);
-  const visibleApps = visibleEcosystemApps(store, organizationId) as EcosystemApp[];
+  const visibleApps = visibleEcosystemApps(store, organizationId, posIdentity.organizationId) as EcosystemApp[];
   const memberVisibleApps = membership?.role === "owner"
     ? visibleApps
     : visibleApps.filter((app: EcosystemApp) => membershipCanAccessApp(membership, app.id));
@@ -4735,7 +4764,7 @@ app.get("/api/ecosystem/apps", async (req, res) => {
 app.put("/api/ecosystem/apps/:id", async (req, res) => {
   const { id } = req.params;
   const organizationId = (req as any).user.organizationId;
-  if (!organizationCanMutateApp(store, organizationId, id)) return res.status(403).json({ error: "Only custom apps owned by this workspace can be changed" });
+  if (!organizationCanMutateApp(store, organizationId, id, posIdentity.organizationId)) return res.status(403).json({ error: "Only custom apps owned by this workspace can be changed" });
   const index = store.ecosystemApps.findIndex((a) => a.id === id && a.ownerOrganizationId === organizationId);
   if (index === -1) {
     return res.status(404).json({ error: "Ecosystem app not found" });
@@ -4821,7 +4850,7 @@ app.post("/api/ecosystem/apps", async (req, res) => {
 
   store.ecosystemApps.push(newApp);
   const organizationId = (req as any).user.organizationId;
-  if (!organizationCanAccessApp(store, organizationId, newApp.id)) {
+  if (!organizationCanAccessApp(store, organizationId, newApp.id, posIdentity.organizationId)) {
     store.appEntitlements.push({ organizationId, appId: newApp.id, enabled: true, createdAt: new Date().toISOString() });
   }
   await saveStore(store);

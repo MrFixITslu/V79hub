@@ -290,7 +290,8 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
     assert.equal(customer.lifecycle, "provisioning");
     assert.equal(customer.owner.email, sharedEmail);
     assert.equal(customer.memberCount, 1);
-    assert.equal(customer.plan.planName, "Custom");
+    assert.equal(customer.plan.planName, "V79 Hub Beta Trial");
+    assert.equal(customer.plan.status, "trial");
   }
 
   const planUpdate = await request(`/api/admin/customers/${a.organization.id}/plan`, {
@@ -298,7 +299,7 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
     headers: operatorHeaders,
     body: JSON.stringify({
       planName: "Business",
-      status: "active",
+      status: "trial",
       billingCycle: "monthly",
       priceXcd: 199,
       renewalDate: "2027-01-15",
