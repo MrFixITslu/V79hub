@@ -246,3 +246,42 @@ feature-development results, not a production deployment approval.
 communications; ensure exactly one Hub scheduler leader; reconcile legacy
 internal accounts before enforcing Hub-only sessions; full five-service
 networked staging and rollback remain outstanding.
+
+## Current-main reconciliation and deployment configuration audit
+
+All isolated V79-01 feature branches were updated with the latest GitHub
+origin/main without touching the production working trees. FFPRO required
+one conflict resolution in env.example (upstream file preserved, disabled
+entitlement flag restored). Its 33 intervening main commits are incorporated
+into the feature branch. No production main merge or deployment occurred.
+
+Regression tests following reconciliation:
+- Hub: 94 tests, TypeScript and Vite build passed.
+- FFPRO: 99 tests, TypeScript and Vite/esbuild build passed.
+- Tiquet: 10 targeted authenticated/WS checks, TypeScript and Vite build passed.
+- Marketing: 50 tests, TypeScript and Vite/esbuild build passed.
+- POS: 21 API tests, TypeScript and build passed on its up-to-date branch.
+GitHub CI subsequently succeeded for all five feature commits, including
+Marketing RED TEAM and FFPRO production-readiness checks.
+
+The read-only scripts/release-config-audit.mjs checks signing secret
+consistency, application networks, Hub internal endpoints and email sender
+presence. Unit tests cover mismatched keys, fallback semantics, missing mail
+and misrouted Hub URLs. It does not print secrets and never modifies Docker.
+
+Important correction: the general Hub and POS platform secrets are different,
+but Hub's DEDICATED V79_POS_PLATFORM_SHARED_SECRET matches POS's current
+platform secret. Therefore POS's effective signing key is aligned; an earlier
+simple general-secret comparison was misleading.
+
+Current configuration blocker: the running Hub has no RESEND_API_KEY or
+V79_HUB_EMAIL_FROM configured, so its feature-flagged beta-trial reminders
+cannot yet send. A verified sending-domain identity, provider configuration,
+test inbox delivery and opt-in review are required before activation. The
+Hub/FFPRO/Tiquet/Marketing signing secrets match their configured counterparts,
+and the application containers share proxy_network with valid Hub URLs.
+
+This audit validates configuration prerequisites, not full deployment
+readiness: real service-to-service staging, production cutover/rollback,
+application assets and key recovery, queued background-job policy, founder
+login migration and founder final go/no-go remain outstanding.
