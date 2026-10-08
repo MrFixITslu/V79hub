@@ -113,7 +113,10 @@ services:
       JWT_ISSUER: https://hub.v79sl.com
       POS_PUBLIC_URL: https://pos.v79sl.com
       CORS_ORIGINS: https://pos.v79sl.com
-      V79_PLATFORM_SHARED_SECRET: "${STAGE_GENERAL_SECRET}"
+      # The current POS provisioner verifies its generic platform secret,
+      # while session revalidation uses the dedicated POS secret. Keep both
+      # set to the exact Hub POS signing secret in this isolated deployment.
+      V79_PLATFORM_SHARED_SECRET: "${STAGE_POS_SECRET}"
       V79_POS_PLATFORM_SHARED_SECRET: "${STAGE_POS_SECRET}"
       V79_ENTITLEMENT_RECHECK_ENABLED: "1"
       GIFT_CARD_PEPPER: "${STAGE_POS_SECRET}"

@@ -42,7 +42,12 @@ const founder={
   password:hashPassword(adminPassword),createdAt:new Date().toISOString(),
 };
 const users=[founder,...customerUsers];
-const customerOrgs=["a","b"].map(k=>({id:"synthetic-customer-"+k,status:"active",name:"Synthetic Customer "+k.toUpperCase()}));
+const customerOrgs=["a","b"].map(k=>({
+  id:"synthetic-customer-"+k,
+  slug:"synthetic-customer-"+k,
+  status:"active",
+  name:"Synthetic Customer "+k.toUpperCase(),
+}));
 const ownerOrg={id:ownerOrgId,name:"V79 Ephemeral Internal",slug:"v79-ephemeral-internal",status:"active"};
 const orgs=[ownerOrg,...customerOrgs];
 const memberships=[{organizationId:ownerOrgId,userId:founderId,role:"owner",status:"active"},
