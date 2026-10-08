@@ -2,6 +2,7 @@
 // No external origin or production tenant is contacted.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import { signPlatformRequest } from "../server/platform-contract.mjs";
 
 if (process.env.GITHUB_ACTIONS !== "true" || process.env.V79_EPHEMERAL_CI !== "1" ||
@@ -145,6 +146,35 @@ assert.notEqual(cookieA,cookieB,"tenant sessions are distinct");
 // running product, authenticated downstream sessions, and one-time replay
 // rejection. Public URLs are parsed but never fetched: CI has no route to
 // production and all subsequent requests use Docker-internal origins.
+// Node fetch normalises Host to the connected Docker service; for FFPRO, which
+// intentionally enforces a canonical public Host, use low-level HTTP to
+// simulate the reverse proxy without altering the service security guard.
+async function stageFetch(url,options={}){
+  if(new URL(url).hostname!=="ffpro") return fetch(url,options);
+  return new Promise((resolve,reject)=>{
+    const call=httpRequest(url,{
+      method:options.method||"GET",
+      headers:{...options.headers,host:"ffpro.v79sl.com"},
+      signal:options.signal,
+    },response=>{
+      const chunks=[];
+      response.on("data",chunk=>chunks.push(chunk));
+      response.on("error",reject);
+      response.on("end",()=>{
+        const headers=new Headers();
+        for(const name of ["set-cookie","location","content-type"]){
+          const entry=response.headers[name];
+          if(entry) headers.set(name,Array.isArray(entry)?entry.join(", "):entry);
+        }
+        resolve(new Response(Buffer.concat(chunks),{
+          status:response.statusCode||500,headers,
+        }));
+      });
+    });
+    call.on("error",reject);
+    call.end(options.body||undefined);
+  });
+}
 const stageProducts=[
   {name:"pos",host:"pos.v79sl.com",origin:"http://pos:8080",path:"/auth/launch",cookie:"v79_pos_session",me:"/v1/me"},
   {name:"ffpro",host:"ffpro.v79sl.com",origin:"http://ffpro:3010",path:"/api/platform/launch",cookie:"ffpro.sid",me:"/api/auth/session-state"},
@@ -173,13 +203,13 @@ for(const product of stageProducts){
        headers:product.name==="ffpro"?{host:product.host}:{},
        signal:AbortSignal.timeout(15000)};
   if(product.name!=="pos") internalUrl.searchParams.set("ticket",ticket);
-  const exchanged=await fetch(internalUrl,request);
+  const exchanged=await stageFetch(internalUrl,request);
   assert.equal(exchanged.status,product.name==="pos"?200:302,
     product.name+" real application must consume the Hub ticket");
   const productCookie=(exchanged.headers.get("set-cookie")||"").split(";")[0];
   assert.ok(productCookie.startsWith(product.cookie+"="),
     product.name+" downstream authenticated session cookie missing");
-  const identity=await fetch(new URL(product.me,product.origin),{
+  const identity=await stageFetch(new URL(product.me,product.origin),{
     headers:{cookie:productCookie,accept:"application/json",
       ...(product.name==="ffpro"?{host:product.host}:{})},
     signal:AbortSignal.timeout(10000),
@@ -189,7 +219,7 @@ for(const product of stageProducts){
     const details=await identity.json();
     assert.equal(details.authenticated,true,"FFPRO must report authenticated");
   }
-  const replay=await fetch(internalUrl,request);
+  const replay=await stageFetch(internalUrl,request);
   const replayCookie=replay.headers.get("set-cookie")||"";
   assert.ok(!replayCookie.includes(product.cookie+"="),
     product.name+" must not issue a second authenticated cookie from a consumed ticket");
