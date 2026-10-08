@@ -23,11 +23,11 @@ Verification of the existing, authorised one-organisation 14-day beta activation
 ## Open safeguards / intervention needed
 
 1. **MFA-protected browser launch:** end-to-end live owner sign-in and app launch require an authorised person to complete MFA in the browser, or a sanctioned non-admin beta test login. Do not collect OTPs in logs or disable admin MFA to automate it.
-2. **Backup retention:** root-owned historic snapshot `2026-09-14_15-20-36` cannot be removed by the unprivileged nightly service. A local administrator must repair ownership or explicitly review/delete that one legacy snapshot.
-3. **Encrypted off-site recovery:** choose an independent storage destination, encryption key custody and retention policy before copying sensitive backups offsite. Never place a master key in Git or the production app environment.
+2. **Backup retention — resolved after report:** historic snapshot ownership was corrected on the independent backup workstation; the expired 14 September snapshot was removed and surviving snapshot root directories restricted to owner-only access. The latest verified snapshot was retained.
+3. **Encrypted off-site recovery — explicitly deferred by founder:** future implementation only; no B2 account, restic installation, repository, keys, upload, or scheduled off-site run. The protected off-site script is staged but intentionally inactive. Local workstation backups and restore tests remain the active beta recovery method. This leaves loss/theft/fire of the backup workstation as a residual disaster-recovery risk. Reassess before any commercial launch; do not represent the off-site gate as passed.
 4. **Delivery tracking:** optional Resend tracking CNAMEs remain pending/failed; they are not required for transactional sending while tracking is disabled.
 5. **Backup restore coverage:** PostgreSQL and selected data integrity are tested; a complete restored multi-app stack, login/MFA, callbacks, and disaster recovery rehearsal have not yet been proven.
-6. **Recurring alerts:** no independent alert has yet been confirmed for failed nightly backups. Treat missing/stale backup notices as a separate monitoring gate before a commercial launch.
+6. **Recurring alerts — partially resolved:** independent local workstation monitor now runs at 08:15 and 20:15 AST, verifies success marker, freshness, permissions, file counts, SHA-256 checksums, and systemd result, and logs failures. Positive and intentional archive-tampering negative tests passed. External failure email notifications remain unconfigured and must not be represented as complete.
 
 ## Release boundary
 
