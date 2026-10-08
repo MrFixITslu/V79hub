@@ -127,7 +127,7 @@ const appCards: Array<{
     shortName: "Academy",
     title: "V79 Digital Academy",
     category: "Learning and capability",
-    fallback: "https://v79academy.v79sl.com/academy",
+    fallback: "https://academy.v79sl.com/",
     icon: GraduationCap,
     iconClass: "text-[#52e6c2]",
     accent: "#10B981",
