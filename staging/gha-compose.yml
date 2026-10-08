@@ -41,6 +41,7 @@ services:
       V79_EPHEMERAL_CI: "1"
       GITHUB_ACTIONS: "true"
       STAGE_CUSTOMER_PASSWORD: "${STAGE_CUSTOMER_PASSWORD}"
+      STAGE_ADMIN_PASSWORD: "${STAGE_ADMIN_PASSWORD}"
       DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@hub-db:5432/hub_staging"
       DATA_DIR: /app/data
     volumes: ["hub-data:/app/data"]
@@ -71,6 +72,7 @@ services:
       DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@hub-db:5432/hub_staging"
       V79_HUB_ADMIN_EMAIL: vision79slu@gmail.com
       V79_HUB_ADMIN_USERNAME: admin
+      V79_POS_ORG_ID: synthetic-v79-internal
       V79_HUB_ADMIN_PASSWORD: "${STAGE_ADMIN_PASSWORD}"
       V79_REQUIRE_ADMIN_MFA: "0"
       V79_PLATFORM_SHARED_SECRET: "${STAGE_GENERAL_SECRET}"

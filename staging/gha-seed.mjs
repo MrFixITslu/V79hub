@@ -14,8 +14,10 @@ if (process.env.V79_EPHEMERAL_CI !== "1" ||
   throw new Error("Refusing to seed a non-ephemeral database.");
 }
 const customerPassword = process.env.STAGE_CUSTOMER_PASSWORD;
-if (!customerPassword || customerPassword.length < 24)
-  throw new Error("Synthetic customer password missing.");
+const adminPassword = process.env.STAGE_ADMIN_PASSWORD;
+if (!customerPassword || customerPassword.length < 24 ||
+    !adminPassword || adminPassword.length < 24)
+  throw new Error("Synthetic account passwords missing.");
 const hashPassword = value => {
   const salt = randomBytes(16).toString("hex");
   return "scrypt:" + salt + ":" +
@@ -23,16 +25,30 @@ const hashPassword = value => {
 };
 const trial = beginTrial(new Date());
 const appIds = ["app-v79pos","app-ffpro","app-tiquet","app-marketing","app-academy"];
-const users = ["a","b"].map(k => ({
+const customerUsers = ["a","b"].map(k => ({
   id:"synthetic-user-"+k, username:"owner-"+k+"@example.invalid",
   email:"owner-"+k+"@example.invalid", fullName:"Synthetic Owner "+k.toUpperCase(),
   password:hashPassword(customerPassword), role:"user", permissions:[],
   createdAt:new Date().toISOString(),
 }));
-const orgs = ["a","b"].map(k=>({id:"synthetic-customer-"+k,status:"active",name:"Synthetic Customer "+k.toUpperCase()}));
-const memberships = orgs.map((o,i)=>({organizationId:o.id,userId:users[i].id,role:"owner",status:"active"}));
-const appEntitlements = orgs.flatMap(org => appIds.map(appId=>({organizationId:org.id,appId,enabled:true})));
-const appTenantMappings = orgs.flatMap(org =>
+// The Hub refuses to retrofit the internal owner into customer data.
+// Create the complete synthetic founder identity before customers.
+const ownerOrgId="synthetic-v79-internal";
+const founderId="synthetic-founder";
+const founder={
+  id:founderId,username:"admin",email:"vision79slu@gmail.com",
+  fullName:"Synthetic Platform Founder",role:"admin",
+  permissions:["overview","connections","team","security","billing","users"],
+  password:hashPassword(adminPassword),createdAt:new Date().toISOString(),
+};
+const users=[founder,...customerUsers];
+const customerOrgs=["a","b"].map(k=>({id:"synthetic-customer-"+k,status:"active",name:"Synthetic Customer "+k.toUpperCase()}));
+const ownerOrg={id:ownerOrgId,name:"V79 Ephemeral Internal",slug:"v79-ephemeral-internal",status:"active"};
+const orgs=[ownerOrg,...customerOrgs];
+const memberships=[{organizationId:ownerOrgId,userId:founderId,role:"owner",status:"active"},
+  ...customerOrgs.map((o,i)=>({organizationId:o.id,userId:customerUsers[i].id,role:"owner",status:"active"}))];
+const appEntitlements = customerOrgs.flatMap(org => appIds.map(appId=>({organizationId:org.id,appId,enabled:true})));
+const appTenantMappings = customerOrgs.flatMap(org =>
   ["pos","ffpro","tiquet","marketing"].map(product=>({
     organizationId:org.id,
     appId: product==="pos"?"app-v79pos":"app-"+product,
@@ -41,7 +57,7 @@ const appTenantMappings = orgs.flatMap(org =>
     externalOwnerId:"synthetic-"+product+"-"+org.id,
   }))
 );
-const plans = orgs.map((org,i)=>({
+const plans = customerOrgs.map((org,i)=>({
   organizationId:org.id,planName:"Synthetic CI trial",
   ...trial,
   ...(i===1?{status:"cancelled"}:{}),

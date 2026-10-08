@@ -53,3 +53,11 @@ test("one-time synthetic seed and DB migrations cannot run twice during startup"
   assert.match(yaml,/stage run --rm pos-migrate/);
   assert.match(yaml,/stage up --no-deps -d v79-hub pos ffpro tiquet marketing/);
 });
+
+test("synthetic Hub fixture includes an internal platform owner before customers",()=>{
+  assert.match(seed,/synthetic-v79-internal/);
+  assert.match(seed,/synthetic-founder/);
+  assert.match(seed,/role:"owner",status:"active"/);
+  assert.match(compose,/V79_POS_ORG_ID: synthetic-v79-internal/);
+  assert.match(compose,/STAGE_ADMIN_PASSWORD/);
+});
