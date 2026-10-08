@@ -154,7 +154,10 @@ async function stageFetch(url,options={}){
   return new Promise((resolve,reject)=>{
     const call=httpRequest(url,{
       method:options.method||"GET",
-      headers:{...options.headers,host:"ffpro.v79sl.com"},
+      // Exactly what the HTTPS reverse proxy forwards to the application.
+      // Preserve Secure session cookies; never turn them off for tests.
+      headers:{...options.headers,host:"ffpro.v79sl.com",
+        "x-forwarded-proto":"https","x-forwarded-host":"ffpro.v79sl.com"},
       signal:options.signal,
     },response=>{
       const chunks=[];
