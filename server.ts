@@ -21,7 +21,7 @@ import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
-import { planTrialReminders, claimTrialReminder, completeTrialReminder } from "./server/trial-reminders.mjs";
+import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
 import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
@@ -2381,16 +2381,12 @@ async function dispatchTrialReminders() {
   if (!trialReminderLeader || !recoveryEmailEnabled || reminderBusy) return;
   reminderBusy=true;
   try {
-    const due=planTrialReminders(store,{ownerOrganizationId:posIdentity.organizationId});
-    for(const item of due) {
-      if (!planTrialReminders(store,{ownerOrganizationId:posIdentity.organizationId})
-        .some(candidate=>candidate.key===item.key)) continue;
-      await commitStore(claimTrialReminder(store,item) as AppStore);
-      let delivered=false;
-      try { delivered=await dispatchTrialReminderEmail(item); }
-      catch { console.warn("[Hub Trial] Reminder delivery unavailable"); }
-      await commitStore(completeTrialReminder(store,item.key,{success:delivered}) as AppStore);
-    }
+    await dispatchDueTrialReminders({
+      ownerOrganizationId:posIdentity.organizationId,
+      getStore:()=>store,
+      commit:async (next: AppStore)=>commitStore(next),
+      send:dispatchTrialReminderEmail,
+    });
   } catch {console.warn("[Hub Trial] Review stuck notification claims before next attempt");}
   finally {reminderBusy=false;}
 }

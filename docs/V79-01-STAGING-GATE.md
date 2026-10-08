@@ -285,3 +285,16 @@ This audit validates configuration prerequisites, not full deployment
 readiness: real service-to-service staging, production cutover/rollback,
 application assets and key recovery, queued background-job policy, founder
 login migration and founder final go/no-go remain outstanding.
+
+## Final reminder dispatcher verification
+
+The reminder sender sequence was extracted to server/trial-reminder-dispatch.mjs
+so its durable claim, outbound hand-off, completion and bounded retry flow can
+be tested without running the Hub web server or sending actual email. Unit
+tests cover exactly-once-per-stage under repeated runs, delayed failed-send
+retry and an interrupted send claim that must be reconciled manually rather
+than resent blindly. All eight reminder lifecycle/dispatcher tests passed.
+The Hub full suite passed 101 tests with TypeScript validation.
+
+Deployment flags remain disabled; the Resend sender/key prerequisite still
+fails the safe runtime release configuration preflight.
