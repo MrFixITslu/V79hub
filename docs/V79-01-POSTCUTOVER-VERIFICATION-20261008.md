@@ -32,3 +32,15 @@ Verification of the existing, authorised one-organisation 14-day beta activation
 ## Release boundary
 
 No additional production deployment, financial payment activation, public customer onboarding expansion, or security downgrade is authorised by this record. Keep the one existing approved trial and production-level safeguards intact.
+
+
+## Approved Academy production hostname correction — 8 October 2026
+
+- Founder explicitly authorised a narrowly scoped production Hub correction after the disposable five-app integration gate passed.
+- GitHub staging run 37856125836 completed successfully: five healthy isolated applications; four real managed-product provisioners; signed entitlement tests with cross-tenant and cancelled-plan denial; real POS, FFPRO, Tiquet and Marketing authenticated launches; single-use ticket replay rejection; and tenant-scoped Hub sessions.
+- Existing production release files were verified byte-for-byte against the four targeted corrections, apart from old Academy URL literals. The Hub server source, two UI Academy launcher fallbacks and Docker Compose default now refer to academy.v79sl.com; the protected runtime environment value is https://academy.v79sl.com.
+- Pre-change source/configuration was saved under /home/firelion/v79-release-rollbacks/academy-url-rollback-20261008, outside the Docker build context; the old local image was tagged v79-hub:academy-rollback-20261008. Do not push this rollback image or any secret-bearing image to an external registry.
+- A Docker image packaging issue was detected: the previous .dockerignore did not exclude .env and the old local image contained it. Production and source-branch Docker ignore lists were strengthened to exclude environment files, backup folders and key material. The replacement image was inspected in a disconnected container: no .env or backup folder, no old Academy hostname in compiled assets and the correct hostname present.
+- The single v79-hub service was re-created with no dependencies and no additional build. Hub PostgreSQL and other application containers were not re-created. Afterwards Hub, Academy, POS, FFPRO, Tiquet and Marketing all returned HTTP 200 and the relevant containers were healthy.
+- Mandatory administrator MFA, reminder worker leader, anonymous API denial, zero-issue release configuration audit and the one approved non-owner beta trial with five application entitlements were rechecked after rollout. Trial expiration remains 2026-10-22T21:20:02.148Z.
+- Remaining: founder browser/MFA confirmation of launch UX; canonical release-source synchronisation without inadvertently deploying unreleased subscription features; coordinated retirement of the old secret-bearing rollback image and assessment of credential rotation. Off-site backups remain explicitly deferred.
