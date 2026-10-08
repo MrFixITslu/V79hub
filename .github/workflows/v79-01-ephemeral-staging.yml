@@ -115,9 +115,11 @@ jobs:
           names=["STAGE_DB_PASSWORD","STAGE_ADMIN_PASSWORD","STAGE_CUSTOMER_PASSWORD",
             "STAGE_GENERAL_SECRET","STAGE_POS_SECRET","STAGE_FFPRO_SECRET",
             "STAGE_TIQUET_SECRET","STAGE_MARKETING_SECRET"]
+          import base64
           with open(os.path.join(os.environ["RUNNER_TEMP"],"v79-stage.env"),"x") as f:
             for name in names:
               f.write(name+"="+secrets.token_hex(32)+"\n")
+            f.write("STAGE_FFPRO_ENCRYPTION_KEY="+base64.b64encode(secrets.token_bytes(32)).decode()+"\n")
           print("EPHEMERAL_SECRETS_GENERATED key_names_only")
           PY
       - name: Start isolated databases, seed synthetic customer accounts, and start five apps

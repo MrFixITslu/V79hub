@@ -61,3 +61,9 @@ test("synthetic Hub fixture includes an internal platform owner before customers
   assert.match(compose,/V79_POS_ORG_ID: synthetic-v79-internal/);
   assert.match(compose,/STAGE_ADMIN_PASSWORD/);
 });
+
+test("FFPRO test encryption key uses distinct 32-byte base64 material",()=>{
+  assert.match(yaml,/STAGE_FFPRO_ENCRYPTION_KEY/);
+  assert.match(yaml,/base64\.b64encode\(secrets\.token_bytes\(32\)\)/);
+  assert.match(compose,/DATA_ENCRYPTION_KEY: "\$\{STAGE_FFPRO_ENCRYPTION_KEY/);
+});

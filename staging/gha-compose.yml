@@ -131,7 +131,7 @@ services:
       DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@ffpro-db:5432/fire_finance"
       DATABASE_SSL: "false"
       SESSION_SECRET: "${STAGE_FFPRO_SECRET}"
-      DATA_ENCRYPTION_KEY: "${STAGE_GENERAL_SECRET}"
+      DATA_ENCRYPTION_KEY: "${STAGE_FFPRO_ENCRYPTION_KEY:?FFPRO requires a base64-encoded 32-byte key}"
       V79_PLATFORM_SHARED_SECRET: "${STAGE_GENERAL_SECRET}"
       V79_FFPRO_LAUNCH_SECRET: "${STAGE_FFPRO_SECRET}"
       V79_HUB_PUBLIC_URL: https://hub.v79sl.com
