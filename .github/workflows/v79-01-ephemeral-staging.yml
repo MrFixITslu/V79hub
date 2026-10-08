@@ -1,0 +1,159 @@
+name: V79-01 Disposable Five-App Staging
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/v79-01-ephemeral-staging.yml
+      - staging/gha-**
+      - server/subscription-access.mjs
+      - server/entitlement-validation.mjs
+      - server/legacy-cutover.mjs
+  workflow_dispatch:
+
+# PR-only until explicitly promoted. No environment: production, deployment
+# token, external SSH, email credentials, persistent volume or published port.
+permissions:
+  contents: read
+concurrency:
+  group: v79-01-ephemeral-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.service }} on isolated runner
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: hub
+            repo: MrFixITslu/V79hub
+            sha: e2e7c9c75ee31d25e4ab3445588f635c772716ec
+            dockerfile: Dockerfile
+          - service: pos
+            repo: MrFixITslu/v79pos
+            sha: 6abebb01d4e4c3d86798c947ec94cf9d3d5b211f
+            dockerfile: Dockerfile
+          - service: ffpro
+            repo: MrFixITslu/FFPRO2
+            sha: 71cdde7c506b64d4c9239c359672efb5621200f6
+            dockerfile: Dockerfile
+          - service: tiquet
+            repo: MrFixITslu/V79Tiquet
+            sha: 7bbc86172d5cc4c806c86f5b9050efe8b24140bf
+            dockerfile: Dockerfile
+          - service: marketing
+            repo: MrFixITslu/V79Marketing
+            sha: 5c3fcc9b900a121e161c2b7fdf0b842963df0b7d
+            dockerfile: Dockerfile
+    steps:
+      - name: Checkout immutable app source (Hub follows same PR)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.service == 'hub' && github.event.pull_request.head.sha || matrix.sha }}
+          path: source
+          persist-credentials: false
+      - name: Build application image locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --file "source/${{ matrix.dockerfile }}" \
+            --tag "v79-01-${{ matrix.service }}:test" source
+          docker image inspect "v79-01-${{ matrix.service }}:test" --format 'Built {{.RepoTags}}'
+      - name: Pack disposable image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save "v79-01-${{ matrix.service }}:test" |
+            gzip -1 > "${{ runner.temp }}/v79-01-${{ matrix.service }}.tar.gz"
+      - name: Transfer image to isolated network-test runner
+        uses: actions/upload-artifact@v4
+        with:
+          name: ephemeral-image-${{ matrix.service }}
+          path: ${{ runner.temp }}/v79-01-${{ matrix.service }}.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  integrate:
+    name: Five real containers and synthetic-tenant contract
+    needs: build
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout this branch without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download five independently built images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ephemeral-image-*
+          path: ${{ runner.temp }}/images
+          merge-multiple: true
+      - name: Load app images and public database dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for image in hub pos ffpro tiquet marketing; do
+            gzip -dc "${{ runner.temp }}/images/v79-01-$image.tar.gz" | docker load
+          done
+          docker pull postgres:17-alpine
+          docker pull postgres:16-alpine
+          docker pull redis:7-alpine
+      - name: Generate CI-only random signing keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          import os,secrets
+          names=["STAGE_DB_PASSWORD","STAGE_ADMIN_PASSWORD","STAGE_CUSTOMER_PASSWORD",
+            "STAGE_GENERAL_SECRET","STAGE_POS_SECRET","STAGE_FFPRO_SECRET",
+            "STAGE_TIQUET_SECRET","STAGE_MARKETING_SECRET"]
+          with open(os.path.join(os.environ["RUNNER_TEMP"],"v79-stage.env"),"x") as f:
+            for name in names:
+              f.write(name+"="+secrets.token_hex(32)+"\n")
+          print("EPHEMERAL_SECRETS_GENERATED key_names_only")
+          PY
+      - name: Start isolated databases, seed synthetic customer accounts, and start five apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage() {
+            docker compose --project-name v79-01-ephemeral \
+              --file staging/gha-compose.yml \
+              --env-file "${{ runner.temp }}/v79-stage.env" "$@"
+          }
+          stage config --quiet
+          stage up --wait -d hub-db pos-db ffpro-db tiquet-db redis
+          stage run --rm hub-seed
+          stage run --rm pos-migrate
+          stage up -d v79-hub pos ffpro tiquet marketing
+          stage exec -T v79-hub node staging/gha-smoke.mjs
+      - name: Status on failure, no environment values
+        if: failure()
+        shell: bash
+        run: |
+          stage() { docker compose --project-name v79-01-ephemeral \
+            --file staging/gha-compose.yml \
+            --env-file "${{ runner.temp }}/v79-stage.env" "$@"; }
+          stage ps || true
+          for app in hub-seed pos-migrate v79-hub pos ffpro tiquet marketing; do
+            echo "===== APP $app ====="
+            stage logs --no-color --tail 50 "$app" 2>/dev/null || true
+          done
+      - name: Destroy all ephemeral containers, networks and databases
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "${{ runner.temp }}/v79-stage.env" ]; then
+            docker compose --project-name v79-01-ephemeral \
+              --file staging/gha-compose.yml \
+              --env-file "${{ runner.temp }}/v79-stage.env" \
+              down --volumes --remove-orphans --timeout 10 || true
+          fi
