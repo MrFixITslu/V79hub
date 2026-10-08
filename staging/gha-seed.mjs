@@ -60,8 +60,12 @@ const appTenantMappings = customerOrgs.flatMap(org =>
     // Stage A must be provisioned through the real downstream API, not
     // silently considered ready just because the Hub has a mapping row.
     status:org.id==="synthetic-customer-a"?"pending":"active",
-    externalTenantId:["pos","ffpro"].includes(product)?org.id:product+"-"+org.id,
-    externalOwnerId:"synthetic-"+product+"-"+org.id,
+    // A pending mapping must not carry invented downstream IDs.
+    // Its identifiers must come solely from real signed provisioning.
+    ...(org.id==="synthetic-customer-a"?{}:{
+      externalTenantId:["pos","ffpro"].includes(product)?org.id:product+"-"+org.id,
+      externalOwnerId:"synthetic-"+product+"-"+org.id,
+    }),
   }))
 );
 const plans = customerOrgs.map((org,i)=>({

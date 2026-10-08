@@ -167,7 +167,11 @@ for(const product of stageProducts){
   const request=product.name==="pos"
     ? {method:"POST",redirect:"manual",headers:{"content-type":"application/json",origin:"https://pos.v79sl.com"},
        body:JSON.stringify({ticket}),signal:AbortSignal.timeout(15000)}
-    : {redirect:"manual",signal:AbortSignal.timeout(15000)};
+    : {redirect:"manual",
+       // FFPRO enforces the canonical browser Host even on its internal
+       // Docker listener; simulate the reverse proxy without public DNS.
+       headers:product.name==="ffpro"?{host:product.host}:{},
+       signal:AbortSignal.timeout(15000)};
   if(product.name!=="pos") internalUrl.searchParams.set("ticket",ticket);
   const exchanged=await fetch(internalUrl,request);
   assert.equal(exchanged.status,product.name==="pos"?200:302,
@@ -176,7 +180,9 @@ for(const product of stageProducts){
   assert.ok(productCookie.startsWith(product.cookie+"="),
     product.name+" downstream authenticated session cookie missing");
   const identity=await fetch(new URL(product.me,product.origin),{
-    headers:{cookie:productCookie,accept:"application/json"},signal:AbortSignal.timeout(10000),
+    headers:{cookie:productCookie,accept:"application/json",
+      ...(product.name==="ffpro"?{host:product.host}:{})},
+    signal:AbortSignal.timeout(10000),
   });
   assert.equal(identity.status,200,product.name+" authenticated downstream profile");
   if(product.name==="ffpro"){
@@ -185,8 +191,17 @@ for(const product of stageProducts){
   }
   const replay=await fetch(internalUrl,request);
   const replayCookie=replay.headers.get("set-cookie")||"";
-  assert.ok(replay.status!==200&&replay.status!==302&&!replayCookie.includes(product.cookie+"="),
-    product.name+" must not issue a second authenticated session from a consumed ticket");
+  assert.ok(!replayCookie.includes(product.cookie+"="),
+    product.name+" must not issue a second authenticated cookie from a consumed ticket");
+  if(replay.status===302){
+    const denied=new URL(replay.headers.get("location")||"/", "https://"+product.host);
+    assert.equal(denied.hostname,"hub.v79sl.com",
+      product.name+" replay may redirect to Hub with launch_denied, never into the app");
+    assert.equal(denied.searchParams.get("error"),"launch_denied",
+      product.name+" replay denial must be explicit");
+  } else {
+    assert.ok(replay.status>=400,product.name+" replay must fail closed");
+  }
   console.log("EPHEMERAL_REAL_LAUNCH_PASS "+product.name+" authenticated=true replay_denied=true");
 
   const cancelled=await fetch(base+"/api/apps/"+product.name+"/launch",{

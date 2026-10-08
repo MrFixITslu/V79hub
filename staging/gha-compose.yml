@@ -132,6 +132,9 @@ services:
       NODE_ENV: production
       PORT: "3010"
       FRONTEND_URL: https://ffpro.v79sl.com
+      # Signed provisioning is allowed on this exact private host, but
+      # browser launch/login must still present the public canonical host.
+      FFPRO_INTERNAL_HOST: ffpro:3010
       DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@ffpro-db:5432/fire_finance"
       DATABASE_SSL: "false"
       SESSION_SECRET: "${STAGE_FFPRO_SECRET}"
