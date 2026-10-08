@@ -298,3 +298,40 @@ The Hub full suite passed 101 tests with TypeScript validation.
 
 Deployment flags remain disabled; the Resend sender/key prerequisite still
 fails the safe runtime release configuration preflight.
+
+## Authoritative DNS instability — 8 October 2026
+
+The domain's provider verification is still **pending**. Its required DKIM,
+`rsend` CNAME and `send` CNAME are published but have intermittently
+different authoritative answers during propagation.
+
+A severe application DNS overlap was identified: `hub.v79sl.com`
+was pointed to Resend's optional `links2.resend-dns.com` tracking endpoint,
+although it is the existing production Hub application hostname.
+Public requests have intermittently returned HTTP 400 via CloudFront rather
+than the healthy Hub service. The protected production Hub origin serves
+correctly at 199.223.249.193.
+
+The only approved recovery configuration is:
+- Remove ALL `hub.v79sl.com` CNAME records to Resend tracking.
+- Keep a single `hub.v79sl.com` **A** record to 199.223.249.193,
+  on all authoritative DNS servers.
+- Preserve other application A/CNAME records, and preserve the valid Resend
+  `resend._domainkey` TXT and `rsend`/`send` routing CNAMEs.
+- Keep Resend open/click tracking disabled; its tracking subdomain has
+  been moved to `email-links`, avoiding future conflicts with the Hub.
+- Do not enable live customer onboarding or transactional email until
+  authoritative records and public HTTPS are stable.
+
+A read-only authoritative DNS checker,
+`scripts/resend-authoritative-dns.mjs`, has been added with automated
+mixed-A/CNAME, stale-server, mismatched SPF-routing and missing DKIM/DMARC
+tests. Queries to an A record may itself return CNAME data during
+inconsistent propagation; the checker examines both A and CNAME responses.
+DNS observations do not imply Resend account verification. A DNS monitoring
+automation is active and alerts on verified status or actionable failures.
+
+Resend account has three older API keys named Onboarding; permissions are
+not established by the names. Do not reuse these for production Hub.
+Create a domain-restricted sending-only key after verification, with secure
+storage and sender tests. No production email credentials have been changed.
