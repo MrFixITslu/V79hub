@@ -201,3 +201,48 @@ real databases and full queue/worker/WebSocket production routes.
 5. Reconcile dirty production working trees, prove full app/key/file recovery,
    confirm backup confidentiality and trial messaging, and obtain a separate
    final founder GO/NO-GO decision.
+
+## Trial reminders and cutover-mode legacy session/worker enforcement — 8 October 2026
+
+Founder-approved 14-day customer beta starts only at the future activation instant.
+V79 Hub now has an opt-in reminder scheduler, disabled by default and requiring
+both V79_TRIAL_REMINDERS_ENABLED=1 and one designated
+V79_TRIAL_REMINDERS_WORKER_LEADER=1. It delivers operational emails via the
+existing Resend configuration to the verified owner membership of the customer
+organisation. Reminder stages are seven days remaining, one day remaining and
+expiry. Durable store events record sending, delivered and failed outcomes,
+plus backoff and at most four retries; a crashed sending claim requires manual
+review rather than blindly resending duplicate messages. The planner suppresses
+cancelled/invalid trials, owner organisations, invalid recipients and stale
+notices when the scheduler resumes after downtime. Outbound production delivery
+has not been activated or tested with a real customer email.
+
+The connected product draft branches now reject legacy local-only authenticated
+sessions when subscription enforcement is enabled:
+- FFPRO: still-valid Passport login without a Hub-managed session is not an
+  entitlement, even if a previous local authentication succeeded.
+- Tiquet: standalone local user JWTs without a Hub org/user mapping are denied.
+- Marketing: local JWTs without a Hub business/user mapping are denied.
+Their existing login and auth configuration remains unchanged while the
+feature flag is disabled. Existing internal-only accounts must be migrated
+or explicitly reviewed for Hub linkage before activation.
+
+Marketing scheduled publishing now rechecks a stored author-to-Hub identity
+before processing, and immediately before irreversible provider submission.
+It leaves queued posts untouched while access is paused; no publish attempt
+is made without a valid signed Hub grant. The isolated SQLite + real worker
+test passed paused -> entitled -> revoked, including a zero-delivery check
+while paused. The worker does not use a browser-supplied author identity.
+Audit/payment event outboxes are not identical to discretionary customer
+publishing: they may require delivery for accounting consistency after a
+subscription expires; blocking them globally could lose required records.
+
+Local tests: Hub 94 passed, Marketing 47 passed, FFPRO 90 passed, Tiquet
+authenticated/WebSocket targeted regression tests 10 passed. Hub and Marketing
+TypeScript validation and Marketing application build passed. These are
+feature-development results, not a production deployment approval.
+
+**Additional blockers**: verify live sender identity/domain and trial
+communications; ensure exactly one Hub scheduler leader; reconcile legacy
+internal accounts before enforcing Hub-only sessions; full five-service
+networked staging and rollback remain outstanding.

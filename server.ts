@@ -21,6 +21,7 @@ import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
+import { planTrialReminders, claimTrialReminder, completeTrialReminder } from "./server/trial-reminders.mjs";
 import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
@@ -110,6 +111,8 @@ interface OrganizationPlan {
   createdAt: string;
   updatedAt: string;
 }
+
+interface TrialReminderEvent { key:string; organizationId:string; kind:string; status:"sending"|"sent"|"failed"; attempts:number; claimedAt:string; sentAt?:string; nextAttemptAt?:string; }
 
 interface BillingOrder {
   id: string;
@@ -250,6 +253,7 @@ interface AppStore {
   memberships: Membership[];
   appEntitlements: AppEntitlement[];
   organizationPlans: OrganizationPlan[];
+  trialReminderEvents: TrialReminderEvent[];
   billingOrders: BillingOrder[];
   billingPaymentEvents: BillingPaymentEvent[];
   ownerInvitations: OwnerInvitation[];
@@ -605,6 +609,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.memberships !== undefined && !Array.isArray(parsed.memberships)) ||
       (parsed.appEntitlements !== undefined && !Array.isArray(parsed.appEntitlements)) ||
       (parsed.organizationPlans !== undefined && !Array.isArray(parsed.organizationPlans)) ||
+      (parsed.trialReminderEvents !== undefined && !Array.isArray(parsed.trialReminderEvents)) ||
       (parsed.billingOrders !== undefined && !Array.isArray(parsed.billingOrders)) ||
       (parsed.billingPaymentEvents !== undefined && !Array.isArray(parsed.billingPaymentEvents)) ||
       (parsed.ownerInvitations !== undefined && !Array.isArray(parsed.ownerInvitations)) ||
@@ -622,6 +627,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [],
     appEntitlements: Array.isArray(parsed.appEntitlements) ? parsed.appEntitlements : [],
     organizationPlans: Array.isArray(parsed.organizationPlans) ? parsed.organizationPlans : [],
+    trialReminderEvents: Array.isArray(parsed.trialReminderEvents) ? parsed.trialReminderEvents : [],
     billingOrders: Array.isArray(parsed.billingOrders) ? parsed.billingOrders : [],
     billingPaymentEvents: Array.isArray(parsed.billingPaymentEvents) ? parsed.billingPaymentEvents : [],
     ownerInvitations: Array.isArray(parsed.ownerInvitations) ? parsed.ownerInvitations : [],
@@ -637,7 +643,7 @@ function initialStore(): AppStore {
     users: defaultUsers,
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
-    organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
+    organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], trialReminderEvents: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
     teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
   };
 }
@@ -2348,6 +2354,46 @@ const hubEmailFrom = String(process.env.V79_HUB_EMAIL_FROM || "").trim();
 const hubRecoveryContact = normalizeEmail(process.env.V79_HUB_RECOVERY_EMAIL) || vision79OwnerEmail;
 const appPublicUrl = String(process.env.APP_URL || "").replace(/\/$/, "");
 const recoveryEmailEnabled = Boolean(resendApiKey && hubEmailFrom && /^https:\/\//i.test(appPublicUrl));
+
+// Off by default. Single nominated leader only; stale sending claims require manual review.
+const trialReminderLeader = process.env.V79_TRIAL_REMINDERS_ENABLED === "1" &&
+  process.env.V79_TRIAL_REMINDERS_WORKER_LEADER === "1";
+let reminderBusy=false;
+async function dispatchTrialReminderEmail(reminder: {email:string;kind:string;trialEndsAt:string}) {
+  if (!recoveryEmailEnabled) return false;
+  const expired=reminder.kind==="expired";
+  const subject=expired ? "Your V79 Hub beta trial has ended" :
+    reminder.kind==="one_day" ? "Your V79 Hub beta trial ends tomorrow" :
+      "Your V79 Hub beta trial ends in seven days";
+  const message=expired ? "Your beta trial has ended." :
+    "Your beta trial ends on " + new Date(reminder.trialEndsAt).toUTCString() + ".";
+  const response=await fetch("https://api.resend.com/emails",{
+    method:"POST",
+    headers:{"authorization":"Bearer "+resendApiKey,"content-type":"application/json"},
+    body:JSON.stringify({from:hubEmailFrom,to:[reminder.email],reply_to:hubRecoveryContact,
+      subject,text:message+"\nReview subscription options: "+appPublicUrl+
+        "\nFor help contact "+hubRecoveryContact+"."}),
+    signal:AbortSignal.timeout(8000),
+  });
+  return response.ok;
+}
+async function dispatchTrialReminders() {
+  if (!trialReminderLeader || !recoveryEmailEnabled || reminderBusy) return;
+  reminderBusy=true;
+  try {
+    const due=planTrialReminders(store,{ownerOrganizationId:posIdentity.organizationId});
+    for(const item of due) {
+      if (!planTrialReminders(store,{ownerOrganizationId:posIdentity.organizationId})
+        .some(candidate=>candidate.key===item.key)) continue;
+      await commitStore(claimTrialReminder(store,item) as AppStore);
+      let delivered=false;
+      try { delivered=await dispatchTrialReminderEmail(item); }
+      catch { console.warn("[Hub Trial] Reminder delivery unavailable"); }
+      await commitStore(completeTrialReminder(store,item.key,{success:delivered}) as AppStore);
+    }
+  } catch {console.warn("[Hub Trial] Review stuck notification claims before next attempt");}
+  finally {reminderBusy=false;}
+}
 
 async function deliverPasswordReset(email: string, resetUrl: string) {
   if (!recoveryEmailEnabled) return false;
@@ -4940,6 +4986,11 @@ async function startServer() {
 
   const PORT = Number(process.env.PORT || 3040);
   server.listen(PORT, "0.0.0.0", () => {
+    if (trialReminderLeader && recoveryEmailEnabled) {
+      void dispatchTrialReminders();
+      const reminderTimer=setInterval(()=>{void dispatchTrialReminders();},3600000);
+      reminderTimer.unref?.();
+    }
     console.log(`V79 Client Hub Server running on http://0.0.0.0:${PORT}`);
   });
 }
