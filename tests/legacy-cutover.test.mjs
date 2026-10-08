@@ -68,3 +68,18 @@ test("approval date is separate from cutover time and is never automatically bac
   assert.equal(APPROVED_CUSTOMER_POLICY.approvedOn,"2026-10-08");
   assert.throws(()=>prepareApprovedLegacyCutover(sample(),{...args,activationAt:"2026-10-07T09:00:00Z"}),/post-approval/);
 });
+
+test("trial cutover requires exact UTC ISO timestamp without loose parsing",()=>{
+  for (const activationAt of ["2026-10-16","2026-10-16T09:30:00+00:00",
+    "October 16, 2026","2026-10-16T09:30Z","2026-02-30T09:30:00.000Z",
+    null,undefined,123456]) {
+    assert.throws(()=>prepareApprovedLegacyCutover(sample(),{...args,activationAt}),/UTC ISO|valid post-approval/);
+  }
+});
+test("untyped older subscription cannot silently be converted into a trial",()=>{
+  const old=sample();
+  old.organizationPlans=[{
+    organizationId:customer,status:"active",planName:"Legacy unspecified",billingCycle:"monthly",
+  }];
+  assert.throws(()=>prepareApprovedLegacyCutover(old,args),/classified differently/);
+});

@@ -39,6 +39,19 @@ export function createResendTransactionalSender({apiKey,from,replyTo,hubUrl,fetc
     return response.ok===true;
   }
   return Object.freeze({
+    // Staging diagnostic is not exposed through a live HTTP endpoint and has
+    // no customer links, reset tokens, or claimable trial entitlement.
+    async sendDiagnostic(to) {
+      return deliver({
+        to,
+        subject:"V79 Hub — Isolated Resend Integration Check",
+        text:"V79 Digital transactional sending test. This message was sent "+
+          "from an isolated V79 Hub staging process using a restricted "+
+          "sending-only key. No account access, subscription, or "+
+          "trial status was changed. No action is required.",
+        idempotencyKey:"v79-staging-resend-diagnostic-20261008",
+      });
+    },
     async sendPasswordReset(to,resetUrl) {
       const u=new URL(resetUrl);
       if (u.origin!==config.hubUrl || !u.searchParams.get("reset"))

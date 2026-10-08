@@ -90,3 +90,17 @@ test("invalid trial reminder metadata and recipient never go to provider",async(
  await assert.rejects(()=>sender.sendTrialReminder({...exampleReminder,email:"bad-address"}));
  assert.equal(calls,0);
 });
+
+test("diagnostic sends exactly one neutral message with stable dedupe key",async()=>{
+  const captured=[];
+  const sender=createResendTransactionalSender({...options,fetchImpl:async(_url,request)=>{
+    captured.push(request);return new Response(null,{status:200});
+  }});
+  assert.equal(await sender.sendDiagnostic("vision79slu@gmail.com"),true);
+  assert.equal(captured.length,1);
+  const payload=JSON.parse(captured[0].body);
+  assert.match(payload.subject,/Isolated Resend Integration Check/);
+  assert.match(payload.text,/No account access, subscription, or trial status was changed/);
+  assert.equal(captured[0].headers["Idempotency-Key"],"v79-staging-resend-diagnostic-20261008");
+  assert.doesNotMatch(payload.text,/reset=/);
+});

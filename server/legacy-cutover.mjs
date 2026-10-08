@@ -22,8 +22,16 @@ export function prepareApprovedLegacyCutover(store, {
       customerOrganizationId === ownerOrganizationId) {
     throw new Error("Owner and explicitly approved customer identities are required.");
   }
+  // Require an unambiguous UTC instant; loose date strings must never
+  // silently start, backdate, or extend a customer's sole approved trial.
+  if (typeof activationAt !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(activationAt)) {
+    throw new Error("An exact UTC ISO activation timestamp is required.");
+  }
   const timestamp = new Date(activationAt);
   if (!Number.isFinite(timestamp.getTime()) ||
+      timestamp.toISOString() !== (activationAt.includes(".") ? activationAt :
+        activationAt.replace("Z",".000Z")) ||
       timestamp < new Date("2026-10-08T00:00:00Z")) {
     throw new Error("A valid post-approval activation timestamp is required.");
   }
@@ -72,8 +80,7 @@ export function prepareApprovedLegacyCutover(store, {
         productionDataTouched: false },
     };
   }
-  if (existing && existing.accessPolicyType !== "legacy_review" &&
-      existing.accessPolicyType !== undefined) {
+  if (existing && existing.accessPolicyType !== "legacy_review") {
     throw new Error("Customer plan already classified differently; manual reconciliation required.");
   }
   const { planned, approvedPlan } = approveReviewedLegacyTrial(store, {
