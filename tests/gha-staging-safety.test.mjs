@@ -47,3 +47,9 @@ test("CI always removes volumes and never invokes production deploy workflows",(
   assert.match(yaml,/down --volumes --remove-orphans/);
   assert.doesNotMatch(yaml,/docker push|ghcr\.io|actions\/deploy|workflow_call/);
 });
+
+test("one-time synthetic seed and DB migrations cannot run twice during startup",()=>{
+  assert.match(yaml,/stage run --rm hub-seed/);
+  assert.match(yaml,/stage run --rm pos-migrate/);
+  assert.match(yaml,/stage up --no-deps -d v79-hub pos ffpro tiquet marketing/);
+});

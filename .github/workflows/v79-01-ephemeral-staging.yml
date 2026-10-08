@@ -133,7 +133,9 @@ jobs:
           stage up --wait -d hub-db pos-db ffpro-db tiquet-db redis
           stage run --rm hub-seed
           stage run --rm pos-migrate
-          stage up -d v79-hub pos ffpro tiquet marketing
+          # Seed and migrate were run once above. Do not re-create them via
+          # Compose dependency traversal; they must not rewrite tenant data.
+          stage up --no-deps -d v79-hub pos ffpro tiquet marketing
           stage exec -T v79-hub node staging/gha-smoke.mjs
       - name: Status on failure, no environment values
         if: failure()
