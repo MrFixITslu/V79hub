@@ -1,4 +1,4 @@
-import { classifyLegacyPlan, accessDecision } from "./subscription-access.mjs";
+import { classifyLegacyPlan, accessDecision, beginTrial } from "./subscription-access.mjs";
 
 // Pure and repeatable: make a REVIEW proposal without touching live data.
 export function planLegacySubscriptions(store, ownerOrganizationId, now = new Date()) {
@@ -63,4 +63,50 @@ export function planLegacySubscriptions(store, ownerOrganizationId, now = new Da
       ),
     }
   };
+}
+
+
+// Staging-only pure transformer. This DOES NOT commit any state to PostgreSQL.
+// Existing non-owner customers require an explicitly documented founder decision.
+// A "paid" decision is deliberately unsupported until independently verified
+// billing orders are integrated under V79-02.
+export function approveReviewedLegacyTrial(store, {
+  organizationId, ownerOrganizationId, approvedByUserId, verifiedOwnerUserId,
+  decision, approvedAt, reason,
+}) {
+  const invalid = message => { throw new Error(message); };
+  if (!organizationId || organizationId === ownerOrganizationId ||
+      !approvedByUserId || approvedByUserId !== verifiedOwnerUserId ||
+      !reason || reason.trim().length < 12) {
+    invalid("A distinct customer and verified founder approval with a reason are required.");
+  }
+  const found = (store.organizations || []).find(x => x.id === organizationId);
+  if (!found || found.status !== "active") invalid("An active existing customer organisation is required.");
+  const plans = store.organizationPlans || [];
+  if (plans.some(x => x.organizationId === organizationId && x.accessPolicyType && x.accessPolicyType !== "legacy_review")) {
+    invalid("An existing trial or paid entitlement cannot be replaced.");
+  }
+  const date = new Date(approvedAt);
+  if (!Number.isFinite(date.getTime())) invalid("An exact approved-at timestamp is required.");
+  if (decision !== "trial" && decision !== "restrict") {
+    invalid("Only approved trial or restricted review states are supported. Verified paid migration requires V79-02.");
+  }
+  const preview = planLegacySubscriptions(store, ownerOrganizationId, date);
+  const index = preview.planned.organizationPlans.findIndex(x => x.organizationId === organizationId);
+  const original = preview.planned.organizationPlans[index];
+  if (!original || original.accessPolicyType !== "legacy_review") {
+    invalid("Customer must be explicitly classified as legacy review before approval.");
+  }
+  const reviewFields = {
+    legacyReviewDecision: decision,
+    legacyReviewApprovedBy: approvedByUserId,
+    legacyReviewApprovedAt: date.toISOString(),
+    legacyReviewReason: reason.trim(),
+  };
+  const result = decision === "trial"
+    ? { ...original, planName: "V79 Beta Trial", ...beginTrial(date), ...reviewFields, updatedAt: date.toISOString() }
+    : { ...original, planName: "Legacy — access restricted", status: "paused",
+        accessPolicyType: "legacy_review", ...reviewFields, updatedAt: date.toISOString() };
+  preview.planned.organizationPlans[index] = result;
+  return { planned: preview.planned, approvedPlan: result, requiresDatabaseMigrationApproval: true };
 }
