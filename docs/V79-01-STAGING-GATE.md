@@ -109,3 +109,51 @@ The active timer and backup script were NOT changed. Applying the patch,
 tightening historical snapshots and encrypted offsite backup require a
 separate approved backup-maintenance step. Do not delete existing snapshots
 until their retention and recovery dependencies have been reviewed.
+
+
+## Founder-approved existing-customer cutover — 8 October 2026
+
+**Explicit decision:** The one currently active, non-owner customer organisation
+is approved to receive one fresh **14-day beta trial**, beginning **only when
+V79-01 is activated**. This is not a confirmation of historical payment,
+does not grant an immediate trial, and does not authorise production deployment.
+
+The development-only pure planner, `prepareApprovedLegacyCutover`, enforces:
+- The protected Vision79 organisation and active founder-owner membership match.
+- Exactly one separate, active customer organisation exists, with precisely
+  one active customer-owner membership.
+- Five distinct, enabled customer app entitlements are preserved without
+  widening their bundle.
+- Already paid/activated plans are never replaced; duplicate plans are refused.
+- New trial dates are computed at the **actual cutover timestamp** in UTC,
+  not the date of this approval, and the expiry is exactly 14 days later.
+- Repeating the migration cannot reset or prolong a trial.
+- Changed customer/owner records or changed entitlement counts abort safely.
+
+**Production read-only preflight (8 October):** One active internal owner
+organisation/membership, one other active customer organisation, one customer
+owner membership, five distinct enabled app entitlements, and zero explicit
+subscription plans. Only aggregates were printed; no customer identifiers,
+emails, credentials or financial details were displayed.
+
+**Transaction rehearsal:** A temporary PostgreSQL 17 cluster with
+`--network none`, one deliberately synthetic Hub state document, and
+an explicit staging-only marker was used to test the repository's
+revisioned JSONB update approach. The staging runner required a fixed
+staging database name, local Unix-domain socket, explicit operator flag and
+matching sentinel record. A dry run caused no changes. Simulated activation
+at 16 Oct 2026 09:30 UTC produced expiry at 30 Oct 2026 09:30 UTC, preserving
+the customer's five test entitlements; replay two days later returned
+`alreadyApplied=true` and left the database at revision 2, not 3.
+Those dates are **synthetic rehearsal values only**.
+
+The runner, `scripts/rehearse-approved-cutover.mjs`, is deliberately
+restricted to the staging database; it is not a production migration tool.
+
+**Remaining production controls:** A separately reviewed cutover procedure
+and database writer, approved maintenance window and rollback; source
+reconciliation; product-level authenticated HTTP and real-time checks;
+backup of application secrets and full recovery rehearsal; trial reminders
+and customer communications; and final founder GO/NO-GO decision. If the
+live database changes from the observed baseline, migration must stop
+pending re-review.
