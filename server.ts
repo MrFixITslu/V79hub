@@ -3118,6 +3118,19 @@ app.post("/api/team/invitations", requireWorkspaceOwner, async (req, res) => {
   const baseUrl = process.env.APP_URL
     ? new URL(process.env.APP_URL).origin
     : `${req.protocol}://${req.get("host")}`;
+  const inviteUrl = new URL("/", baseUrl);
+  inviteUrl.hash = "teamInvite=" + encodeURIComponent(token);
+  let emailDeliveryStatus = "not_configured";
+  if (transactionalEmail) {
+    try {
+      emailDeliveryStatus = await transactionalEmail.sendInvitation({
+        to:email,inviteUrl:inviteUrl.toString(),invitationId:invitation.id,
+        kind:"team",expiresAt:invitation.expiresAt,
+      }) ? "accepted_by_provider" : "provider_rejected";
+    } catch {
+      emailDeliveryStatus = "delivery_unavailable";
+    }
+  }
   res.setHeader("Cache-Control", "no-store");
   res.status(201).json({
     invitation: {
@@ -3130,7 +3143,8 @@ app.post("/api/team/invitations", requireWorkspaceOwner, async (req, res) => {
       expiresAt: invitation.expiresAt,
       createdAt: invitation.createdAt,
     },
-    inviteUrl: `${baseUrl}/#teamInvite=${encodeURIComponent(token)}`,
+    inviteUrl: inviteUrl.toString(),
+    emailDeliveryStatus,
   });
 });
 
@@ -3581,6 +3595,17 @@ app.post("/api/admin/onboarding/invitations", requirePlatformOperator, async (re
 
   const inviteUrl = new URL("/", appUrl);
   inviteUrl.hash = `invite=${encodeURIComponent(token)}`;
+  let emailDeliveryStatus = "not_configured";
+  if (transactionalEmail) {
+    try {
+      emailDeliveryStatus = await transactionalEmail.sendInvitation({
+        to:email,inviteUrl:inviteUrl.toString(),invitationId:invitation.id,
+        kind:"owner",expiresAt:invitation.expiresAt,
+      }) ? "accepted_by_provider" : "provider_rejected";
+    } catch {
+      emailDeliveryStatus = "delivery_unavailable";
+    }
+  }
   res.setHeader("Cache-Control", "no-store");
   res.status(201).json({
     invitation: {
@@ -3595,6 +3620,7 @@ app.post("/api/admin/onboarding/invitations", requirePlatformOperator, async (re
       createdAt: invitation.createdAt,
     },
     inviteUrl: inviteUrl.toString(),
+    emailDeliveryStatus,
   });
 });
 

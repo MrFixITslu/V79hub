@@ -52,6 +52,29 @@ export function createResendTransactionalSender({apiKey,from,replyTo,hubUrl,fetc
         idempotencyKey:"v79-staging-resend-diagnostic-20261008",
       });
     },
+    async sendInvitation({to,inviteUrl,invitationId,kind,expiresAt}) {
+      if (!["owner","team"].includes(kind) || !/^[a-f0-9-]{36}$/i.test(invitationId||""))
+        throw new Error("Invalid invitation");
+      const url=new URL(inviteUrl);
+      const prefix=kind==="owner"?"invite=":"teamInvite=";
+      if (url.origin!==config.hubUrl || url.pathname!=="/" ||
+          !url.hash.slice(1).startsWith(prefix) ||
+          url.hash.length<prefix.length+20 ||
+          !Number.isFinite(Date.parse(expiresAt))) {
+        throw new Error("Invalid Hub invitation URL");
+      }
+      const key="v79invite-"+createHash("sha256")
+        .update(String(invitationId)+":"+kind).digest("hex");
+      return deliver({
+        to,
+        subject:kind==="owner"?"Your V79 Hub business invitation":"Your V79 Hub team invitation",
+        idempotencyKey:key,
+        text:"You have been invited to V79 Hub. Accept your invitation before "+
+          new Date(expiresAt).toUTCString()+":\n"+inviteUrl+
+          "\nIf this was unexpected, ignore the invitation. "+
+          "For help contact "+config.replyTo+".",
+      });
+    },
     async sendPasswordReset(to,resetUrl) {
       const u=new URL(resetUrl);
       if (u.origin!==config.hubUrl || !u.searchParams.get("reset"))

@@ -359,3 +359,13 @@ the running Hub and no real test message was sent. Before deployment,
 the founder must confirm From and Reply-To addresses, securely configure a
 domain-restricted sending key, confirm actual test inbox receipt, and
 complete the remaining V79-01 staging and final GO/NO-GO gates.
+
+## Invitation delivery staging
+
+Added optional Resend delivery for owner and team invitations. Both
+endpoints retain the copyable invitation URL if email is not configured
+or if sending fails. Email delivery uses hashed idempotency, canonical
+Hub links and a configured transactional sender; the recipient and
+invite URL are derived only from the authenticated invitation workflow.
+Mock sender and negative tests passed. No live customer invitations
+were sent, and the production feature remains unavailable.

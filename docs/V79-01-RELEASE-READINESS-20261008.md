@@ -37,3 +37,19 @@ npm run build
 ```
 
 All commands above are read-only or build/test against the isolated feature worktree; **none applies a production database migration**.
+
+## Invitation email workflow — completed in draft
+
+The customer-owner invitation creation route (platform administrator only)
+and team invitation creation route (workspace owner only) now try to send
+the generated one-time invitation URL through the same domain-restricted
+Resend sender when the approved mail configuration is present. The
+invitations are committed to Hub state before mail delivery is attempted;
+provider failure leaves the link available for manual sharing, and the
+API reports `emailDeliveryStatus` as `not_configured`,
+`accepted_by_provider`, `provider_rejected` or
+`delivery_unavailable`. Provider acceptance is not a delivery
+confirmation. The URL fragments, expiry, invite IDs and hashed Resend
+idempotency keys are validated in isolated tests. No customer invitation
+was sent. Latest Hub test suite: 129 tests passed, TypeScript and
+application build passed. The actual live Hub mail key remains unset.
