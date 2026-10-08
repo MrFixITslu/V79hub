@@ -51,3 +51,32 @@ node scripts/resend-dns-preflight.mjs \
 ## Remaining V79-01 release gates
 
 The following remain strict **NO GO** conditions: verified sender/API credentials and a real *test-only* email; five-app staged service networking and authentic requests with real isolated tenant databases; worker policies; source checkout reconciliation; full application recovery and rollback rehearsal; explicit founder cutover approval. No draft PR should be merged before completion.
+
+## Critical public DNS collision observed after Resend tracking setup
+
+On 8 October 2026, the authoritative nameservers returned:
+hub.v79sl.com CNAME links2.resend-dns.com
+That hostname is reserved for the live V79 Hub customer application and
+must NOT be assigned to an email tracking provider.
+
+Independent origin discovery: v79sl.com, ffpro.v79sl.com,
+tiquet.v79sl.com, marketing.v79sl.com, pos.v79sl.com, and
+academy.v79sl.com resolve to public A address 199.223.249.193.
+Direct HTTPS against hub.v79sl.com:443 with forced origin 199.223.249.193
+returned HTTP 200 with V79 Hub's expected page. Restore hub as a Type A
+record pointing to 199.223.249.193 in the DNS provider. Delete the
+conflicting hub CNAME; do not create A+CNAME at the same hostname.
+Confirm ingress address at the time of change if it has moved.
+
+Resend domain had open/click tracking enabled with tracking subdomain hub.
+Both tracking modes were disabled in Resend, and its subdomain setting
+changed to email-links, reserving hub for the application.
+Resend may still display the previously issued hub tracking record while
+verification runs. Do NOT publish that CNAME at hub.v79sl.com.
+
+Read-only scripts/resend-dns-preflight.mjs now warns when the live Hub
+hostname points to email tracking; six targeted tests passed. The Hub
+page returned HTTP 200 at test time but DNS caches/paths can change.
+
+DKIM and SPF CNAMEs were present in authoritative public DNS. Provider
+domain verification was restarted and was pending on last check.

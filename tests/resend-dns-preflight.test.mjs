@@ -33,3 +33,13 @@ test("DNS preflight denies arbitrary hostnames",async()=>{
  await assert.rejects(()=>queryResendDns({returnPath:"arbitrary-example.com"}),/Only public/);
  await assert.rejects(()=>queryResendDns({domain:"example.com"}),/Only public/);
 });
+
+test("a reserved Hub application hostname pointing to Resend tracking is a critical configuration conflict",()=>{
+ const r=analyzeResendDns({...base,appCnames:["links2.resend-dns.com."]});
+ assert.equal(r.checks.hubApplicationDnsConflictsWithEmailTracking,true);
+ assert.match(r.warnings.join(" "),/CRITICAL.*Restore the application origin/);
+});
+test("other legitimate application DNS does not generate tracking warning",()=>{
+ const r=analyzeResendDns({...base,appCnames:[]});
+ assert.equal(r.checks.hubApplicationDnsConflictsWithEmailTracking,false);
+});
