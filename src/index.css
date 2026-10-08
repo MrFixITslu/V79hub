@@ -93,3 +93,9 @@ textarea.admin-input {
   background: #ffffff;
   border-color: #cbd5e1;
 }
+
+
+/* Mobile form usability: prevent iOS zoom and keep controls readable. */
+@media (max-width: 640px) {
+  input, select, textarea { font-size: 16px; }
+}
