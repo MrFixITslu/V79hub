@@ -41,3 +41,22 @@ All validation ran in an isolated Git worktree at `/home/firelion/v79hub-trial-d
 ## Release rollback
 
 Preserve the versioned PostgreSQL state, all data/encryption secrets, current container image digest and running deployment revision. Reverting source alone may be insufficient if new subscription fields were persisted or customer payments occurred. Never blindly restore a database over newer legitimate transactions.
+
+## Phase 2: session revalidation and migration review
+
+Hub provides a signed, read-only POST /api/platform/entitlement/check endpoint.
+Each product must derive user/org identities server-side and send an HMAC signed
+request. Success is cached for at most 30 seconds and never beyond subscription
+expiry. Failure and unavailable Hub mean deny, not access continuation.
+
+Run a review-only migration preview against a staging JSON copy:
+
+    node scripts/preview-trial-migration.mjs --snapshot <COPY> --owner-organization-id <OWNER>
+
+This command does not connect to PostgreSQL, apply migration or expose customer
+data. It prints aggregate counts only. Existing active legacy status is NOT
+verified payment and must be reviewed before any production release.
+
+POS has a separate opt-in development hook; FFPRO, Tiquet and Marketing still
+need request-level adapters and automated negative tests before a full rollout.
+Production integration flag remains disabled.

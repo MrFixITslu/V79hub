@@ -21,6 +21,7 @@ import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
+import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1499,6 +1500,53 @@ app.get("/.well-known/jwks.json", (_req, res) => {
   res.json({ keys: [{ ...posPublicKey.export({ format: "jwk" }), kid: posKeyId, alg: "EdDSA", use: "sig" }] });
 });
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+// Read-only, authenticated entitlement revalidation for existing product sessions.
+// The downstream app MUST fail closed if this check fails or becomes unreachable.
+// HMAC service IDs are bound to the product so one app cannot query another.
+app.post("/api/platform/entitlement/check", (req, res) => {
+  const pathname = "/api/platform/entitlement/check";
+  const source = req.get("x-v79-service-id") || "";
+  const product = source === "v79-pos" ? "pos" : managedProduct(source);
+  const secret = product === "pos"
+    ? posServiceSecret
+    : product ? process.env[managedLaunch[product].secretEnv] || "" : "";
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  if (!product || !verifyPlatformRequest({
+    method: "POST", pathname, body,
+    timestamp: req.get("x-v79-timestamp") || "",
+    signature: req.get("x-v79-signature") || "", secret,
+  })) return res.status(401).json({ error: "Invalid service signature" });
+
+  const requestedProduct = String(req.body?.product || "");
+  const organizationId = String(req.body?.organizationId || "");
+  const scopedUserId = String(req.body?.scopedUserId || "");
+  if (requestedProduct !== product || !ENTITLEMENT_PRODUCTS[requestedProduct as keyof typeof ENTITLEMENT_PRODUCTS] ||
+      organizationId.length < 5 || organizationId.length > 180 ||
+      scopedUserId.length < 5 || scopedUserId.length > 180) {
+    return res.status(400).json({ error: "Invalid entitlement identity" });
+  }
+
+  const readyByProduct = {
+    pos: posTenantLaunchReady, ffpro: ffproTenantLaunchReady,
+    tiquet: tiquetTenantLaunchReady, marketing: marketingTenantLaunchReady,
+  };
+  const roleEligible = (selected: string, role: string) => role === "owner" || Boolean(
+    selected === "pos" ? posTeamRole(role) :
+    selected === "ffpro" ? ffproTeamRole(role) :
+    selected === "tiquet" ? tiquetTeamRole(role) : marketingTeamRole(role)
+  );
+  const result = validateProductEntitlement(store, {
+    product, organizationId, scopedUserId, ownerOrganizationId: posIdentity.organizationId,
+    resolveScopedUserId: posUserId,
+    memberCanAccessApp: membershipCanAccessApp,
+    roleEligible,
+    tenantReady: (selected: string, org: string, owner: string) =>
+      readyByProduct[selected as keyof typeof readyByProduct](store, org, owner),
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(result);
+});
+
 app.post("/api/platform/session/consume", (req, res) => {
   const body = (req as any).rawBody?.toString("utf8") || "";
   const source = req.get("x-v79-service-id") || "";

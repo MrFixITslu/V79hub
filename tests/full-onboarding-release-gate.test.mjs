@@ -423,6 +423,35 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
     }
   }
 
+  // V79-01 signed revalidation: product sessions have a bounded entitlement lease.
+  const entitlementCheck = (product, customer, { wrongSignature = false } = {}) => {
+    const payload = mocks[product].provisioned.get(customer.organization.id);
+    const path = "/api/platform/entitlement/check";
+    const body = JSON.stringify({
+      product, organizationId: customer.organization.id, scopedUserId: payload.user.id,
+    });
+    const timestamp = String(Date.now());
+    const secret = product === "pos" ? platformSecret : launchSecrets[product];
+    return request(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-v79-service-id": "v79-" + product,
+        "x-v79-timestamp": timestamp,
+        "x-v79-signature": wrongSignature ? "0".repeat(64) :
+          signPlatformRequest({ method: "POST", pathname: path, timestamp, body, secret }),
+      },
+      body,
+    });
+  };
+  for (const product of ["pos", "ffpro", "tiquet", "marketing"]) {
+    const allowed = await entitlementCheck(product, a);
+    assert.equal(allowed.status, 200, await allowed.clone().text());
+    const state = await allowed.json();
+    assert.equal(state.allowed, true, product);
+    assert.ok(state.validForSeconds > 0 && state.validForSeconds <= 30);
+    assert.equal((await entitlementCheck(product, a, { wrongSignature: true })).status, 401);
+  }
   const pausedPlan = await request(`/api/admin/customers/${a.organization.id}/plan`, {
     method: "PUT",
     headers: operatorHeaders,
@@ -437,6 +466,13 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
     }),
   });
   assert.equal(pausedPlan.status, 200, await pausedPlan.clone().text());
+  for (const product of ["pos", "ffpro", "tiquet", "marketing"]) {
+    const denied = await entitlementCheck(product, a);
+    assert.equal(denied.status, 200);
+    assert.equal((await denied.json()).allowed, false, "paused " + product);
+    const unaffected = await entitlementCheck(product, b);
+    assert.equal((await unaffected.json()).allowed, true, "other tenant remains permitted");
+  }
   const pausedBilling = await (await request("/api/billing/summary", { headers: { Cookie: a.cookie } })).json();
   assert.equal(pausedBilling.status, "paused");
   assert.deepEqual(pausedBilling.enabledApps, []);
