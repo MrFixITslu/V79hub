@@ -85,3 +85,27 @@ PostgreSQL. **No actual customer classification or migration was applied.**
   and rollback on restored application data (including required secret keys).
 - Implement and test trial reminders, billing fallback and customer
   communications. Do not merge draft PRs without the release decision.
+
+## Recovery key-presence and backup confidentiality review
+
+The October 8 protected Hub runtime archive was checked without extracting or
+printing secret values. It contains the POS owner-identity JSON, Ed25519 signing
+private key and Hub .env. The laptop rsync snapshot also includes the owner's
+.v79-secrets directory. This is file-presence evidence only, not a tested
+application boot after restoring all credentials.
+
+Hardening gap: the current backup script does not set a restrictive umask.
+The latest PostgreSQL dumps and Hub runtime archives are mode 0644; snapshot
+directories are commonly 0755. The laptop home/firelion directory is currently
+0750, limiting traversal to its owner/group, but copied archives could be
+read by unintended local users. Raw .env and database dumps are not encrypted
+within the backup tar/gzip archives.
+
+A hardening-only copy of the laptop backup script was prepared at:
+/home/firelion/v79-staging-backup-hardening/v79sl-backup.sh
+It sets umask 077 and owner-only permissions on snapshot directories.
+Bash syntax and dummy-file permission checks passed (0600 files, 0700 dirs).
+The active timer and backup script were NOT changed. Applying the patch,
+tightening historical snapshots and encrypted offsite backup require a
+separate approved backup-maintenance step. Do not delete existing snapshots
+until their retention and recovery dependencies have been reviewed.
