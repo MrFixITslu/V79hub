@@ -60,3 +60,13 @@
 - Hub public HTTPS currently lacks HSTS and CSP response headers, although other V79 apps expose both. Scoped HSTS/CSP hardening is isolated in **draft Hub PR #95** and passed lint, 143 local tests, build and GitHub CI. It has **not** been deployed and requires founder MFA/browser verification before production rollout. The planned CSP is deliberately conservative and needs further tightening later.
 - Additional live signed read-only entitlement checks passed for POS, FFPRO, Tiquet and Marketing: active beta owner permitted and unknown user denied on each product. This does not replace actual browser login tests.
 - **Current go/no-go:** restricted beta only, **no commercial or additional customer onboarding** until Force SSL and remaining browser/security gates pass.
+
+## Verified remediation — Force SSL enabled, 8 October 2026 (20:40 AST)
+
+- Founder enabled **Force SSL** in Nginx Proxy Manager for `hub.v79sl.com` and `pos.v79sl.com`. Read-only verification established each proxy config now includes the stock `conf.d/include/force-ssl.conf` rule.
+- All six live HTTP origins (Hub, POS, Marketing, FFPRO, Tiquet and Academy) now return **301** with their corresponding HTTPS destination. HTTP requests with path and query are preserved for Hub and POS.
+- All six corresponding HTTPS origins return **200**. Hub, Hub PostgreSQL, Marketing, POS, FFPRO and Tiquet remain healthy; Nginx `nginx -t` passed.
+- Hub's protected APIs return HTTP **401** when called without a login; the live Academy runtime value remains `https://academy.v79sl.com`. The non-mutating release configuration audit returned `ready: true` with zero issues.
+- **Status change:** the HTTP downgrade / Force SSL release blocker above is **resolved**. The previous section remains an audit trail and no longer represents the current proxy state.
+- **Still open:** Hub HTTPS does not yet expose HSTS/CSP (draft PR #95); live founder MFA browser acceptance for FFPRO, Tiquet, POS and Academy; careful source-PR review before merging or triggering production; legacy rollback image secret handling; local-backup retention cleanup; optional Resend tracking DNS.
+- **Go/no-go:** continue the one already authorised restricted beta; do not enable commercial billing or additional customer onboarding until final acceptance and remaining security release gates have been reviewed.
