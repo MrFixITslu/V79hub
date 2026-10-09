@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { createAgentApprovalAuditChain } from "../server/agent-approval-audit-chain.mjs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,6 +74,8 @@ test("production platform admin enrolls mandatory MFA before a session is issued
       V79_HUB_ADMIN_EMAIL: "vision79slu@gmail.com",
       V79_REQUIRE_ADMIN_MFA: "1",
       V79_PLATFORM_SHARED_SECRET: "platform-test-secret-12345678901234567890",
+      V79_HUB_SECURITY_KEY: "platform-test-secret-12345678901234567890",
+      V79_HUB_STORE_BACKEND: "json",
       POS_BASE_URL: downstreamUrl,
       FFPRO_INTERNAL_URL: downstreamUrl,
       TIQUET_INTERNAL_URL: downstreamUrl,
@@ -259,6 +263,14 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(olderPageBody.proposals[0].executionStatus, "disabled");
   assert.equal((await request("/api/agent/proposals?offset=-1", { headers: { cookie } })).status, 400);
   assert.equal((await request("/api/agent/proposals?offset=501", { headers: { cookie } })).status, 400);
+  const persisted = JSON.parse(readFileSync(join(dir, "v79_store.json"), "utf8"));
+  assert.equal(persisted.agentProposalAuditTrail.length, 4,
+    "each create and decision must persist exactly one keyed audit event");
+  const verifier = createAgentApprovalAuditChain("platform-test-secret-12345678901234567890");
+  assert.equal(verifier.verify(persisted.agentProposalAuditTrail), true);
+  const tampered = structuredClone(persisted.agentProposalAuditTrail);
+  tampered[0].operation = "draft_marketing_campaign";
+  assert.equal(verifier.verify(tampered), false);
   assert.deepEqual(downstreamMethods.filter(method => !["GET", "HEAD"].includes(method)), [],
     "the isolated configured app endpoints must never receive a write from decision routes");
 
