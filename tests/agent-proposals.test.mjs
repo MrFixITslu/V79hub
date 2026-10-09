@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDraftProposal, inspectDraftProposal, DRAFT_OPERATIONS } from "../server/agent-proposals.mjs";
+import { createDraftProposal, inspectDraftProposal, verifyDraftDigest, DRAFT_OPERATIONS } from "../server/agent-proposals.mjs";
 
 const clock = Date.parse("2026-10-09T13:00:00Z");
 const context = {
@@ -26,6 +26,8 @@ test("Stage 3A supports only two reviewed non-executable draft operation types",
   assert.deepEqual(Object.keys(DRAFT_OPERATIONS).sort(), ["marketing", "tiquet"]);
   const proposal = createDraftProposal(request, context, config);
   assert.equal(proposal.status, "draft");
+  assert.equal(verifyDraftDigest(proposal), true);
+  assert.equal(verifyDraftDigest({ ...proposal, parameters: { ...proposal.parameters, body: "tampered" } }), false);
   assert.equal(proposal.executionEnabled, false);
   assert.equal(proposal.organizationId, context.organizationId);
   assert.equal(proposal.ownerUserId, context.userId);

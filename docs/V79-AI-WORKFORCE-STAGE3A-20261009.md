@@ -41,3 +41,18 @@ are required. Returned reviewability **never implies execution permission**.
    checks and explicit release approval **before merging to main/deploying**.
 
 Tracked by V79 Hub issue #100. Do not enable or merge this branch automatically.
+
+## Stage 3A.1: keyed audit and draft-only inbox state
+
+The branch also contains a separate pure, not-yet-persisted inbox reducer in
+server/agent-proposal-inbox.mjs. It adds scoped draft registration, bounded
+inbox sizes, in-state idempotency checks, HMAC-SHA256 chained create/reject
+audit events, and owner-only rejection. There is still NO approve or execute
+function and NO HTTP route, live DB migration or production integration.
+
+A dedicated 32+ byte protected HMAC key is required and is not stored in inbox
+state. The HMAC chain can detect altered/deleted/replayed events and altered
+proposal records when the key is protected. This is NOT a durable audit journal
+until transactional persistence and key rotation are implemented. Concurrency
+safety, atomic uniqueness, MFA-bound session routes, retention, CSRF, before/
+after previews, source state validation and app adapters remain release blockers.

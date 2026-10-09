@@ -80,6 +80,20 @@ function digestOf(proposal) {
   return crypto.createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }
 
+export function verifyDraftDigest(proposal) {
+  try {
+    return proposal?.schemaVersion === 1 &&
+      proposal.status === "draft" &&
+      proposal.risk === "draft" &&
+      proposal.executionEnabled === false &&
+      typeof proposal.integrityDigest === "string" &&
+      /^[0-9a-f]{64}$/.test(proposal.integrityDigest) &&
+      digestOf(proposal) === proposal.integrityDigest;
+  } catch {
+    return false;
+  }
+}
+
 export function createDraftProposal(request, context, {
   configuredFounderEmail,
   now = Date.now(),
