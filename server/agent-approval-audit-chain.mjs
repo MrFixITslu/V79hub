@@ -26,6 +26,36 @@ function isValidEvent(event) {
   return Number.isFinite(Date.parse(event.createdAt));
 }
 
+// Cross-check the signed sequence against the current proposal snapshots.
+// This detects a removed tail event while its proposal still exists. It cannot
+// detect coordinated alteration of both records by a holder of the HMAC key.
+export function verifyAgentApprovalAuditLinkage(events, proposals) {
+  if (!Array.isArray(events) || !Array.isArray(proposals)) return false;
+  const latest = new Map();
+  for (const item of events) {
+    if (!item || typeof item.proposalId !== "string") return false;
+    const prior = latest.get(item.proposalId);
+    if (!prior) {
+      if (item.status !== "pending" || item.revision !== 1) return false;
+    } else {
+      if (prior.status !== "pending" || item.revision !== prior.revision + 1 ||
+          !["approved", "rejected"].includes(item.status) ||
+          item.organizationId !== prior.organizationId || item.operation !== prior.operation ||
+          item.targetSystem !== prior.targetSystem) return false;
+    }
+    latest.set(item.proposalId, item);
+  }
+  if (latest.size !== proposals.length) return false;
+  for (const proposal of proposals) {
+    const entry = latest.get(proposal?.id);
+    if (!entry || entry.status !== proposal.status ||
+        entry.revision !== proposal.revision || entry.organizationId !== proposal.organizationId ||
+        entry.operation !== proposal.operation || entry.targetSystem !== proposal.targetSystem ||
+        proposal.executionStatus !== "disabled") return false;
+  }
+  return true;
+}
+
 export function createAgentApprovalAuditChain(secret, {
   now = () => new Date(), uuid = randomUUID,
 } = {}) {
