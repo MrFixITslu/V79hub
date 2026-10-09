@@ -200,6 +200,15 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   const finalBody = await finalList.json();
   assert.equal(finalBody.totalProposals, 2);
   assert.equal(finalBody.proposals.every(item => item.executionStatus === "disabled"), true);
+  const olderPage = await request("/api/agent/proposals?offset=1", { headers: { cookie } });
+  assert.equal(olderPage.status, 200);
+  const olderPageBody = await olderPage.json();
+  assert.equal(olderPageBody.offset, 1);
+  assert.equal(olderPageBody.pageSize, 100);
+  assert.equal(olderPageBody.proposals.length, 1);
+  assert.equal(olderPageBody.proposals[0].executionStatus, "disabled");
+  assert.equal((await request("/api/agent/proposals?offset=-1", { headers: { cookie } })).status, 400);
+  assert.equal((await request("/api/agent/proposals?offset=501", { headers: { cookie } })).status, 400);
   assert.deepEqual(downstreamMethods.filter(method => !["GET", "HEAD"].includes(method)), [],
     "the isolated configured app endpoints must never receive a write from decision routes");
 
