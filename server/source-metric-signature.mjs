@@ -114,6 +114,9 @@ export function verifySignedSourceMetrics({
     evidence: {
       system: payload.source,
       observedAt: payload.observedAt,
+      // From the independently signed source envelope. The preview MUST
+      // discard figures at expiration instead of implying everlasting trust.
+      expiresAt: payload.expiresAt,
       metrics: JSON.parse(canonical).metrics,
     },
   };
