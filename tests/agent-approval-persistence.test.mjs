@@ -29,7 +29,7 @@ test("JSON restart keeps approved draft decisions and execution stays disabled",
  t.after(()=>rm(dir,{recursive:true,force:true}));
  const file=join(dir,"hub-store.json");
  const before=createHubStorePersistence({backend:"json",storeFile:file});
- let store=await before.load(normalize,()=>({users:[],agentActionProposals:[],auditEvents:[]}));
+ let store=await before.load(normalize,()=>({users:[],agentActionProposals:[],auditEvents:[],agentProposalAuditTrail:[]}));
  const created=createAgentProposal(store.agentActionProposals,proposal,owner);
  assert.equal(created.kind,"created");
  assert.equal(decideAgentProposal(store.agentActionProposals,{
@@ -59,9 +59,9 @@ test("PostgreSQL restart retains proposal and rejects old revision in a competin
  t.after(()=>rm(dir,{recursive:true,force:true}));
  const cfg={backend:"postgres",storeFile:join(dir,"unused.json"),pool};
  const writer=createHubStorePersistence(cfg);
- const original=await writer.load(normalize,()=>({users:[],agentActionProposals:[],auditEvents:[]}));
+ const original=await writer.load(normalize,()=>({users:[],agentActionProposals:[],auditEvents:[],agentProposalAuditTrail:[]}));
  const stale=createHubStorePersistence(cfg);
- const staleData=await stale.load(normalize,()=>({users:[],agentActionProposals:[],auditEvents:[]}));
+ const staleData=await stale.load(normalize,()=>({users:[],agentActionProposals:[],auditEvents:[],agentProposalAuditTrail:[]}));
  assert.equal(createAgentProposal(original.agentActionProposals,proposal,owner).kind,"created");
  keyedAudit.append(original.agentProposalAuditTrail,original.agentActionProposals[0],owner.actorUserId);
  await writer.save(original);
