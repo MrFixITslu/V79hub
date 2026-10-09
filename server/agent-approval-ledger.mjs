@@ -56,10 +56,12 @@ function fingerprint(input) {
   ])).digest("hex");
 }
 
-export function createAgentProposal(records, raw, { organizationId = "", actorUserId = "", now = new Date(), uuid = randomUUID } = {}) {
+export function createAgentProposal(records, raw, { organizationId = "", actorUserId = "", now = new Date(), uuid = randomUUID,
+  evidenceProvenance = "unverified" } = {}) {
   if (!Array.isArray(records) || !organizationId || !actorUserId) return { kind: "invalid" };
   const input = validateAgentProposalInput(raw);
-  if (!input || !Number.isFinite(+now)) return { kind: "invalid" };
+  if (!input || !Number.isFinite(+now) || !["unverified", "proxy_attested"].includes(evidenceProvenance) ||
+      (evidenceProvenance === "proxy_attested" && !input.evidenceRef)) return { kind: "invalid" };
   const matching = records.find(p => p.organizationId === organizationId && p.idempotencyKey === input.idempotencyKey);
   const digest = fingerprint(input);
   if (matching) return matching.fingerprint === digest
@@ -75,7 +77,7 @@ export function createAgentProposal(records, raw, { organizationId = "", actorUs
     operation: input.operation, targetSystem: input.targetSystem,
     summary: input.summary, rationale: input.rationale,
     evidenceRef: input.evidenceRef,
-    evidenceVerification: "unverified",
+    evidenceVerification: evidenceProvenance,
     idempotencyKey: input.idempotencyKey, fingerprint: digest,
     status: "pending", revision: 1,
     createdAt: now.toISOString(), expiresAt: new Date(+now + TTL_MS).toISOString(),
@@ -121,7 +123,8 @@ export function listAgentProposals(records, organizationId, now = new Date(), { 
     .map(p => ({
       id:p.id, targetSystem:p.targetSystem, operation:p.operation, summary:p.summary,
       rationale:p.rationale, evidenceRef:p.evidenceRef,
-      evidenceVerification:"unverified", status:p.status, revision:p.revision,
+      evidenceVerification: p.evidenceVerification === "proxy_attested" ? "proxy_attested" : "unverified",
+      status:p.status, revision:p.revision,
       createdAt:p.createdAt, expiresAt:p.expiresAt, decidedAt:p.decidedAt,
       decisionNote:p.decisionNote, executionStatus:"disabled",
     }));
