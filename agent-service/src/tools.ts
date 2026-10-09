@@ -4,6 +4,8 @@ import fs from "node:fs";
 import { BUSINESS_SYSTEMS, getBusinessSystem } from "./business.js";
 import { checkApproval } from "./policy.js";
 import { canUseSystem, type AgentContext } from "./context.js";
+import { buildEvidenceLedger, compactFromEvidence, verifySignedOwnerSnapshot } from "./evidence.js";
+import { getWorkforceSpecialist } from "./workforce.js";
 
 type HealthResult = {
   key: string;
@@ -114,7 +116,9 @@ export async function readBusinessSnapshot(context: AgentContext) {
     signal: AbortSignal.timeout(15000),
   });
   if (!response.ok) throw new Error(`Hub business snapshot returned HTTP ${response.status}.`);
-  return response.json() as Promise<Record<string, any>>;
+  const payload: unknown = await response.json();
+  verifySignedOwnerSnapshot(payload, context);
+  return payload as Record<string, any>;
 }
 
 export const getBusinessSnapshotTool = tool({
@@ -136,29 +140,31 @@ export const getBusinessSnapshotTool = tool({
   async execute({ section }, runContext: RunContext<AgentContext> | undefined) {
     const context = contextFrom(runContext);
     const snapshot = await readBusinessSnapshot(context);
-    if (section === "all") return snapshot;
-    if (section === "platform") {
-      return {
-        generatedAt: snapshot.generatedAt,
-        hubAdmin: snapshot.hubAdmin,
-        connections: snapshot.connections,
-        platform: snapshot.platform,
-      };
-    }
-
-    const productBySection = {
+    const evidence = buildEvidenceLedger(snapshot, getWorkforceSpecialist("owner"));
+    const domainSystems: Record<string, string[]> = {
       finance: ["ffpro", "pos"],
       sales_inventory: ["pos"],
       customers_support: ["tiquet"],
       growth: ["marketing", "website"],
       learning: ["academy", "games"],
       combat_zone: ["lasertag"],
-    } as const;
-    const products = productBySection[section];
+    };
+    const systems = domainSystems[section];
+    const records = !systems ? evidence.records : evidence.records.filter(
+      record => systems.includes(record.system),
+    );
     return {
-      generatedAt: snapshot.generatedAt,
-      business: Object.fromEntries(products.map(product => [product, snapshot.business?.[product]])),
-      connections: Object.fromEntries(products.map(product => [product, snapshot.connections?.[product]])),
+      mode: "read-only",
+      collectedAt: evidence.collectedAt,
+      records,
+      prioritySignals: compactFromEvidence(evidence).prioritySignals.filter(signal =>
+        !systems || systems.some(system =>
+          signal.code.startsWith(system + "_") ||
+          (system === "ffpro" && signal.code.startsWith("finance_")) ||
+          (system === "website" && signal.code.startsWith("website_"))
+        )
+      ),
+      note: evidence.note,
     };
   },
 });

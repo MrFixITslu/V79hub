@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { Bot, Send, ShieldCheck } from "lucide-react";
 
-type Message = { role: "user" | "assistant"; text: string; specialist?: string };
+type EvidenceMetric = { key: string; value: number };
+type EvidenceRecord = {
+  system: string; name: string; source: string;
+  state: "available" | "stale" | "unavailable" | "unknown";
+  reportedAt: string | null; connection: string; metrics: EvidenceMetric[];
+};
+type EvidenceLedger = { mode: "read-only"; collectedAt: string | null; records: EvidenceRecord[] };
+type Message = { role: "user" | "assistant"; text: string; specialist?: string; evidence?: EvidenceLedger };
 
 const specialistPrompts = [
   { label: "Operations", prompt: "Review inventory, shipments and operational bottlenecks." },
@@ -37,7 +44,7 @@ export function OwnerAssistant() {
       const data = await response.json();
       setMessages((items) => [
         ...items,
-        { role: "assistant", text: response.ok ? data.output : data.error || "Assistant request failed.", specialist: response.ok ? data.specialist : undefined },
+        { role: "assistant", text: response.ok ? data.output : data.error || "Assistant request failed.", specialist: response.ok ? data.specialist : undefined, evidence: response.ok && data.evidence?.mode === "read-only" ? data.evidence : undefined },
       ]);
     } catch {
       setMessages((items) => [...items, { role: "assistant", text: "Owner Assistant is unavailable." }]);
@@ -92,6 +99,30 @@ export function OwnerAssistant() {
                 <div className="text-xs text-cyan-300 mb-1 font-semibold">{message.specialist} · Read-only</div>
               )}
               <span className="whitespace-pre-wrap">{message.text}</span>
+              {message.role === "assistant" && message.evidence && (
+                <details className="mt-3 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2">
+                  <summary className="cursor-pointer text-xs text-cyan-200">
+                    Verified data sources · {message.evidence.records.filter(record => record.state === "available").length} fresh, {message.evidence.records.filter(record => record.state !== "available").length} unverified or unavailable
+                  </summary>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Only approved aggregate metrics are shown. “Unknown” is not zero.
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {message.evidence.records.map((record, index) => (
+                      <div key={record.system + record.source + index} className="rounded-lg border border-slate-800 px-2 py-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-medium text-slate-200">{record.name}</span>
+                          <span className={record.state === "available" ? "text-emerald-300" : "text-amber-300"}>{record.state}</span>
+                        </div>
+                        <div className="text-slate-500">{record.source.replaceAll("_", " ")} · connection: {record.connection}{record.reportedAt ? " · reported " + new Date(record.reportedAt).toLocaleString() : " · observation time unknown"}</div>
+                        {record.metrics.length > 0 && (
+                          <div className="mt-1 text-slate-300">{record.metrics.map(metric => metric.key + ": " + metric.value.toLocaleString()).join(" · ")}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
           ))}
           {busy && <div className="text-xs text-slate-500">Working...</div>}
