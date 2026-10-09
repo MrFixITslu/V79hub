@@ -94,3 +94,21 @@ test("approval audit linkage detects a deleted signed tail or edited proposal sn
   assert.equal(verifyAgentApprovalAuditLinkage(events, [{ ...approved, operation: "draft_finance_review" }]), false);
   assert.equal(verifyAgentApprovalAuditLinkage([], []), true);
 });
+
+test("externally retained checkpoint detects a deleted signed tail", () => {
+  const events=[];
+  audit.append(events, fakeProposal(), "synthetic-user");
+  const oldCheckpoint = audit.checkpoint(events);
+  assert.equal(oldCheckpoint.count,1);
+  assert.equal(oldCheckpoint.headMac.length,64);
+  assert.equal(audit.verifyCheckpoint(events,oldCheckpoint),true);
+  audit.append(events, fakeProposal({ status:"approved",revision:2 }), "synthetic-user");
+  const newCheckpoint = audit.checkpoint(events);
+  assert.equal(audit.verifyCheckpoint(events,newCheckpoint),true);
+  assert.equal(audit.verifyCheckpoint(events,oldCheckpoint),false);
+  const truncated=events.slice(0,1);
+  assert.equal(audit.verify(truncated),true);
+  assert.equal(audit.verifyCheckpoint(truncated,newCheckpoint),false);
+  assert.equal(audit.verifyCheckpoint(events,{...newCheckpoint,count:-1}),false);
+  assert.equal(audit.verifyCheckpoint(events,{...newCheckpoint,headMac:"a".repeat(64)}),false);
+});
