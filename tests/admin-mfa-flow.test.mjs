@@ -5,6 +5,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { createAgentApprovalAuditChain } from "../server/agent-approval-audit-chain.mjs";
 import { createServer } from "node:http";
+import { generateKeyPairSync, sign as signEd25519 } from "node:crypto";
+import { canonicalSourceMetricPayload } from "../server/source-metric-signature.mjs";
+import { signPlatformRequest } from "../server/platform-contract.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { totpCode } from "../server/security-contract.mjs";
@@ -21,8 +24,46 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   await new Promise(resolve => probe.close(resolve));
 
   const downstreamMethods = [];
+  const verifiedTiquetSourceRequests = [];
+  const tiquetSigningKeys = generateKeyPairSync("ed25519");
+  const tiquetTrustedPublicKey = tiquetSigningKeys.publicKey.export({ format: "pem", type: "spki" });
+  let tiquetSigningMode = "valid";
   const downstream = createServer((req, res) => {
     downstreamMethods.push(String(req.method || ""));
+    const match = /^\/api\/platform\/agent\/signed-metrics\/([A-Za-z0-9_-]{6,96})\/([0-9a-f-]{36})$/.exec(String(req.url || ""));
+    if (req.method === "GET" && match) {
+      const [, organizationId, requestId] = match;
+      const timestamp = String(req.headers["x-v79-timestamp"] || "");
+      const expectedHmac = signPlatformRequest({
+        method: "GET", pathname: String(req.url), timestamp, body: "",
+        secret: "platform-test-secret-12345678901234567890",
+      });
+      verifiedTiquetSourceRequests.push({
+        method: req.method, organizationId, requestId,
+        serviceId: req.headers["x-v79-service-id"],
+        signedRequest: req.headers["x-v79-signature"] === expectedHmac,
+      });
+      const now = new Date();
+      const payload = {
+        schema: "v79-source-metrics-v1", source: "tiquet",
+        organizationId: tiquetSigningMode === "wrong-tenant" ? "other-tenant" : organizationId,
+        requestId,
+        observedAt: now.toISOString(),
+        expiresAt: new Date(+now + 90_000).toISOString(),
+        metrics: [
+          { key:"clients",value:2 }, { key:"jobs",value:3 },
+          { key:"teamMembers",value:1 }, { key:"unreadNotifications",value:0 },
+          { key:"jobValueTotal",value:120 },
+        ],
+      };
+      const canonical = canonicalSourceMetricPayload(payload);
+      const signature = canonical
+        ? signEd25519(null, Buffer.from(canonical), tiquetSigningKeys.privateKey).toString("base64url")
+        : "";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ payload, signature:tiquetSigningMode === "forged" ? "bad-signature" : signature }));
+      return;
+    }
     res.writeHead(503, { "content-type": "application/json" });
     res.end(JSON.stringify({ available: false }));
   });
@@ -84,6 +125,8 @@ test("production platform admin enrolls mandatory MFA before a session is issued
       LASERTAG_INTERNAL_URL: downstreamUrl,
       V79_AGENT_INTERNAL_URL: agentUrl,
       V79_AGENT_API_TOKEN: "test-synthetic-agent-api-token-0123456789012345",
+      V79_TIQUET_SIGNED_METRICS_ENABLED: "1",
+      V79_TIQUET_SOURCE_ED25519_PUBLIC_KEY_B64: Buffer.from(tiquetTrustedPublicKey, "utf8").toString("base64"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -164,6 +207,7 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   // Phase 3 approval inbox is accessible only after the owner completes MFA.
   const cookie = String(complete.headers.get("set-cookie") || "").split(";")[0];
   assert.equal((await request("/api/agent/proposals")).status, 401);
+  assert.equal((await request("/api/agent/sources/tiquet/metrics")).status, 401);
   assert.equal((await request("/api/agent/approval-audit-checkpoint")).status, 401);
   const listing = await request("/api/agent/proposals", { headers: { cookie } });
   assert.equal(listing.status, 200);
@@ -174,6 +218,31 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(initialCheckpoint.count, 0);
   assert.equal(initialCheckpoint.executionEnabled, false);
   assert.equal(initialCheckpoint.independentRetentionConfigured, false);
+  const signedMetricsResponse = await request("/api/agent/sources/tiquet/metrics", { headers: { cookie } });
+  assert.equal(signedMetricsResponse.status, 200, output);
+  const signedMetrics = await signedMetricsResponse.json();
+  assert.equal(signedMetrics.status, "available");
+  assert.equal(signedMetrics.provenance, "source_signed");
+  assert.equal(signedMetrics.source, "tiquet");
+  assert.equal(signedMetrics.executionEnabled, false);
+  assert.equal(signedMetrics.metrics.some(metric => metric.key === "jobs" && metric.value === 3), true);
+  assert.equal(signedMetrics.metrics.some(metric => metric.key === "unreadNotifications" && metric.value === 0), true);
+  assert.equal("organizationId" in signedMetrics, false);
+  assert.equal("requestId" in signedMetrics, false);
+  assert.equal("signature" in signedMetrics, false);
+  assert.equal(verifiedTiquetSourceRequests.length, 1);
+  assert.equal(verifiedTiquetSourceRequests[0].method, "GET");
+  assert.equal(verifiedTiquetSourceRequests[0].serviceId, "v79-hub");
+  assert.equal(verifiedTiquetSourceRequests[0].signedRequest, true);
+  tiquetSigningMode = "forged";
+  const forgedSignedResponse = await request("/api/agent/sources/tiquet/metrics", { headers: { cookie } });
+  assert.equal(forgedSignedResponse.status, 503);
+  assert.equal((await forgedSignedResponse.json()).status, "unavailable");
+  tiquetSigningMode = "wrong-tenant";
+  const wrongTenantResponse = await request("/api/agent/sources/tiquet/metrics", { headers: { cookie } });
+  assert.equal(wrongTenantResponse.status, 503);
+  assert.equal((await wrongTenantResponse.json()).status, "unavailable");
+  tiquetSigningMode = "valid";
   const proxy = await request("/api/agent/chat", {
     method: "POST", headers: { "content-type": "application/json", cookie, origin },
     body: JSON.stringify({ message: "Review synthetic financial aggregates." }),
