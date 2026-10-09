@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Bot, Send, ShieldCheck } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
+import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 
 type EvidenceMetric = { key: string; value: number };
 type EvidenceRecord = {
@@ -88,6 +89,7 @@ export function OwnerAssistant() {
         </div>
 
         <AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} />
+        <SignedTiquetEvidencePanel />
         <div className="px-5 py-3 border-b border-slate-800 bg-slate-900/50">
           <p className="text-xs text-slate-400 mb-2">Ask a specialist · drafts and recommendations only</p>
           <div className="flex flex-wrap gap-2">
