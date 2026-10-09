@@ -31,7 +31,7 @@ test("only fixed draft operations with the matching system are accepted", () => 
   assert.equal(validateAgentProposalInput(input({evidenceRef:"fake:inventedMetric"})), null);
   assert.equal(validateAgentProposalInput(input({rationale:"Notify admin＠example.invalid about it."})), null,
     "NFKC-equivalent contact identifiers must not bypass data minimization");
-  assert.equal(validateAgentProposalInput(input({summary:"Review\\u200b inventory now"})), null,
+  assert.equal(validateAgentProposalInput(input({summary:"Review" + String.fromCodePoint(0x200b) + " inventory now"})), null,
     "zero-width formatting characters must not hide sensitive content");
   assert.equal(validateAgentProposalInput(input({rationale:"Copy the private key: demo-value into review."})), null);
 });
