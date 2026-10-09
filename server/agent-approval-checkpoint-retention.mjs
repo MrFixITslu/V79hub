@@ -53,7 +53,11 @@ function exactArchivedRecord(value, epoch, count) {
       value.epoch !== epoch || value.count !== count) {
     throw new Error("Checkpoint vault contains an invalid archive record.");
   }
-  return safeAuditCheckpoint(value);
+  // The on-disk archive has an epoch wrapper. The validator deliberately
+  // accepts ONLY checkpoint fields, never archive metadata or customer data.
+  return safeAuditCheckpoint({
+    schema: value.schema, count: value.count, headMac: value.headMac,
+  });
 }
 
 async function assertPrivateFile(filename) {
