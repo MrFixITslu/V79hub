@@ -8,12 +8,13 @@ export type AgentDraftSuggestion = {
   summary: string;
   rationale: string;
   evidenceRef?: string;
+  evidenceAttestation?: string;
   idempotencyKey: string;
 };
 
 type InboxProposal = {
   id: string; operation: string; targetSystem: string; summary: string; rationale: string;
-  evidenceRef: string | null; evidenceVerification: "unverified"; status: "pending" | "approved" | "rejected" | "expired";
+  evidenceRef: string | null; evidenceVerification: "unverified" | "proxy_attested"; status: "pending" | "approved" | "rejected" | "expired";
   revision: number; createdAt: string; expiresAt: string; executionStatus: "disabled";
 };
 
@@ -139,7 +140,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
       {open && <div className="mt-3 space-y-3">
         <p className="text-xs text-amber-200">Decision-only beta. Approvals are recorded for planning; no emails, payments, tickets, campaigns or other actions will execute.</p>
         {suggested && <div className="rounded-xl border border-cyan-700 bg-slate-950 p-3 space-y-2">
-          <div className="text-xs text-slate-400">Suggested from a read-only investigation · reference not independently authenticated</div>
+          <div className="text-xs text-slate-400">Suggested from read-only findings · {suggested.evidenceAttestation ? "short-lived Hub receipt attached" : "no attested evidence receipt"}</div>
           <p className="font-semibold text-slate-100">{suggested.summary}</p>
           <p className="text-xs text-slate-300">{suggested.rationale}</p>
           <div className="flex gap-2">
@@ -161,7 +162,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
                 <span className="text-xs text-cyan-300">{proposal.status}</span>
               </div>
               <p className="mt-1 text-xs text-slate-300">{proposal.rationale}</p>
-              <p className="mt-1 text-xs text-amber-200">{proposal.evidenceRef ? "Evidence reference is unverified — check source manually before reviewing." : "No evidence reference attached — review manually."}</p>
+              <p className="mt-1 text-xs text-amber-200">{proposal.evidenceVerification === "proxy_attested" ? "Matched an available read-only ledger metric during this owner session; source has not been independently reverified." : "Unverified evidence — review source manually."}</p>
               <p className="mt-1 text-xs text-slate-500">{proposal.targetSystem} · {proposal.operation.replaceAll("_", " ")} · Expires {new Date(proposal.expiresAt).toLocaleString()}</p>
               {proposal.status === "pending" &&
                 <div className="mt-2 flex gap-2">
