@@ -25,6 +25,36 @@ test("production platform admin enrolls mandatory MFA before a session is issued
     res.end(JSON.stringify({ available: false }));
   });
   const downstreamUrl = await listen(downstream);
+  // Disposable signed-in proxy fixture: only synthetic aggregate numbers,
+  // never a live downstream business service or real credentials.
+  const agent = createServer(async (req, res) => {
+    if (req.url !== "/api/agent/chat" || req.method !== "POST") {
+      res.writeHead(404); res.end(); return;
+    }
+    for await (const chunk of req) { void chunk; }
+    const reportedAt = new Date().toISOString();
+    const finding = {
+      id: "ffpro:currentMonthNet", system: "ffpro", severity: "information",
+      title: "Review monthly cashflow planning",
+      nextStep: "Review aggregate financial trends in FFPRO without executing any payments.",
+      evidence: { source: "signed_product_summary", metric: "currentMonthNet",
+        value: 350, reportedAt },
+    };
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ output: "Synthetic finance review only",
+      investigation: { mode: "read-only", dataStatus: "available", findings: [finding], missing: [] },
+      evidence: { mode: "read-only", collectedAt: reportedAt, records: [{
+        system: "ffpro", name: "FFPRO aggregate", source: "signed_product_summary",
+        state: "available", reportedAt, connection: "mock",
+        metrics: [{ key: "currentMonthNet", value: 350 }],
+      }] },
+    }));
+  });
+  const agentUrl = await listen(agent);
+  t.after(async () => {
+    agent.closeAllConnections();
+    await new Promise(resolve => agent.close(resolve));
+  });
   t.after(async () => {
     downstream.closeAllConnections();
     await new Promise(resolve => downstream.close(resolve));
@@ -48,6 +78,8 @@ test("production platform admin enrolls mandatory MFA before a session is issued
       MARKETING_INTERNAL_URL: downstreamUrl,
       ACADEMY_INTERNAL_URL: downstreamUrl,
       LASERTAG_INTERNAL_URL: downstreamUrl,
+      V79_AGENT_INTERNAL_URL: agentUrl,
+      V79_AGENT_API_TOKEN: "test-synthetic-agent-api-token-0123456789012345",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -131,13 +163,29 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   const listing = await request("/api/agent/proposals", { headers: { cookie } });
   assert.equal(listing.status, 200);
   assert.equal((await listing.json()).executionEnabled, false);
+  const proxy = await request("/api/agent/chat", {
+    method: "POST", headers: { "content-type": "application/json", cookie, origin },
+    body: JSON.stringify({ message: "Review synthetic financial aggregates." }),
+  });
+  assert.equal(proxy.status, 200);
+  const investigation = await proxy.json();
+  const observed = investigation.investigation.findings[0];
+  assert.match(observed.evidenceAttestation, /^[A-Za-z0-9_-]{24,96}$/);
   const proposal = {
     operation: "draft_finance_review", targetSystem: "ffpro",
-    summary: "Review monthly cashflow planning",
-    rationale: "Review aggregate financial trends in FFPRO without executing any payments.",
-    idempotencyKey: "mfa-owner-decision-test-0001", evidenceRef: "ffpro:currentMonthNet",
+    summary: observed.title, rationale: observed.nextStep,
+    idempotencyKey: "mfa-owner-decision-test-0001", evidenceRef: observed.id,
+    evidenceAttestation: observed.evidenceAttestation,
   };
   const withOrigin = { "content-type": "application/json", cookie, origin };
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ ...proposal, evidenceAttestation: undefined }),
+  })).status, 400, "an untrusted reference cannot impersonate authenticated evidence");
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ ...proposal, summary: "Unrelated changed financial proposal" }),
+  })).status, 400);
   assert.equal((await request("/api/agent/proposals", {
     method: "POST", headers: { ...withOrigin, origin: "https://invalid.invalid" },
     body: JSON.stringify(proposal),
@@ -148,7 +196,7 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(draftResponse.status, 201);
   const draft = await draftResponse.json();
   assert.equal(draft.proposal.executionStatus, "disabled");
-  assert.equal(draft.proposal.evidenceVerification, "unverified");
+  assert.equal(draft.proposal.evidenceVerification, "proxy_attested");
   // Simulate repeated clicks/retries during a single in-process owner session.
   // They must resolve to one ledger record, never another action or dispatch.
   const retries = await Promise.all(Array.from({ length: 5 }, () => request("/api/agent/proposals", {
@@ -179,8 +227,10 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(decision.executionEnabled, false);
 
   // An MFA-verified founder can approve the plan, but never dispatch a write.
+  // Separately exercise a manual plan without an attested evidence reference.
   const approvalDraft = { ...proposal, summary: "Review forecast assumptions manually",
-    idempotencyKey: "mfa-owner-decision-test-0002" };
+    idempotencyKey: "mfa-owner-decision-test-0002",
+    evidenceRef: undefined, evidenceAttestation: undefined };
   const approvalCreate = await request("/api/agent/proposals", {
     method: "POST", headers: withOrigin, body: JSON.stringify(approvalDraft),
   });
