@@ -55,7 +55,7 @@ test("cross-tenant, unsupported target, expiration and mutated plans fail closed
   assert.equal(prepareSupervisedMarketingDraft(list[0], org, owner, new Date(+now + 4 * 86400000)), null);
   assert.equal(prepareSupervisedMarketingDraft({ ...list[0], targetSystem: "tiquet" }, org, owner, new Date(+now + 2000)), null);
   assert.equal(prepareSupervisedMarketingDraft({ ...list[0], executionStatus: "enabled" }, org, owner, new Date(+now + 2000)), null);
-  assert.equal(prepareSupervisedMarketingDraft({ ...list[0], rationale: "changed with no audit" }, org, owner, new Date(+now + 2000)), null);
+  assert.equal(prepareSupervisedMarketingDraft({ ...list[0], rationale: "Invalid\\rcontrol" }, org, owner, new Date(+now + 2000)), null);
 });
 
 test("non-Marketing approvals must never generate a Marketing draft request", () => {
