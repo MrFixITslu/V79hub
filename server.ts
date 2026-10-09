@@ -254,7 +254,7 @@ interface EcosystemApp {
 interface AgentActionProposal {
   id: string; organizationId: string; createdByUserId: string;
   operation: string; targetSystem: string; summary: string; rationale: string;
-  evidenceRef: string | null; idempotencyKey: string; fingerprint: string;
+  evidenceRef: string | null; evidenceVerification: "unverified"; idempotencyKey: string; fingerprint: string;
   status: "pending" | "approved" | "rejected"; revision: number;
   createdAt: string; expiresAt: string;
   decidedAt: string | null; decidedByUserId: string | null;
@@ -4369,6 +4369,7 @@ app.get("/api/agent/proposals", (req, res) => {
   if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
   res.setHeader("Cache-Control", "no-store");
   return res.json({ mode: "decision-only", executionEnabled: false,
+    totalProposals: store.agentActionProposals.filter(p => p.organizationId === context.organizationId).length,
     proposals: listAgentProposals(store.agentActionProposals, context.organizationId) });
 });
 
