@@ -174,3 +174,19 @@ test("expired pending records cannot displace live pending reviews", () => {
   assert.equal(visible[0].id, "active");
   assert.equal(visible[1].status, "expired");
 });
+
+test("audit capacity fails closed without removing any previous events", () => {
+  const records = [], audit = [];
+  const created = createAgentProposal(records, input(), { ...org, uuid });
+  assert.equal(created.kind, "created");
+  for (let i = 0; i < 10000; i++) audit.push({ id: "old-event-" + i });
+  const first = audit[0];
+  const last = audit[audit.length - 1];
+  assert.throws(() => appendAgentProposalAudit(
+    audit, created.proposal, "agent.proposal.created", org.actorUserId, "audit-overflow"
+  ), /audit capacity reached/);
+  assert.equal(audit.length, 10000);
+  assert.equal(audit[0], first);
+  assert.equal(audit.at(-1), last);
+  assert.equal(audit.some(item => item.id === "audit-overflow"), false);
+});
