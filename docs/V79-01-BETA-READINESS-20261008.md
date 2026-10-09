@@ -51,3 +51,12 @@
 6. Optional: fix the `email-links` tracking CNAME if link tracking becomes necessary; do not repurpose the Hub hostname.
 
 **Release decision:** V79-01 remains in restricted beta. Automated integration/health gates are passing, but the full live MFA/browser acceptance and final commercial release controls are not complete.
+
+
+## Supplemental live transport/security check — 8 October 2026 AST
+
+- **Release blocker: HTTP downgrade exposure.** Public `http://hub.v79sl.com/` and `http://pos.v79sl.com/` currently return HTTP 200 instead of redirecting to HTTPS; Marketing, FFPRO, Tiquet and Academy return HTTP 301 redirects. Both Hub and POS must have Force SSL enabled in Nginx Proxy Manager, validated using actual HTTP-to-HTTPS requests, before commercial onboarding.
+- A host-specific custom Nginx attempt passed syntax checks but did not affect public redirects; the added snippets were **removed immediately**, Nginx syntax rechecked and all six HTTPS sites remained HTTP 200. There is no active custom redirect override. Restore correct behavior via the managed Proxy Hosts SSL settings, not further global experiments.
+- Hub public HTTPS currently lacks HSTS and CSP response headers, although other V79 apps expose both. Scoped HSTS/CSP hardening is isolated in **draft Hub PR #95** and passed lint, 143 local tests, build and GitHub CI. It has **not** been deployed and requires founder MFA/browser verification before production rollout. The planned CSP is deliberately conservative and needs further tightening later.
+- Additional live signed read-only entitlement checks passed for POS, FFPRO, Tiquet and Marketing: active beta owner permitted and unknown user denied on each product. This does not replace actual browser login tests.
+- **Current go/no-go:** restricted beta only, **no commercial or additional customer onboarding** until Force SSL and remaining browser/security gates pass.
