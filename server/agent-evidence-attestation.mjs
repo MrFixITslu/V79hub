@@ -67,17 +67,20 @@ export function createAgentEvidenceAttestations({
 
   function decorate(payload, { organizationId, userId } = {}) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
-        !organizationId || !userId || payload.investigation?.mode !== "read-only" ||
-        !["available", "partial"].includes(payload.investigation?.dataStatus) ||
-        !Array.isArray(payload.investigation?.findings) ||
-        payload.evidence?.mode !== "read-only") return payload;
+        !Array.isArray(payload.investigation?.findings)) return payload;
 
+    const mayAttest = Boolean(organizationId && userId &&
+      payload.investigation?.mode === "read-only" &&
+      ["available", "partial"].includes(payload.investigation?.dataStatus) &&
+      payload.evidence?.mode === "read-only");
     prune();
-    // Never forward an agent-authored attestation value unchanged.
+    // Strip model/upstream-authored attestation fields, even if the response
+    // cannot be attested. Only this trusted proxy may mint a new receipt.
     const findings = payload.investigation.findings.map(finding => {
       if (!finding || typeof finding !== "object" || Array.isArray(finding)) return finding;
       const { evidenceAttestation: ignored, ...cleanFinding } = finding;
-      if (!validSourceFinding(cleanFinding, payload.evidence, now()) || records.size >= maxEntries) {
+      if (!mayAttest || !validSourceFinding(cleanFinding, payload.evidence, now()) ||
+          records.size >= maxEntries) {
         return cleanFinding;
       }
       const token = nonce();
