@@ -13,7 +13,7 @@ export type AgentDraftSuggestion = {
 
 type InboxProposal = {
   id: string; operation: string; targetSystem: string; summary: string; rationale: string;
-  evidenceRef: string | null; status: "pending" | "approved" | "rejected" | "expired";
+  evidenceRef: string | null; evidenceVerification: "unverified"; status: "pending" | "approved" | "rejected" | "expired";
   revision: number; createdAt: string; expiresAt: string; executionStatus: "disabled";
 };
 
@@ -23,6 +23,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
 }) {
   const [open, setOpen] = useState(false);
   const [proposals, setProposals] = useState<InboxProposal[]>([]);
+  const [totalProposals, setTotalProposals] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -33,6 +34,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
     const data = await response.json();
     if (data.executionEnabled !== false || !Array.isArray(data.proposals)) throw new Error("Unexpected approval inbox mode.");
     setProposals(data.proposals);
+    setTotalProposals(Number.isSafeInteger(data.totalProposals) ? data.totalProposals : data.proposals.length);
   };
 
   useEffect(() => {
@@ -43,7 +45,12 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
         if (!response.ok) throw new Error("Approval inbox is unavailable.");
         return response.json();
       })
-      .then(data => { if (active) setProposals(Array.isArray(data.proposals) && data.executionEnabled === false ? data.proposals : []); })
+      .then(data => {
+        if (!active) return;
+        const next = Array.isArray(data.proposals) && data.executionEnabled === false ? data.proposals : [];
+        setProposals(next);
+        setTotalProposals(Number.isSafeInteger(data.totalProposals) ? data.totalProposals : next.length);
+      })
       .catch(() => { if (active) setError("Could not load proposals."); });
     return () => { active = false; };
   }, [open]);
@@ -105,7 +112,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
       {open && <div className="mt-3 space-y-3">
         <p className="text-xs text-amber-200">Decision-only beta. Approvals are recorded for planning; no emails, payments, tickets, campaigns or other actions will execute.</p>
         {suggested && <div className="rounded-xl border border-cyan-700 bg-slate-950 p-3 space-y-2">
-          <div className="text-xs text-slate-400">Suggested from a read-only investigation</div>
+          <div className="text-xs text-slate-400">Suggested from a read-only investigation · reference not independently authenticated</div>
           <p className="font-semibold text-slate-100">{suggested.summary}</p>
           <p className="text-xs text-slate-300">{suggested.rationale}</p>
           <div className="flex gap-2">
@@ -117,6 +124,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
         </div>}
         {notice && <p role="status" className="text-xs text-emerald-300">{notice}</p>}
         {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
+        {totalProposals > proposals.length && <p className="text-xs text-amber-200">Showing {proposals.length} of {totalProposals} proposals. Pending proposals appear first; older decisions are not yet paginated.</p>}
         {proposals.length === 0 && <p className="text-xs text-slate-400">No proposals recorded yet.</p>}
         <div className="max-h-64 space-y-2 overflow-y-auto">
           {proposals.map(proposal => (
@@ -126,6 +134,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
                 <span className="text-xs text-cyan-300">{proposal.status}</span>
               </div>
               <p className="mt-1 text-xs text-slate-300">{proposal.rationale}</p>
+              <p className="mt-1 text-xs text-amber-200">{proposal.evidenceRef ? "Evidence reference is unverified — check source manually before reviewing." : "No evidence reference attached — review manually."}</p>
               <p className="mt-1 text-xs text-slate-500">{proposal.targetSystem} · {proposal.operation.replaceAll("_", " ")} · Expires {new Date(proposal.expiresAt).toLocaleString()}</p>
               {proposal.status === "pending" &&
                 <div className="mt-2 flex gap-2">
