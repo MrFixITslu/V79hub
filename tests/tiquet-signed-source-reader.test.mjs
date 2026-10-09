@@ -59,6 +59,7 @@ test("verified Tiquet signature exposes only fresh bounded numerical evidence", 
   assert.deepEqual(answer, {
     status: "available", source: "tiquet", provenance: "source_signed",
     observedAt: "2026-10-09T11:59:30.000Z",
+    expiresAt: "2026-10-09T12:01:00.000Z",
     metrics: [...initialMetrics].sort((a,b)=>a.key.localeCompare(b.key)),
     executionEnabled: false,
   });
@@ -132,4 +133,21 @@ test("bad upstream status, redirects, non-JSON, oversized text and exceptions ne
     ...config, fetcher:async()=>{ throw Error("synthetic network down"); },
   });
   assert.equal(errored.status,"unavailable");
+});
+
+test("signed Tiquet data that expires during an HTTP response is not delivered as verified", async () => {
+  let observedClock = 0;
+  const fetcher = async () => new Response(JSON.stringify(signedEnvelope()), {
+    status:200, headers:{"content-type":"application/json"},
+  });
+  const result = await readSignedTiquetMetrics({
+    ...config,
+    now: () => {
+      observedClock++;
+      return observedClock === 1 ? frozen : new Date("2026-10-09T12:01:01.000Z");
+    },
+    fetcher,
+  });
+  assert.equal(observedClock, 2, "check the clock again after receiving source data");
+  assert.deepEqual(result,{status:"unavailable",source:"tiquet",executionEnabled:false});
 });
