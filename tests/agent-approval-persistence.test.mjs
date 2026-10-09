@@ -78,3 +78,46 @@ test("PostgreSQL restart retains proposal and rejects old revision in a competin
  assert.equal((await repository.load()).state.agentActionProposals.length,1);
  await writer.close();await restarted.close();await stale.close();
 });
+
+test("independent PostgreSQL state writers fail closed, reload, and preserve both signed proposals",async t=>{
+ const db=newDb({autoCreateForeignKeyIndices:true,noAstCoverageCheck:true});
+ const adapter=db.adapters.createPg();
+ const pool=new adapter.Pool(); t.after(()=>pool.end());
+ const repository=new PostgresStoreRepository(pool);
+ const empty={users:[],agentActionProposals:[],agentProposalAuditTrail:[],auditEvents:[]};
+ await migrateJsonState(repository,empty);
+ const dir=await mkdtemp(join(tmpdir(),"v79-two-writer-audit-"));
+ t.after(()=>rm(dir,{recursive:true,force:true}));
+ const cfg={backend:"postgres",storeFile:join(dir,"unused.json"),pool};
+ const first=createHubStorePersistence(cfg);
+ const stale=createHubStorePersistence(cfg);
+ const firstData=await first.load(normalize,()=>structuredClone(empty));
+ const staleData=await stale.load(normalize,()=>structuredClone(empty));
+ const firstCreated=createAgentProposal(firstData.agentActionProposals,proposal,owner);
+ assert.equal(firstCreated.kind,"created");
+ keyedAudit.append(firstData.agentProposalAuditTrail,firstCreated.proposal,owner.actorUserId);
+ await first.save(firstData);
+ const secondInput={...proposal,idempotencyKey:"second-worker-proposal-key-001",
+   summary:"Review operational readiness this week"};
+ const staleCreated=createAgentProposal(staleData.agentActionProposals,secondInput,owner);
+ assert.equal(staleCreated.kind,"created");
+ keyedAudit.append(staleData.agentProposalAuditTrail,staleCreated.proposal,owner.actorUserId);
+ await assert.rejects(stale.save(staleData),/revision conflict/);
+ const persistedAfterConflict=await repository.load();
+ assert.equal(persistedAfterConflict.state.agentActionProposals.length,1);
+ assert.equal(persistedAfterConflict.state.agentProposalAuditTrail.length,1);
+ assert.equal(keyedAudit.verify(persistedAfterConflict.state.agentProposalAuditTrail),true);
+ const refreshed=createHubStorePersistence(cfg);
+ const recovered=await refreshed.load(normalize,()=>structuredClone(empty));
+ const secondCreated=createAgentProposal(recovered.agentActionProposals,secondInput,owner);
+ assert.equal(secondCreated.kind,"created");
+ keyedAudit.append(recovered.agentProposalAuditTrail,secondCreated.proposal,owner.actorUserId);
+ await refreshed.save(recovered);
+ const result=await repository.load();
+ assert.equal(result.state.agentActionProposals.length,2);
+ assert.equal(result.state.agentProposalAuditTrail.length,2);
+ assert.equal(new Set(result.state.agentActionProposals.map(p=>p.id)).size,2);
+ assert.equal(keyedAudit.verify(result.state.agentProposalAuditTrail),true);
+ assert.equal(result.state.agentActionProposals.every(p=>p.executionStatus==="disabled"),true);
+ await first.close();await stale.close();await refreshed.close();
+});
