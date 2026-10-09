@@ -16,7 +16,8 @@ function clean(value, min, max) {
   if (typeof value !== "string") return null;
   if (value !== value.trim() || value.length < min || value.length > max ||
       /[\u0000-\u001f\u007f]/.test(value) ||
-      /\b(?:password|api[_ -]?key|secret|bearer|token)\s*[:=]/i.test(value)) return null;
+      /\b(?:password|api[_ -]?key|secret|bearer|token)\s*[:=]/i.test(value) ||
+      /[\u200b-\u200f\u2060\ufeff]/.test(value)) return null;
   return value;
 }
 
@@ -33,8 +34,12 @@ export function validateAgentProposalInput(raw) {
   if (!summary || !rationale || !key || !/^[a-zA-Z0-9_-]{16,96}$/.test(key)) return null;
   const evidenceRef = raw.evidenceRef === undefined ? null : clean(raw.evidenceRef, 5, 150);
   if (raw.evidenceRef !== undefined && (!evidenceRef || !/^[a-z]+:[A-Za-z0-9]+$/.test(evidenceRef))) return null;
+  // A syntactically valid reference is NOT authenticated evidence. Require its
+  // source to match the fixed application, and expose unverified provenance.
+  if (evidenceRef && evidenceRef.split(":")[0] !== targetSystem) return null;
   // This inbox is for generic draft plans, never customer PII, account identifiers or credentials.
-  if (/@|https?:\/\/|(?:\+?\d[\d\s()-]{8,}\d)/.test(summary+" "+rationale)) return null;
+  const disclosureText = (summary + " " + rationale).normalize("NFKC");
+  if (/@|https?:\/\/|(?:\+?\d[\d\s()-]{8,}\d)|\b(?:private\s*key|client\s*secret|authorization)\s*[:=]/i.test(disclosureText)) return null;
   return { operation, targetSystem, summary, rationale, idempotencyKey:key, evidenceRef };
 }
 
@@ -63,6 +68,7 @@ export function createAgentProposal(records, raw, { organizationId = "", actorUs
     operation: input.operation, targetSystem: input.targetSystem,
     summary: input.summary, rationale: input.rationale,
     evidenceRef: input.evidenceRef,
+    evidenceVerification: "unverified",
     idempotencyKey: input.idempotencyKey, fingerprint: digest,
     status: "pending", revision: 1,
     createdAt: now.toISOString(), expiresAt: new Date(+now + TTL_MS).toISOString(),
@@ -99,10 +105,14 @@ export function listAgentProposals(records, organizationId, now = new Date()) {
       if (p.status !== "pending" || Date.parse(p.expiresAt) > +now) return p;
       return { ...p, status: "expired", executionStatus: "disabled" };
     })
-    .sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,100)
+    // Always show every outstanding pending proposal (max 80 per org) before
+    // recently decided records. Older decisions may still require pagination.
+    .sort((a,b) => Number(b.status === "pending") - Number(a.status === "pending") ||
+      b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0,100)
     .map(p => ({
       id:p.id, targetSystem:p.targetSystem, operation:p.operation, summary:p.summary,
-      rationale:p.rationale, evidenceRef:p.evidenceRef, status:p.status, revision:p.revision,
+      rationale:p.rationale, evidenceRef:p.evidenceRef,
+      evidenceVerification:"unverified", status:p.status, revision:p.revision,
       createdAt:p.createdAt, expiresAt:p.expiresAt, decidedAt:p.decidedAt,
       decisionNote:p.decisionNote, executionStatus:"disabled",
     }));
