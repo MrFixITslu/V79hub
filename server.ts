@@ -255,7 +255,7 @@ interface EcosystemApp {
 interface AgentActionProposal {
   id: string; organizationId: string; createdByUserId: string;
   operation: string; targetSystem: string; summary: string; rationale: string;
-  evidenceRef: string | null; evidenceVerification: "unverified"; idempotencyKey: string; fingerprint: string;
+  evidenceRef: string | null; evidenceVerification: "unverified" | "proxy_attested"; idempotencyKey: string; fingerprint: string;
   status: "pending" | "approved" | "rejected"; revision: number;
   createdAt: string; expiresAt: string;
   decidedAt: string | null; decidedByUserId: string | null;
