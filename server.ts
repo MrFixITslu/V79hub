@@ -4390,10 +4390,9 @@ app.post("/api/agent/proposals", async (req, res) => {
         appendAgentProposalAudit(next.auditEvents, result.proposal, "agent.proposal.created", context.userId);
         await commitStore(next);
       }
-      const proposal = listAgentProposals(
-        result.kind === "created" ? next.agentActionProposals : store.agentActionProposals,
-        context.organizationId,
-      ).find(item => item.id === result.proposal.id);
+      // Project the exact result, not the truncated 100-item inbox. Retries for
+      // older decided drafts must still return a valid, redacted proposal.
+      const proposal = listAgentProposals([result.proposal], context.organizationId)[0];
       return res.status(result.kind === "created" ? 201 : 200).json({
         proposal, executionEnabled: false, duplicate: result.kind === "duplicate",
       });
