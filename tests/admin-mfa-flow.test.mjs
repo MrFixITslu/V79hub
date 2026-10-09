@@ -93,6 +93,39 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(identity.user.platformOperator, true);
   assert.equal(identity.user.mfaEnabled, true);
 
+  // Phase 3 approval inbox is accessible only after the owner completes MFA.
+  const cookie = String(complete.headers.get("set-cookie") || "").split(";")[0];
+  assert.equal((await request("/api/agent/proposals")).status, 401);
+  const listing = await request("/api/agent/proposals", { headers: { cookie } });
+  assert.equal(listing.status, 200);
+  assert.equal((await listing.json()).executionEnabled, false);
+  const proposal = {
+    operation: "draft_finance_review", targetSystem: "ffpro",
+    summary: "Review monthly cashflow planning",
+    rationale: "Review aggregate financial trends in FFPRO without executing any payments.",
+    idempotencyKey: "mfa-owner-decision-test-0001", evidenceRef: "ffpro:currentMonthNet",
+  };
+  const withOrigin = { "content-type": "application/json", cookie, origin };
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: { ...withOrigin, origin: "https://invalid.invalid" },
+    body: JSON.stringify(proposal),
+  })).status, 403);
+  const draftResponse = await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin, body: JSON.stringify(proposal),
+  });
+  assert.equal(draftResponse.status, 201);
+  const draft = await draftResponse.json();
+  assert.equal(draft.proposal.executionStatus, "disabled");
+  const decisionResponse = await request("/api/agent/proposals/" + draft.proposal.id + "/decision", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ decision: "reject", expectedRevision: 1 }),
+  });
+  assert.equal(decisionResponse.status, 200);
+  const decision = await decisionResponse.json();
+  assert.equal(decision.proposal.status, "rejected");
+  assert.equal(decision.proposal.executionStatus, "disabled");
+  assert.equal(decision.executionEnabled, false);
+
   const secondLogin = await request("/api/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },

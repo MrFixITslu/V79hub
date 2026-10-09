@@ -31,7 +31,7 @@ This is the prerequisite durable decision and audit layer for a later, separatel
 
 Pure `tests/agent-approval-ledger.test.mjs` covers eight independent security/data cases including allowed actions, wrong apps, PII/secret rejection, owner-scoped listing, idempotency, replay, expiry, stale revisions, cross-tenant UUIDs and metadata-only audit. Hub TypeScript lint and build must pass, followed by all Hub tests with bounded concurrency and GitHub PR CI.
 
-The isolated synthetic Hub owner-session test now covers anonymous access, same-origin/CSRF rejection, draft creation, duplicate retry, approval and stale revision replay, with execution explicitly disabled. **Outstanding release gates:** (a) explicit MFA-enforced owner review under the new inbox API, (b) persistence verification after process restart and concurrent/process-version write scenarios, (c) founder visual acceptance and absence of downstream requests. Do **not** deploy this feature merely because unit/CI checks pass. Use only synthetic data for these tests.
+The isolated synthetic Hub owner-session test covers anonymous access, same-origin/CSRF rejection, draft creation, duplicate retry, approval and stale revision replay. A separate integration test now also confirms the owner completes mandatory MFA **before** the approval inbox becomes available, then rejects a plan with execution still disabled. **Outstanding release gates:** (a) persistence verification after process restart and concurrent/multi-process revision scenarios, (b) founder visual acceptance and explicit absence of downstream app calls, (c) exact-SHA CI and staging rehearsal. Do **not** deploy this feature merely because unit/CI checks pass. Use only synthetic data for these tests.
 
 ## Planned Stage 3B and beyond
 
