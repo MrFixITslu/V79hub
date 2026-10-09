@@ -162,6 +162,13 @@ test("oldest pending proposals remain visible ahead of newer decision history", 
   assert.equal(visible[79].status, "pending");
   assert.equal(visible[80].status, "approved");
   assert.equal(visible.every(item => item.evidenceVerification === "unverified"), true);
+  const secondPage = listAgentProposals(ledger, org.organizationId, now, { offset: 100 });
+  const lastPage = listAgentProposals(ledger, org.organizationId, now, { offset: 200 });
+  assert.equal(secondPage.length, 100);
+  assert.equal(lastPage.length, 30);
+  assert.equal(new Set([...visible, ...secondPage, ...lastPage].map(item => item.id)).size, 230);
+  assert.deepEqual(listAgentProposals(ledger, org.organizationId, now, { offset: -1 }), []);
+  assert.deepEqual(listAgentProposals(ledger, org.organizationId, now, { limit: 501 }), []);
 });
 
 test("expired pending records cannot displace live pending reviews", () => {
