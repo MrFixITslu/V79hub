@@ -10,8 +10,7 @@ import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-co
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { acceptInvitationState, invitationStatus } from "./server/onboarding-store.mjs";
-import { previewSentinelCleanup, removeSentinelCleanup, SentinelCleanupError } from "./server/sentinel-qa-cleanup.mjs";
-import { stageSentinelQaCreation } from "./server/sentinel-qa-create.mjs";
+import { registerSentinelQaRoutes } from "./server/sentinel-qa-routes.mjs";
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
@@ -3506,93 +3505,15 @@ app.get("/api/admin/audit", requirePlatformOperator, (req, res) => {
   res.json({ events });
 });
 
-// SENTINEL QA CLEANUP: disabled by default and scoped to the operator-owned
-// synthetic test tenant manifest. No generic organization deletion route exists.
-// Dedicated creation route is disabled separately, and also requires cleanup
-// availability: never mint a disposable tenant that we cannot subsequently remove.
-// Passwords are randomly generated, salted and hashed; one-time credentials are
-// returned only over the authenticated operator channel and never written to audit.
-app.post("/api/admin/sentinel-qa/organizations", requirePlatformOperator, async (req, res) => {
-  if (process.env.V79_SENTINEL_QA_CREATE_ENABLED !== "1" ||
-      process.env.V79_SENTINEL_QA_CLEANUP_ENABLED !== "1") {
-    return res.status(404).json({ error: "Sentinel test tenant creation is disabled" });
-  }
-  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin" });
-  if (req.body?.confirm !== "CREATE ISOLATED SENTINEL QA" ||
-      req.body?.appIds !== undefined ||
-      req.body?.email !== undefined ||
-      req.body?.userIds !== undefined) {
-    return res.status(400).json({ error: "Exact isolated test-tenant confirmation is required; apps and external users are not allowed" });
-  }
-  const operatorUserId = (req as any).user.userId;
-  try {
-    const roles = ["owner", "staff", "viewer"] as const;
-    const temporaryAccounts = roles.map(role => ({
-      id:crypto.randomUUID(), role, password:crypto.randomBytes(24).toString("base64url"),
-    }));
-    const { nextStore, organization, syntheticUsers, cleanupPreviewHash } = stageSentinelQaCreation(store, {
-      operatorUserId,
-      syntheticAccounts:temporaryAccounts.map(a => ({id:a.id,role:a.role,passwordHash:hashPassword(a.password)})),
-    });
-    await commitStore(nextStore);
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(201).json({
-      organization, cleanupPreviewHash,
-      testAccounts: syntheticUsers.map(a => ({ ...a,
-        oneTimePassword:temporaryAccounts.find(p => p.id===a.userId)!.password })),
-      warning:"Store these one-time test credentials securely; do not email or share them. Only Hub-local accounts are created.",
-    });
-  } catch (error) {
-    if (error instanceof SentinelCleanupError) return res.status(409).json({ error:error.message });
-    console.error("[Sentinel QA] Test tenant creation unsuccessful");
-    return res.status(503).json({ error:"Test tenant creation unavailable" });
-  }
-});
-
-app.get("/api/admin/sentinel-qa/organizations/:organizationId/cleanup-preview", requirePlatformOperator, (req, res) => {
-  if (process.env.V79_SENTINEL_QA_CLEANUP_ENABLED !== "1") {
-    return res.status(404).json({ error: "Sentinel cleanup is disabled" });
-  }
-  try {
-    const operatorUserId = (req as any).user.userId;
-    const preview = previewSentinelCleanup(store, {
-      organizationId: String(req.params.organizationId || ""), operatorUserId,
-    });
-    res.setHeader("Cache-Control", "no-store");
-    return res.json(preview);
-  } catch (error) {
-    if (error instanceof SentinelCleanupError) return res.status(409).json({ error: error.message });
-    console.error("[Sentinel QA] Cleanup preview unavailable");
-    return res.status(503).json({ error: "Sentinel cleanup preview unavailable" });
-  }
-});
-
-app.post("/api/admin/sentinel-qa/organizations/:organizationId/cleanup", requirePlatformOperator, async (req, res) => {
-  if (process.env.V79_SENTINEL_QA_CLEANUP_ENABLED !== "1") {
-    return res.status(404).json({ error: "Sentinel cleanup is disabled" });
-  }
-  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin" });
-  const operatorUserId = (req as any).user.userId;
-  try {
-    const { nextStore, removed } = removeSentinelCleanup(store, {
-      organizationId: String(req.params.organizationId || ""), operatorUserId,
-      confirmName: req.body?.confirmName, previewHash: req.body?.previewHash,
-      auditId: crypto.randomUUID(), deletedAt: new Date().toISOString(),
-    });
-    // Atomic Hub store commit, then invalidate sessions belonging to the
-    // deleted synthetic identities. External app mappings MUST be absent.
-    await commitStore(nextStore);
-    const removedUserIds = new Set(removed.userIds);
-    deleteSessionsWhere(session => session.organizationId === removed.organizationId ||
-      removedUserIds.has(session.userId));
-    res.setHeader("Cache-Control", "no-store");
-    return res.json({ success: true, organizationId: removed.organizationId,
-      syntheticUsersDeleted: removed.memberCount, auditId: removed.auditId });
-  } catch (error) {
-    if (error instanceof SentinelCleanupError) return res.status(409).json({ error: error.message });
-    console.error("[Sentinel QA] Cleanup mutation unsuccessful");
-    return res.status(503).json({ error: "Sentinel cleanup unavailable; inspect operator logs" });
-  }
+// Sentinel QA operator routes are shared with disposable localhost HTTP tests.
+// Both creation and cleanup feature flags are disabled by default.
+registerSentinelQaRoutes(app, {
+  requirePlatformOperator,
+  sameOriginMutation,
+  getStore: () => store,
+  commitStore,
+  hashPassword,
+  deleteSessionsWhere,
 });
 
 app.get("/api/admin/onboarding/invitations", requirePlatformOperator, (_req, res) => {

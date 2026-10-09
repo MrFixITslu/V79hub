@@ -51,11 +51,15 @@ No synthetic test organization or real Hub test users have been created. This br
 
 ## Latest validation / release hold
 
-- Full existing Hub suite plus new Sentinel tests: **178 passed, 0 failed**.
+- Full existing Hub suite plus new Sentinel tests: **189 passed, 0 failed**.
 - TypeScript `npm run lint`: **passed**.
-- Dedicated creation→preview→deletion integration at the **pure state-function level**: **passed**.
-- Live authenticated HTTP integration against a disposable local Hub: **NOT RUN**. The remote editing tool blocked a change needed to bind the isolated test server to loopback only. Do not start the development server on an unprotected LAN as a substitute.
+- Creation→preview→deletion pure state-function tests: **passed**.
+- HTTP integration of the **actual shared Sentinel route handlers**, exercised through a small Express test harness bound **only to 127.0.0.1**, with a disposable local datastore using Hub's **real JSON persistence module**: **11 tests passed**.
+- HTTP tests covered disabled feature flags, simulated authentication and authorization, same-origin mutation checks, simulated persistence failures, three synthetic users, no app tenant creation, duplicate denial, trusted preview, wrong confirmation, external app-mapping rejection, concurrent Sentinel mutation lock, deletion audit and synthetic session invalidation.
+- The test harness supplies a controlled simulation of the Hub's auth middleware; the **entire real Hub application login/MFA/session flow has not been executed** in an isolated running instance.
+- The normal Hub server was not bound to the LAN; the earlier tool restriction on changing its listen address remains respected.
 - Existing Hub service and Sentinel Acer dashboard were not redeployed by this task.
-- Do not enable the two environment flags, push, merge, or deploy until loopback-only staging and a production-style release review succeed.
+- **Remaining risks:** interactions with unrelated concurrent Hub mutations, full auth/MFA/session parity, and separate cleanup in external product databases.
+- Do not enable the two feature flags, push, merge or deploy until an independent code review, backup/rollback verification, and controlled release gate succeed.
 
-**Release decision: HOLD.** The code is a candidate pending endpoint-level integration and a separate controlled rollout.
+**Release decision: HOLD.** Loopback HTTP handler integration is complete; the full Hub integration and release safeguards remain outstanding.
