@@ -25,7 +25,7 @@ jobs:
       contents: read
     services:
       synthetic-postgres:
-        image: postgres:17-alpine
+        image: public.ecr.aws/docker/library/postgres:17-alpine
         env:
           POSTGRES_USER: v79_ci_agent
           POSTGRES_PASSWORD: synthetic-ci-password-not-reused
@@ -82,7 +82,7 @@ jobs:
           if [ -f backend/package.json ]; then run_project backend; fi
       - name: Verify Docker image can build
         if: ${{ hashFiles('Dockerfile') != '' }}
-        run: docker build --tag v79-ci-image .
+        run: docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine --tag v79-ci-image .
       - name: Create delivery bundle
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
@@ -125,7 +125,7 @@ jobs:
         run: |
           IMAGE="${{ steps.docker.outputs.image }}"
           SHORT_SHA="${GITHUB_SHA::12}"
-          docker build -t "$IMAGE:latest" -t "$IMAGE:$SHORT_SHA" .
+          docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine -t "$IMAGE:latest" -t "$IMAGE:$SHORT_SHA" .
           docker push "$IMAGE:latest"
           docker push "$IMAGE:$SHORT_SHA"
       - name: Delivery note
