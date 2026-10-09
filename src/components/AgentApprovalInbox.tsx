@@ -144,6 +144,33 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
     } finally { setBusy(false); }
   };
 
+  const createMarketingDraft = async (proposal: InboxProposal) => {
+    if (busy || proposal.status !== "approved" || proposal.targetSystem !== "marketing") return;
+    if (!window.confirm("Create an INTERNAL Marketing draft from this approved plan? This will not publish, schedule, or send anything.")) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch(
+        `/api/agent/proposals/${encodeURIComponent(proposal.id)}/marketing-draft`, {
+          method: "POST", credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Draft creation unavailable.");
+      if (body.draftCreated !== true || body.executionEnabled !== false ||
+          body.sent !== false || body.published !== false || body.scheduled !== false) {
+        throw new Error("Unexpected supervised draft receipt.");
+      }
+      setNotice(body.duplicate
+        ? "This proposal already has an internal Marketing draft. Nothing was sent or published."
+        : "Internal Marketing draft created. Open Marketing > Growth > Internal Agent Drafts to review it.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not create internal Marketing draft.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="border-b border-slate-800 bg-slate-900/80 px-5 py-3 text-sm">
       <div className="flex items-center justify-between gap-3">
@@ -196,6 +223,13 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
                 <button type="button" disabled={busy} onClick={() => copyReviewedBrief(proposal)}
                   className="mt-2 rounded-lg border border-cyan-700 px-3 py-1.5 text-xs text-cyan-200 disabled:opacity-40">
                   Copy internal planning brief
+                </button>}
+              {proposal.status === "approved" && proposal.targetSystem === "marketing" &&
+                proposal.operation === "draft_marketing_campaign" &&
+                <button type="button" disabled={busy}
+                  onClick={() => createMarketingDraft(proposal)}
+                  className="ml-2 mt-2 rounded-lg border border-emerald-700 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-40">
+                  Create internal Marketing draft (confirm)
                 </button>}
               <p className="mt-1 text-xs text-slate-500">Execution: disabled</p>
             </article>
