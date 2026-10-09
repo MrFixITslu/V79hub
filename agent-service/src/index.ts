@@ -10,7 +10,9 @@ import { agentModelRuntime } from "./model-runtime.js";
 import { readBusinessSnapshot } from "./tools.js";
 import { compactOwnerSnapshot, deterministicFactAnswer, formatPriorityBrief, isPriorityBriefRequest } from "./grounding.js";
 import { prewarmOllamaOwnerAssistant, runOllamaOwnerAssistant } from "./ollama-native.js";
-import { routeWorkforceRequest, scopeSnapshotForSpecialist, specialistInstructions, workforceRoster } from "./workforce.js";
+import { buildEvidenceLedger, compactFromEvidence } from "./evidence.js";
+import { getWorkforceSpecialist } from "./workforce.js";
+import { routeWorkforceRequest, specialistInstructions, workforceRoster } from "./workforce.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -97,6 +99,26 @@ app.post("/api/policy/check", (req, res) => {
   return res.json(checkApproval(risk));
 });
 
+app.post("/api/agent/evidence", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const context = req.body?.context as AgentContext | undefined;
+  if (!context || !isValidOwnerContext(context)) {
+    return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  }
+  const id = String(req.body?.specialistId || "").trim();
+  if (!workforceRoster().some(person => person.id === id)) {
+    return res.status(400).json({ error: "Unknown specialist." });
+  }
+  try {
+    const snapshot = await readBusinessSnapshot(context);
+    const ledger = buildEvidenceLedger(snapshot, getWorkforceSpecialist(id as ReturnType<typeof workforceRoster>[number]["id"]));
+    return res.json(ledger);
+  } catch (error) {
+    console.error("agent evidence read failed", error instanceof Error ? error.name : "error");
+    return res.status(502).json({ error: "Evidence from V79 Hub is unavailable." });
+  }
+});
+
 app.post("/api/agent/chat", async (req, res) => {
   const message = String(req.body?.message || "").trim();
   const context = req.body?.context as AgentContext | undefined;
@@ -110,11 +132,22 @@ app.post("/api/agent/chat", async (req, res) => {
     const snapshot = await readBusinessSnapshot(context);
     const localFastPath = agentModelRuntime.provider === "ollama";
     const chosenSpecialist = routeWorkforceRequest(message);
-    const grounding = localFastPath
-      ? scopeSnapshotForSpecialist(compactOwnerSnapshot(snapshot), chosenSpecialist)
-      : snapshot;
-    const snapshotText = JSON.stringify(grounding);
-    const maxSnapshotChars = localFastPath ? 6000 : 50000;
+    const evidence = buildEvidenceLedger(snapshot, chosenSpecialist);
+    const grounding = compactFromEvidence(evidence);
+    // Both local and cloud model providers must receive only the same reviewed
+    // aggregate evidence, never the raw Hub/product payload. Keep the local
+    // model context short while preserving all provenance in the API response.
+    const modelEvidence = evidence.records.map(record => ({
+      system: record.system, source: record.source, state: record.state,
+      reportedAt: record.reportedAt,
+      metrics: record.state === "available" ? record.metrics : [],
+    }));
+    const snapshotText = JSON.stringify({
+      collectedAt: evidence.collectedAt,
+      evidence: modelEvidence,
+      prioritySignals: grounding.prioritySignals,
+    });
+    const maxSnapshotChars = localFastPath ? 6000 : 12000;
     const trustedSnapshot = snapshotText.length > maxSnapshotChars
       ? snapshotText.slice(0, maxSnapshotChars) + "...[truncated]"
       : snapshotText;
@@ -132,6 +165,7 @@ app.post("/api/agent/chat", async (req, res) => {
       if (isPriorityBriefRequest(message) && grounding.prioritySignals.length) {
         return res.json({
           output: formatPriorityBrief(grounding.prioritySignals, 5),
+          evidence,
           specialist: chosenSpecialist.name,
           mode: "read-only",
           modelProvider: "ollama",
@@ -143,6 +177,7 @@ app.post("/api/agent/chat", async (req, res) => {
       if (factual) {
         return res.json({
           output: factual.output,
+          evidence,
           specialist: chosenSpecialist.name,
           mode: "read-only",
           modelProvider: "ollama",
@@ -156,6 +191,7 @@ app.post("/api/agent/chat", async (req, res) => {
       });
       return res.json({
         output: result.output,
+        evidence,
         specialist: chosenSpecialist.name,
         mode: "read-only",
         modelProvider: result.provider,
@@ -166,6 +202,7 @@ app.post("/api/agent/chat", async (req, res) => {
 
     const result = await run(managerAgent, groundedMessage, { context });
     return res.json({
+      evidence,
       output:
         typeof result.finalOutput === "string"
           ? result.finalOutput

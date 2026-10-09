@@ -79,7 +79,7 @@ function buildPrioritySignals(snapshot: UnknownRecord): PrioritySignal[] {
       values: { unreadNotifications: number(tiquet.unreadNotifications) },
     });
   }
-  if (number(pos.sales30d) === 0) {
+  if (Object.prototype.hasOwnProperty.call(pos, "sales30d") && number(pos.sales30d) === 0) {
     signals.push({
       severity: "medium",
       code: "pos_no_recent_sales",
@@ -87,7 +87,7 @@ function buildPrioritySignals(snapshot: UnknownRecord): PrioritySignal[] {
       values: { sales30d: 0, revenue30d: number(pos.revenue30d) },
     });
   }
-  if (number(marketing.activeCampaigns) === 0) {
+  if (Object.prototype.hasOwnProperty.call(marketing, "activeCampaigns") && number(marketing.activeCampaigns) === 0) {
     signals.push({
       severity: "medium",
       code: "marketing_no_active_campaigns",
@@ -95,7 +95,7 @@ function buildPrioritySignals(snapshot: UnknownRecord): PrioritySignal[] {
       values: { campaigns: number(marketing.campaigns), activeCampaigns: 0 },
     });
   }
-  if (number(lasertag.upcomingBookings) === 0) {
+  if (Object.prototype.hasOwnProperty.call(lasertag, "upcomingBookings") && number(lasertag.upcomingBookings) === 0) {
     signals.push({
       severity: "medium",
       code: "lasertag_no_upcoming_bookings",

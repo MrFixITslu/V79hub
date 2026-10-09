@@ -3937,6 +3937,10 @@ async function readDashboardSummary(product: DashboardProduct, organizationId: s
       httpStatus: response.status,
       metrics: payload && typeof payload.metrics === "object" && payload.metrics ? payload.metrics : {},
       generatedAt: typeof payload.generatedAt === "string" ? payload.generatedAt : new Date().toISOString(),
+      // Unlike generatedAt (which can be a Hub fallback), sourceReportedAt
+      // is populated only when the product itself supplies a valid timestamp.
+      sourceReportedAt: typeof payload.generatedAt === "string" && Number.isFinite(Date.parse(payload.generatedAt))
+        ? new Date(Date.parse(payload.generatedAt)).toISOString() : null,
     };
   } catch {
     return { status: "unavailable", metrics: {}, error: "Product service is unavailable." };
