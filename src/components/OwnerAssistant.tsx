@@ -12,6 +12,7 @@ type EvidenceLedger = { mode: "read-only"; collectedAt: string | null; records: 
 type InvestigationFinding = {
   id: string; system: string; severity: "attention" | "watch" | "information";
   title: string; evidence: {source: string; metric: string; value: number; reportedAt: string};
+  evidenceAttestation?: string;
   nextStep: string;
 };
 type InvestigationBrief = {
@@ -147,7 +148,8 @@ export function OwnerAssistant() {
                               operation, targetSystem, summary: finding.title,
                               rationale: finding.nextStep,
                               // Never relabel evidence from a different app as Hub evidence.
-                              evidenceRef: finding.id.startsWith(targetSystem + ":") ? finding.id : undefined,
+                              evidenceRef: finding.evidenceAttestation && finding.id.startsWith(targetSystem + ":") ? finding.id : undefined,
+                              evidenceAttestation: finding.evidenceAttestation && finding.id.startsWith(targetSystem + ":") ? finding.evidenceAttestation : undefined,
                               idempotencyKey: crypto.randomUUID(),
                             });
                           }}>Propose a review draft</button>
