@@ -4498,6 +4498,7 @@ app.get("/api/agent/proposals", (req, res) => {
     return res.status(503).json({ error: "Approval audit verification unavailable." });
   }
   return res.json({ mode: "decision-only", executionEnabled: false,
+    supervisedMarketingDraftsEnabled: process.env.V79_AGENT_SUPERVISED_DRAFTS_ENABLED === "1",
     auditIntegrity: "verified",
     totalProposals: store.agentActionProposals.filter(p => p.organizationId === context.organizationId).length,
     offset, pageSize: 100,
