@@ -744,6 +744,8 @@ type HubSession = {
   username: string;
   role: string;
   expiresAt: number;
+  // True only after this specific session completes a Hub MFA challenge.
+  mfaVerified: boolean;
 };
 
 function sessionKey(token: string) {
@@ -773,6 +775,8 @@ function loadPersistedSessions() {
         username: row.username,
         role: row.role,
         expiresAt: row.expiresAt,
+        // Old persisted sessions remain valid for ordinary Hub use but cannot approve plans.
+        mfaVerified: row.mfaVerified === true,
       });
     }
   } catch (error) {
@@ -1941,7 +1945,7 @@ function sameOriginMutation(req: Request) {
   }
 }
 
-function createHubSession(userId: string, organizationId: string) {
+function createHubSession(userId: string, organizationId: string, { mfaVerified = false }: { mfaVerified?: boolean } = {}) {
   const user = store.users.find(item => item.id === userId);
   const membership = activeMembership(store, userId, organizationId);
   if (!user || !membership) throw new Error("Unable to create Hub session.");
@@ -1953,6 +1957,7 @@ function createHubSession(userId: string, organizationId: string) {
     username: user.username,
     role: sessionRole(membership)!,
     expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+    mfaVerified,
   });
   return token;
 }
@@ -2084,8 +2089,8 @@ async function completeTeamInvitationAcceptance(
 // AUTHENTICATION ROUTES
 // ==========================================
 
-async function completeHubLogin(foundUser: StoredUser, organizationId: string, res: Response) {
-  const token = createHubSession(foundUser.id, organizationId);
+async function completeHubLogin(foundUser: StoredUser, organizationId: string, res: Response, { mfaVerified = false }: { mfaVerified?: boolean } = {}) {
+  const token = createHubSession(foundUser.id, organizationId, { mfaVerified });
   foundUser.lastLogin = new Date().toISOString();
   await saveStore(store);
   res.setHeader("Set-Cookie", sessionCookie(token, 12 * 60 * 60));
@@ -2219,7 +2224,7 @@ app.post("/api/auth/mfa/complete-login", async (req, res) => {
     await saveStore(store);
   }
   mfaChallenges.delete(challengeId);
-  return completeHubLogin(user, challenge.organizationId, res);
+  return completeHubLogin(user, challenge.organizationId, res, { mfaVerified: true });
 });
 
 app.post("/api/auth/register", (_req, res) => {
@@ -4340,6 +4345,16 @@ function ownerAssistantContext(req: Request) {
   };
 }
 
+// Approval routes require an MFA-verified *session*, not just an MFA-enabled account.
+// This intentionally does not change access to the existing read-only Owner Assistant.
+function ownerApprovalContext(req: Request) {
+  const session = (req as any).user as HubSession | undefined;
+  if (!session?.mfaVerified) return null;
+  const user = store.users.find(item => item.id === session.userId);
+  if (!user?.mfaEnabled) return null;
+  return ownerAssistantContext(req);
+}
+
 // Phase 3 is a decision ledger only: approval DOES NOT dispatch any action.
 // Serialize inbox modifications, preserving idempotency across concurrent calls.
 let agentProposalWriteChain: Promise<unknown> = Promise.resolve();
@@ -4350,7 +4365,7 @@ function serializeAgentProposalWrite<T>(task: () => Promise<T>): Promise<T> {
 }
 
 app.get("/api/agent/proposals", (req, res) => {
-  const context = ownerAssistantContext(req);
+  const context = ownerApprovalContext(req);
   if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
   res.setHeader("Cache-Control", "no-store");
   return res.json({ mode: "decision-only", executionEnabled: false,
@@ -4358,7 +4373,7 @@ app.get("/api/agent/proposals", (req, res) => {
 });
 
 app.post("/api/agent/proposals", async (req, res) => {
-  const context = ownerAssistantContext(req);
+  const context = ownerApprovalContext(req);
   if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
   res.setHeader("Cache-Control", "no-store");
   try {
@@ -4389,7 +4404,7 @@ app.post("/api/agent/proposals", async (req, res) => {
 });
 
 app.post("/api/agent/proposals/:proposalId/decision", async (req, res) => {
-  const context = ownerAssistantContext(req);
+  const context = ownerApprovalContext(req);
   if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
   res.setHeader("Cache-Control", "no-store");
   try {
