@@ -25,7 +25,8 @@ const persistence = createHubStorePersistence({
 
 async function stop() {
   try { await persistence.close(); } catch { /* test-only cleanup */ }
-  process.exit(0);
+  if (process.connected) process.disconnect();
+  // Let IPC output drain naturally; forced exit can lose the race result.
 }
 
 try {
