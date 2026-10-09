@@ -14,7 +14,7 @@ import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-i
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
-import { createAgentApprovalAuditChain } from "./server/agent-approval-audit-chain.mjs";
+import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
@@ -4395,7 +4395,8 @@ app.get("/api/agent/proposals", (req, res) => {
   }
   const offset = rawOffset === undefined ? 0 : Number(rawOffset);
   res.setHeader("Cache-Control", "no-store");
-  if (!agentApprovalAudit.verify(store.agentProposalAuditTrail)) {
+  if (!agentApprovalAudit.verify(store.agentProposalAuditTrail) ||
+      !verifyAgentApprovalAuditLinkage(store.agentProposalAuditTrail, store.agentActionProposals)) {
     return res.status(503).json({ error: "Approval audit verification unavailable." });
   }
   return res.json({ mode: "decision-only", executionEnabled: false,
@@ -4416,7 +4417,8 @@ app.post("/api/agent/proposals", async (req, res) => {
       });
       if (!attested.valid) return res.status(400).json({ error: "Investigation evidence receipt missing, expired or not valid for this owner." });
       const next = cloneStore();
-      if (!agentApprovalAudit.verify(next.agentProposalAuditTrail)) {
+      if (!agentApprovalAudit.verify(next.agentProposalAuditTrail) ||
+          !verifyAgentApprovalAuditLinkage(next.agentProposalAuditTrail, next.agentActionProposals)) {
         return res.status(503).json({ error: "Approval audit verification unavailable." });
       }
       const result = createAgentProposal(next.agentActionProposals, attested.stripped, {
@@ -4454,7 +4456,8 @@ app.post("/api/agent/proposals/:proposalId/decision", async (req, res) => {
   try {
     return await serializeAgentProposalWrite(async () => {
       const next = cloneStore();
-      if (!agentApprovalAudit.verify(next.agentProposalAuditTrail)) {
+      if (!agentApprovalAudit.verify(next.agentProposalAuditTrail) ||
+          !verifyAgentApprovalAuditLinkage(next.agentProposalAuditTrail, next.agentActionProposals)) {
         return res.status(503).json({ error: "Approval audit verification unavailable." });
       }
       const result = decideAgentProposal(next.agentActionProposals, {
