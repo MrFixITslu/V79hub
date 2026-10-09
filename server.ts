@@ -39,6 +39,10 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
+  // Seven-day HSTS probation on this host only; never include unrelated subdomains.
+  res.setHeader("Strict-Transport-Security", "max-age=604800");
+  // Conservative first CSP: avoids breaking authenticated app launchers.
+  res.setHeader("Content-Security-Policy", "object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
   next();
