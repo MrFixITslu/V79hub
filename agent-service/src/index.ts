@@ -11,6 +11,7 @@ import { readBusinessSnapshot } from "./tools.js";
 import { compactOwnerSnapshot, deterministicFactAnswer, formatPriorityBrief, isPriorityBriefRequest } from "./grounding.js";
 import { prewarmOllamaOwnerAssistant, runOllamaOwnerAssistant } from "./ollama-native.js";
 import { buildEvidenceLedger, compactFromEvidence } from "./evidence.js";
+import { buildInvestigationBrief } from "./investigations.js";
 import { getWorkforceSpecialist } from "./workforce.js";
 import { routeWorkforceRequest, specialistInstructions, workforceRoster } from "./workforce.js";
 
@@ -119,6 +120,26 @@ app.post("/api/agent/evidence", async (req, res) => {
   }
 });
 
+app.post("/api/agent/investigate", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const context = req.body?.context as AgentContext | undefined;
+  if (!context || !isValidOwnerContext(context)) {
+    return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  }
+  const id = String(req.body?.specialistId || "").trim();
+  if (!workforceRoster().some(person => person.id === id)) {
+    return res.status(400).json({ error: "Unknown specialist." });
+  }
+  try {
+    const snapshot = await readBusinessSnapshot(context);
+    const ledger = buildEvidenceLedger(snapshot, getWorkforceSpecialist(id as ReturnType<typeof workforceRoster>[number]["id"]));
+    return res.json(buildInvestigationBrief(ledger));
+  } catch (error) {
+    console.error("agent investigation read failed", error instanceof Error ? error.name : "error");
+    return res.status(502).json({ error: "Investigation data is unavailable." });
+  }
+});
+
 app.post("/api/agent/chat", async (req, res) => {
   const message = String(req.body?.message || "").trim();
   const context = req.body?.context as AgentContext | undefined;
@@ -133,6 +154,7 @@ app.post("/api/agent/chat", async (req, res) => {
     const localFastPath = agentModelRuntime.provider === "ollama";
     const chosenSpecialist = routeWorkforceRequest(message);
     const evidence = buildEvidenceLedger(snapshot, chosenSpecialist);
+    const investigation = buildInvestigationBrief(evidence);
     const grounding = compactFromEvidence(evidence);
     // Both local and cloud model providers must receive only the same reviewed
     // aggregate evidence, never the raw Hub/product payload. Keep the local
@@ -166,6 +188,7 @@ app.post("/api/agent/chat", async (req, res) => {
         return res.json({
           output: formatPriorityBrief(grounding.prioritySignals, 5),
           evidence,
+          investigation,
           specialist: chosenSpecialist.name,
           mode: "read-only",
           modelProvider: "ollama",
@@ -178,6 +201,7 @@ app.post("/api/agent/chat", async (req, res) => {
         return res.json({
           output: factual.output,
           evidence,
+          investigation,
           specialist: chosenSpecialist.name,
           mode: "read-only",
           modelProvider: "ollama",
@@ -192,6 +216,7 @@ app.post("/api/agent/chat", async (req, res) => {
       return res.json({
         output: result.output,
         evidence,
+        investigation,
         specialist: chosenSpecialist.name,
         mode: "read-only",
         modelProvider: result.provider,
@@ -203,6 +228,7 @@ app.post("/api/agent/chat", async (req, res) => {
     const result = await run(managerAgent, groundedMessage, { context });
     return res.json({
       evidence,
+      investigation,
       output:
         typeof result.finalOutput === "string"
           ? result.finalOutput

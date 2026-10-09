@@ -11,12 +11,13 @@ import { compactOwnerSnapshot } from "./grounding.js";
  * deliberately excluded until a reviewed contract exists.
  */
 const ALLOWED_METRICS: Record<string, readonly string[]> = {
-  pos: ["sales30d", "revenue30d", "openPurchaseOrders", "criticalReplenishmentItems",
-    "delayedShipments", "unresolvedInventoryExceptions", "totalSales", "totalOrders"],
+  pos: ["products", "locations", "sales", "sales30d", "revenue30d", "openPurchaseOrders",
+    "criticalReplenishmentItems", "delayedShipments", "unresolvedInventoryExceptions"],
   ffpro: ["currentMonthIncome", "currentMonthExpenses", "currentMonthNet",
     "yearToDateIncome", "yearToDateExpenses", "yearToDateNet"],
-  tiquet: ["jobValueTotal", "unreadNotifications", "openTickets", "pendingTickets", "totalJobs"],
-  marketing: ["campaigns", "activeCampaigns", "connectedSocialAccounts", "totalPosts"],
+  tiquet: ["clients", "jobs", "teamMembers", "jobValueTotal", "unreadNotifications"],
+  marketing: ["posts", "scheduledPosts", "publishedPosts", "campaigns", "activeCampaigns",
+    "customers", "repeatCustomers", "connectedSocialAccounts", "aiCreditsRemaining"],
   academy: ["publishedCourses", "enrolledCourses", "totalLessons", "totalLearners", "totalEnrolments"],
   lasertag: ["totalBookings", "upcomingBookings", "upcomingPlayers", "bookingsNext30Days", "playersNext30Days"],
   website: ["totalLeads", "newLeads", "qualifiedLeads", "contactedLeads", "lostLeads",
