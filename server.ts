@@ -13,6 +13,7 @@ import { acceptInvitationState, invitationStatus } from "./server/onboarding-sto
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
+import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
@@ -4312,6 +4313,8 @@ app.use(retiredEmbeddedAppPaths, (_req, res) => {
   res.status(410).json({ error: "This embedded Hub app-data API has been retired. Use the dedicated V79 application." });
 });
 const agentInternalUrl = process.env.V79_AGENT_INTERNAL_URL || "http://v79-business-agent:3055";
+// In-memory, single-instance, short-lived: restart or replica mismatch fails closed.
+const agentEvidenceAttestations = createAgentEvidenceAttestations();
 const agentTokenFile = process.env.V79_AGENT_TOKEN_FILE || "/run/secrets/v79-agent-token";
 function readAgentApiToken() {
   const direct = String(process.env.V79_AGENT_API_TOKEN || "").trim();
@@ -4386,9 +4389,14 @@ app.post("/api/agent/proposals", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   try {
     return await serializeAgentProposalWrite(async () => {
+      const attested = agentEvidenceAttestations.verify(req.body, {
+        organizationId: context.organizationId, userId: context.userId,
+      });
+      if (!attested.valid) return res.status(400).json({ error: "Investigation evidence receipt missing, expired or not valid for this owner." });
       const next = cloneStore();
-      const result = createAgentProposal(next.agentActionProposals, req.body, {
+      const result = createAgentProposal(next.agentActionProposals, attested.stripped, {
         organizationId: context.organizationId, actorUserId: context.userId,
+        evidenceProvenance: attested.token ? "proxy_attested" : "unverified",
       });
       if (result.kind === "invalid") return res.status(400).json({ error: "Invalid draft proposal." });
       if (result.kind === "conflict") return res.status(409).json({ error: "Idempotency key is already bound to another proposal." });
@@ -4396,6 +4404,9 @@ app.post("/api/agent/proposals", async (req, res) => {
       if (result.kind === "created") {
         appendAgentProposalAudit(next.auditEvents, result.proposal, "agent.proposal.created", context.userId);
         await commitStore(next);
+      }
+      if (attested.token && (result.kind === "created" || result.kind === "duplicate")) {
+        agentEvidenceAttestations.bindIdempotencyKey(attested.token, result.proposal.idempotencyKey);
       }
       // Project the exact result, not the truncated 100-item inbox. Retries for
       // older decided drafts must still return a valid, redacted proposal.
@@ -4540,7 +4551,21 @@ app.post("/api/agent/chat", async (req, res) => {
     const body = await response.text();
     res.status(response.status);
     res.setHeader("Cache-Control", "no-store");
-    res.type(response.headers.get("content-type") || "application/json").send(body);
+    // Only the authenticated, successful agent response can obtain an evidence
+    // receipt, and only when the finding matches a fresh available ledger metric.
+    // An unsigned model-supplied reference or claimed receipt is never forwarded.
+    if (response.ok && Buffer.byteLength(body, "utf8") <= 128 * 1024) {
+      try {
+        const result = JSON.parse(body);
+        if (result && typeof result === "object" && !Array.isArray(result)) {
+          const attested = agentEvidenceAttestations.decorate(result, {
+            organizationId: context.organizationId, userId: context.userId,
+          });
+          return res.type("application/json").send(JSON.stringify(attested));
+        }
+      } catch { /* preserve valid upstream non-JSON response without minting receipts */ }
+    }
+    return res.type(response.headers.get("content-type") || "application/json").send(body);
   } catch (error) {
     console.error("Owner Assistant proxy failed", error);
     res.status(502).json({ error: "Owner Assistant service is unavailable." });
