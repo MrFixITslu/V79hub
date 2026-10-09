@@ -12,6 +12,7 @@ import { activeMembership, activeMembershipsForUser, enabledAppIds, organization
 import { acceptInvitationState, invitationStatus } from "./server/onboarding-store.mjs";
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
+import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
@@ -250,6 +251,16 @@ interface EcosystemApp {
   ownerOrganizationId?: string;
 }
 
+interface AgentActionProposal {
+  id: string; organizationId: string; createdByUserId: string;
+  operation: string; targetSystem: string; summary: string; rationale: string;
+  evidenceRef: string | null; idempotencyKey: string; fingerprint: string;
+  status: "pending" | "approved" | "rejected"; revision: number;
+  createdAt: string; expiresAt: string;
+  decidedAt: string | null; decidedByUserId: string | null;
+  decisionNote: string | null; executionStatus: "disabled";
+}
+
 interface AppStore {
   users: StoredUser[];
   workspace: WorkspaceProfile;
@@ -266,6 +277,7 @@ interface AppStore {
   appTenantMappings: AppTenantMapping[];
   passwordResetRequests: PasswordResetRequest[];
   auditEvents: AuditEvent[];
+  agentActionProposals: AgentActionProposal[];
 }
 
 // Initial Seed Data
@@ -621,7 +633,8 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.teamInvitations !== undefined && !Array.isArray(parsed.teamInvitations)) ||
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
       (parsed.passwordResetRequests !== undefined && !Array.isArray(parsed.passwordResetRequests)) ||
-      (parsed.auditEvents !== undefined && !Array.isArray(parsed.auditEvents))) {
+      (parsed.auditEvents !== undefined && !Array.isArray(parsed.auditEvents)) ||
+      (parsed.agentActionProposals !== undefined && !Array.isArray(parsed.agentActionProposals))) {
     throw new Error("Organization records are malformed.");
   }
   return {
@@ -640,6 +653,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     appTenantMappings: Array.isArray(parsed.appTenantMappings) ? parsed.appTenantMappings : [],
     passwordResetRequests: Array.isArray(parsed.passwordResetRequests) ? parsed.passwordResetRequests : [],
     auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
+    agentActionProposals: Array.isArray(parsed.agentActionProposals) ? parsed.agentActionProposals : [],
   };
 }
 
@@ -649,7 +663,7 @@ function initialStore(): AppStore {
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
     organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], trialReminderEvents: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
-    teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
+    teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [], agentActionProposals: [],
   };
 }
 
@@ -4325,6 +4339,83 @@ function ownerAssistantContext(req: Request) {
     hubAdmin: true,
   };
 }
+
+// Phase 3 is a decision ledger only: approval DOES NOT dispatch any action.
+// Serialize inbox modifications, preserving idempotency across concurrent calls.
+let agentProposalWriteChain: Promise<unknown> = Promise.resolve();
+function serializeAgentProposalWrite<T>(task: () => Promise<T>): Promise<T> {
+  const pending = agentProposalWriteChain.then(task, task);
+  agentProposalWriteChain = pending.then(() => undefined, () => undefined);
+  return pending;
+}
+
+app.get("/api/agent/proposals", (req, res) => {
+  const context = ownerAssistantContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ mode: "decision-only", executionEnabled: false,
+    proposals: listAgentProposals(store.agentActionProposals, context.organizationId) });
+});
+
+app.post("/api/agent/proposals", async (req, res) => {
+  const context = ownerAssistantContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    return await serializeAgentProposalWrite(async () => {
+      const next = cloneStore();
+      const result = createAgentProposal(next.agentActionProposals, req.body, {
+        organizationId: context.organizationId, actorUserId: context.userId,
+      });
+      if (result.kind === "invalid") return res.status(400).json({ error: "Invalid draft proposal." });
+      if (result.kind === "conflict") return res.status(409).json({ error: "Idempotency key is already bound to another proposal." });
+      if (result.kind === "limit") return res.status(429).json({ error: "Proposal inbox limit reached." });
+      if (result.kind === "created") {
+        appendAgentProposalAudit(next.auditEvents, result.proposal, "agent.proposal.created", context.userId);
+        await commitStore(next);
+      }
+      const proposal = listAgentProposals(
+        result.kind === "created" ? next.agentActionProposals : store.agentActionProposals,
+        context.organizationId,
+      ).find(item => item.id === result.proposal.id);
+      return res.status(result.kind === "created" ? 201 : 200).json({
+        proposal, executionEnabled: false, duplicate: result.kind === "duplicate",
+      });
+    });
+  } catch (error) {
+    console.error("Agent proposal save failed", error instanceof Error ? error.name : "error");
+    return res.status(503).json({ error: "Approval inbox storage is unavailable." });
+  }
+});
+
+app.post("/api/agent/proposals/:proposalId/decision", async (req, res) => {
+  const context = ownerAssistantContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    return await serializeAgentProposalWrite(async () => {
+      const next = cloneStore();
+      const result = decideAgentProposal(next.agentActionProposals, {
+        id: String(req.params.proposalId || ""),
+        organizationId: context.organizationId, actorUserId: context.userId,
+        expectedRevision: req.body?.expectedRevision,
+        decision: req.body?.decision, note: req.body?.note,
+      });
+      if (result.kind === "invalid") return res.status(400).json({ error: "Invalid proposal decision." });
+      if (result.kind === "not_found") return res.status(404).json({ error: "Proposal not found." });
+      if (result.kind === "expired") return res.status(410).json({ error: "Proposal expired. Create a new draft." });
+      if (result.kind === "conflict") return res.status(409).json({ error: "Proposal has already been reviewed or modified." });
+      appendAgentProposalAudit(next.auditEvents, result.proposal, "agent.proposal." + result.proposal.status, context.userId);
+      await commitStore(next);
+      const proposal = listAgentProposals(next.agentActionProposals, context.organizationId)
+        .find(item => item.id === result.proposal.id);
+      return res.json({ proposal, executionEnabled: false, message: "Decision recorded. No action executed." });
+    });
+  } catch (error) {
+    console.error("Agent proposal decision failed", error instanceof Error ? error.name : "error");
+    return res.status(503).json({ error: "Approval inbox storage is unavailable." });
+  }
+});
 
 app.get("/api/agent/access", (req, res) => {
   const context = ownerAssistantContext(req);
