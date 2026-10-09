@@ -7,6 +7,7 @@ import fs from "node:fs";
 import express from "express";
 import { registerSentinelQaRoutes } from "../server/sentinel-qa-routes.mjs";
 import { createHubStorePersistence } from "../server/runtime-store.mjs";
+import { createSentinelWriteFence } from "../server/sentinel-write-fence.mjs";
 
 /**
  * Executes the SAME routes wired by server.ts against localhost and a
@@ -58,8 +59,11 @@ async function harness(){
  let persistCount=0;
  let failNextCommit=false;
  let blockCommit=null;
+ let resumeOrdinaryWrite=null;
  const app=express();
+ const fence=createSentinelWriteFence();
  app.disable("x-powered-by");
+ app.use(fence.middleware);
  app.use(express.json({limit:"32kb"}));
  // Isolated equivalent of Hub's earlier requireAuth middleware.
  app.use("/api",(req,res,next)=>{
@@ -83,17 +87,27 @@ async function harness(){
   sameOriginMutation:(req)=>req.get("origin")===`http://127.0.0.1:${server.address().port}`,
   getStore:()=>store,
   hashPassword,
+  beginExclusive:fence.beginExclusive,
   commitStore:async nextStore=>{
-    if(blockCommit)await blockCommit;
-    if(failNextCommit){failNextCommit=false; throw new Error("simulated store commit failure");}
-    await persistence.save(nextStore);
-    store=nextStore; persistCount++;
+    const release=fence.beginStoreSave({sentinel:true});
+    try {
+      if(blockCommit)await blockCommit;
+      if(failNextCommit){failNextCommit=false; throw new Error("simulated store commit failure");}
+      await persistence.save(nextStore);
+      store=nextStore; persistCount++;
+    } finally { release(); }
   },
   deleteSessionsWhere:(predicate)=>{
     for(const [token,s] of sessions){if(predicate(s))sessions.delete(token);}
   },
  };
  registerSentinelQaRoutes(app,config);
+ app.post("/api/test/ordinary-write",(_req,res)=>res.json({ok:true}));
+ app.post("/api/test/slow-write",async(_req,res)=>{
+   const end=fence.beginStoreSave();
+   try { await new Promise(resolve=>{resumeOrdinaryWrite=resolve;}); res.json({ok:true}); }
+   finally {end();resumeOrdinaryWrite=null;}
+ });
  // Loopback-only, ephemeral OS-assigned port: not reachable from LAN.
  const server=await new Promise((resolve,reject)=>{
    const s=app.listen(0,"127.0.0.1",()=>resolve(s));
@@ -113,6 +127,7 @@ async function harness(){
  return {request,close,initial,fx,storeFile,dir,sessions,
   getStore:()=>store,getPersistCount:()=>persistCount,
   simulateFailure:()=>{failNextCommit=true;},
+  releaseOrdinaryWrite:()=>{if(resumeOrdinaryWrite)resumeOrdinaryWrite();},
   deferNextCommit:()=>{let resume;blockCommit=new Promise(r=>{resume=r;});return ()=>{blockCommit=null;resume();};}
  };
 }
@@ -145,6 +160,15 @@ test("real staging route HTTP lifecycle on isolated 127.0.0.1 only",async(t)=>{
   assert.equal((await h.request(create,{method:"POST",body:{...ack,appIds:["app-ffpro"]}})).status,400);
   assert.deepEqual(h.getStore(),h.initial);
  });
+ await t.test("ongoing ordinary Hub write prevents Sentinel creation",async()=>{
+  const running=h.request("/api/test/slow-write",{method:"POST"});
+  await new Promise(r=>setTimeout(r,25));
+  const refusal=await h.request(create,{method:"POST",body:ack});
+  assert.equal(refusal.status,409);
+  h.releaseOrdinaryWrite();
+  assert.equal((await running).status,200);
+  assert.deepEqual(h.getStore(),h.initial);
+ });
  await t.test("failed store commit changes nothing",async()=>{
   h.simulateFailure();
   assert.equal((await h.request(create,{method:"POST",body:ack})).status,503);
@@ -175,6 +199,12 @@ test("real staging route HTTP lifecycle on isolated 127.0.0.1 only",async(t)=>{
   }
   assert.equal(h.getStore().organizations.length,h.initial.organizations.length+1);
   assert(fs.existsSync(h.storeFile));
+ });
+ await t.test("synthetic owner/staff/viewer cannot access platform operator endpoints",async()=>{
+  assert.equal((await h.request(create,{method:"POST",token:"synthetic-owner",body:ack})).status,403);
+  assert.equal((await h.request(create,{method:"POST",token:"synthetic-staff",body:ack})).status,403);
+  assert.equal((await h.request(create+"/"+created.organization.id+"/cleanup-preview",{token:"synthetic-owner"})).status,403);
+  assert.equal((await h.request(create+"/"+created.organization.id+"/cleanup",{method:"POST",token:"synthetic-viewer",body:{}})).status,403);
  });
  await t.test("duplicate creation blocked; forged cleanup blocked",async()=>{
   assert.equal((await h.request(create,{method:"POST",body:ack})).status,409);

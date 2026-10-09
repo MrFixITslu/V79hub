@@ -11,6 +11,7 @@ import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { acceptInvitationState, invitationStatus } from "./server/onboarding-store.mjs";
 import { registerSentinelQaRoutes } from "./server/sentinel-qa-routes.mjs";
+import { createSentinelWriteFence } from "./server/sentinel-write-fence.mjs";
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
@@ -32,6 +33,8 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = createServer(app);
+const sentinelWriteFence = createSentinelWriteFence();
+app.use(sentinelWriteFence.middleware);
 const wss = new WebSocketServer({ noServer: true });
 
 app.use(express.json({ limit: "2mb", verify: (req: any, _res, body) => { req.rawBody = Buffer.from(body); } }));
@@ -662,12 +665,19 @@ const storePersistence = createHubStorePersistence({
 
 let store = await storePersistence.load(normalizeLoadedStore, initialStore) as AppStore;
 
-async function saveStore(nextStore: AppStore): Promise<void> {
-  await storePersistence.save(nextStore);
+async function saveStore(nextStore: AppStore, sentinel = false): Promise<void> {
+  const endWrite = sentinelWriteFence.beginStoreSave({ sentinel });
+  try { await storePersistence.save(nextStore); }
+  finally { endWrite(); }
 }
 
 async function commitStore(nextStore: AppStore) {
   await saveStore(nextStore);
+  store = nextStore;
+}
+
+async function commitSentinelStore(nextStore: AppStore) {
+  await saveStore(nextStore, true);
   store = nextStore;
 }
 
@@ -3511,7 +3521,8 @@ registerSentinelQaRoutes(app, {
   requirePlatformOperator,
   sameOriginMutation,
   getStore: () => store,
-  commitStore,
+  commitStore: commitSentinelStore,
+  beginExclusive: sentinelWriteFence.beginExclusive,
   hashPassword,
   deleteSessionsWhere,
 });

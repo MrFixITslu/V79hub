@@ -114,6 +114,10 @@ test("refuses ALL billing, app and external references", () => {
  mustBlock(s=>s.ownerInvitations.push({organizationId:ORG_ID,status:"accepted"}),"owner invitation");
  mustBlock(s=>s.teamInvitations.push({organizationId:ORG_ID,status:"revoked"}),"team invitation");
  mustBlock(s=>s.auditEvents.push({organizationId:ORG_ID,type:"customer_plan_updated",id:"unexpected"}),"unexpected audit");
+ mustBlock(s=>s.billingOrders.push({organizationId:EXISTING_ORG,createdByUserId:STAFF_ID}),"cross-tenant billing by synthetic user");
+ mustBlock(s=>s.auditEvents.push({organizationId:EXISTING_ORG,actorUserId:"customer-1",details:{mentionedUser:STAFF_ID}}),"foreign audit references synthetic user");
+ mustBlock(s=>s.futureNewCollection=[{ownerOrganizationId:ORG_ID,otherData:true}],"unknown future tenant table");
+ mustBlock(s=>s.nextSchemaReference={subjectId:STAFF_ID},"unknown new top-level field");
 });
 test("refuses incomplete, malformed, inconsistent snapshot", () => {
  mustBlock(s=>delete s.users,"missing users table");

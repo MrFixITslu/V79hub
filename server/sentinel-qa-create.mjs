@@ -59,8 +59,8 @@ export function stageSentinelQaCreation(store, {
     const profile={id:a.id,username,password:a.passwordHash,
                    fullName:`Sentinel QA ${roles[i]}`,
                    role:i===0?"admin":a.role,
-                   permissions:i===0?["overview","connections","team","security","billing","admin","users"]:
-                     i===1?["overview","connections"]:["overview"],createdAt};
+                   // No admin/billing/security capabilities are needed for synthetic login smoke tests.
+                   permissions:["overview"],createdAt};
     nextStore.users.push(profile);
     nextStore.memberships.push({organizationId,userId:a.id,role:a.role,
       permissions:profile.permissions,status:"active",createdAt});

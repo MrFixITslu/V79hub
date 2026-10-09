@@ -74,6 +74,13 @@ test("creation does not send email or create app entitlements",()=>{
  assert.equal(result.nextStore.teamInvitations.length,0);
  assert.equal(result.nextStore.appTenantMappings.length,0);
  assert.equal(result.nextStore.billingOrders.length,0);
+ for (const id of MEMBER_IDS) {
+   const profile=result.nextStore.users.find(u=>u.id===id);
+   const membership=result.nextStore.memberships.find(m=>m.userId===id);
+   assert.deepEqual(profile.permissions,["overview"]);
+   assert.deepEqual(membership.permissions,["overview"]);
+   assert.equal(membership.organizationId,TEST_ORG);
+ }
  assert(result.syntheticUsers.every(u=>u.username.endsWith("@sentinel-qa.invalid")));
  assert(result.syntheticUsers.some(u=>u.role==="staff"));
  assert(result.syntheticUsers.some(u=>u.role==="viewer"));

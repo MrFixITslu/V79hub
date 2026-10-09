@@ -105,6 +105,24 @@ export function previewSentinelCleanup(store, { organizationId, operatorUserId }
   if (store.auditEvents.some(e => e.organizationId !== organizationId && userSet.has(e.actorUserId))) {
     deny("Synthetic user appears as actor in another organization's audit history");
   }
+  // Future schema fields can contain organization/user links that are unknown
+  // to this module. Fail closed rather than silently orphaning those records.
+  const ownedIdentifiers = [organizationId, ...registered];
+  const scan = (record, label) => {
+    let raw;
+    try { raw = JSON.stringify(record); }
+    catch { deny("Uninspectable " + label + " record; cleanup blocked"); }
+    if (typeof raw === "string" && ownedIdentifiers.some(key => raw.includes(key))) {
+      deny("Related reference in " + label + "; manual review required");
+    }
+  };
+  for (const [collection, value] of Object.entries(store)) {
+    if (["users", "organizations", "memberships", "auditEvents"].includes(collection)) continue;
+    scan(value, collection);
+  }
+  for (const item of store.auditEvents) {
+    if (item.organizationId !== organizationId) scan(item, "other-organization audit");
+  }
 
   const memberIds = sorted(registered);
   const fingerprint = sha256(JSON.stringify({

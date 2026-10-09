@@ -11,11 +11,12 @@ import { stageSentinelQaCreation } from "./sentinel-qa-create.mjs";
  */
 export function registerSentinelQaRoutes(app, {
   requirePlatformOperator, sameOriginMutation, getStore, commitStore,
-  hashPassword, deleteSessionsWhere,
+  beginExclusive, hashPassword, deleteSessionsWhere,
 }) {
   if (!app || typeof requirePlatformOperator !== "function" ||
     typeof sameOriginMutation !== "function" || typeof getStore !== "function" ||
-    typeof commitStore !== "function" || typeof hashPassword !== "function" ||
+    typeof commitStore !== "function" || typeof beginExclusive !== "function" ||
+    typeof hashPassword !== "function" ||
     typeof deleteSessionsWhere !== "function") {
     throw Error("Sentinel QA routes missing required Hub safety dependencies");
   }
@@ -44,6 +45,9 @@ export function registerSentinelQaRoutes(app, {
       return res.status(400).json({ error: "Exact isolated test-tenant confirmation is required; apps and external users are not allowed" });
     }
     if (mutationInProgress) return busy(res);
+    let releaseExclusive;
+    try { releaseExclusive = beginExclusive(req); }
+    catch { return busy(res); }
     mutationInProgress = true;
     const operatorUserId = req.user.userId;
     try {
@@ -71,6 +75,7 @@ export function registerSentinelQaRoutes(app, {
       return fail(res, error, "Test tenant creation unavailable");
     } finally {
       mutationInProgress = false;
+      releaseExclusive();
     }
   });
 
@@ -98,6 +103,9 @@ export function registerSentinelQaRoutes(app, {
       }
       if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin" });
       if (mutationInProgress) return busy(res);
+      let releaseExclusive;
+      try { releaseExclusive = beginExclusive(req); }
+      catch { return busy(res); }
       mutationInProgress = true;
       try {
         const { nextStore, removed } = removeSentinelCleanup(getStore(), {
@@ -120,6 +128,7 @@ export function registerSentinelQaRoutes(app, {
         return fail(res, error, "Sentinel cleanup unavailable; inspect operator logs");
       } finally {
         mutationInProgress = false;
+        releaseExclusive();
       }
     });
 }
