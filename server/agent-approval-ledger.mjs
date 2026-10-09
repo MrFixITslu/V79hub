@@ -105,17 +105,19 @@ export function decideAgentProposal(records, { id = "", organizationId = "", act
   return { kind: "decided", proposal: next };
 }
 
-export function listAgentProposals(records, organizationId, now = new Date()) {
-  if (!Array.isArray(records) || !organizationId) return [];
+export function listAgentProposals(records, organizationId, now = new Date(), { offset = 0, limit = 100 } = {}) {
+  if (!Array.isArray(records) || !organizationId || !Number.isSafeInteger(offset) ||
+      offset < 0 || offset > MAX_STORED_PER_ORG || !Number.isSafeInteger(limit) ||
+      limit < 1 || limit > 100) return [];
   return records.filter(p => p.organizationId === organizationId)
     .map(p => {
       if (p.status !== "pending" || Date.parse(p.expiresAt) > +now) return p;
       return { ...p, status: "expired", executionStatus: "disabled" };
     })
     // Always show every outstanding pending proposal (max 80 per org) before
-    // recently decided records. Older decisions may still require pagination.
+    // recently decided records. Explicit, bounded paging exposes older decisions.
     .sort((a,b) => Number(b.status === "pending") - Number(a.status === "pending") ||
-      b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0,100)
+      b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(offset, offset + limit)
     .map(p => ({
       id:p.id, targetSystem:p.targetSystem, operation:p.operation, summary:p.summary,
       rationale:p.rationale, evidenceRef:p.evidenceRef,
