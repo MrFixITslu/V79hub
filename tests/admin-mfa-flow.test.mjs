@@ -82,6 +82,20 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(retryChallenge.setupRequired, true);
   assert.equal(retryChallenge.secret, challenge.secret, "pending MFA enrollment must reuse the same setup secret");
 
+  // A pending MFA challenge never creates an authenticated approval session.
+  assert.equal((await request("/api/agent/proposals", {
+    headers: { cookie: "v79_hub_session=not-verified" },
+  })).status, 401);
+  const validCode = totpCode(challenge.secret);
+  const invalidCode = validCode === "000000" ? "000001" : "000000";
+  const denied = await request("/api/auth/mfa/complete-login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ challengeId: challenge.challengeId, code: invalidCode }),
+  });
+  assert.equal(denied.status, 401);
+  assert.equal(denied.headers.get("set-cookie"), null);
+
   const complete = await request("/api/auth/mfa/complete-login", {
     method: "POST",
     headers: { "content-type": "application/json" },
