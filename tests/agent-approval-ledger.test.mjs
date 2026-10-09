@@ -34,6 +34,7 @@ test("only fixed draft operations with the matching system are accepted", () => 
   assert.equal(validateAgentProposalInput(input({summary:"Review" + String.fromCodePoint(0x200b) + " inventory now"})), null,
     "zero-width formatting characters must not hide sensitive content");
   assert.equal(validateAgentProposalInput(input({rationale:"Copy the private key: demo-value into review."})), null);
+  assert.equal(validateAgentProposalInput(input({summary:"ｐａｓｓｗｏｒｄ: demo-value"})), null);
 });
 
 test("an owner draft is scoped, bounded, expires and never enables execution", () => {
@@ -115,6 +116,7 @@ test("bad or repeated decisions never mutate the recorded action",()=>{
     {id:created.proposal.id,decision:"execute",expectedRevision:1},
     {id:created.proposal.id,decision:"approve",expectedRevision:0},
     {id:created.proposal.id,decision:"approve",expectedRevision:1,note:"password: secret"},
+    {id:created.proposal.id,decision:"approve",expectedRevision:1,note:"Contact person＠example.invalid"},
   ]) {
     assert.equal(decideAgentProposal(ledger,{...org,...args}).kind,"invalid");
     assert.equal(JSON.stringify(ledger),baseline);
