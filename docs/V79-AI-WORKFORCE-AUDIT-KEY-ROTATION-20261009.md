@@ -16,6 +16,21 @@ The approval audit's HMAC-SHA256 chain validates the integrity of decision-only 
 
 Negative tests check wrong old key, identical/weak new key, mismatched proposal status, edited event, deleted history, and source array integrity after successful or failed rotation. Empty history is supported, but both genesis checkpoints are identical and thus cannot prove the owner changed the key; an empty-history rotation needs an independently recorded key epoch.
 
+## Operator-only external checkpoint retention helper — NOT configured
+
+`server/agent-approval-checkpoint-retention.mjs` adds pure checkpoint validation/comparison and an **explicit local-file** retention function. Its input is the small redacted founder-MFA GET response (only `schema`, integer `count`, and HMAC chain `headMac`; optional `executionEnabled:false` and `independentRetentionConfigured:false` must be false). It rejects extra keys, raw event bodies, unknown shapes or impossible genesis/checkpoint combinations.
+
+`retainAuditCheckpoint({ directory, hubDataDirectory, epoch, checkpoint })` requires a **pre-existing owner-only absolute directory** outside and not above the Hub data root, plus an explicit key epoch. It writes `<epoch>-<count>.json` with exclusive/no-follow creation and `0600` permissions, syncs file and directory, and uses an exclusive lock directory. It refuses corrupt, missing-access-control, unexpected or conflicting archived records, decreases in count, and a different head for the same count. Duplicate *identical* checkpoints are idempotent. Its matching pure comparator distinguishes `match`, `rollback-detected`, `fork-detected`, `unanchored-growth` and `invalid`.
+
+**Security limits (important):**
+- This tool **does not fetch Hub**, authenticate, export a private signing key, access a database, run automatically, or configure an independent storage location. No production checkpoint has been retained.
+- Ordinary local files can be deleted or rewritten by an authorised system administrator; `O_EXCL`, permissions and `fsync` alone are **not** tamper-proof, immutable, offsite or a replacement for WORM/versioned external retention.
+- If the event count has increased since the last archived checkpoint, the comparator deliberately reports `unanchored-growth`. It cannot mathematically prove continuity from the older checkpoint without the full signed event chain and original HMAC key. A missing entire archive directory also cannot be detected without separate custody/inventory checks.
+- Key-epoch changes must be tied to the **previous and replacement** signed heads and independently authenticated operator approval. A new epoch does not retroactively make an old archive trustworthy.
+- Existing backup/offsite deferral is unchanged. Deploying any external audit retention or key rotation requires a reviewed destination, storage rights, backup/retention policy, staged failure-injection tests and separate founder release authorisation.
+
+Unit tests create only temporary, synthetic `0700` directories and test rollback/fork detection, file permissions, conflicts, malformed input, symlinks and rotation epoch separation. **They do not establish durable retention of live approval data.**
+
 ## Required protected staging protocol — NOT EXECUTED
 
 1. **Owner-controlled change window:** take a protected backup of the existing Hub state and its exact running revision, signing key identity and release image. Confirm the backup independently restores; do not publish it to a CI artifact or chat.
