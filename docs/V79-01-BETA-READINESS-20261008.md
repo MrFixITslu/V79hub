@@ -70,3 +70,11 @@
 - **Status change:** the HTTP downgrade / Force SSL release blocker above is **resolved**. The previous section remains an audit trail and no longer represents the current proxy state.
 - **Still open:** Hub HTTPS does not yet expose HSTS/CSP (draft PR #95); live founder MFA browser acceptance for FFPRO, Tiquet, POS and Academy; careful source-PR review before merging or triggering production; legacy rollback image secret handling; local-backup retention cleanup; optional Resend tracking DNS.
 - **Go/no-go:** continue the one already authorised restricted beta; do not enable commercial billing or additional customer onboarding until final acceptance and remaining security release gates have been reviewed.
+
+## Founder browser acceptance confirmation — 8 October 2026 (20:44 AST)
+
+- Founder stated **all applications load as expected** after opening them through Hub. This completes the founder-level app launch acceptance for **Hub, Academy, FFPRO, Tiquet, POS and Marketing**. A prior explicit Marketing launch confirmation was also received.
+- A follow-up check showed six public HTTPS origins returned **200**, six public HTTP origins returned **301** redirects to their HTTPS counterparts, and Hub, Hub PostgreSQL, Marketing, POS, FFPRO and Tiquet were healthy. The non-mutating release-config audit reported `ready: true, issueCount: 0`.
+- **Acceptance scope:** browser application opening confirmed. Deep role-based and cross-tenant screens were not visually inspected with an authenticated beta customer session; those were verified at the signed-entitlement API layer and in disposable five-app staging.
+- **Remaining controlled-release gates:** review draft PRs before merges and any automatic production deploy, deploy and verify Hub CSP/HSTS hardening draft PR #95 if approved, retire the legacy locally credential-bearing rollback image with coordinated secret review, resolve backup-retention permissions, keep Resend tracking-DNS issue optional, and decide commercial onboarding/billing separately.
+- **Decision:** current V79-01 restricted beta can continue. Commercial launch and onboarding remain blocked pending final release/security approvals.
