@@ -124,6 +124,26 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
     } finally { setBusy(false); }
   };
 
+  const copyReviewedBrief = async (proposal: InboxProposal) => {
+    if (busy || proposal.status !== "approved") return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch(`/api/agent/proposals/${encodeURIComponent(proposal.id)}/handoff`,
+        { credentials: "same-origin", cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not prepare reviewed brief.");
+      if (data.executionEnabled !== false || data.handoff?.mode !== "manual-handoff" ||
+          data.handoff?.externalDraftCreated !== false || typeof data.handoff?.text !== "string") {
+        throw new Error("Unexpected handoff response.");
+      }
+      await navigator.clipboard.writeText(data.handoff.text);
+      setNotice("Internal brief copied. Paste into " + proposal.targetSystem +
+        " and review before use. No message sent or campaign published.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to copy reviewed brief.");
+    } finally { setBusy(false); }
+  };
+
   return (
     <section className="border-b border-slate-800 bg-slate-900/80 px-5 py-3 text-sm">
       <div className="flex items-center justify-between gap-3">
@@ -171,6 +191,12 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
                   <button type="button" disabled={busy} onClick={() => decide(proposal, "reject")}
                     className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs disabled:opacity-40">Reject</button>
                 </div>}
+              {proposal.status === "approved" &&
+                (proposal.targetSystem === "tiquet" || proposal.targetSystem === "marketing") &&
+                <button type="button" disabled={busy} onClick={() => copyReviewedBrief(proposal)}
+                  className="mt-2 rounded-lg border border-cyan-700 px-3 py-1.5 text-xs text-cyan-200 disabled:opacity-40">
+                  Copy internal planning brief
+                </button>}
               <p className="mt-1 text-xs text-slate-500">Execution: disabled</p>
             </article>
           ))}
