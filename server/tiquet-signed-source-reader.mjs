@@ -72,7 +72,9 @@ export async function readSignedTiquetMetrics({
     const verified = verifySignedSourceMetrics({
       payload: body.payload, signature: body.signature,
       expectedSource: "tiquet", expectedOrganizationId: organizationId,
-      expectedRequestId: requestId, publicKey, now: timestampDate,
+      // Re-evaluate the clock after the HTTP read. A slow or noncompliant
+      // fetcher must not make an expired signature look fresh.
+      expectedRequestId: requestId, publicKey, now: now(),
     });
     if (!verified.valid) return unavailable;
     const received = verified.evidence.metrics;
@@ -83,6 +85,7 @@ export async function readSignedTiquetMetrics({
     return {
       status: "available", source: "tiquet", provenance: "source_signed",
       observedAt: verified.evidence.observedAt,
+      expiresAt: verified.evidence.expiresAt,
       metrics: verified.evidence.metrics,
       executionEnabled: false,
     };
