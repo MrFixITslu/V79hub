@@ -42,7 +42,12 @@ const founder={
   password:hashPassword(adminPassword),createdAt:new Date().toISOString(),
 };
 const users=[founder,...customerUsers];
-const customerOrgs=["a","b"].map(k=>({id:"synthetic-customer-"+k,status:"active",name:"Synthetic Customer "+k.toUpperCase()}));
+const customerOrgs=["a","b"].map(k=>({
+  id:"synthetic-customer-"+k,
+  slug:"synthetic-customer-"+k,
+  status:"active",
+  name:"Synthetic Customer "+k.toUpperCase(),
+}));
 const ownerOrg={id:ownerOrgId,name:"V79 Ephemeral Internal",slug:"v79-ephemeral-internal",status:"active"};
 const orgs=[ownerOrg,...customerOrgs];
 const memberships=[{organizationId:ownerOrgId,userId:founderId,role:"owner",status:"active"},
@@ -52,9 +57,15 @@ const appTenantMappings = customerOrgs.flatMap(org =>
   ["pos","ffpro","tiquet","marketing"].map(product=>({
     organizationId:org.id,
     appId: product==="pos"?"app-v79pos":"app-"+product,
-    status:"active",
-    externalTenantId:["pos","ffpro"].includes(product)?org.id:product+"-"+org.id,
-    externalOwnerId:"synthetic-"+product+"-"+org.id,
+    // Stage A must be provisioned through the real downstream API, not
+    // silently considered ready just because the Hub has a mapping row.
+    status:org.id==="synthetic-customer-a"?"pending":"active",
+    // A pending mapping must not carry invented downstream IDs.
+    // Its identifiers must come solely from real signed provisioning.
+    ...(org.id==="synthetic-customer-a"?{}:{
+      externalTenantId:["pos","ffpro"].includes(product)?org.id:product+"-"+org.id,
+      externalOwnerId:"synthetic-"+product+"-"+org.id,
+    }),
   }))
 );
 const plans = customerOrgs.map((org,i)=>({
