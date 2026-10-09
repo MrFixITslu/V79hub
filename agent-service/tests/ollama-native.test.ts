@@ -87,3 +87,23 @@ test("native Ollama fails closed on empty model responses", async () => {
     /empty response/i,
   );
 });
+test("native Ollama keeps specialist instructions in a system role rather than relying on tool calls", async () => {
+  let sentBody: any;
+  const fetchImpl = async (_url: string | URL | Request, init?: RequestInit) => {
+    sentBody = JSON.parse(String(init?.body || "{}"));
+    return new Response(JSON.stringify({ message: { role: "assistant", content: "Draft recommendations only." } }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  };
+  const result = await runOllamaOwnerAssistant("Owner question with scoped snapshot", {
+    specialistInstructions: "You are V79 Finance. Never execute payments.",
+    fetchImpl: fetchImpl as typeof fetch,
+  });
+  assert.equal(result.output, "Draft recommendations only.");
+  assert.equal(sentBody.messages[0].role, "system");
+  assert.match(sentBody.messages[0].content, /V79 Finance/);
+  assert.match(sentBody.messages[0].content, /Never execute payments/);
+  assert.equal(sentBody.messages[1].role, "user");
+  assert.equal(sentBody.messages[1].content, "Owner question with scoped snapshot");
+  assert.equal(sentBody.tools, undefined);
+});

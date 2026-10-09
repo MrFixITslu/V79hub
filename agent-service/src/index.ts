@@ -10,6 +10,7 @@ import { agentModelRuntime } from "./model-runtime.js";
 import { readBusinessSnapshot } from "./tools.js";
 import { compactOwnerSnapshot, deterministicFactAnswer, formatPriorityBrief, isPriorityBriefRequest } from "./grounding.js";
 import { prewarmOllamaOwnerAssistant, runOllamaOwnerAssistant } from "./ollama-native.js";
+import { routeWorkforceRequest, scopeSnapshotForSpecialist, specialistInstructions, workforceRoster } from "./workforce.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -49,12 +50,19 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+app.get("/api/agent/specialists", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ mode: "read-only", specialists: workforceRoster() });
+});
+
 app.get("/api/agent/capabilities", (_req, res) => {
   res.json({
     mode: "read-only",
     ownerOnly: true,
     modelProvider: agentModelRuntime.provider,
     model: agentModelRuntime.model,
+    routing: "deterministic-specialist",
+    specialists: workforceRoster(),
     can: [
       "answer business questions",
       "route work to specialist agents",
@@ -101,7 +109,10 @@ app.post("/api/agent/chat", async (req, res) => {
   try {
     const snapshot = await readBusinessSnapshot(context);
     const localFastPath = agentModelRuntime.provider === "ollama";
-    const grounding = localFastPath ? compactOwnerSnapshot(snapshot) : snapshot;
+    const chosenSpecialist = routeWorkforceRequest(message);
+    const grounding = localFastPath
+      ? scopeSnapshotForSpecialist(compactOwnerSnapshot(snapshot), chosenSpecialist)
+      : snapshot;
     const snapshotText = JSON.stringify(grounding);
     const maxSnapshotChars = localFastPath ? 6000 : 50000;
     const trustedSnapshot = snapshotText.length > maxSnapshotChars
@@ -121,7 +132,7 @@ app.post("/api/agent/chat", async (req, res) => {
       if (isPriorityBriefRequest(message) && grounding.prioritySignals.length) {
         return res.json({
           output: formatPriorityBrief(grounding.prioritySignals, 5),
-          specialist: "Vision79 Owner Assistant Local",
+          specialist: chosenSpecialist.name,
           mode: "read-only",
           modelProvider: "ollama",
           model: agentModelRuntime.model,
@@ -132,7 +143,7 @@ app.post("/api/agent/chat", async (req, res) => {
       if (factual) {
         return res.json({
           output: factual.output,
-          specialist: "Vision79 Owner Assistant Local",
+          specialist: chosenSpecialist.name,
           mode: "read-only",
           modelProvider: "ollama",
           model: agentModelRuntime.model,
@@ -140,10 +151,12 @@ app.post("/api/agent/chat", async (req, res) => {
           domain: factual.domain,
         });
       }
-      const result = await runOllamaOwnerAssistant(groundedMessage);
+      const result = await runOllamaOwnerAssistant(groundedMessage, {
+        specialistInstructions: specialistInstructions(chosenSpecialist),
+      });
       return res.json({
         output: result.output,
-        specialist: "Vision79 Owner Assistant Local",
+        specialist: chosenSpecialist.name,
         mode: "read-only",
         modelProvider: result.provider,
         model: result.model,

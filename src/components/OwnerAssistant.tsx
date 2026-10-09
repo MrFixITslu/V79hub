@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { Bot, Send, ShieldCheck } from "lucide-react";
 
-type Message = { role: "user" | "assistant"; text: string };
+type Message = { role: "user" | "assistant"; text: string; specialist?: string };
+
+const specialistPrompts = [
+  { label: "Operations", prompt: "Review inventory, shipments and operational bottlenecks." },
+  { label: "Growth", prompt: "Review marketing campaigns and website leads." },
+  { label: "Finance", prompt: "Analyse FFPRO cashflow, revenue and expenses." },
+  { label: "Customer Care", prompt: "Review Tiquet support tickets and customer issues." },
+  { label: "Technology", prompt: "Review technology app health and reliability risks." },
+  { label: "CombatZone", prompt: "Review CombatZone laser tag bookings and event readiness." },
+];
 
 export function OwnerAssistant() {
   const [messages, setMessages] = useState<Message[]>([
@@ -28,7 +37,7 @@ export function OwnerAssistant() {
       const data = await response.json();
       setMessages((items) => [
         ...items,
-        { role: "assistant", text: response.ok ? data.output : data.error || "Assistant request failed." },
+        { role: "assistant", text: response.ok ? data.output : data.error || "Assistant request failed.", specialist: response.ok ? data.specialist : undefined },
       ]);
     } catch {
       setMessages((items) => [...items, { role: "assistant", text: "Owner Assistant is unavailable." }]);
@@ -55,6 +64,22 @@ export function OwnerAssistant() {
           </div>
         </div>
 
+        <div className="px-5 py-3 border-b border-slate-800 bg-slate-900/50">
+          <p className="text-xs text-slate-400 mb-2">Ask a specialist · drafts and recommendations only</p>
+          <div className="flex flex-wrap gap-2">
+            {specialistPrompts.map((specialist) => (
+              <button
+                type="button"
+                key={specialist.label}
+                disabled={busy}
+                onClick={() => setInput(specialist.prompt)}
+                className="rounded-full border border-slate-700 px-3 py-1 text-xs text-cyan-200 hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-40"
+              >
+                {specialist.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="h-[56vh] overflow-y-auto p-6 space-y-4 bg-slate-950">
           {messages.map((message, index) => (
             <div
@@ -63,7 +88,10 @@ export function OwnerAssistant() {
                 ? "ml-auto bg-cyan-600 text-white"
                 : "bg-slate-900 border border-slate-800 text-slate-200"}`}
             >
-              {message.text}
+              {message.role === "assistant" && message.specialist && (
+                <div className="text-xs text-cyan-300 mb-1 font-semibold">{message.specialist} · Read-only</div>
+              )}
+              <span className="whitespace-pre-wrap">{message.text}</span>
             </div>
           ))}
           {busy && <div className="text-xs text-slate-500">Working...</div>}
