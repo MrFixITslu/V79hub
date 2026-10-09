@@ -14,6 +14,7 @@ import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-i
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { prepareReviewedHandoff } from "./server/agent-reviewed-handoff.mjs";
+import { prepareSupervisedMarketingDraft } from "./server/agent-supervised-marketing.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
@@ -4430,6 +4431,58 @@ app.get("/api/agent/proposals/:proposalId/handoff", (req, res) => {
   return res.json({ mode: "manual-handoff", executionEnabled: false, handoff });
 });
 
+// Stage 4: explicitly owner-confirmed internal Marketing draft creation only.
+// This route never sends, publishes or schedules anything. The target enforces
+// a signed request and resolves the owner from existing Hub tenant bindings.
+app.post("/api/agent/proposals/:proposalId/marketing-draft", async (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "MFA-verified owner required." });
+  res.setHeader("Cache-Control", "no-store");
+  if (process.env.V79_AGENT_SUPERVISED_DRAFTS_ENABLED !== "1") {
+    return res.status(503).json({ error: "Supervised draft handoff disabled." });
+  }
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body) ||
+      Object.keys(req.body).length !== 0) {
+    return res.status(400).json({ error: "No client-supplied draft data is accepted." });
+  }
+  const id = String(req.params.proposalId || "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(404).json({ error: "Proposal not found." });
+  if (!agentApprovalAudit.verify(store.agentProposalAuditTrail) ||
+      !verifyAgentApprovalAuditLinkage(store.agentProposalAuditTrail, store.agentActionProposals)) {
+    return res.status(503).json({ error: "Approval audit verification unavailable." });
+  }
+  const proposal = store.agentActionProposals.find(item =>
+    item.id === id && item.organizationId === context.organizationId);
+  if (!proposal) return res.status(404).json({ error: "Proposal not found." });
+  if (proposal.status !== "approved") return res.status(409).json({ error: "Proposal not approved." });
+  const payload = prepareSupervisedMarketingDraft(proposal, context.organizationId,
+    posUserId(context.userId, context.organizationId));
+  if (!payload) return res.status(410).json({ error: "Proposal unavailable or expired." });
+  if (posSecret.length < 32) return res.status(503).json({ error: "Hub signing unavailable." });
+
+  try {
+    const upstream = await fetchMarketingPlatform("/api/platform/agent-drafts", JSON.stringify(payload));
+    const result = await upstream.json().catch(() => ({})) as any;
+    if (!upstream.ok) return res.status(
+      upstream.status === 404 ? 409 : upstream.status === 409 ? 409 : 503,
+    ).json({ error: "Marketing rejected supervised draft creation." });
+    if (result.draftCreated !== true || result.executionEnabled !== false ||
+        result.sent !== false || result.published !== false || result.scheduled !== false ||
+        result.draft?.status !== "DRAFT" ||
+        typeof result.draft?.id !== "string" || !result.draft.id) {
+      return res.status(502).json({ error: "Marketing returned an invalid draft receipt." });
+    }
+    return res.status(result.duplicate === true ? 200 : 201).json({
+      draftCreated: true,
+      duplicate: result.duplicate === true,
+      draftId: result.draft.id,
+      executionEnabled: false, sent: false, published: false, scheduled: false,
+    });
+  } catch {
+    return res.status(503).json({ error: "Marketing is unavailable." });
+  }
+});
+
 app.get("/api/agent/proposals", (req, res) => {
   const context = ownerApprovalContext(req);
   if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
@@ -4445,6 +4498,7 @@ app.get("/api/agent/proposals", (req, res) => {
     return res.status(503).json({ error: "Approval audit verification unavailable." });
   }
   return res.json({ mode: "decision-only", executionEnabled: false,
+    supervisedMarketingDraftsEnabled: process.env.V79_AGENT_SUPERVISED_DRAFTS_ENABLED === "1",
     auditIntegrity: "verified",
     totalProposals: store.agentActionProposals.filter(p => p.organizationId === context.organizationId).length,
     offset, pageSize: 100,
