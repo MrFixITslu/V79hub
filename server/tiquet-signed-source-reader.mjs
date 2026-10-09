@@ -8,6 +8,14 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const TENANT_ID = /^[A-Za-z0-9_-]{6,96}$/;
 const MAX_RESPONSE_BYTES = 8192;
 
+/**
+ * @param {{
+ *   enabled?: boolean, organizationId?: string, publicKey?: string,
+ *   platformSecret?: string, baseUrl?: string,
+ *   signPlatformRequest?: (input: {method:string, pathname:string, timestamp:string, body:string, secret:string}) => string,
+ *   fetcher?: typeof fetch, now?: () => Date, uuid?: () => string, timeoutMs?: number,
+ * }} options
+ */
 export async function readSignedTiquetMetrics({
   enabled = false, organizationId, publicKey, platformSecret, baseUrl,
   signPlatformRequest, fetcher = fetch, now = () => new Date(),
