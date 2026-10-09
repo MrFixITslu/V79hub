@@ -224,6 +224,9 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(signedMetrics.status, "available");
   assert.equal(signedMetrics.provenance, "source_signed");
   assert.equal(signedMetrics.source, "tiquet");
+  assert.ok(Date.parse(signedMetrics.expiresAt) > Date.now(),
+    "Hub only returns signatures with a future expiry to its founder preview");
+  assert.ok(Date.parse(signedMetrics.expiresAt) - Date.parse(signedMetrics.observedAt) <= 120_000);
   assert.equal(signedMetrics.executionEnabled, false);
   assert.equal(signedMetrics.metrics.some(metric => metric.key === "jobs" && metric.value === 3), true);
   assert.equal(signedMetrics.metrics.some(metric => metric.key === "unreadNotifications" && metric.value === 0), true);
