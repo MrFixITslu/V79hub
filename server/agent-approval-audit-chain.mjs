@@ -56,6 +56,55 @@ export function verifyAgentApprovalAuditLinkage(events, proposals) {
   return true;
 }
 
+/**
+ * OFFLINE, PURE recovery/migration helper. This NEVER changes a store, writes
+ * files, loads environment keys or enables an agent. Operators must separately
+ * archive the original state and old checkpoint before an authorised migration.
+ * Re-signing breaks the old hash chain and must be externally anchored in a
+ * controlled key epoch; it does not create independent immutable retention.
+ */
+export function prepareAgentApprovalAuditKeyRotation({
+  events, proposals, oldKey, newKey,
+} = {}) {
+  if (typeof oldKey !== "string" || typeof newKey !== "string" ||
+      oldKey.length < 32 || newKey.length < 32 || oldKey === newKey) {
+    throw new Error("Separate audit keys of at least 32 characters are required.");
+  }
+  const oldChain = createAgentApprovalAuditChain(oldKey);
+  const nextChain = createAgentApprovalAuditChain(newKey);
+  if (!oldChain.verify(events) ||
+      !verifyAgentApprovalAuditLinkage(events, proposals)) {
+    throw new Error("Original signed proposal history is invalid.");
+  }
+  const originalCheckpoint = oldChain.checkpoint(events);
+  let previousMac = GENESIS;
+  const migrated = events.map(event => {
+    const candidate = {
+      ...event,
+      previousMac,
+    };
+    if (!isValidEvent({ ...candidate, mac: GENESIS })) {
+      throw new Error("Audit history contains an invalid event.");
+    }
+    const mac = createHmac("sha256", newKey)
+      .update(JSON.stringify(eventPayload(candidate)))
+      .digest("hex");
+    previousMac = mac;
+    return { ...candidate, mac };
+  });
+  if (!nextChain.verify(migrated) ||
+      !verifyAgentApprovalAuditLinkage(migrated, proposals) ||
+      oldChain.verify(migrated) && migrated.length > 0) {
+    throw new Error("Rotated proposal audit integrity failed.");
+  }
+  return {
+    events: migrated,
+    previousCheckpoint: originalCheckpoint,
+    replacementCheckpoint: nextChain.checkpoint(migrated),
+    // No private keys or original proposal contents in the migration result.
+  };
+}
+
 export function createAgentApprovalAuditChain(secret, {
   now = () => new Date(), uuid = randomUUID,
 } = {}) {
