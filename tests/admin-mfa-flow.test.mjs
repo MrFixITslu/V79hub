@@ -164,9 +164,16 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   // Phase 3 approval inbox is accessible only after the owner completes MFA.
   const cookie = String(complete.headers.get("set-cookie") || "").split(";")[0];
   assert.equal((await request("/api/agent/proposals")).status, 401);
+  assert.equal((await request("/api/agent/approval-audit-checkpoint")).status, 401);
   const listing = await request("/api/agent/proposals", { headers: { cookie } });
   assert.equal(listing.status, 200);
   assert.equal((await listing.json()).executionEnabled, false);
+  const initialCheckpointResponse = await request("/api/agent/approval-audit-checkpoint", { headers: { cookie } });
+  assert.equal(initialCheckpointResponse.status, 200);
+  const initialCheckpoint = await initialCheckpointResponse.json();
+  assert.equal(initialCheckpoint.count, 0);
+  assert.equal(initialCheckpoint.executionEnabled, false);
+  assert.equal(initialCheckpoint.independentRetentionConfigured, false);
   const proxy = await request("/api/agent/chat", {
     method: "POST", headers: { "content-type": "application/json", cookie, origin },
     body: JSON.stringify({ message: "Review synthetic financial aggregates." }),
@@ -268,6 +275,12 @@ test("production platform admin enrolls mandatory MFA before a session is issued
     "each create and decision must persist exactly one keyed audit event");
   const verifier = createAgentApprovalAuditChain("platform-test-secret-12345678901234567890");
   assert.equal(verifier.verify(persisted.agentProposalAuditTrail), true);
+  const checkpointResponse = await request("/api/agent/approval-audit-checkpoint", { headers: { cookie } });
+  assert.equal(checkpointResponse.status, 200);
+  const latestCheckpoint = await checkpointResponse.json();
+  assert.equal(latestCheckpoint.count, 4);
+  assert.equal(latestCheckpoint.independentRetentionConfigured, false);
+  assert.equal(verifier.verifyCheckpoint(persisted.agentProposalAuditTrail, latestCheckpoint), true);
   const tampered = structuredClone(persisted.agentProposalAuditTrail);
   tampered[0].operation = "draft_marketing_campaign";
   assert.equal(verifier.verify(tampered), false);
