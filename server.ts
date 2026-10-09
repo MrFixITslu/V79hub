@@ -15,6 +15,7 @@ import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.m
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
+import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
@@ -4375,6 +4376,29 @@ function ownerApprovalContext(req: Request) {
   if (!user?.mfaEnabled) return null;
   return ownerAssistantContext(req);
 }
+
+// Stage 2C source-signature pilot: strict read-only GET, no downstream writes.
+// Disabled unless an operator separately configures the Tiquet signer/public key
+// and deliberately enables the staging flag. This does not grant execution.
+app.get("/api/agent/sources/tiquet/metrics", async (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "MFA-verified owner access required." });
+  res.setHeader("Cache-Control", "no-store");
+  const configuredPublicKey = String(process.env.V79_TIQUET_SOURCE_ED25519_PUBLIC_KEY_B64 || "");
+  let publicKey = "";
+  try {
+    publicKey = Buffer.from(configuredPublicKey, "base64").toString("utf8");
+  } catch { /* fail closed without a trusted configured verification key */ }
+  const verified = await readSignedTiquetMetrics({
+    enabled: process.env.V79_TIQUET_SIGNED_METRICS_ENABLED === "1",
+    organizationId: context.organizationId,
+    publicKey,
+    platformSecret: platformSigningSecret("tiquet"),
+    baseUrl: dashboardSources.tiquet,
+    signPlatformRequest,
+  });
+  return res.status(verified.status === "available" ? 200 : 503).json(verified);
+});
 
 // Phase 3 is a decision ledger only: approval DOES NOT dispatch any action.
 // Serialize inbox modifications, preserving idempotency across concurrent calls.
