@@ -14,7 +14,7 @@
 3. **MEDIUM — Audit integrity and retention (PARTIAL MITIGATION):** Proposal audit no longer truncates existing events; at 10,000 shared audit events it fails closed instead of deleting history. This is still a mutable application store, **not** a tamper-evident append-only audit. A protected durable audit table, retention/export strategy and operational capacity alerts are needed before actionable stages.
 4. **MEDIUM — Multi-writer coordination:** The proposal queue serializes within one process. Verify multiple instances, shared store writes and crash/retry behavior; do not assume database revision checks alone provide distributed locking.
 5. **MEDIUM — Data minimization (PARTIAL MITIGATION):** Normalized screening now applies to summary, rationale and decision notes, including fullwidth characters and zero-width formatting. Regex remains incomplete PII protection. Keep synthetic aggregate-only inputs; test adversarial obfuscation, account references and prompt injection independently.
-6. **MEDIUM — Inbox completeness (PARTIAL MITIGATION):** Inbox now sorts live pending proposals first (at most 80 per organisation) and reports visible/total record counts. Older decisions remain outside the first 100 records; add paging, archival and retention before release. The store currently caps 500 proposals per organisation.
+6. **MEDIUM — Inbox completeness (PAGINATION IMPLEMENTED IN BRANCH):** Inbox sorts live pending proposals first (at most 80 per organisation), reports visible/total counts and now supports bounded 100-record history pages through an offset-validated owner-only GET API and a load-older UI control. The 500-record store cap and lifecycle/archival policy remain unresolved.
 7. **BLOCKER — Restore evidence:** Issue #104 documents an isolated PostgreSQL restore rehearsal ending in exit 137. Do not claim rollback readiness until an isolated full restore passes without touching production workloads.
 
 ## Phase 2C / model tool calls
@@ -31,7 +31,7 @@
 
 ## Isolated automated checks added on the feature branch
 - Reject unrelated application prefixes and unverified evidence claims; display unverified state clearly.
-- Verify all live pending records remain in the bounded inbox even when recently decided records exceed 100.
+- Verify all live pending records remain in the bounded first page even when recently decided records exceed 100; subsequent pages expose all decisions without duplication.
 - Exercise MFA negative path and successful plan-only approval under a mandatory-TOTP owner session.
 - Verify simultaneous idempotent submissions result in one proposal and configured synthetic downstream application receivers observe **no unsafe HTTP methods** during proposal/decision tests. This is a targeted test, **not** a complete network-isolated staging proof.
 - Reject obfuscated email/contact values and fullwidth secret labels, including in decision notes.
@@ -41,7 +41,7 @@
 ## Outstanding release steps
 1. Fully isolated end-to-end staging on a disposable environment with outbound write detection and browser acceptance.
 2. Design and test genuine tenant-bound investigation provenance; never equate a validated reference string with authenticated evidence.
-3. Implement durable tamper-evident approval audit, multi-instance atomicity, proposal history paging and privacy classification.
+3. Implement durable tamper-evident approval audit, multi-instance atomicity, retention/archival policy for the 500-record cap and privacy classification.
 4. Complete an actual successful isolated PostgreSQL restore following issue #104; preserve live beta data and avoid global Docker restarts or pruning.
 5. Re-run full CI for the **final** exact commit SHA and obtain explicit founder approval separately before production merge/deployment.
 
