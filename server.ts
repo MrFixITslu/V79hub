@@ -4406,6 +4406,20 @@ app.get("/api/agent/proposals", (req, res) => {
     proposals: listAgentProposals(store.agentActionProposals, context.organizationId, new Date(), { offset }) });
 });
 
+// A founder may retain this opaque checkpoint outside Hub to detect later
+// truncation of otherwise well-signed in-store approval history. Read-only.
+app.get("/api/agent/approval-audit-checkpoint", (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  res.setHeader("Cache-Control", "no-store");
+  if (!agentApprovalAudit.verify(store.agentProposalAuditTrail) ||
+      !verifyAgentApprovalAuditLinkage(store.agentProposalAuditTrail, store.agentActionProposals)) {
+    return res.status(503).json({ error: "Approval audit verification unavailable." });
+  }
+  return res.json({ ...agentApprovalAudit.checkpoint(store.agentProposalAuditTrail),
+    executionEnabled: false, independentRetentionConfigured: false });
+});
+
 app.post("/api/agent/proposals", async (req, res) => {
   const context = ownerApprovalContext(req);
   if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
