@@ -130,6 +130,25 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(draftResponse.status, 201);
   const draft = await draftResponse.json();
   assert.equal(draft.proposal.executionStatus, "disabled");
+  // Simulate repeated clicks/retries during a single in-process owner session.
+  // They must resolve to one ledger record, never another action or dispatch.
+  const retries = await Promise.all(Array.from({ length: 5 }, () => request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin, body: JSON.stringify(proposal),
+  })));
+  for (const retry of retries) {
+    assert.equal(retry.status, 200);
+    const body = await retry.json();
+    assert.equal(body.duplicate, true);
+    assert.equal(body.proposal.id, draft.proposal.id);
+    assert.equal(body.proposal.executionStatus, "disabled");
+  }
+  const listAfterRetries = await request("/api/agent/proposals", { headers: { cookie } });
+  assert.equal(listAfterRetries.status, 200);
+  assert.equal((await listAfterRetries.json()).proposals.length, 1);
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ ...proposal, execute: true }),
+  })).status, 400);
   const decisionResponse = await request("/api/agent/proposals/" + draft.proposal.id + "/decision", {
     method: "POST", headers: withOrigin,
     body: JSON.stringify({ decision: "reject", expectedRevision: 1 }),
