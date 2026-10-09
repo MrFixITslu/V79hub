@@ -53,3 +53,11 @@ Disposable VM / cloud account (NO link to production Tailscale/LAN)
 9. Record redacted test counts, run IDs/commit SHAs, safety and cleanup evidence. Destroy the VM and all ephemeral volumes/keys when complete. Check cloud console that no billable VM, disk or public IP remains.
 
 **Release requires:** authenticated test evidence, independent audit retention/keys/rollback review and a separate founder confirmation for a precisely named production release. The approved staging VM approach does not authorise production changes.
+
+## Offline preflight added (no cloud side effects)
+
+Run `node --test tests/agent-staging-preflight.test.mjs` to validate the manifest policy helper. The exported `validateIsolatedAgentStagingPlan(plan)` in `scripts/agent-staging-preflight.mjs` evaluates a proposed VM manifest in memory; it **does not** create a VM, connect to any host, read secrets, launch test services, or authorise a previously blocked workflow.
+
+All boolean isolation guarantees must be attested explicitly by a permitted operator. The manifest must provide two exact commit SHAs, private staging hostnames, a named provider, an independently approved USD cost ceiling, a deletion deadline within 48 hours, and test-only keys/data. Local output must stay inside `/tmp/v79-agent-stage-*`. Paths, credentials, endpoints and commands pointing toward the production Hub or LAN are rejected. This syntactic validator is an additional **precondition only**: it cannot verify cloud firewall implementation, billing authorisation, anti-rollback protections or immutable audit storage. Each requires independent provider evidence before the full staging work can begin.
+
+The Phase 3A PR remains **draft**; this helper must not be used to bypass execution safety controls or to merge/deploy any live code.
