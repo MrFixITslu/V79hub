@@ -39,6 +39,10 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
+  // Seven-day HSTS probation on this host only; never include unrelated subdomains.
+  res.setHeader("Strict-Transport-Security", "max-age=604800");
+  // Conservative first CSP: avoids breaking authenticated app launchers.
+  res.setHeader("Content-Security-Policy", "object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
   next();
@@ -271,7 +275,7 @@ const defaultWorkspace: WorkspaceProfile = {
   companyName: process.env.V79_HUB_ORG_NAME || "V79 Digital",
 };
 
-const academyPublicUrl = String(process.env.ACADEMY_PUBLIC_URL || "https://v79academy.v79sl.com").replace(/\/$/, "");
+const academyPublicUrl = String(process.env.ACADEMY_PUBLIC_URL || "https://academy.v79sl.com").replace(/\/$/, "");
 
 const defaultEcosystemApps: EcosystemApp[] = [
   {
@@ -2544,7 +2548,7 @@ function validBillingReturnPath(value: unknown) {
 function billingOrderReturnUrl(order: BillingOrder) {
   const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
   const base = order.sourceApp === "academy"
-    ? String(process.env.ACADEMY_PUBLIC_URL || "https://v79academy.v79sl.com").replace(/\/$/, "")
+    ? String(process.env.ACADEMY_PUBLIC_URL || "https://academy.v79sl.com").replace(/\/$/, "")
     : order.sourceApp === "tiquet"
       ? String(process.env.TIQUET_PUBLIC_URL || "https://tiquet.v79sl.com").replace(/\/$/, "")
       : appUrl;

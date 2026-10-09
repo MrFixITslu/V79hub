@@ -40,7 +40,7 @@ services:
       POS_PUBLIC_URL: ${POS_PUBLIC_URL:-https://pos.v79sl.com}
       FFPRO_PUBLIC_URL: ${FFPRO_PUBLIC_URL:-https://ffpro.v79sl.com}
       TIQUET_PUBLIC_URL: ${TIQUET_PUBLIC_URL:-https://tiquet.v79sl.com}
-      ACADEMY_PUBLIC_URL: ${ACADEMY_PUBLIC_URL:-https://v79academy.v79sl.com}
+      ACADEMY_PUBLIC_URL: ${ACADEMY_PUBLIC_URL:-https://academy.v79sl.com}
       MARKETING_PUBLIC_URL: ${MARKETING_PUBLIC_URL:-https://marketing.v79sl.com}
       LASERTAG_INTERNAL_URL: ${LASERTAG_INTERNAL_URL:-http://lasertag:5173}
       WEBSITE_INTERNAL_URL: ${WEBSITE_INTERNAL_URL:-http://V79website:3000}

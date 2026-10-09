@@ -73,7 +73,7 @@ export function AppSwitcher({
       "app-v79pos": "/api/apps/pos/launch",
     };
     if (managed[app.id]) return managed[app.id];
-    if (app.id === "app-academy") return "https://v79academy.v79sl.com/academy";
+    if (app.id === "app-academy") return "https://academy.v79sl.com/";
     return /^https:\/\//i.test(app.appUrl || "") ? app.appUrl : null;
   };
 

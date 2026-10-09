@@ -12,7 +12,7 @@ async function listen(server) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
-test("production platform admin enrolls mandatory MFA before a session is issued", { timeout: 20000 }, async t => {
+test("production platform admin enrolls mandatory MFA before a session is issued", { timeout: 45000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), "v79-admin-mfa-"));
   const probe = createServer();
   const origin = await listen(probe);
@@ -47,10 +47,18 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   });
 
   const request = (path, options = {}) => fetch(origin + path, { redirect: "manual", ...options });
-  for (let i = 0; i < 100; i++) {
-    try { if ((await request("/api/health")).ok) break; } catch {}
-    await new Promise(resolve => setTimeout(resolve, 80));
+  let ready = false;
+  for (let i = 0; i < 250; i++) {
+    if (child.exitCode !== null) break;
+    try {
+      if ((await request("/api/health")).ok) {
+        ready = true;
+        break;
+      }
+    } catch {}
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
+  assert.ok(ready, `Isolated MFA test server did not become ready: ${output.slice(-1200)}`);
 
   const login = await request("/api/auth/login", {
     method: "POST",

@@ -37,7 +37,7 @@ tar -xzf "$archive" -C "$stage"
 test -f "$stage/docker-compose.yml" && test -f "$stage/Dockerfile"
 
 # The deployment directory is reserved for this app. Preserve production state.
-rsync -a --delete --exclude='/.env' --exclude='/data/' \
+rsync -a --delete --exclude='/.env' --exclude='/.env.*' --exclude='/data/' \
   --exclude='/backups/' --exclude='/.incoming.*/' "$stage/" "$root/"
 cd "$root"
 # Build first so an old container can keep serving while the new images are prepared.
