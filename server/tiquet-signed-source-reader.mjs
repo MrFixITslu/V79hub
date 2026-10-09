@@ -7,6 +7,11 @@ import { verifySignedSourceMetrics } from "./source-metric-signature.mjs";
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TENANT_ID = /^[A-Za-z0-9_-]{6,96}$/;
 const MAX_RESPONSE_BYTES = 8192;
+// This pilot requires the complete five-counter Tiquet schema. A valid Ed25519
+// signature over an incomplete aggregate must not be presented as complete.
+const REQUIRED_TIQUET_METRICS = Object.freeze([
+  "clients", "jobs", "teamMembers", "unreadNotifications", "jobValueTotal",
+]);
 
 /**
  * @param {{
@@ -70,6 +75,11 @@ export async function readSignedTiquetMetrics({
       expectedRequestId: requestId, publicKey, now: timestampDate,
     });
     if (!verified.valid) return unavailable;
+    const received = verified.evidence.metrics;
+    if (received.length !== REQUIRED_TIQUET_METRICS.length ||
+        received.some(item => !REQUIRED_TIQUET_METRICS.includes(item.key) ||
+          (item.key !== "jobValueTotal" &&
+           (!Number.isSafeInteger(item.value) || item.value < 0)))) return unavailable;
     return {
       status: "available", source: "tiquet", provenance: "source_signed",
       observedAt: verified.evidence.observedAt,
