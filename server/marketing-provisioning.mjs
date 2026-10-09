@@ -1,3 +1,4 @@
+import { retainSentinelAuditMarkers } from "./sentinel-audit-retention.mjs";
 import crypto from "node:crypto";
 
 export function marketingTenantMapping(store, organizationId) {
@@ -80,7 +81,7 @@ export function activateMarketingTenantMapping(
     createdAt: now,
     details: { appId: "app-marketing", businessId, userId },
   });
-  if (next.auditEvents.length > 5000) next.auditEvents = next.auditEvents.slice(-5000);
+  if (next.auditEvents.length > 5000) next.auditEvents = retainSentinelAuditMarkers(next.auditEvents);
 
   return next;
 }

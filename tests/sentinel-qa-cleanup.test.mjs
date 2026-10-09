@@ -118,6 +118,9 @@ test("refuses ALL billing, app and external references", () => {
  mustBlock(s=>s.auditEvents.push({organizationId:EXISTING_ORG,actorUserId:"customer-1",details:{mentionedUser:STAFF_ID}}),"foreign audit references synthetic user");
  mustBlock(s=>s.futureNewCollection=[{ownerOrganizationId:ORG_ID,otherData:true}],"unknown future tenant table");
  mustBlock(s=>s.nextSchemaReference={subjectId:STAFF_ID},"unknown new top-level field");
+ mustBlock(s=>{s.users[0].supervisorId=STAFF_ID;},"surviving owner references synthetic user");
+ mustBlock(s=>{s.organizations[0].supportAccountId=OWNER_ID;},"surviving org references synthetic owner");
+ mustBlock(s=>{s.memberships[0].invitedBy=OWNER_ID;},"surviving membership references synthetic owner");
 });
 test("refuses incomplete, malformed, inconsistent snapshot", () => {
  mustBlock(s=>delete s.users,"missing users table");

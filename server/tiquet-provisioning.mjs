@@ -1,3 +1,4 @@
+import { retainSentinelAuditMarkers } from "./sentinel-audit-retention.mjs";
 import crypto from "node:crypto";
 
 export function tiquetTenantMapping(store, organizationId) {
@@ -79,7 +80,7 @@ export function activateTiquetTenantMapping(
     createdAt: now,
     details: { appId: "app-tiquet", accountId, userId },
   });
-  if (next.auditEvents.length > 5000) next.auditEvents = next.auditEvents.slice(-5000);
+  if (next.auditEvents.length > 5000) next.auditEvents = retainSentinelAuditMarkers(next.auditEvents);
   return next;
 }
 

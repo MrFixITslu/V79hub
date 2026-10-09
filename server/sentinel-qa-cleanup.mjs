@@ -1,3 +1,4 @@
+import { retainSentinelAuditMarkers } from "./sentinel-audit-retention.mjs";
 import crypto from "node:crypto";
 
 /**
@@ -120,6 +121,18 @@ export function previewSentinelCleanup(store, { organizationId, operatorUserId }
     if (["users", "organizations", "memberships", "auditEvents"].includes(collection)) continue;
     scan(value, collection);
   }
+  // Do not skip references in surviving user, organization or membership records.
+  // Only the exact manifest-owned records will be deleted; any surviving record
+  // containing a synthetic identity must prevent deletion.
+  for (const item of store.users) {
+    if (!userSet.has(item.id)) scan(item, "surviving user");
+  }
+  for (const item of store.organizations) {
+    if (item.id !== organizationId) scan(item, "surviving organization");
+  }
+  for (const item of store.memberships) {
+    if (item.organizationId !== organizationId) scan(item, "surviving membership");
+  }
   for (const item of store.auditEvents) {
     if (item.organizationId !== organizationId) scan(item, "other-organization audit");
   }
@@ -162,7 +175,7 @@ export function removeSentinelCleanup(store, {
     details:{ deletedOrganizationId:organizationId, syntheticUsersDeleted:users.size,
       markerId:result.markerId, previewHash:result.previewHash }
   });
-  if(nextStore.auditEvents.length>5000) nextStore.auditEvents=nextStore.auditEvents.slice(-5000);
+  if(nextStore.auditEvents.length>5000) nextStore.auditEvents=retainSentinelAuditMarkers(nextStore.auditEvents);
   return {nextStore, removed: {
     organizationId, userIds:result.memberIds, memberCount:result.memberCount,
     auditId, state:"removed-from-hub-store"

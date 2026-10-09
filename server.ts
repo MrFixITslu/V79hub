@@ -12,6 +12,7 @@ import { activeMembership, activeMembershipsForUser, enabledAppIds, organization
 import { acceptInvitationState, invitationStatus } from "./server/onboarding-store.mjs";
 import { registerSentinelQaRoutes } from "./server/sentinel-qa-routes.mjs";
 import { createSentinelWriteFence } from "./server/sentinel-write-fence.mjs";
+import { retainSentinelAuditMarkers } from "./server/sentinel-audit-retention.mjs";
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
@@ -1873,7 +1874,7 @@ function onboardingAudit(nextStore: AppStore, type: string, details: Record<stri
     organizationId,
     createdAt: new Date().toISOString(),
   });
-  if (nextStore.auditEvents.length > 5000) nextStore.auditEvents = nextStore.auditEvents.slice(-5000);
+  if (nextStore.auditEvents.length > 5000) nextStore.auditEvents = retainSentinelAuditMarkers(nextStore.auditEvents);
 }
 
 function organizationPlanFor(currentStore: AppStore, organizationId: string): OrganizationPlan {

@@ -37,3 +37,14 @@ This gate remains UNVERIFIED. A reviewed, tool-supported isolated full-Hub integ
 
 ## Release decision: HOLD
 Do not enable Sentinel account features, deploy the staged Hub candidate, create a test organization, or attach external product tenants until the complete integration test and release review are authorized and verifiably successful.
+
+## Follow-up hardening — 2026-10-09
+
+- Added a fail-closed foreign-reference scan for **surviving** Hub user, organization and membership records. If any non-Sentinel record contains a Sentinel synthetic identifier, cleanup now refuses deletion.
+- Discovered that eight independent Hub audit-trimming locations could previously discard a Sentinel creation marker after 5,000 events, making later deletion impossible.
+- Added `server/sentinel-audit-retention.mjs`, a bounded audit retention helper that preserves Sentinel creation markers while trimming the oldest ordinary events. Applied it to server.ts and the onboarding, team invitation, POS, FFPRO, Tiquet, Marketing and Sentinel cleanup modules.
+- Added `tests/sentinel-audit-retention.test.mjs` with 5 tests, including retention after over 5,200 subsequent audit events, multiple markers, malformed inputs, and a contract ensuring all known trimming locations use the helper.
+- Added 3 foreign-reference rejection scenarios to `tests/sentinel-qa-cleanup.test.mjs`.
+- New full Hub regression: **205 tests passed, 0 failed**; `npm run lint` and `git diff --check` passed.
+- All work was performed on the Acer staging checkout. **No Hub deployment, test-account creation, or live user deletion occurred.**
+- **Release status: HOLD.** The earlier full-Hub authenticated integration test was blocked by the remote tool safety checks and was not bypassed. A separately authorized integration workflow, independent security review, background-write quiescence verification, and verified test-tenant deprovision remain required before any account creation or deployment.
