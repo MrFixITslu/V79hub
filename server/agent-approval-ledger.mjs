@@ -10,6 +10,9 @@ export const AGENT_PROPOSAL_OPERATIONS = Object.freeze({
 
 const MAX_PENDING_PER_ORG = 80;
 const MAX_STORED_PER_ORG = 500;
+// Fail closed rather than delete existing audit history; durable append-only
+// retention remains a separate Phase 3 release requirement.
+const MAX_SHARED_AUDIT_EVENTS = 10000;
 const TTL_MS = 72 * 60 * 60 * 1000;
 
 function clean(value, min, max) {
@@ -119,11 +122,13 @@ export function listAgentProposals(records, organizationId, now = new Date()) {
 }
 
 export function appendAgentProposalAudit(events, proposal, type, actorUserId, id = randomUUID()) {
+  if (!Array.isArray(events) || events.length >= MAX_SHARED_AUDIT_EVENTS) {
+    throw new Error("Agent proposal audit capacity reached; refusing unaudited change.");
+  }
   events.push({
     id, organizationId: proposal.organizationId, actorUserId,
     type, createdAt: new Date().toISOString(),
     details: { proposalId: proposal.id, operation: proposal.operation, targetSystem:proposal.targetSystem,
       status:proposal.status, revision:proposal.revision, executionStatus:"disabled" },
   });
-  if (events.length > 5000) events.splice(0, events.length-5000);
 }
