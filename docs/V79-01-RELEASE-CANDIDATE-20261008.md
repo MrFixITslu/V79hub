@@ -23,6 +23,7 @@ The Marketing provisioning contract fix lives separately in Marketing draft PR #
 - Hub CI passed on the same source branch (GitHub run **37866361790**).
 - Live production: all six HTTPS sites HTTP 200, all six HTTP origins 301 to HTTPS; applications checked healthy. Founder confirmed the six Hub application launches work.
 - Comparing this candidate to `/opt/v79/hub`, the current `docker-compose.yml`, `.dockerignore`, Academy app launcher components are identical; `server.ts` differs only by the four new security-header lines.
+- Dry-run deployment caught an additional `rsync --delete` risk: it would remove an existing historical `.env` backup from the live Hub directory. This candidate now excludes both `/.env` and `/.env.*`; a regression test checks the exclusions. Revalidate the deploy preview before merging. No production files were changed.
 
 ## Pre-merge / pre-deploy gates
 
