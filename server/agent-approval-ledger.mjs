@@ -17,10 +17,14 @@ const TTL_MS = 72 * 60 * 60 * 1000;
 
 function clean(value, min, max) {
   if (typeof value !== "string") return null;
+  // Apply security checks to compatibility-normalized text so fullwidth
+  // identifiers or secret labels do not bypass the first-pass scan.
+  const normalized = value.normalize("NFKC");
   if (value !== value.trim() || value.length < min || value.length > max ||
       /[\u0000-\u001f\u007f]/.test(value) ||
-      /\b(?:password|api[_ -]?key|secret|bearer|token)\s*[:=]/i.test(value) ||
-      /[\u200b-\u200f\u2060\ufeff]/.test(value)) return null;
+      /[\u200b-\u200f\u2060\ufeff]/.test(value) ||
+      /\b(?:password|api[_ -]?key|secret|bearer|token|private\s*key|client\s*secret|authorization)\s*[:=]/i.test(normalized) ||
+      /@|https?:\/\/|(?:\+?\d[\d\s()-]{8,}\d)/i.test(normalized)) return null;
   return value;
 }
 
