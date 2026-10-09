@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, readdir, rmdir } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, realpath, rmdir } from "node:fs/promises";
 import path from "node:path";
 
 // OUTSIDE the Hub runtime: a small operator-managed checkpoint retention tool.
@@ -112,8 +112,15 @@ export async function retainAuditCheckpoint({
   }
   const target = path.resolve(directory);
   const hub = path.resolve(hubDataDirectory);
-  if (target === hub || target.startsWith(hub + path.sep) ||
-      hub.startsWith(target + path.sep)) {
+  // Resolve every parent segment before checking containment. Merely using
+  // path.resolve leaves a parent-directory symlink able to bypass this guard.
+  const [realTarget, realHub] = await Promise.all([
+    realpath(target), realpath(hub),
+  ]);
+  if (realTarget !== target || realHub !== hub ||
+      realTarget === realHub ||
+      realTarget.startsWith(realHub + path.sep) ||
+      realHub.startsWith(realTarget + path.sep)) {
     throw new Error("Checkpoint destination must be outside Hub data.");
   }
   const details = await lstat(target);
