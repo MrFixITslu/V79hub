@@ -89,7 +89,7 @@ test("vault forbids paths inside Hub data, overly broad permissions, invalid epo
   await symlink(input.directory,outside);
   await assert.rejects(retainAuditCheckpoint({
     ...input,directory:outside,checkpoint:checkpoint(1),
-  }),/owner-only/);
+  }),/outside Hub|owner-only/);
   const redirectedParent = path.join(input.base,"aliased-hub-root");
   await symlink(input.hubDataDirectory,redirectedParent);
   const hiddenAnchor = path.join(redirectedParent,"private-anchors");
