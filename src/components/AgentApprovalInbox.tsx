@@ -24,6 +24,8 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
   const [open, setOpen] = useState(false);
   const [proposals, setProposals] = useState<InboxProposal[]>([]);
   const [totalProposals, setTotalProposals] = useState(0);
+  const [nextOffset, setNextOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -34,6 +36,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
     const data = await response.json();
     if (data.executionEnabled !== false || !Array.isArray(data.proposals)) throw new Error("Unexpected approval inbox mode.");
     setProposals(data.proposals);
+    setNextOffset(data.proposals.length);
     setTotalProposals(Number.isSafeInteger(data.totalProposals) ? data.totalProposals : data.proposals.length);
   };
 
@@ -49,6 +52,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
         if (!active) return;
         const next = Array.isArray(data.proposals) && data.executionEnabled === false ? data.proposals : [];
         setProposals(next);
+        setNextOffset(next.length);
         setTotalProposals(Number.isSafeInteger(data.totalProposals) ? data.totalProposals : next.length);
       })
       .catch(() => { if (active) setError("Could not load proposals."); });
@@ -58,6 +62,29 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
   useEffect(() => {
     if (suggested) setOpen(true);
   }, [suggested]);
+
+  const loadMore = async () => {
+    if (busy || loadingMore || nextOffset >= totalProposals) return;
+    setLoadingMore(true); setError("");
+    try {
+      const response = await fetch(`/api/agent/proposals?offset=${nextOffset}`, {
+        credentials: "same-origin", cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Could not load proposal history.");
+      const body = await response.json();
+      if (body.executionEnabled !== false || !Array.isArray(body.proposals) || body.offset !== nextOffset) {
+        throw new Error("Unexpected approval history response.");
+      }
+      setProposals(current => {
+        const ids = new Set(current.map(item => item.id));
+        return [...current, ...body.proposals.filter((item: InboxProposal) => !ids.has(item.id))];
+      });
+      setNextOffset(nextOffset + body.proposals.length);
+      setTotalProposals(Number.isSafeInteger(body.totalProposals) ? body.totalProposals : totalProposals);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load proposal history.");
+    } finally { setLoadingMore(false); }
+  };
 
   const queue = async () => {
     if (!suggested || busy) return;
@@ -124,7 +151,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
         </div>}
         {notice && <p role="status" className="text-xs text-emerald-300">{notice}</p>}
         {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
-        {totalProposals > proposals.length && <p className="text-xs text-amber-200">Showing {proposals.length} of {totalProposals} proposals. Pending proposals appear first; older decisions are not yet paginated.</p>}
+        {totalProposals > proposals.length && <p className="text-xs text-amber-200">Showing {proposals.length} of {totalProposals} proposals. Pending proposals appear first.</p>}
         {proposals.length === 0 && <p className="text-xs text-slate-400">No proposals recorded yet.</p>}
         <div className="max-h-64 space-y-2 overflow-y-auto">
           {proposals.map(proposal => (
@@ -147,6 +174,9 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
             </article>
           ))}
         </div>
+        {nextOffset < totalProposals && <button type="button" disabled={busy || loadingMore}
+          className="rounded border border-slate-600 px-3 py-1.5 text-xs text-cyan-200 disabled:opacity-40"
+          onClick={loadMore}>{loadingMore ? "Loading history..." : "Load older proposals"}</button>}
       </div>}
     </section>
   );
