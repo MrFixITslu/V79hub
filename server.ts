@@ -13,6 +13,7 @@ import { acceptInvitationState, invitationStatus } from "./server/onboarding-sto
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
+import { prepareReviewedHandoff } from "./server/agent-reviewed-handoff.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
@@ -4408,6 +4409,26 @@ function serializeAgentProposalWrite<T>(task: () => Promise<T>): Promise<T> {
   agentProposalWriteChain = pending.then(() => undefined, () => undefined);
   return pending;
 }
+
+// Copy-only reviewed brief: never writes to Tiquet/Marketing or dispatches actions.
+app.get("/api/agent/proposals/:proposalId/handoff", (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  res.setHeader("Cache-Control", "no-store");
+  const id = String(req.params.proposalId || "");
+  if (!/^[a-f0-9-]{36}$/i.test(id)) return res.status(404).json({ error: "Proposal not found." });
+  if (!agentApprovalAudit.verify(store.agentProposalAuditTrail) ||
+      !verifyAgentApprovalAuditLinkage(store.agentProposalAuditTrail, store.agentActionProposals)) {
+    return res.status(503).json({ error: "Approval audit verification unavailable." });
+  }
+  const proposal = store.agentActionProposals.find(item =>
+    item.id === id && item.organizationId === context.organizationId);
+  if (!proposal) return res.status(404).json({ error: "Proposal not found." });
+  if (proposal.status !== "approved") return res.status(409).json({ error: "Proposal not approved." });
+  const handoff = prepareReviewedHandoff(proposal, context.organizationId);
+  if (!handoff) return res.status(410).json({ error: "Reviewed brief unavailable or expired." });
+  return res.json({ mode: "manual-handoff", executionEnabled: false, handoff });
+});
 
 app.get("/api/agent/proposals", (req, res) => {
   const context = ownerApprovalContext(req);
