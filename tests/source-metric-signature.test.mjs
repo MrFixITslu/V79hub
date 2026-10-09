@@ -40,6 +40,8 @@ test("signed metric envelope verifies only trusted Ed25519 origin and exposes no
   assert.equal(proof.valid, true);
   assert.equal(proof.provenance, "source_signed");
   assert.equal(proof.evidence.system, "pos");
+  assert.equal(proof.evidence.expiresAt, original.expiresAt,
+    "Trusted expiration is part of the verified source evidence");
   assert.equal(proof.evidence.metrics.length, 2);
   assert.equal("organizationId" in proof.evidence, false);
   assert.equal("requestId" in proof.evidence, false);
