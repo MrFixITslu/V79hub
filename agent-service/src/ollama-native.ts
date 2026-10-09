@@ -68,6 +68,7 @@ export async function runOllamaOwnerAssistant(
   options: {
     env?: NodeJS.ProcessEnv;
     fetchImpl?: typeof fetch;
+    specialistInstructions?: string;
   } = {},
 ) {
   const runtime = resolveOllamaNativeRuntime(options.env);
@@ -96,6 +97,7 @@ export async function runOllamaOwnerAssistant(
             "When PRIORITY SIGNALS are present, follow their severity order: high before medium before info. Never rank a generic zero-activity observation above a high-severity signal.",
             "Do not claim you changed, sent, deployed, refunded, booked, or edited anything.",
             "Keep answers concise and professional. Prefer at most five short bullets unless the owner asks for more detail.",
+            options.specialistInstructions || "",
           ].join(" "),
         },
         { role: "user", content: groundedMessage },
