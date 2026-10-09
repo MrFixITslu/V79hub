@@ -23,6 +23,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
   onSuggestionHandled: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [supervisedEnabled, setSupervisedEnabled] = useState(false);
   const [proposals, setProposals] = useState<InboxProposal[]>([]);
   const [totalProposals, setTotalProposals] = useState(0);
   const [nextOffset, setNextOffset] = useState(0);
@@ -37,6 +38,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
     const data = await response.json();
     if (data.executionEnabled !== false || !Array.isArray(data.proposals)) throw new Error("Unexpected approval inbox mode.");
     setProposals(data.proposals);
+    setSupervisedEnabled(data.supervisedMarketingDraftsEnabled === true);
     setNextOffset(data.proposals.length);
     setTotalProposals(Number.isSafeInteger(data.totalProposals) ? data.totalProposals : data.proposals.length);
   };
@@ -53,6 +55,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
         if (!active) return;
         const next = Array.isArray(data.proposals) && data.executionEnabled === false ? data.proposals : [];
         setProposals(next);
+        setSupervisedEnabled(data.supervisedMarketingDraftsEnabled === true);
         setNextOffset(next.length);
         setTotalProposals(Number.isSafeInteger(data.totalProposals) ? data.totalProposals : next.length);
       })
@@ -224,7 +227,7 @@ export function AgentApprovalInbox({ suggested, onSuggestionHandled }: {
                   className="mt-2 rounded-lg border border-cyan-700 px-3 py-1.5 text-xs text-cyan-200 disabled:opacity-40">
                   Copy internal planning brief
                 </button>}
-              {proposal.status === "approved" && proposal.targetSystem === "marketing" &&
+              {supervisedEnabled && proposal.status === "approved" && proposal.targetSystem === "marketing" &&
                 proposal.operation === "draft_marketing_campaign" &&
                 <button type="button" disabled={busy}
                   onClick={() => createMarketingDraft(proposal)}
