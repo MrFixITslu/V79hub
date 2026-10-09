@@ -101,7 +101,7 @@ export function createAgentEvidenceAttestations({
   function verify(raw, { organizationId, userId } = {}) {
     // Manual unreferenced proposals remain possible, but may NOT claim evidence.
     if (raw?.evidenceRef === undefined || raw?.evidenceRef === null) {
-      return raw?.evidenceAttestation === undefined && { valid: true, stripped: raw };
+      return { valid: raw?.evidenceAttestation === undefined, stripped: raw };
     }
     if (typeof raw?.evidenceAttestation !== "string" ||
         !/^[A-Za-z0-9_-]{24,96}$/.test(raw.evidenceAttestation)) return { valid: false };
