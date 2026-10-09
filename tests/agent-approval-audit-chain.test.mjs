@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAgentApprovalAuditChain } from "../server/agent-approval-audit-chain.mjs";
+import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "../server/agent-approval-audit-chain.mjs";
 
 const audit = createAgentApprovalAuditChain("synthetic-test-only-hmac-key-1234567890", {
   now: () => new Date("2026-10-09T12:00:00Z"),
@@ -76,4 +76,21 @@ test("audit append rejects saturation without losing the prior record", () => {
   assert.throws(() => audit.append(corrupt, fakeProposal(), "synthetic-user"), /integrity/);
   assert.equal(events.length, 1);
   assert.equal(events[0], intact);
+});
+
+test("approval audit linkage detects a deleted signed tail or edited proposal snapshot", () => {
+  const events = [];
+  const pending = fakeProposal();
+  const approved = fakeProposal({ status: "approved", revision: 2 });
+  audit.append(events, pending, "synthetic-user");
+  audit.append(events, approved, "synthetic-user");
+  assert.equal(verifyAgentApprovalAuditLinkage(events, [approved]), true);
+  const truncated = events.slice(0,1);
+  assert.equal(audit.verify(truncated), true,
+    "an internally valid shortened chain alone cannot detect its missing tail");
+  assert.equal(verifyAgentApprovalAuditLinkage(truncated, [approved]), false);
+  assert.equal(verifyAgentApprovalAuditLinkage(events, [pending]), false);
+  assert.equal(verifyAgentApprovalAuditLinkage(events, []), false);
+  assert.equal(verifyAgentApprovalAuditLinkage(events, [{ ...approved, operation: "draft_finance_review" }]), false);
+  assert.equal(verifyAgentApprovalAuditLinkage([], []), true);
 });
