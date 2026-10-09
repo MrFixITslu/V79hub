@@ -3,13 +3,13 @@
 **Disposition: HOLD FOR RELEASE.** This document records review findings only. No app runtime, database, secrets, or production deployment is changed.
 
 ## Verified
-- Exact-head GitHub Actions run 37880604144 completed successfully for commit 2ef2fc91992d1949bb9f437f3d8b226e67ca9539.
+- Development CI [run 408](https://github.com/MrFixITslu/V79hub/actions/runs/37922020664) succeeded for code SHA `70450c5f6a5c23791ca69ab40b7e26f1cf409622` (164/164 Hub tests, 42/42 agent tests, Docker verification; publishing/deployment skipped). Every subsequent documentation/code change requires another exact-head check.
 - Decision-only ledger restricts operations to five fixed draft categories and fixes `executionStatus` to `disabled`.
 - Tests include mandatory MFA happy path, same-origin rejection, idempotency, revision conflicts, expiry, cross-organisation isolation, and JSON/PostgreSQL persistence. Existing test results are not a substitute for a staging exercise.
 - No PR review has been submitted yet.
 
 ## Outstanding security findings
-1. **HIGH — Evidence provenance (OPEN):** references are now constrained to the declared application and always labelled **unverified** in the ledger and owner UI, but they remain client-supplied. Before treating a proposal as evidence-backed, validate against a server-side, tenant-bound, authenticated investigation record with freshness checks. Do not describe this partial mitigation as evidence authentication.
+1. **HIGH — Evidence provenance (PARTIAL MITIGATION; SOURCE AUTHENTICITY OPEN):** The authenticated Hub-to-agent response now mints *temporary, opaque, owner-and-organisation-scoped* receipts only when an investigation finding exactly matches an `available` read-only evidence-ledger metric and timestamp. Proposals claiming evidence must submit the bound receipt; expired, edited, cross-tenant, mismatched-system and forged receipts are rejected. The resulting proposal is labelled `proxy_attested`; manual proposals remain `unverified`. **This verifies consistency within one agent proxy response, NOT independent signature verification against each original application.** Receipt registry is per-process and expires after 10 minutes; restart, replica mismatch or other failure fails closed. Release requires authenticated source-side evidence provenance and multi-instance coordination.
 2. **HIGH — MFA session binding (MITIGATED IN BRANCH; STAGING PENDING):** Session records now carry `mfaVerified` only after completing the server-side challenge. Approval routes reject password-only owner sessions and disabled MFA; previous sessions default unverified. Isolated negative-path and MFA success tests are included. Re-test restart, older-session and browser behavior during disposable staging.
 3. **MEDIUM — Audit integrity and retention (PARTIAL MITIGATION):** Proposal audit no longer truncates existing events; at 10,000 shared audit events it fails closed instead of deleting history. This is still a mutable application store, **not** a tamper-evident append-only audit. A protected durable audit table, retention/export strategy and operational capacity alerts are needed before actionable stages.
 4. **MEDIUM — Multi-writer coordination:** The proposal queue serializes within one process. Verify multiple instances, shared store writes and crash/retry behavior; do not assume database revision checks alone provide distributed locking.
@@ -30,17 +30,17 @@
 - Exact-SHA CI re-run after fixes, founder visual acceptance, and **separate explicit release approval**.
 
 ## Isolated automated checks added on the feature branch
-- Reject unrelated application prefixes and unverified evidence claims; display unverified state clearly.
+- Reject unrelated application prefixes, forged/missing/expired or other-owner evidence receipts, changed proposal fields and stale aggregate metrics. The UI displays `proxy_attested` with explicit source-verification limits, or `unverified` for manual drafts.
 - Verify all live pending records remain in the bounded first page even when recently decided records exceed 100; subsequent pages expose all decisions without duplication.
 - Exercise MFA negative path and successful plan-only approval under a mandatory-TOTP owner session.
 - Verify simultaneous idempotent submissions result in one proposal and configured synthetic downstream application receivers observe **no unsafe HTTP methods** during proposal/decision tests. This is a targeted test, **not** a complete network-isolated staging proof.
 - Reject obfuscated email/contact values and fullwidth secret labels, including in decision notes.
 - Verify audit overflow refuses unaudited changes without truncating previous audit events.
-- Hub CI run [389](https://github.com/MrFixITslu/V79hub/actions/runs/37917860392) completed successfully on commit `95c06245222a4f3ebadad35ebcce4c6d3c883bae`, with 159/159 Hub tests and 42/42 agent tests. Newer commits require a fresh exact-SHA pass before claiming branch readiness.
+- Hub CI [run 408](https://github.com/MrFixITslu/V79hub/actions/runs/37922020664) completed successfully on commit `70450c5f6a5c23791ca69ab40b7e26f1cf409622`, with **164/164 Hub tests** and **42/42 agent tests**. A separate synthetic agent proxy integration test checks decision-only approval with no downstream write methods. **Run CI again on the final head after any new commits.**
 
 ## Outstanding release steps
 1. Fully isolated end-to-end staging on a disposable environment with outbound write detection and browser acceptance.
-2. Design and test genuine tenant-bound investigation provenance; never equate a validated reference string with authenticated evidence.
+2. Introduce durable, independently verified, tenant-bound *source-issued* investigation evidence with application signatures and per-adapter freshness. Current `proxy_attested` receipts are not original-source attestation and do not coordinate between replicas.
 3. Implement durable tamper-evident approval audit, multi-instance atomicity, retention/archival policy for the 500-record cap and privacy classification.
 4. Complete an actual successful isolated PostgreSQL restore following issue #104; preserve live beta data and avoid global Docker restarts or pruning.
 5. Re-run full CI for the **final** exact commit SHA and obtain explicit founder approval separately before production merge/deployment.
