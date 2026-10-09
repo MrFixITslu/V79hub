@@ -14,6 +14,7 @@ import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-i
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
+import { createAgentApprovalAuditChain } from "./server/agent-approval-audit-chain.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
@@ -252,6 +253,13 @@ interface EcosystemApp {
   ownerOrganizationId?: string;
 }
 
+interface AgentApprovalAuditEvent {
+  id: string; organizationId: string; actorUserId: string; proposalId: string;
+  operation: string; targetSystem: string;
+  status: "pending" | "approved" | "rejected"; revision: number;
+  executionStatus: "disabled"; createdAt: string; previousMac: string; mac: string;
+}
+
 interface AgentActionProposal {
   id: string; organizationId: string; createdByUserId: string;
   operation: string; targetSystem: string; summary: string; rationale: string;
@@ -279,6 +287,7 @@ interface AppStore {
   passwordResetRequests: PasswordResetRequest[];
   auditEvents: AuditEvent[];
   agentActionProposals: AgentActionProposal[];
+  agentProposalAuditTrail: AgentApprovalAuditEvent[];
 }
 
 // Initial Seed Data
@@ -635,7 +644,8 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
       (parsed.passwordResetRequests !== undefined && !Array.isArray(parsed.passwordResetRequests)) ||
       (parsed.auditEvents !== undefined && !Array.isArray(parsed.auditEvents)) ||
-      (parsed.agentActionProposals !== undefined && !Array.isArray(parsed.agentActionProposals))) {
+      (parsed.agentActionProposals !== undefined && !Array.isArray(parsed.agentActionProposals)) ||
+      (parsed.agentProposalAuditTrail !== undefined && !Array.isArray(parsed.agentProposalAuditTrail))) {
     throw new Error("Organization records are malformed.");
   }
   return {
@@ -655,6 +665,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     passwordResetRequests: Array.isArray(parsed.passwordResetRequests) ? parsed.passwordResetRequests : [],
     auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
     agentActionProposals: Array.isArray(parsed.agentActionProposals) ? parsed.agentActionProposals : [],
+    agentProposalAuditTrail: Array.isArray(parsed.agentProposalAuditTrail) ? parsed.agentProposalAuditTrail : [],
   };
 }
 
@@ -664,7 +675,8 @@ function initialStore(): AppStore {
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
     organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], trialReminderEvents: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
-    teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [], agentActionProposals: [],
+    teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
+    agentActionProposals: [], agentProposalAuditTrail: [],
   };
 }
 
@@ -4315,6 +4327,12 @@ app.use(retiredEmbeddedAppPaths, (_req, res) => {
 const agentInternalUrl = process.env.V79_AGENT_INTERNAL_URL || "http://v79-business-agent:3055";
 // In-memory, single-instance, short-lived: restart or replica mismatch fails closed.
 const agentEvidenceAttestations = createAgentEvidenceAttestations();
+// The existing Hub security key keeps this development gate compatible with
+// isolated tests. Configure a dedicated audit HMAC key for a production release.
+const agentApprovalAudit = createAgentApprovalAuditChain(String(
+  process.env.V79_AGENT_AUDIT_HMAC_KEY || process.env.V79_HUB_SECURITY_KEY ||
+  process.env.V79_PLATFORM_SHARED_SECRET || ""
+));
 const agentTokenFile = process.env.V79_AGENT_TOKEN_FILE || "/run/secrets/v79-agent-token";
 function readAgentApiToken() {
   const direct = String(process.env.V79_AGENT_API_TOKEN || "").trim();
@@ -4377,7 +4395,11 @@ app.get("/api/agent/proposals", (req, res) => {
   }
   const offset = rawOffset === undefined ? 0 : Number(rawOffset);
   res.setHeader("Cache-Control", "no-store");
+  if (!agentApprovalAudit.verify(store.agentProposalAuditTrail)) {
+    return res.status(503).json({ error: "Approval audit verification unavailable." });
+  }
   return res.json({ mode: "decision-only", executionEnabled: false,
+    auditIntegrity: "verified",
     totalProposals: store.agentActionProposals.filter(p => p.organizationId === context.organizationId).length,
     offset, pageSize: 100,
     proposals: listAgentProposals(store.agentActionProposals, context.organizationId, new Date(), { offset }) });
@@ -4394,6 +4416,9 @@ app.post("/api/agent/proposals", async (req, res) => {
       });
       if (!attested.valid) return res.status(400).json({ error: "Investigation evidence receipt missing, expired or not valid for this owner." });
       const next = cloneStore();
+      if (!agentApprovalAudit.verify(next.agentProposalAuditTrail)) {
+        return res.status(503).json({ error: "Approval audit verification unavailable." });
+      }
       const result = createAgentProposal(next.agentActionProposals, attested.stripped, {
         organizationId: context.organizationId, actorUserId: context.userId,
         evidenceProvenance: attested.token ? "proxy_attested" : "unverified",
@@ -4403,6 +4428,7 @@ app.post("/api/agent/proposals", async (req, res) => {
       if (result.kind === "limit") return res.status(429).json({ error: "Proposal inbox limit reached." });
       if (result.kind === "created") {
         appendAgentProposalAudit(next.auditEvents, result.proposal, "agent.proposal.created", context.userId);
+        agentApprovalAudit.append(next.agentProposalAuditTrail, result.proposal, context.userId);
         await commitStore(next);
       }
       if (attested.token && (result.kind === "created" || result.kind === "duplicate")) {
@@ -4428,6 +4454,9 @@ app.post("/api/agent/proposals/:proposalId/decision", async (req, res) => {
   try {
     return await serializeAgentProposalWrite(async () => {
       const next = cloneStore();
+      if (!agentApprovalAudit.verify(next.agentProposalAuditTrail)) {
+        return res.status(503).json({ error: "Approval audit verification unavailable." });
+      }
       const result = decideAgentProposal(next.agentActionProposals, {
         id: String(req.params.proposalId || ""),
         organizationId: context.organizationId, actorUserId: context.userId,
@@ -4439,6 +4468,7 @@ app.post("/api/agent/proposals/:proposalId/decision", async (req, res) => {
       if (result.kind === "expired") return res.status(410).json({ error: "Proposal expired. Create a new draft." });
       if (result.kind === "conflict") return res.status(409).json({ error: "Proposal has already been reviewed or modified." });
       appendAgentProposalAudit(next.auditEvents, result.proposal, "agent.proposal." + result.proposal.status, context.userId);
+      agentApprovalAudit.append(next.agentProposalAuditTrail, result.proposal, context.userId);
       await commitStore(next);
       const proposal = listAgentProposals(next.agentActionProposals, context.organizationId)
         .find(item => item.id === result.proposal.id);
