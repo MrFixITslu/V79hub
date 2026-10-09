@@ -145,7 +145,9 @@ export function OwnerAssistant() {
                               : targetSystem === "ffpro" ? "draft_finance_review" : "draft_operational_report";
                             setSuggestedDraft({
                               operation, targetSystem, summary: finding.title,
-                              rationale: finding.nextStep, evidenceRef: finding.id,
+                              rationale: finding.nextStep,
+                              // Never relabel evidence from a different app as Hub evidence.
+                              evidenceRef: finding.id.startsWith(targetSystem + ":") ? finding.id : undefined,
                               idempotencyKey: crypto.randomUUID(),
                             });
                           }}>Propose a review draft</button>
