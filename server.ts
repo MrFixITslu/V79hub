@@ -3524,7 +3524,13 @@ registerSentinelQaRoutes(app, {
   // Include preserved schema extensions in the fail-closed reference scan.
   getStore: () => ({ ...storePersistence.envelope(), ...store }),
   commitStore: commitSentinelStore,
-  beginExclusive: sentinelWriteFence.beginExclusive,
+  beginExclusive: (req: Request) => {
+    // A configured reminder leader can resume writes at any timer tick.
+    if (trialReminderLeader || reminderBusy) {
+      throw new Error("Disable and quiesce the reminder worker before Sentinel maintenance.");
+    }
+    return sentinelWriteFence.beginExclusive(req);
+  },
   hashPassword,
   deleteSessionsWhere,
 });

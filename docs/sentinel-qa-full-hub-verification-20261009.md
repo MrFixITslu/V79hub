@@ -88,3 +88,43 @@ A PostgreSQL test skipped because binaries are unavailable does not satisfy the 
 4. Only after the production gate passes, perform any approved Hub-only live lifecycle check and verify exact cleanup, then disable both flags immediately.
 
 Existing backup restore and isolated full-Hub MFA/lifecycle testing are no longer outstanding blockers. Live deployment and live synthetic-account creation remain unperformed.
+
+## Follow-up release review — 2026-10-09 (AST)
+
+Continuation review found and fixed two additional staging gaps:
+
+1. GET app-launch routes can provision external accounts; the payment-return GET can persist billing events; the ecosystem catalogue GET can initialize state. These requests now participate in the global write fence, including HEAD fallback, trailing slashes and mixed-case paths consistent with Express routing. In-flight requests prevent Sentinel exclusivity; overlapping requests return 423 before side effects.
+2. Sentinel creation and cleanup now refuse an exclusive mutation whenever the trial-reminder worker is configured as a leader or is busy. A timer cannot silently resume Hub state changes while Sentinel is committing.
+
+Final follow-up validation: **208 passed, 0 failed, 0 skipped**, using disposable PostgreSQL 17.11. Full-Hub tests cover worker-enabled creation/deletion refusal, GET/HEAD side-effect routes, mixed-case paths, legitimate read availability during commit, and unchanged state after rejected operations. TypeScript, production build and patch checks pass.
+
+### Fresh backup and rollback preparation
+
+- Secure server backup: /home/firelion/v79-backups/pre-sentinel-auth-20261009-pbM3Do.
+- Includes PostgreSQL custom dump, Hub data archive, original environment/compose configuration, required secret-file backup and source/image identities. All files remain restricted on the server; no secrets were copied to the Acer or this report.
+- Backup SHA256 manifest validated. Persisted DB revision/fingerprint and session-file hash were stable across capture.
+- Fresh dump restored in an isolated container using the existing PostgreSQL image ID. Network disabled, no published ports, tmpfs database storage, no persistent volume, and only the dump mounted read-only.
+- Restored source revision 52 and full-state fingerprint matched exactly; 2 users and 2 organizations verified. Restore container removed.
+- Existing Hub image pinned as v79-hub:sentinel-pre-auth-20261009:
+  sha256:61ecdd6dd7d00201feba89daf3242398e14253f240c12cbea9819b89f259fd37.
+- Backup capture initially lacked permission to read a root-owned session file directly on the host. The successful retry read the file through its authorized running container and performed the hash comparison there. No permissions or ownership were changed.
+
+### Live conditions
+
+- Running Hub source remains 1fae521; Hub, PostgreSQL and business-agent containers remain healthy.
+- One Hub Compose service observed; tsx launcher and its server subprocess belong to that same service.
+- Mandatory administrator MFA and its encryption key are configured.
+- Sentinel create and cleanup feature flags remain disabled.
+- The live trial-reminder leader is enabled. This is a confirmed maintenance blocker and was not changed by this review.
+- Final read-only DB check still matches the original revision 52, 2 users, 2 organizations and full-state fingerprint.
+- No live synthetic identities, app provisioning, container replacement or service restart occurred.
+
+### Release status
+
+**HOLD — independent reviewer sign-off remains outstanding.**
+
+The implementation review above is a separate review pass by the author, not an independent security sign-off. Delegating the final review to a separate reviewer agent requires user authorization under the current work-mode delegation setting.
+
+After that review passes, a controlled live maintenance window must pause the reminder leader, drain provisioning/HTTP mutations, revalidate the latest source/image/data and refresh the cutover snapshot. The standard ecosystem deployment helper is not suitable for this narrowly scoped change because it rebuilds/recreates the agent and database stack; the maintenance plan requires a Hub-only replacement.
+
+See sentinel-qa-maintenance-plan-20261009.md for the reviewable cutover/rollback sequence. External-app tenant provisioning remains excluded.

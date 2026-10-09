@@ -146,7 +146,7 @@ for (const backend of ["json", "postgres"]) {
       : JSON.parse(await readFile(storeFile, "utf8"));
     const port = await freePort(), origin = "http://127.0.0.1:" + port;
     const securityKey = random() + random();
-    async function start(enabled) {
+    async function start(enabled, { backgroundEnabled=false }={}) {
       const env = {
         PATH: process.env.PATH, LANG: "C.UTF-8", NODE_ENV: "production",
         DATA_DIR: dir, PORT: String(port), APP_URL: origin, V79_HUB_BIND_HOST: "127.0.0.1",
@@ -156,7 +156,8 @@ for (const backend of ["json", "postgres"]) {
         V79_PLATFORM_SHARED_SECRET: securityKey,
         V79_SENTINEL_QA_CREATE_ENABLED: enabled ? "1" : "0",
         V79_SENTINEL_QA_CLEANUP_ENABLED: enabled ? "1" : "0",
-        V79_TRIAL_REMINDERS_ENABLED: "0", V79_TRIAL_REMINDERS_WORKER_LEADER: "0",
+        V79_TRIAL_REMINDERS_ENABLED: backgroundEnabled ? "1" : "0",
+        V79_TRIAL_REMINDERS_WORKER_LEADER: backgroundEnabled ? "1" : "0",
         RESEND_API_KEY: "", V79_HUB_EMAIL_FROM: "",
         V79_READONLY_PLATFORM_SECRET_FILE: path.join(root, "absent-readonly-secret"),
         V79_AGENT_TOKEN_FILE: path.join(root, "absent-agent-secret"),
@@ -182,7 +183,7 @@ for (const backend of ["json", "postgres"]) {
       assert.equal(listeners.length, 1);
       assert.ok(listeners[0].includes("127.0.0.1:"+port), "Hub must bind only loopback");
     }
-    async function restart(enabled) { await stop(running.child); await start(enabled); }
+    async function restart(enabled, options={}) { await stop(running.child); await start(enabled, options); }
     async function request(route, { method="GET", cookie, bearer, body, requestOrigin=origin }={}) {
       const headers = { "content-type": "application/json" };
       if (cookie) headers.Cookie=cookie;
@@ -228,6 +229,10 @@ for (const backend of ["json", "postgres"]) {
     assert.equal(customerLogin.status,200);
     const customerCookie=customerLogin.cookie;
     assert.equal(customerLogin.data.user.platformOperator,false);
+    const beforeBusy=await readStore();
+    await restart(true,{backgroundEnabled:true});
+    assert.equal((await request(create,{method:"POST",cookie:operatorCookie,body:ack})).status,409);
+    assert.deepEqual(await readStore(),beforeBusy,"configured reminder worker blocks creation without mutations");
     await restart(true);
     assert.equal((await request("/api/auth/me",{cookie:operatorCookie})).status,200);
     assert.equal((await request(create,{method:"POST",cookie:customerCookie,body:ack})).status,403);
@@ -298,6 +303,11 @@ for (const backend of ["json", "postgres"]) {
     const preview=await request(target+"/cleanup-preview",{cookie:operatorCookie});
     assert.equal(preview.status,200); assert.equal(preview.data.memberCount,3);
     const deletion={confirmName:"DELETE "+org.name,previewHash:preview.data.previewHash};
+    const beforeBlockedCleanup=await readStore();
+    await restart(true,{backgroundEnabled:true});
+    assert.equal((await request(target+"/cleanup",{method:"POST",cookie:operatorCookie,body:deletion})).status,409);
+    assert.deepEqual(await readStore(),beforeBlockedCleanup,"configured reminder worker blocks deletion without mutations");
+    await restart(true);
     // Simulate future persisted schema and external-tenant references only in
     // this disposable fixture, with the Hub stopped for every direct edit.
     async function writeIsolatedState(state) {
@@ -345,6 +355,15 @@ for (const backend of ["json", "postgres"]) {
           assert.ok(blocked,"cleanup must reach durable PostgreSQL write lock");
           assert.equal((await request("/api/auth/logout",{method:"POST",cookie:customerCookie})).status,423);
           assert.equal((await login("customer@fixture.invalid",customerPassword)).status,423);
+          for (const route of ["/api/apps/pos/launch","/api/apps/tiquet/launch",
+            "/api/apps/marketing/launch","/api/apps/ffpro/launch",
+            "/api/billing/wipay/return","/api/ecosystem/apps",
+            "/API/APPS/pos/launch","/Api/Billing/WiPay/Return","/Api/Ecosystem/Apps"]) {
+            assert.equal((await request(route,{cookie:operatorCookie})).status,423,route+" blocked before side effects");
+            assert.equal((await fetch(origin+route,{method:"HEAD",headers:{Cookie:operatorCookie}})).status,423);
+          }
+          assert.equal((await request("/api/health")).status,200);
+          assert.equal((await request("/api/auth/me",{cookie:customerCookie})).status,200);
           assert.equal((await request(create,{method:"POST",cookie:operatorCookie,body:ack})).status,409);
         } finally { await lock.query("COMMIT"); }
         const removed=await cleaning;

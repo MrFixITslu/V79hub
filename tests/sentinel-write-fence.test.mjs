@@ -74,3 +74,27 @@ test("pending store save prevents acquiring Sentinel exclusive lock",()=>{
  req.res.emit("finish");
  assert.deepEqual(f.snapshot(),{activeHttpWrites:0,activeStoreWrites:0,exclusive:false});
 });
+
+test("GET and HEAD provisioning/payment/catalog requests count as writes",()=>{
+ for (const method of ["GET","HEAD"]) {
+  for (const path of ["/api/apps/pos/launch","/api/apps/tiquet/launch/",
+    "/api/apps/marketing/launch","/api/apps/ffpro/launch",
+    "/api/billing/wipay/return","/api/ecosystem/apps/",
+    "/API/APPS/pos/launch","/Api/Billing/WiPay/Return","/Api/Ecosystem/Apps"]) {
+   const f=createSentinelWriteFence();
+   const existing=request(method,path);
+   const cleanup=request("POST","/api/admin/sentinel-qa/organizations/test/cleanup");
+   f.middleware(existing.req,existing.res,existing.next);
+   f.middleware(cleanup.req,cleanup.res,cleanup.next);
+   assert.equal(existing.wasPassed(),true);
+   assert.throws(()=>f.beginExclusive(cleanup.req),SentinelWriteFenceError);
+   existing.res.emit("finish");
+   const release=f.beginExclusive(cleanup.req);
+   const overlap=request(method,path);
+   f.middleware(overlap.req,overlap.res,overlap.next);
+   assert.equal(overlap.res.statusCode,423);
+   assert.equal(overlap.wasPassed(),false);
+   release();cleanup.res.emit("finish");
+  }
+ }
+});

@@ -18,12 +18,18 @@ export function createSentinelWriteFence() {
   let activeSentinelRequest = null;
   let activeStoreWrites = 0;
 
-  function isWriteMethod(req) {
-    return !["GET","HEAD","OPTIONS"].includes(req.method);
+  function isStateChangingRequest(req) {
+    if (!["GET","HEAD","OPTIONS"].includes(req.method)) return true;
+    if (req.method === "OPTIONS") return false;
+    // Express may dispatch HEAD to a GET handler. These GET routes can create
+    // external identities, persist payment events or initialize the catalog.
+    return /^\/api\/apps\/[^/]+\/launch\/?$/i.test(req.path) ||
+      /^\/api\/billing\/wipay\/return\/?$/i.test(req.path) ||
+      /^\/api\/ecosystem\/apps\/?$/i.test(req.path);
   }
 
   function middleware(req,res,next) {
-    if (!isWriteMethod(req)) return next();
+    if (!isStateChangingRequest(req)) return next();
     const sentinelRoute = req.path.startsWith("/api/admin/sentinel-qa/organizations");
     if (activeSentinelRequest && req !== activeSentinelRequest && !sentinelRoute) {
       res.setHeader("Cache-Control","no-store");
