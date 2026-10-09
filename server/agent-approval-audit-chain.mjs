@@ -110,5 +110,26 @@ export function createAgentApprovalAuditChain(secret, {
     };
   }
 
-  return { enabled, verify, append, health };
+  // Exportable opaque checkpoint. It can only detect later tail deletion if
+  // kept independently outside the mutable Hub state.
+  function checkpoint(events) {
+    if (!verify(events)) throw new Error("Agent approval audit integrity unavailable.");
+    return {
+      schema: "v79-agent-approval-audit-checkpoint-v1",
+      count: events.length,
+      headMac: events.at(-1)?.mac || GENESIS,
+    };
+  }
+
+  function verifyCheckpoint(events, expected) {
+    if (!expected || expected.schema !== "v79-agent-approval-audit-checkpoint-v1" ||
+        !Number.isInteger(expected.count) || expected.count < 0 ||
+        typeof expected.headMac !== "string" || !/^[a-f0-9]{64}$/.test(expected.headMac) ||
+        !verify(events) || expected.count !== events.length) return false;
+    const current = Buffer.from(events.at(-1)?.mac || GENESIS, "hex");
+    const target = Buffer.from(expected.headMac, "hex");
+    return timingSafeEqual(current, target);
+  }
+
+  return { enabled, verify, append, health, checkpoint, verifyCheckpoint };
 }
