@@ -77,46 +77,26 @@ test("Owner Assistant snapshot is service-authenticated and locked to Vision79 o
   const organizationId = identity.organization.id;
   assert.equal(identity.user.ownerAgent, true);
 
-  // Phase 3: the real Hub owner session records decisions, never executes them.
-  assert.equal((await request("/api/agent/proposals")).status, 401);
+  // A password-only founder session must not enter the Phase 3 approval inbox.
+  // This deployment intentionally has no MFA requirement so that the negative
+  // security case can be tested independently of mandatory-MFA enrollment.
   const cookie = String(login.headers.get("set-cookie") || "").split(";")[0];
-  const draft = {
-    operation: "draft_inventory_review", targetSystem: "pos",
-    summary: "Review replenishment requirements",
-    rationale: "Examine the current POS stock count before preparing a purchase request.",
-    evidenceRef: "pos:criticalReplenishmentItems", idempotencyKey: "isolated-owner-ledger-test-0001",
-  };
-  const headers = { "content-type": "application/json", origin, cookie };
+  const ownerHeaders = { "content-type": "application/json", origin, cookie };
+  assert.equal((await request("/api/agent/proposals")).status, 401);
+  assert.equal((await request("/api/agent/proposals", { headers: { cookie } })).status, 403);
   assert.equal((await request("/api/agent/proposals", {
-    method: "POST", headers: { ...headers, origin: "https://invalid.invalid" },
-    body: JSON.stringify(draft),
+    method: "POST", headers: ownerHeaders,
+    body: JSON.stringify({
+      operation: "draft_inventory_review", targetSystem: "pos",
+      summary: "Review replenishment requirements",
+      rationale: "Examine the POS stock aggregate before any request.",
+      idempotencyKey: "isolated-owner-ledger-test-0001",
+    }),
   })).status, 403);
-  const created = await request("/api/agent/proposals", {
-    method: "POST", headers, body: JSON.stringify(draft),
-  });
-  assert.equal(created.status, 201);
-  const createdBody = await created.json();
-  assert.equal(createdBody.executionEnabled, false);
-  assert.equal(createdBody.proposal.status, "pending");
-  assert.equal((await request("/api/agent/proposals", {
-    method: "POST", headers, body: JSON.stringify(draft),
-  })).status, 200);
-  const approval = await request("/api/agent/proposals/" + createdBody.proposal.id + "/decision", {
-    method: "POST", headers, body: JSON.stringify({ decision: "approve", expectedRevision: 1 }),
-  });
-  assert.equal(approval.status, 200);
-  const decision = await approval.json();
-  assert.equal(decision.executionEnabled, false);
-  assert.equal(decision.proposal.status, "approved");
-  assert.equal(decision.proposal.executionStatus, "disabled");
-  assert.equal((await request("/api/agent/proposals/" + createdBody.proposal.id + "/decision", {
-    method: "POST", headers, body: JSON.stringify({ decision: "approve", expectedRevision: 1 }),
-  })).status, 409);
-  const proposalsResponse = await request("/api/agent/proposals", { headers: { cookie } });
-  assert.equal(proposalsResponse.status, 200);
-  const proposals = await proposalsResponse.json();
-  assert.equal(proposals.proposals.length, 1);
-  assert.equal(proposals.proposals[0].executionStatus, "disabled");
+  assert.equal((await request("/api/agent/proposals/01234567-89ab-4cde-8000-0123456789ab/decision", {
+    method: "POST", headers: ownerHeaders,
+    body: JSON.stringify({ decision: "approve", expectedRevision: 1 }),
+  })).status, 403);
 
   assert.equal((await request("/internal/agent/snapshot")).status, 403);
   assert.equal((await request("/internal/agent/snapshot", {
