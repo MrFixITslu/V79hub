@@ -77,6 +77,27 @@ test("Owner Assistant snapshot is service-authenticated and locked to Vision79 o
   const organizationId = identity.organization.id;
   assert.equal(identity.user.ownerAgent, true);
 
+  // A password-only founder session must not enter the Phase 3 approval inbox.
+  // This deployment intentionally has no MFA requirement so that the negative
+  // security case can be tested independently of mandatory-MFA enrollment.
+  const cookie = String(login.headers.get("set-cookie") || "").split(";")[0];
+  const ownerHeaders = { "content-type": "application/json", origin, cookie };
+  assert.equal((await request("/api/agent/proposals")).status, 401);
+  assert.equal((await request("/api/agent/proposals", { headers: { cookie } })).status, 403);
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: ownerHeaders,
+    body: JSON.stringify({
+      operation: "draft_inventory_review", targetSystem: "pos",
+      summary: "Review replenishment requirements",
+      rationale: "Examine the POS stock aggregate before any request.",
+      idempotencyKey: "isolated-owner-ledger-test-0001",
+    }),
+  })).status, 403);
+  assert.equal((await request("/api/agent/proposals/01234567-89ab-4cde-8000-0123456789ab/decision", {
+    method: "POST", headers: ownerHeaders,
+    body: JSON.stringify({ decision: "approve", expectedRevision: 1 }),
+  })).status, 403);
+
   assert.equal((await request("/internal/agent/snapshot")).status, 403);
   assert.equal((await request("/internal/agent/snapshot", {
     headers: {

@@ -12,6 +12,10 @@ import { activeMembership, activeMembershipsForUser, enabledAppIds, organization
 import { acceptInvitationState, invitationStatus } from "./server/onboarding-store.mjs";
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
+import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
+import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
+import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
+import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
@@ -250,6 +254,23 @@ interface EcosystemApp {
   ownerOrganizationId?: string;
 }
 
+interface AgentApprovalAuditEvent {
+  id: string; organizationId: string; actorUserId: string; proposalId: string;
+  operation: string; targetSystem: string;
+  status: "pending" | "approved" | "rejected"; revision: number;
+  executionStatus: "disabled"; createdAt: string; previousMac: string; mac: string;
+}
+
+interface AgentActionProposal {
+  id: string; organizationId: string; createdByUserId: string;
+  operation: string; targetSystem: string; summary: string; rationale: string;
+  evidenceRef: string | null; evidenceVerification: "unverified" | "proxy_attested"; idempotencyKey: string; fingerprint: string;
+  status: "pending" | "approved" | "rejected"; revision: number;
+  createdAt: string; expiresAt: string;
+  decidedAt: string | null; decidedByUserId: string | null;
+  decisionNote: string | null; executionStatus: "disabled";
+}
+
 interface AppStore {
   users: StoredUser[];
   workspace: WorkspaceProfile;
@@ -266,6 +287,8 @@ interface AppStore {
   appTenantMappings: AppTenantMapping[];
   passwordResetRequests: PasswordResetRequest[];
   auditEvents: AuditEvent[];
+  agentActionProposals: AgentActionProposal[];
+  agentProposalAuditTrail: AgentApprovalAuditEvent[];
 }
 
 // Initial Seed Data
@@ -621,7 +644,9 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.teamInvitations !== undefined && !Array.isArray(parsed.teamInvitations)) ||
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
       (parsed.passwordResetRequests !== undefined && !Array.isArray(parsed.passwordResetRequests)) ||
-      (parsed.auditEvents !== undefined && !Array.isArray(parsed.auditEvents))) {
+      (parsed.auditEvents !== undefined && !Array.isArray(parsed.auditEvents)) ||
+      (parsed.agentActionProposals !== undefined && !Array.isArray(parsed.agentActionProposals)) ||
+      (parsed.agentProposalAuditTrail !== undefined && !Array.isArray(parsed.agentProposalAuditTrail))) {
     throw new Error("Organization records are malformed.");
   }
   return {
@@ -640,6 +665,8 @@ function normalizeLoadedStore(parsed: any): AppStore {
     appTenantMappings: Array.isArray(parsed.appTenantMappings) ? parsed.appTenantMappings : [],
     passwordResetRequests: Array.isArray(parsed.passwordResetRequests) ? parsed.passwordResetRequests : [],
     auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
+    agentActionProposals: Array.isArray(parsed.agentActionProposals) ? parsed.agentActionProposals : [],
+    agentProposalAuditTrail: Array.isArray(parsed.agentProposalAuditTrail) ? parsed.agentProposalAuditTrail : [],
   };
 }
 
@@ -650,6 +677,7 @@ function initialStore(): AppStore {
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
     organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], trialReminderEvents: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
     teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
+    agentActionProposals: [], agentProposalAuditTrail: [],
   };
 }
 
@@ -730,6 +758,8 @@ type HubSession = {
   username: string;
   role: string;
   expiresAt: number;
+  // True only after this specific session completes a Hub MFA challenge.
+  mfaVerified: boolean;
 };
 
 function sessionKey(token: string) {
@@ -759,6 +789,8 @@ function loadPersistedSessions() {
         username: row.username,
         role: row.role,
         expiresAt: row.expiresAt,
+        // Old persisted sessions remain valid for ordinary Hub use but cannot approve plans.
+        mfaVerified: row.mfaVerified === true,
       });
     }
   } catch (error) {
@@ -1927,7 +1959,7 @@ function sameOriginMutation(req: Request) {
   }
 }
 
-function createHubSession(userId: string, organizationId: string) {
+function createHubSession(userId: string, organizationId: string, { mfaVerified = false }: { mfaVerified?: boolean } = {}) {
   const user = store.users.find(item => item.id === userId);
   const membership = activeMembership(store, userId, organizationId);
   if (!user || !membership) throw new Error("Unable to create Hub session.");
@@ -1939,6 +1971,7 @@ function createHubSession(userId: string, organizationId: string) {
     username: user.username,
     role: sessionRole(membership)!,
     expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+    mfaVerified,
   });
   return token;
 }
@@ -2070,8 +2103,8 @@ async function completeTeamInvitationAcceptance(
 // AUTHENTICATION ROUTES
 // ==========================================
 
-async function completeHubLogin(foundUser: StoredUser, organizationId: string, res: Response) {
-  const token = createHubSession(foundUser.id, organizationId);
+async function completeHubLogin(foundUser: StoredUser, organizationId: string, res: Response, { mfaVerified = false }: { mfaVerified?: boolean } = {}) {
+  const token = createHubSession(foundUser.id, organizationId, { mfaVerified });
   foundUser.lastLogin = new Date().toISOString();
   await saveStore(store);
   res.setHeader("Set-Cookie", sessionCookie(token, 12 * 60 * 60));
@@ -2205,7 +2238,7 @@ app.post("/api/auth/mfa/complete-login", async (req, res) => {
     await saveStore(store);
   }
   mfaChallenges.delete(challengeId);
-  return completeHubLogin(user, challenge.organizationId, res);
+  return completeHubLogin(user, challenge.organizationId, res, { mfaVerified: true });
 });
 
 app.post("/api/auth/register", (_req, res) => {
@@ -4293,6 +4326,14 @@ app.use(retiredEmbeddedAppPaths, (_req, res) => {
   res.status(410).json({ error: "This embedded Hub app-data API has been retired. Use the dedicated V79 application." });
 });
 const agentInternalUrl = process.env.V79_AGENT_INTERNAL_URL || "http://v79-business-agent:3055";
+// In-memory, single-instance, short-lived: restart or replica mismatch fails closed.
+const agentEvidenceAttestations = createAgentEvidenceAttestations();
+// The existing Hub security key keeps this development gate compatible with
+// isolated tests. Configure a dedicated audit HMAC key for a production release.
+const agentApprovalAudit = createAgentApprovalAuditChain(String(
+  process.env.V79_AGENT_AUDIT_HMAC_KEY || process.env.V79_HUB_SECURITY_KEY ||
+  process.env.V79_PLATFORM_SHARED_SECRET || ""
+));
 const agentTokenFile = process.env.V79_AGENT_TOKEN_FILE || "/run/secrets/v79-agent-token";
 function readAgentApiToken() {
   const direct = String(process.env.V79_AGENT_API_TOKEN || "").trim();
@@ -4325,6 +4366,160 @@ function ownerAssistantContext(req: Request) {
     hubAdmin: true,
   };
 }
+
+// Approval routes require an MFA-verified *session*, not just an MFA-enabled account.
+// This intentionally does not change access to the existing read-only Owner Assistant.
+function ownerApprovalContext(req: Request) {
+  const session = (req as any).user as HubSession | undefined;
+  if (!session?.mfaVerified) return null;
+  const user = store.users.find(item => item.id === session.userId);
+  if (!user?.mfaEnabled) return null;
+  return ownerAssistantContext(req);
+}
+
+// Stage 2C source-signature pilot: strict read-only GET, no downstream writes.
+// Disabled unless an operator separately configures the Tiquet signer/public key
+// and deliberately enables the staging flag. This does not grant execution.
+app.get("/api/agent/sources/tiquet/metrics", async (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "MFA-verified owner access required." });
+  res.setHeader("Cache-Control", "no-store");
+  const configuredPublicKey = String(process.env.V79_TIQUET_SOURCE_ED25519_PUBLIC_KEY_B64 || "");
+  let publicKey = "";
+  try {
+    publicKey = Buffer.from(configuredPublicKey, "base64").toString("utf8");
+  } catch { /* fail closed without a trusted configured verification key */ }
+  const verified = await readSignedTiquetMetrics({
+    enabled: process.env.V79_TIQUET_SIGNED_METRICS_ENABLED === "1",
+    organizationId: context.organizationId,
+    publicKey,
+    platformSecret: platformSigningSecret("tiquet"),
+    baseUrl: dashboardSources.tiquet,
+    signPlatformRequest,
+  });
+  return res.status(verified.status === "available" ? 200 : 503).json(verified);
+});
+
+// Phase 3 is a decision ledger only: approval DOES NOT dispatch any action.
+// Serialize inbox modifications, preserving idempotency across concurrent calls.
+let agentProposalWriteChain: Promise<unknown> = Promise.resolve();
+function serializeAgentProposalWrite<T>(task: () => Promise<T>): Promise<T> {
+  const pending = agentProposalWriteChain.then(task, task);
+  agentProposalWriteChain = pending.then(() => undefined, () => undefined);
+  return pending;
+}
+
+app.get("/api/agent/proposals", (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  const rawOffset = req.query.offset;
+  if (rawOffset !== undefined && (typeof rawOffset !== "string" ||
+      !/^(0|[1-9][0-9]{0,2})$/.test(rawOffset) || Number(rawOffset) > 500)) {
+    return res.status(400).json({ error: "Invalid proposal page offset." });
+  }
+  const offset = rawOffset === undefined ? 0 : Number(rawOffset);
+  res.setHeader("Cache-Control", "no-store");
+  if (!agentApprovalAudit.verify(store.agentProposalAuditTrail) ||
+      !verifyAgentApprovalAuditLinkage(store.agentProposalAuditTrail, store.agentActionProposals)) {
+    return res.status(503).json({ error: "Approval audit verification unavailable." });
+  }
+  return res.json({ mode: "decision-only", executionEnabled: false,
+    auditIntegrity: "verified",
+    totalProposals: store.agentActionProposals.filter(p => p.organizationId === context.organizationId).length,
+    offset, pageSize: 100,
+    proposals: listAgentProposals(store.agentActionProposals, context.organizationId, new Date(), { offset }) });
+});
+
+// A founder may retain this opaque checkpoint outside Hub to detect later
+// truncation of otherwise well-signed in-store approval history. Read-only.
+app.get("/api/agent/approval-audit-checkpoint", (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  res.setHeader("Cache-Control", "no-store");
+  if (!agentApprovalAudit.verify(store.agentProposalAuditTrail) ||
+      !verifyAgentApprovalAuditLinkage(store.agentProposalAuditTrail, store.agentActionProposals)) {
+    return res.status(503).json({ error: "Approval audit verification unavailable." });
+  }
+  return res.json({ ...agentApprovalAudit.checkpoint(store.agentProposalAuditTrail),
+    executionEnabled: false, independentRetentionConfigured: false });
+});
+
+app.post("/api/agent/proposals", async (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    return await serializeAgentProposalWrite(async () => {
+      const attested = agentEvidenceAttestations.verify(req.body, {
+        organizationId: context.organizationId, userId: context.userId,
+      });
+      if (!attested.valid) return res.status(400).json({ error: "Investigation evidence receipt missing, expired or not valid for this owner." });
+      const next = cloneStore();
+      if (!agentApprovalAudit.verify(next.agentProposalAuditTrail) ||
+          !verifyAgentApprovalAuditLinkage(next.agentProposalAuditTrail, next.agentActionProposals)) {
+        return res.status(503).json({ error: "Approval audit verification unavailable." });
+      }
+      const result = createAgentProposal(next.agentActionProposals, attested.stripped, {
+        organizationId: context.organizationId, actorUserId: context.userId,
+        evidenceProvenance: attested.token ? "proxy_attested" : "unverified",
+      });
+      if (result.kind === "invalid") return res.status(400).json({ error: "Invalid draft proposal." });
+      if (result.kind === "conflict") return res.status(409).json({ error: "Idempotency key is already bound to another proposal." });
+      if (result.kind === "limit") return res.status(429).json({ error: "Proposal inbox limit reached." });
+      if (result.kind === "created") {
+        appendAgentProposalAudit(next.auditEvents, result.proposal, "agent.proposal.created", context.userId);
+        agentApprovalAudit.append(next.agentProposalAuditTrail, result.proposal, context.userId);
+        await commitStore(next);
+      }
+      if (attested.token && (result.kind === "created" || result.kind === "duplicate")) {
+        agentEvidenceAttestations.bindIdempotencyKey(attested.token, result.proposal.idempotencyKey);
+      }
+      // Project the exact result, not the truncated 100-item inbox. Retries for
+      // older decided drafts must still return a valid, redacted proposal.
+      const proposal = listAgentProposals([result.proposal], context.organizationId)[0];
+      return res.status(result.kind === "created" ? 201 : 200).json({
+        proposal, executionEnabled: false, duplicate: result.kind === "duplicate",
+      });
+    });
+  } catch (error) {
+    console.error("Agent proposal save failed", error instanceof Error ? error.name : "error");
+    return res.status(503).json({ error: "Approval inbox storage is unavailable." });
+  }
+});
+
+app.post("/api/agent/proposals/:proposalId/decision", async (req, res) => {
+  const context = ownerApprovalContext(req);
+  if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    return await serializeAgentProposalWrite(async () => {
+      const next = cloneStore();
+      if (!agentApprovalAudit.verify(next.agentProposalAuditTrail) ||
+          !verifyAgentApprovalAuditLinkage(next.agentProposalAuditTrail, next.agentActionProposals)) {
+        return res.status(503).json({ error: "Approval audit verification unavailable." });
+      }
+      const result = decideAgentProposal(next.agentActionProposals, {
+        id: String(req.params.proposalId || ""),
+        organizationId: context.organizationId, actorUserId: context.userId,
+        expectedRevision: req.body?.expectedRevision,
+        decision: req.body?.decision, note: req.body?.note,
+      });
+      if (result.kind === "invalid") return res.status(400).json({ error: "Invalid proposal decision." });
+      if (result.kind === "not_found") return res.status(404).json({ error: "Proposal not found." });
+      if (result.kind === "expired") return res.status(410).json({ error: "Proposal expired. Create a new draft." });
+      if (result.kind === "conflict") return res.status(409).json({ error: "Proposal has already been reviewed or modified." });
+      appendAgentProposalAudit(next.auditEvents, result.proposal, "agent.proposal." + result.proposal.status, context.userId);
+      agentApprovalAudit.append(next.agentProposalAuditTrail, result.proposal, context.userId);
+      await commitStore(next);
+      const proposal = listAgentProposals(next.agentActionProposals, context.organizationId)
+        .find(item => item.id === result.proposal.id);
+      return res.json({ proposal, executionEnabled: false, message: "Decision recorded. No action executed." });
+    });
+  } catch (error) {
+    console.error("Agent proposal decision failed", error instanceof Error ? error.name : "error");
+    return res.status(503).json({ error: "Approval inbox storage is unavailable." });
+  }
+});
 
 app.get("/api/agent/access", (req, res) => {
   const context = ownerAssistantContext(req);
@@ -4427,7 +4622,21 @@ app.post("/api/agent/chat", async (req, res) => {
     const body = await response.text();
     res.status(response.status);
     res.setHeader("Cache-Control", "no-store");
-    res.type(response.headers.get("content-type") || "application/json").send(body);
+    // Only the authenticated, successful agent response can obtain an evidence
+    // receipt, and only when the finding matches a fresh available ledger metric.
+    // An unsigned model-supplied reference or claimed receipt is never forwarded.
+    if (response.ok && Buffer.byteLength(body, "utf8") <= 128 * 1024) {
+      try {
+        const result = JSON.parse(body);
+        if (result && typeof result === "object" && !Array.isArray(result)) {
+          const attested = agentEvidenceAttestations.decorate(result, {
+            organizationId: context.organizationId, userId: context.userId,
+          });
+          return res.type("application/json").send(JSON.stringify(attested));
+        }
+      } catch { /* preserve valid upstream non-JSON response without minting receipts */ }
+    }
+    return res.type(response.headers.get("content-type") || "application/json").send(body);
   } catch (error) {
     console.error("Owner Assistant proxy failed", error);
     res.status(502).json({ error: "Owner Assistant service is unavailable." });

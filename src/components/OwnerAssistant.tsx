@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Bot, Send, ShieldCheck } from "lucide-react";
+import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
+import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 
 type EvidenceMetric = { key: string; value: number };
 type EvidenceRecord = {
@@ -11,6 +13,7 @@ type EvidenceLedger = { mode: "read-only"; collectedAt: string | null; records: 
 type InvestigationFinding = {
   id: string; system: string; severity: "attention" | "watch" | "information";
   title: string; evidence: {source: string; metric: string; value: number; reportedAt: string};
+  evidenceAttestation?: string;
   nextStep: string;
 };
 type InvestigationBrief = {
@@ -38,6 +41,7 @@ export function OwnerAssistant() {
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [suggestedDraft, setSuggestedDraft] = useState<AgentDraftSuggestion | null>(null);
 
   const send = async () => {
     const message = input.trim();
@@ -84,6 +88,8 @@ export function OwnerAssistant() {
           </div>
         </div>
 
+        <AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} />
+        <SignedTiquetEvidencePanel />
         <div className="px-5 py-3 border-b border-slate-800 bg-slate-900/50">
           <p className="text-xs text-slate-400 mb-2">Ask a specialist · drafts and recommendations only</p>
           <div className="flex flex-wrap gap-2">
@@ -130,6 +136,25 @@ export function OwnerAssistant() {
                         </div>
                         <div className="text-slate-400">{finding.system}: {finding.evidence.metric} = {finding.evidence.value.toLocaleString()} · reported {new Date(finding.evidence.reportedAt).toLocaleString()}</div>
                         <div className="text-slate-200">Suggested review: {finding.nextStep}</div>
+                        <button type="button" className="mt-2 rounded-md border border-cyan-700 px-2 py-1 text-xs text-cyan-200"
+                          onClick={() => {
+                            const targetSystem = finding.system === "tiquet" ? "tiquet"
+                              : finding.system === "marketing" ? "marketing"
+                              : finding.system === "pos" ? "pos"
+                              : finding.system === "ffpro" ? "ffpro" : "hub";
+                            const operation = targetSystem === "tiquet" ? "draft_support_reply"
+                              : targetSystem === "marketing" ? "draft_marketing_campaign"
+                              : targetSystem === "pos" ? "draft_inventory_review"
+                              : targetSystem === "ffpro" ? "draft_finance_review" : "draft_operational_report";
+                            setSuggestedDraft({
+                              operation, targetSystem, summary: finding.title,
+                              rationale: finding.nextStep,
+                              // Never relabel evidence from a different app as Hub evidence.
+                              evidenceRef: finding.evidenceAttestation && finding.id.startsWith(targetSystem + ":") ? finding.id : undefined,
+                              evidenceAttestation: finding.evidenceAttestation && finding.id.startsWith(targetSystem + ":") ? finding.evidenceAttestation : undefined,
+                              idempotencyKey: crypto.randomUUID(),
+                            });
+                          }}>Propose a review draft</button>
                       </div>
                     ))}
                     {message.investigation.findings.length === 0 && (

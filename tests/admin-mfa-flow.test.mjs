@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { createAgentApprovalAuditChain } from "../server/agent-approval-audit-chain.mjs";
 import { createServer } from "node:http";
+import { generateKeyPairSync, sign as signEd25519 } from "node:crypto";
+import { canonicalSourceMetricPayload } from "../server/source-metric-signature.mjs";
+import { signPlatformRequest } from "../server/platform-contract.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { totpCode } from "../server/security-contract.mjs";
@@ -18,6 +23,86 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   const origin = await listen(probe);
   await new Promise(resolve => probe.close(resolve));
 
+  const downstreamMethods = [];
+  const verifiedTiquetSourceRequests = [];
+  const tiquetSigningKeys = generateKeyPairSync("ed25519");
+  const tiquetTrustedPublicKey = tiquetSigningKeys.publicKey.export({ format: "pem", type: "spki" });
+  let tiquetSigningMode = "valid";
+  const downstream = createServer((req, res) => {
+    downstreamMethods.push(String(req.method || ""));
+    const match = /^\/api\/platform\/agent\/signed-metrics\/([A-Za-z0-9_-]{6,96})\/([0-9a-f-]{36})$/.exec(String(req.url || ""));
+    if (req.method === "GET" && match) {
+      const [, organizationId, requestId] = match;
+      const timestamp = String(req.headers["x-v79-timestamp"] || "");
+      const expectedHmac = signPlatformRequest({
+        method: "GET", pathname: String(req.url), timestamp, body: "",
+        secret: "platform-test-secret-12345678901234567890",
+      });
+      verifiedTiquetSourceRequests.push({
+        method: req.method, organizationId, requestId,
+        serviceId: req.headers["x-v79-service-id"],
+        signedRequest: req.headers["x-v79-signature"] === expectedHmac,
+      });
+      const now = new Date();
+      const payload = {
+        schema: "v79-source-metrics-v1", source: "tiquet",
+        organizationId: tiquetSigningMode === "wrong-tenant" ? "other-tenant" : organizationId,
+        requestId,
+        observedAt: now.toISOString(),
+        expiresAt: new Date(+now + 90_000).toISOString(),
+        metrics: [
+          { key:"clients",value:2 }, { key:"jobs",value:3 },
+          { key:"teamMembers",value:1 }, { key:"unreadNotifications",value:0 },
+          { key:"jobValueTotal",value:120 },
+        ],
+      };
+      const canonical = canonicalSourceMetricPayload(payload);
+      const signature = canonical
+        ? signEd25519(null, Buffer.from(canonical), tiquetSigningKeys.privateKey).toString("base64url")
+        : "";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ payload, signature:tiquetSigningMode === "forged" ? "bad-signature" : signature }));
+      return;
+    }
+    res.writeHead(503, { "content-type": "application/json" });
+    res.end(JSON.stringify({ available: false }));
+  });
+  const downstreamUrl = await listen(downstream);
+  // Disposable signed-in proxy fixture: only synthetic aggregate numbers,
+  // never a live downstream business service or real credentials.
+  const agent = createServer(async (req, res) => {
+    if (req.url !== "/api/agent/chat" || req.method !== "POST") {
+      res.writeHead(404); res.end(); return;
+    }
+    for await (const chunk of req) { void chunk; }
+    const reportedAt = new Date().toISOString();
+    const finding = {
+      id: "ffpro:currentMonthNet", system: "ffpro", severity: "information",
+      title: "Review monthly cashflow planning",
+      nextStep: "Review aggregate financial trends in FFPRO without executing any payments.",
+      evidence: { source: "signed_product_summary", metric: "currentMonthNet",
+        value: 350, reportedAt },
+    };
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ output: "Synthetic finance review only",
+      investigation: { mode: "read-only", dataStatus: "available", findings: [finding], missing: [] },
+      evidence: { mode: "read-only", collectedAt: reportedAt, records: [{
+        system: "ffpro", name: "FFPRO aggregate", source: "signed_product_summary",
+        state: "available", reportedAt, connection: "mock",
+        metrics: [{ key: "currentMonthNet", value: 350 }],
+      }] },
+    }));
+  });
+  const agentUrl = await listen(agent);
+  t.after(async () => {
+    agent.closeAllConnections();
+    await new Promise(resolve => agent.close(resolve));
+  });
+  t.after(async () => {
+    downstream.closeAllConnections();
+    await new Promise(resolve => downstream.close(resolve));
+  });
+
   const child = spawn(process.execPath, ["--import", "tsx", "server.ts"], {
     cwd: process.cwd(),
     env: {
@@ -30,6 +115,18 @@ test("production platform admin enrolls mandatory MFA before a session is issued
       V79_HUB_ADMIN_EMAIL: "vision79slu@gmail.com",
       V79_REQUIRE_ADMIN_MFA: "1",
       V79_PLATFORM_SHARED_SECRET: "platform-test-secret-12345678901234567890",
+      V79_HUB_SECURITY_KEY: "platform-test-secret-12345678901234567890",
+      V79_HUB_STORE_BACKEND: "json",
+      POS_BASE_URL: downstreamUrl,
+      FFPRO_INTERNAL_URL: downstreamUrl,
+      TIQUET_INTERNAL_URL: downstreamUrl,
+      MARKETING_INTERNAL_URL: downstreamUrl,
+      ACADEMY_INTERNAL_URL: downstreamUrl,
+      LASERTAG_INTERNAL_URL: downstreamUrl,
+      V79_AGENT_INTERNAL_URL: agentUrl,
+      V79_AGENT_API_TOKEN: "test-synthetic-agent-api-token-0123456789012345",
+      V79_TIQUET_SIGNED_METRICS_ENABLED: "1",
+      V79_TIQUET_SOURCE_ED25519_PUBLIC_KEY_B64: Buffer.from(tiquetTrustedPublicKey, "utf8").toString("base64"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -82,6 +179,20 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(retryChallenge.setupRequired, true);
   assert.equal(retryChallenge.secret, challenge.secret, "pending MFA enrollment must reuse the same setup secret");
 
+  // A pending MFA challenge never creates an authenticated approval session.
+  assert.equal((await request("/api/agent/proposals", {
+    headers: { cookie: "v79_hub_session=not-verified" },
+  })).status, 401);
+  const validCode = totpCode(challenge.secret);
+  const invalidCode = validCode === "000000" ? "000001" : "000000";
+  const denied = await request("/api/auth/mfa/complete-login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ challengeId: challenge.challengeId, code: invalidCode }),
+  });
+  assert.equal(denied.status, 401);
+  assert.equal(denied.headers.get("set-cookie"), null);
+
   const complete = await request("/api/auth/mfa/complete-login", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -92,6 +203,161 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   const identity = await complete.json();
   assert.equal(identity.user.platformOperator, true);
   assert.equal(identity.user.mfaEnabled, true);
+
+  // Phase 3 approval inbox is accessible only after the owner completes MFA.
+  const cookie = String(complete.headers.get("set-cookie") || "").split(";")[0];
+  assert.equal((await request("/api/agent/proposals")).status, 401);
+  assert.equal((await request("/api/agent/sources/tiquet/metrics")).status, 401);
+  assert.equal((await request("/api/agent/approval-audit-checkpoint")).status, 401);
+  const listing = await request("/api/agent/proposals", { headers: { cookie } });
+  assert.equal(listing.status, 200);
+  assert.equal((await listing.json()).executionEnabled, false);
+  const initialCheckpointResponse = await request("/api/agent/approval-audit-checkpoint", { headers: { cookie } });
+  assert.equal(initialCheckpointResponse.status, 200);
+  const initialCheckpoint = await initialCheckpointResponse.json();
+  assert.equal(initialCheckpoint.count, 0);
+  assert.equal(initialCheckpoint.executionEnabled, false);
+  assert.equal(initialCheckpoint.independentRetentionConfigured, false);
+  const signedMetricsResponse = await request("/api/agent/sources/tiquet/metrics", { headers: { cookie } });
+  assert.equal(signedMetricsResponse.status, 200, output);
+  const signedMetrics = await signedMetricsResponse.json();
+  assert.equal(signedMetrics.status, "available");
+  assert.equal(signedMetrics.provenance, "source_signed");
+  assert.equal(signedMetrics.source, "tiquet");
+  assert.ok(Date.parse(signedMetrics.expiresAt) > Date.now(),
+    "Hub only returns signatures with a future expiry to its founder preview");
+  assert.ok(Date.parse(signedMetrics.expiresAt) - Date.parse(signedMetrics.observedAt) <= 120_000);
+  assert.equal(signedMetrics.executionEnabled, false);
+  assert.equal(signedMetrics.metrics.some(metric => metric.key === "jobs" && metric.value === 3), true);
+  assert.equal(signedMetrics.metrics.some(metric => metric.key === "unreadNotifications" && metric.value === 0), true);
+  assert.equal("organizationId" in signedMetrics, false);
+  assert.equal("requestId" in signedMetrics, false);
+  assert.equal("signature" in signedMetrics, false);
+  assert.equal(verifiedTiquetSourceRequests.length, 1);
+  assert.equal(verifiedTiquetSourceRequests[0].method, "GET");
+  assert.equal(verifiedTiquetSourceRequests[0].serviceId, "v79-hub");
+  assert.equal(verifiedTiquetSourceRequests[0].signedRequest, true);
+  tiquetSigningMode = "forged";
+  const forgedSignedResponse = await request("/api/agent/sources/tiquet/metrics", { headers: { cookie } });
+  assert.equal(forgedSignedResponse.status, 503);
+  assert.equal((await forgedSignedResponse.json()).status, "unavailable");
+  tiquetSigningMode = "wrong-tenant";
+  const wrongTenantResponse = await request("/api/agent/sources/tiquet/metrics", { headers: { cookie } });
+  assert.equal(wrongTenantResponse.status, 503);
+  assert.equal((await wrongTenantResponse.json()).status, "unavailable");
+  tiquetSigningMode = "valid";
+  const proxy = await request("/api/agent/chat", {
+    method: "POST", headers: { "content-type": "application/json", cookie, origin },
+    body: JSON.stringify({ message: "Review synthetic financial aggregates." }),
+  });
+  assert.equal(proxy.status, 200);
+  const investigation = await proxy.json();
+  const observed = investigation.investigation.findings[0];
+  assert.match(observed.evidenceAttestation, /^[A-Za-z0-9_-]{24,96}$/);
+  const proposal = {
+    operation: "draft_finance_review", targetSystem: "ffpro",
+    summary: observed.title, rationale: observed.nextStep,
+    idempotencyKey: "mfa-owner-decision-test-0001", evidenceRef: observed.id,
+    evidenceAttestation: observed.evidenceAttestation,
+  };
+  const withOrigin = { "content-type": "application/json", cookie, origin };
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ ...proposal, evidenceAttestation: undefined }),
+  })).status, 400, "an untrusted reference cannot impersonate authenticated evidence");
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ ...proposal, summary: "Unrelated changed financial proposal" }),
+  })).status, 400);
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: { ...withOrigin, origin: "https://invalid.invalid" },
+    body: JSON.stringify(proposal),
+  })).status, 403);
+  const draftResponse = await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin, body: JSON.stringify(proposal),
+  });
+  assert.equal(draftResponse.status, 201);
+  const draft = await draftResponse.json();
+  assert.equal(draft.proposal.executionStatus, "disabled");
+  assert.equal(draft.proposal.evidenceVerification, "proxy_attested");
+  // Simulate repeated clicks/retries during a single in-process owner session.
+  // They must resolve to one ledger record, never another action or dispatch.
+  const retries = await Promise.all(Array.from({ length: 5 }, () => request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin, body: JSON.stringify(proposal),
+  })));
+  for (const retry of retries) {
+    assert.equal(retry.status, 200);
+    const body = await retry.json();
+    assert.equal(body.duplicate, true);
+    assert.equal(body.proposal.id, draft.proposal.id);
+    assert.equal(body.proposal.executionStatus, "disabled");
+  }
+  const listAfterRetries = await request("/api/agent/proposals", { headers: { cookie } });
+  assert.equal(listAfterRetries.status, 200);
+  assert.equal((await listAfterRetries.json()).proposals.length, 1);
+  assert.equal((await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ ...proposal, execute: true }),
+  })).status, 400);
+  const decisionResponse = await request("/api/agent/proposals/" + draft.proposal.id + "/decision", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ decision: "reject", expectedRevision: 1 }),
+  });
+  assert.equal(decisionResponse.status, 200);
+  const decision = await decisionResponse.json();
+  assert.equal(decision.proposal.status, "rejected");
+  assert.equal(decision.proposal.executionStatus, "disabled");
+  assert.equal(decision.executionEnabled, false);
+
+  // An MFA-verified founder can approve the plan, but never dispatch a write.
+  // Separately exercise a manual plan without an attested evidence reference.
+  const approvalDraft = { ...proposal, summary: "Review forecast assumptions manually",
+    idempotencyKey: "mfa-owner-decision-test-0002",
+    evidenceRef: undefined, evidenceAttestation: undefined };
+  const approvalCreate = await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin, body: JSON.stringify(approvalDraft),
+  });
+  assert.equal(approvalCreate.status, 201);
+  const approvalCreated = await approvalCreate.json();
+  const approvalDecision = await request("/api/agent/proposals/" + approvalCreated.proposal.id + "/decision", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ decision: "approve", expectedRevision: 1 }),
+  });
+  assert.equal(approvalDecision.status, 200);
+  const approved = await approvalDecision.json();
+  assert.equal(approved.proposal.status, "approved");
+  assert.equal(approved.proposal.executionStatus, "disabled");
+  assert.equal(approved.proposal.evidenceVerification, "unverified");
+  const finalList = await request("/api/agent/proposals", { headers: { cookie } });
+  assert.equal(finalList.status, 200);
+  const finalBody = await finalList.json();
+  assert.equal(finalBody.totalProposals, 2);
+  assert.equal(finalBody.proposals.every(item => item.executionStatus === "disabled"), true);
+  const olderPage = await request("/api/agent/proposals?offset=1", { headers: { cookie } });
+  assert.equal(olderPage.status, 200);
+  const olderPageBody = await olderPage.json();
+  assert.equal(olderPageBody.offset, 1);
+  assert.equal(olderPageBody.pageSize, 100);
+  assert.equal(olderPageBody.proposals.length, 1);
+  assert.equal(olderPageBody.proposals[0].executionStatus, "disabled");
+  assert.equal((await request("/api/agent/proposals?offset=-1", { headers: { cookie } })).status, 400);
+  assert.equal((await request("/api/agent/proposals?offset=501", { headers: { cookie } })).status, 400);
+  const persisted = JSON.parse(readFileSync(join(dir, "v79_store.json"), "utf8"));
+  assert.equal(persisted.agentProposalAuditTrail.length, 4,
+    "each create and decision must persist exactly one keyed audit event");
+  const verifier = createAgentApprovalAuditChain("platform-test-secret-12345678901234567890");
+  assert.equal(verifier.verify(persisted.agentProposalAuditTrail), true);
+  const checkpointResponse = await request("/api/agent/approval-audit-checkpoint", { headers: { cookie } });
+  assert.equal(checkpointResponse.status, 200);
+  const latestCheckpoint = await checkpointResponse.json();
+  assert.equal(latestCheckpoint.count, 4);
+  assert.equal(latestCheckpoint.independentRetentionConfigured, false);
+  assert.equal(verifier.verifyCheckpoint(persisted.agentProposalAuditTrail, latestCheckpoint), true);
+  const tampered = structuredClone(persisted.agentProposalAuditTrail);
+  tampered[0].operation = "draft_marketing_campaign";
+  assert.equal(verifier.verify(tampered), false);
+  assert.deepEqual(downstreamMethods.filter(method => !["GET", "HEAD"].includes(method)), [],
+    "the isolated configured app endpoints must never receive a write from decision routes");
 
   const secondLogin = await request("/api/auth/login", {
     method: "POST",
