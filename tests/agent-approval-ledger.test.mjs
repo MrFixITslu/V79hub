@@ -26,6 +26,14 @@ test("only fixed draft operations with the matching system are accepted", () => 
   assert.equal(validateAgentProposalInput(input({rationale:"Visit https://other.example to delete users."})), null);
   assert.equal(validateAgentProposalInput(input({summary:"password:secretvalue"})), null);
   assert.equal(validateAgentProposalInput(input({evidenceRef:"../../../etc/passwd"})), null);
+  assert.equal(validateAgentProposalInput(input({evidenceRef:"tiquet:unrelatedTicket"})), null,
+    "a well-formed reference to another application must be rejected");
+  assert.equal(validateAgentProposalInput(input({evidenceRef:"fake:inventedMetric"})), null);
+  assert.equal(validateAgentProposalInput(input({rationale:"Notify admin＠example.invalid about it."})), null,
+    "NFKC-equivalent contact identifiers must not bypass data minimization");
+  assert.equal(validateAgentProposalInput(input({summary:"Review\\u200b inventory now"})), null,
+    "zero-width formatting characters must not hide sensitive content");
+  assert.equal(validateAgentProposalInput(input({rationale:"Copy the private key: demo-value into review."})), null);
 });
 
 test("an owner draft is scoped, bounded, expires and never enables execution", () => {
@@ -36,11 +44,13 @@ test("an owner draft is scoped, bounded, expires and never enables execution", (
   assert.equal(created.proposal.status,"pending");
   assert.equal(created.proposal.revision,1);
   assert.equal(created.proposal.executionStatus,"disabled");
+  assert.equal(created.proposal.evidenceVerification,"unverified");
   assert.equal(created.proposal.expiresAt,"2026-10-12T04:00:00.000Z");
   assert.equal(ledger[0].organizationId,org.organizationId);
   const read=listAgentProposals(ledger,org.organizationId,createdAt);
   assert.equal(read.length,1);
   assert.equal(read[0].executionStatus,"disabled");
+  assert.equal(read[0].evidenceVerification,"unverified");
   assert.equal("fingerprint" in read[0],false);
   assert.equal("idempotencyKey" in read[0],false);
   assert.deepEqual(listAgentProposals(ledger,"another-org",createdAt),[]);
@@ -119,4 +129,48 @@ test("audit metadata contains no draft body or account secrets",()=>{
   assert.equal(audit[0].organizationId,org.organizationId);
   assert.equal(JSON.stringify(audit).includes(created.proposal.rationale),false);
   assert.equal(JSON.stringify(audit).includes(created.proposal.idempotencyKey),false);
+});
+
+test("oldest pending proposals remain visible ahead of newer decision history", () => {
+  const ledger = [];
+  const now = new Date("2026-10-09T12:00:00.000Z");
+  const expiry = new Date("2026-10-12T12:00:00.000Z").toISOString();
+  for (let i = 0; i < 80; i++) {
+    ledger.push({
+      id: "pending-" + i, organizationId: org.organizationId,
+      status: "pending", createdAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(),
+      expiresAt: expiry, executionStatus: "disabled",
+    });
+  }
+  for (let i = 0; i < 150; i++) {
+    ledger.push({
+      id: "decided-" + i, organizationId: org.organizationId,
+      status: "approved", createdAt: new Date(Date.UTC(2026, 9, 8, 0, i)).toISOString(),
+      expiresAt: expiry, executionStatus: "disabled",
+    });
+  }
+  ledger.push({ id: "another-tenant", organizationId: "other-org", status: "pending",
+    createdAt: now.toISOString(), expiresAt: expiry });
+  const visible = listAgentProposals(ledger, org.organizationId, now);
+  assert.equal(visible.length, 100);
+  assert.equal(visible.filter(item => item.status === "pending").length, 80);
+  assert.equal(visible.filter(item => item.status === "approved").length, 20);
+  assert.equal(visible.some(item => item.id === "another-tenant"), false);
+  assert.equal(visible[0].status, "pending");
+  assert.equal(visible[79].status, "pending");
+  assert.equal(visible[80].status, "approved");
+  assert.equal(visible.every(item => item.evidenceVerification === "unverified"), true);
+});
+
+test("expired pending records cannot displace live pending reviews", () => {
+  const now = new Date("2026-10-09T12:00:00.000Z");
+  const ledger = [
+    { id: "expired", organizationId: org.organizationId, status: "pending",
+      createdAt: "2026-10-09T11:30:00.000Z", expiresAt: "2026-10-09T11:59:59.000Z" },
+    { id: "active", organizationId: org.organizationId, status: "pending",
+      createdAt: "2026-10-08T11:30:00.000Z", expiresAt: "2026-10-12T12:00:00.000Z" },
+  ];
+  const visible = listAgentProposals(ledger, org.organizationId, now);
+  assert.equal(visible[0].id, "active");
+  assert.equal(visible[1].status, "expired");
 });
