@@ -18,6 +18,18 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   const origin = await listen(probe);
   await new Promise(resolve => probe.close(resolve));
 
+  const downstreamMethods = [];
+  const downstream = createServer((req, res) => {
+    downstreamMethods.push(String(req.method || ""));
+    res.writeHead(503, { "content-type": "application/json" });
+    res.end(JSON.stringify({ available: false }));
+  });
+  const downstreamUrl = await listen(downstream);
+  t.after(async () => {
+    downstream.closeAllConnections();
+    await new Promise(resolve => downstream.close(resolve));
+  });
+
   const child = spawn(process.execPath, ["--import", "tsx", "server.ts"], {
     cwd: process.cwd(),
     env: {
@@ -30,6 +42,12 @@ test("production platform admin enrolls mandatory MFA before a session is issued
       V79_HUB_ADMIN_EMAIL: "vision79slu@gmail.com",
       V79_REQUIRE_ADMIN_MFA: "1",
       V79_PLATFORM_SHARED_SECRET: "platform-test-secret-12345678901234567890",
+      POS_BASE_URL: downstreamUrl,
+      FFPRO_INTERNAL_URL: downstreamUrl,
+      TIQUET_INTERNAL_URL: downstreamUrl,
+      MARKETING_INTERNAL_URL: downstreamUrl,
+      ACADEMY_INTERNAL_URL: downstreamUrl,
+      LASERTAG_INTERNAL_URL: downstreamUrl,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -130,6 +148,7 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(draftResponse.status, 201);
   const draft = await draftResponse.json();
   assert.equal(draft.proposal.executionStatus, "disabled");
+  assert.equal(draft.proposal.evidenceVerification, "unverified");
   // Simulate repeated clicks/retries during a single in-process owner session.
   // They must resolve to one ledger record, never another action or dispatch.
   const retries = await Promise.all(Array.from({ length: 5 }, () => request("/api/agent/proposals", {
@@ -158,6 +177,31 @@ test("production platform admin enrolls mandatory MFA before a session is issued
   assert.equal(decision.proposal.status, "rejected");
   assert.equal(decision.proposal.executionStatus, "disabled");
   assert.equal(decision.executionEnabled, false);
+
+  // An MFA-verified founder can approve the plan, but never dispatch a write.
+  const approvalDraft = { ...proposal, summary: "Review forecast assumptions manually",
+    idempotencyKey: "mfa-owner-decision-test-0002" };
+  const approvalCreate = await request("/api/agent/proposals", {
+    method: "POST", headers: withOrigin, body: JSON.stringify(approvalDraft),
+  });
+  assert.equal(approvalCreate.status, 201);
+  const approvalCreated = await approvalCreate.json();
+  const approvalDecision = await request("/api/agent/proposals/" + approvalCreated.proposal.id + "/decision", {
+    method: "POST", headers: withOrigin,
+    body: JSON.stringify({ decision: "approve", expectedRevision: 1 }),
+  });
+  assert.equal(approvalDecision.status, 200);
+  const approved = await approvalDecision.json();
+  assert.equal(approved.proposal.status, "approved");
+  assert.equal(approved.proposal.executionStatus, "disabled");
+  assert.equal(approved.proposal.evidenceVerification, "unverified");
+  const finalList = await request("/api/agent/proposals", { headers: { cookie } });
+  assert.equal(finalList.status, 200);
+  const finalBody = await finalList.json();
+  assert.equal(finalBody.totalProposals, 2);
+  assert.equal(finalBody.proposals.every(item => item.executionStatus === "disabled"), true);
+  assert.deepEqual(downstreamMethods.filter(method => !["GET", "HEAD"].includes(method)), [],
+    "the isolated configured app endpoints must never receive a write from decision routes");
 
   const secondLogin = await request("/api/auth/login", {
     method: "POST",
