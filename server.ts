@@ -4367,10 +4367,17 @@ function serializeAgentProposalWrite<T>(task: () => Promise<T>): Promise<T> {
 app.get("/api/agent/proposals", (req, res) => {
   const context = ownerApprovalContext(req);
   if (!context) return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  const rawOffset = req.query.offset;
+  if (rawOffset !== undefined && (typeof rawOffset !== "string" ||
+      !/^(0|[1-9][0-9]{0,2})$/.test(rawOffset) || Number(rawOffset) > 500)) {
+    return res.status(400).json({ error: "Invalid proposal page offset." });
+  }
+  const offset = rawOffset === undefined ? 0 : Number(rawOffset);
   res.setHeader("Cache-Control", "no-store");
   return res.json({ mode: "decision-only", executionEnabled: false,
     totalProposals: store.agentActionProposals.filter(p => p.organizationId === context.organizationId).length,
-    proposals: listAgentProposals(store.agentActionProposals, context.organizationId) });
+    offset, pageSize: 100,
+    proposals: listAgentProposals(store.agentActionProposals, context.organizationId, new Date(), { offset }) });
 });
 
 app.post("/api/agent/proposals", async (req, res) => {
