@@ -17,7 +17,7 @@ const successfulSnapshot = {
   business: { ffpro: {
     status: "ok",
     sourceReportedAt: new Date().toISOString(),
-    metrics: { currentMonthIncome: 100, customerEmails: ["private@example.invalid"], apiKey: "never-return-this" },
+    metrics: { currentMonthIncome: 100, currentMonthExpenses: 120, currentMonthNet: -20, customerEmails: ["private@example.invalid"], apiKey: "never-return-this" },
   } },
   connections: { ffpro: { status: "online" }, pos: { status: "online" } },
   platform: {},
@@ -63,8 +63,8 @@ test("read-only evidence endpoint enforces service token, founder scope and Hub 
     stdio: "ignore",
   });
   const base = `http://127.0.0.1:${port}`;
-  async function request(context: object, auth: string | null = token, id = "finance") {
-    return fetch(base + "/api/agent/evidence", {
+  async function request(context: object, auth: string | null = token, id = "finance", endpoint = "/api/agent/evidence") {
+    return fetch(base + endpoint, {
       method: "POST",
       headers: { "content-type": "application/json", ...(auth ? { "x-v79-agent-token": auth } : {}) },
       body: JSON.stringify({ context, specialistId: id }),
@@ -98,6 +98,19 @@ test("read-only evidence endpoint enforces service token, founder scope and Hub 
     assert.ok(!JSON.stringify(ledger).includes("never-return-this"));
     assert.ok(!JSON.stringify(ledger).includes("private@example.invalid"));
     assert.ok(!ledger.records.some((record: {system:string})=>record.system==="website"));
+
+    assert.equal((await request(founder, null, "finance", "/api/agent/investigate")).status, 401);
+    assert.equal((await request({ ...founder, ownerAgent: false }, token, "finance", "/api/agent/investigate")).status, 403);
+    assert.equal((await request(founder, token, "invalid", "/api/agent/investigate")).status, 400);
+    const reportResponse = await request(founder, token, "finance", "/api/agent/investigate");
+    assert.equal(reportResponse.status, 200);
+    const report = await reportResponse.json();
+    assert.equal(report.mode, "read-only");
+    assert.ok(report.findings.some((f: {id:string}) => f.id === "ffpro:currentMonthNet"));
+    assert.ok(report.findings.every((f: {system:string}) => ["ffpro", "pos"].includes(f.system)));
+    assert.ok(!JSON.stringify(report).includes("never-return-this"));
+    assert.ok(!JSON.stringify(report).includes("private@example.invalid"));
+    assert.equal(reportResponse.headers.get("cache-control"), "no-store");
 
     responsePayload = { ...successfulSnapshot, owner: { email: founder.email, organizationId: "customer-other" } };
     const wrongHub = await request(founder);
