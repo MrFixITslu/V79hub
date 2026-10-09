@@ -58,3 +58,9 @@
 - The read-only review of linked apps found team-member deprovisioning paths, but **not** complete tenant deletion across all four apps. External app provisioning must stay disabled for Sentinel QA until explicitly verified.
 - Live Hub remains at its original source revision; its Sentinel creation and cleanup flags have both been observed **disabled**.
 - **Release decision remains HOLD.** The next irreversible boundary is live deployment and creation of an organization on the shared Hub; obtain a supervised maintenance window and complete the independently isolated restore drill first.
+
+## Superseding isolated full-Hub verification — 2026-10-09 (AST)
+
+See [full-Hub verification receipt](sentinel-qa-full-hub-verification-20261009.md). Full real Hub authentication, mandatory operator MFA, three synthetic logins, guarded creation/deletion, preserved-field cleanup refusal, session revocation across restart, and PostgreSQL commit contention are now verified using synthetic Acer fixtures. Full regression: **207 passed, 0 failed, 0 skipped**. Separate full-stack run on PostgreSQL 17.11: **2 passed, 0 failed, 0 skipped**. Lint, build and patch checks passed. This closes the full-Hub integration blocker above. The documented isolated PostgreSQL 17 restore drill closes the earlier restore blocker.
+
+Live persisted state remains revision 52 with 2 users and 2 organizations; before/after fingerprints match exactly. Live flags remain disabled. No live QA records were created. Final production security/release review, fresh rollback/snapshot evidence and immediate maintenance-quiescence checks are still required; external app deprovision remains unverified and excluded. **Production deployment remains HOLD.**

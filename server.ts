@@ -3521,7 +3521,8 @@ app.get("/api/admin/audit", requirePlatformOperator, (req, res) => {
 registerSentinelQaRoutes(app, {
   requirePlatformOperator,
   sameOriginMutation,
-  getStore: () => store,
+  // Include preserved schema extensions in the fail-closed reference scan.
+  getStore: () => ({ ...storePersistence.envelope(), ...store }),
   commitStore: commitSentinelStore,
   beginExclusive: sentinelWriteFence.beginExclusive,
   hashPassword,
@@ -5023,13 +5024,18 @@ async function startServer() {
   }
 
   const PORT = Number(process.env.PORT || 3040);
-  server.listen(PORT, "0.0.0.0", () => {
+  // Explicit loopback binding lets isolated integration runs use the full Hub.
+  const HOST = process.env.V79_HUB_BIND_HOST || "0.0.0.0";
+  if (!["0.0.0.0", "127.0.0.1", "::1"].includes(HOST)) {
+    throw new Error("V79_HUB_BIND_HOST must be 0.0.0.0, 127.0.0.1 or ::1.");
+  }
+  server.listen(PORT, HOST, () => {
     if (trialReminderLeader && recoveryEmailEnabled) {
       void dispatchTrialReminders();
       const reminderTimer=setInterval(()=>{void dispatchTrialReminders();},3600000);
       reminderTimer.unref?.();
     }
-    console.log(`V79 Client Hub Server running on http://0.0.0.0:${PORT}`);
+    console.log(`V79 Client Hub Server running on http://${HOST}:${PORT}`);
   });
 }
 
