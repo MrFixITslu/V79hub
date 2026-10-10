@@ -14,6 +14,7 @@ import { buildEvidenceLedger, compactFromEvidence } from "./evidence.js";
 import { buildInvestigationBrief } from "./investigations.js";
 import { getWorkforceSpecialist } from "./workforce.js";
 import { routeWorkforceRequest, specialistInstructions, workforceRoster } from "./workforce.js";
+import { executiveWorkforceStructure } from "./executive-workforce.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -56,6 +57,12 @@ app.use("/api", (req, res, next) => {
 app.get("/api/agent/specialists", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json({ mode: "read-only", specialists: workforceRoster() });
+});
+
+// G1 only: role mapping metadata. No write tools or policy bypass.
+app.get("/api/agent/executive-structure", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(executiveWorkforceStructure());
 });
 
 app.get("/api/agent/capabilities", (_req, res) => {
