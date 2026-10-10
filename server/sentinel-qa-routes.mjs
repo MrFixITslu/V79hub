@@ -12,6 +12,7 @@ import { stageSentinelQaCreation } from "./sentinel-qa-create.mjs";
 export function registerSentinelQaRoutes(app, {
   requirePlatformOperator, sameOriginMutation, getStore, commitStore,
   beginExclusive, hashPassword, deleteSessionsWhere,
+  getRuntimeStatus = () => ({}),
 }) {
   if (!app || typeof requirePlatformOperator !== "function" ||
     typeof sameOriginMutation !== "function" || typeof getStore !== "function" ||
@@ -32,6 +33,50 @@ export function registerSentinelQaRoutes(app, {
   };
   let mutationInProgress = false;
   const busy = (res) => res.status(409).json({ error: "Sentinel QA mutation already in progress" });
+
+
+  // Read-only supervision/recovery surface. Never returns passwords, sessions,
+  // MFA material, customer identities, or a deletion capability.
+  app.get("/api/admin/sentinel-qa/status", requirePlatformOperator, (req, res) => {
+    try {
+      const store = getStore();
+      const operatorUserId = req.user.userId;
+      const candidates = store.organizations.filter(o =>
+        typeof o.name === "string" && o.name.startsWith("Sentinel-QA-"));
+      const syntheticUsers = store.users.filter(u =>
+        String(u.username || "").toLowerCase().endsWith("@sentinel-qa.invalid"));
+      const syntheticIds = new Set(syntheticUsers.map(u => u.id));
+      const organizations = candidates.map(o => {
+        try {
+          const preview = previewSentinelCleanup(store, { organizationId: o.id, operatorUserId });
+          return { id: o.id, name: o.name, eligible: true, memberCount: preview.memberCount };
+        } catch {
+          // Only the name/id of a QA-labelled resource, never unrelated record content.
+          return { id: o.id, name: o.name, eligible: false,
+            reason: "Trusted cleanup checks failed; manual review required." };
+        }
+      });
+      const runtime = getRuntimeStatus();
+      const latestCleanup = [...store.auditEvents].reverse().find(e =>
+        e.type === "sentinel_qa_tenant_deleted" && e.actorUserId === operatorUserId);
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({
+        createEnabled: allowed("V79_SENTINEL_QA_CREATE_ENABLED"),
+        cleanupEnabled: allowed("V79_SENTINEL_QA_CLEANUP_ENABLED"),
+        maintenanceReady: runtime.reminderLeader === false && runtime.reminderBusy === false &&
+          runtime.activeHttpWrites === 0 && runtime.activeStoreWrites === 0 && runtime.exclusive === false,
+        organizations, userCount: store.users.length, organizationCount: store.organizations.length,
+        syntheticUserCount: syntheticUsers.length,
+        syntheticMembershipCount: store.memberships.filter(m => syntheticIds.has(m.userId)).length,
+        latestCleanup: latestCleanup ? {
+          auditId: latestCleanup.id, organizationId: latestCleanup.details?.deletedOrganizationId,
+          syntheticUsersDeleted: latestCleanup.details?.syntheticUsersDeleted, createdAt: latestCleanup.createdAt,
+        } : null,
+      });
+    } catch (error) {
+      return fail(res, error, "Sentinel QA status unavailable");
+    }
+  });
 
   app.post("/api/admin/sentinel-qa/organizations", requirePlatformOperator, async (req, res) => {
     if (!allowed("V79_SENTINEL_QA_CREATE_ENABLED") ||

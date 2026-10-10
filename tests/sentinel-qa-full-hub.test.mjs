@@ -237,11 +237,13 @@ for (const backend of ["json", "postgres"]) {
       method:"POST", body:{username,password,...(organizationId ? {organizationId} : {})},
     });
     await start(false);
+    assert.equal((await request("/api/admin/sentinel-qa/status")).status,401);
     assert.equal((await request(create,{method:"POST",body:ack})).status,401);
     const challenge = await login("admin", ownerPassword);
     assert.equal(challenge.status,202);
     assert.equal(challenge.cookie,undefined);
     assert.equal(challenge.data.setupRequired,true);
+    assert.equal((await request("/api/admin/sentinel-qa/status",{bearer:challenge.data.challengeId})).status,401);
     assert.equal((await request(create,{method:"POST",bearer:challenge.data.challengeId,body:ack})).status,401);
     const wrongMfa = await request("/api/auth/mfa/complete-login",{
       method:"POST",body:{challengeId:challenge.data.challengeId,code:"invalid"},
@@ -255,6 +257,10 @@ for (const backend of ["json", "postgres"]) {
     assert.match(operatorCookie,/^v79_hub_session=v79_tok_/);
     assert.equal(complete.data.user.platformOperator,true);
     assert.equal(complete.data.user.mfaEnabled,true);
+    const supervisor=await request("/api/admin/sentinel-qa/status",{cookie:operatorCookie});
+    assert.equal(supervisor.status,200); assert.equal(supervisor.data.createEnabled,false);
+    assert.equal(supervisor.data.cleanupEnabled,false); assert.equal(supervisor.data.maintenanceReady,true);
+    assert.deepEqual(supervisor.data.organizations,[]); assert.equal(supervisor.data.syntheticUserCount,0);
     const agentInbox=await request("/api/agent/proposals",{cookie:operatorCookie});
     assert.equal(agentInbox.status,200);assert.equal(agentInbox.data.auditIntegrity,"verified");
     assert.equal(agentInbox.data.proposals.length,1);
@@ -273,8 +279,10 @@ for (const backend of ["json", "postgres"]) {
     assert.equal(customerLogin.status,200);
     const customerCookie=customerLogin.cookie;
     assert.equal(customerLogin.data.user.platformOperator,false);
+    assert.equal((await request("/api/admin/sentinel-qa/status",{cookie:customerCookie})).status,403);
     const beforeBusy=await readStore();
     await restart(true,{backgroundEnabled:true});
+    assert.equal((await request("/api/admin/sentinel-qa/status",{cookie:operatorCookie})).data.maintenanceReady,false);
     assert.equal((await request(create,{method:"POST",cookie:operatorCookie,body:ack})).status,409);
     assert.deepEqual(await readStore(),beforeBusy,"configured reminder worker blocks creation without mutations");
     await restart(true);
@@ -332,6 +340,7 @@ for (const backend of ["json", "postgres"]) {
       assert.deepEqual(signedIn.data.user.permissions,["overview"]);
       cookies.push(signedIn.cookie);
       assert.equal((await request("/api/auth/me",{cookie:signedIn.cookie})).status,200);
+      assert.equal((await request("/api/admin/sentinel-qa/status",{cookie:signedIn.cookie})).status,403);
       assert.equal((await request("/api/agent/proposals",{cookie:signedIn.cookie})).status,403);
       assert.equal((await request(target+"/cleanup-preview",{cookie:signedIn.cookie})).status,403);
       assert.equal((await request(create,{method:"POST",cookie:signedIn.cookie,body:ack})).status,403);

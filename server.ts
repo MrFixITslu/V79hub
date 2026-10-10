@@ -3560,6 +3560,7 @@ registerSentinelQaRoutes(app, {
   // Include preserved schema extensions in the fail-closed reference scan.
   getStore: () => ({ ...storePersistence.envelope(), ...store }),
   commitStore: commitSentinelStore,
+  getRuntimeStatus: () => ({ ...sentinelWriteFence.snapshot(), reminderLeader: trialReminderLeader, reminderBusy }),
   beginExclusive: (req: Request) => {
     // A configured reminder leader can resume writes at any timer tick.
     if (trialReminderLeader || reminderBusy) {

@@ -86,6 +86,7 @@ async function harness(){
   },
   sameOriginMutation:(req)=>req.get("origin")===`http://127.0.0.1:${server.address().port}`,
   getStore:()=>store,
+  getRuntimeStatus:()=>({...fence.snapshot(),reminderLeader:false,reminderBusy:false}),
   hashPassword,
   beginExclusive:fence.beginExclusive,
   commitStore:async nextStore=>{
@@ -145,6 +146,21 @@ test("real staging route HTTP lifecycle on isolated 127.0.0.1 only",async(t)=>{
  const create="/api/admin/sentinel-qa/organizations";
  const ack={confirm:"CREATE ISOLATED SENTINEL QA"};
  setFlags(null,null);
+ await t.test("read-only supervisor status requires operator, discloses no customer data or credentials",async()=>{
+   assert.equal((await h.request("/api/admin/sentinel-qa/status",{token:"none"})).status,401);
+   assert.equal((await h.request("/api/admin/sentinel-qa/status",{token:"customer"})).status,403);
+   const r=await h.request("/api/admin/sentinel-qa/status");
+   assert.equal(r.status,200); assert.equal(r.headers.get("cache-control"),"no-store");
+   assert.equal(r.json.createEnabled,false); assert.equal(r.json.cleanupEnabled,false);
+   assert.equal(r.json.maintenanceReady,true);
+   assert.equal(r.json.userCount,2); assert.equal(r.json.organizationCount,2);
+   assert.equal(r.json.syntheticUserCount,0); assert.deepEqual(r.json.organizations,[]);
+   assert.equal(r.json.latestCleanup,null);
+   for(const text of ["password","@example.invalid","Session","oneTimePassword","pre-existing-owner-hash"]) {
+     assert.equal(JSON.stringify(r.json).includes(text),false);
+   }
+   assert.deepEqual(h.getStore(),h.initial); assert.equal(h.getPersistCount(),0);
+ });
  await t.test("default flags deny endpoints, even for operator",async()=>{
   assert.equal((await h.request(create,{method:"POST",body:ack})).status,404);
   assert.equal((await h.request(create+"/00000000-0000-4000-8000-000000000001/cleanup-preview")).status,404);
@@ -211,6 +227,27 @@ test("real staging route HTTP lifecycle on isolated 127.0.0.1 only",async(t)=>{
   assert.equal((await h.request(create+"/existing-customer-org/cleanup-preview")).status,409);
   assert.equal((await h.request(create+"/"+created.organization.id+"/cleanup-preview",{token:"customer"})).status,403);
  });
+ await t.test("status recovers an existing exact test target without credentials or write effects",async()=>{
+   const count=h.getPersistCount();
+   const r=await h.request("/api/admin/sentinel-qa/status");
+   assert.equal(r.status,200);
+   assert.deepEqual(r.json.organizations,[{id:created.organization.id,name:created.organization.name,eligible:true,memberCount:3}]);
+   assert.equal(r.json.syntheticUserCount,3); assert.equal(r.json.syntheticMembershipCount,3);
+   assert.equal(h.getPersistCount(),count);
+   for(const a of created.testAccounts) assert.equal(JSON.stringify(r.json).includes(a.oneTimePassword),false);
+   h.getStore().appTenantMappings.push({organizationId:created.organization.id,appId:"app-pos"});
+   const blocked=await h.request("/api/admin/sentinel-qa/status");
+   assert.equal(blocked.json.organizations[0].eligible,false);
+   assert.equal(blocked.json.organizations[0].reason,"Trusted cleanup checks failed; manual review required.");
+   h.getStore().appTenantMappings.length=0;
+   // Naming a real customer like a QA target cannot grant cleanup authority.
+   const customer=h.getStore().organizations.find(o=>o.id==="existing-customer-org");
+   const originalName=customer.name;
+   customer.name="Sentinel-QA-forged-customer";
+   const forged=await h.request("/api/admin/sentinel-qa/status");
+   assert.equal(forged.json.organizations.find(o=>o.id===customer.id).eligible,false);
+   customer.name=originalName;
+ });
  const target=create+"/"+created.organization.id;
  let preview;
  await t.test("validated read-only preview and confirmation safeguards",async()=>{
@@ -237,6 +274,7 @@ test("real staging route HTTP lifecycle on isolated 127.0.0.1 only",async(t)=>{
   await new Promise(r=>setTimeout(r,35));
   const busy=await h.request(create,{method:"POST",body:ack});
   assert.equal(busy.status,409);
+  assert.equal((await h.request("/api/admin/sentinel-qa/status")).json.maintenanceReady,false);
   resume();
   const cleanup=await promise;
   assert.equal(cleanup.status,200);
@@ -257,6 +295,13 @@ test("real staging route HTTP lifecycle on isolated 127.0.0.1 only",async(t)=>{
   const disk=JSON.parse(fs.readFileSync(h.storeFile,"utf8"));
   assert.deepEqual(disk.organizations,h.initial.organizations);
   assert.equal((await h.request(target+"/cleanup-preview")).status,409);
+  const status=(await h.request("/api/admin/sentinel-qa/status")).json;
+  assert.deepEqual(status.organizations,[]); assert.equal(status.syntheticUserCount,0);
+  assert.equal(status.syntheticMembershipCount,0); assert.equal(status.userCount,2);
+  assert.equal(status.organizationCount,2);
+  assert.equal(status.latestCleanup.organizationId,created.organization.id);
+  assert.equal(status.latestCleanup.syntheticUsersDeleted,3);
+  assert.equal(status.latestCleanup.auditId,s.auditEvents.at(-1).id);
  });
  setFlags(null,null);
  await t.test("flags returned to disabled",async()=>{
