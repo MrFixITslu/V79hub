@@ -26,7 +26,7 @@ import { createHubStorePersistence } from "./server/runtime-store.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
-import { manualInvoiceEligibility, manualReceiptDecision } from "./server/manual-payment-contract.mjs";
+import { manualInvoiceEligibility, manualReceiptDecision, recentManualPaymentMfa } from "./server/manual-payment-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
 import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
 import { createResendTransactionalSender } from "./server/resend-transactional.mjs";
@@ -767,6 +767,8 @@ type HubSession = {
   expiresAt: number;
   // True only after this specific session completes a Hub MFA challenge.
   mfaVerified: boolean;
+  /** Timestamp of the original successful challenge, never extended by use. */
+  mfaVerifiedAt?: number;
 };
 
 function sessionKey(token: string) {
@@ -798,6 +800,8 @@ function loadPersistedSessions() {
         expiresAt: row.expiresAt,
         // Old persisted sessions remain valid for ordinary Hub use but cannot approve plans.
         mfaVerified: row.mfaVerified === true,
+        mfaVerifiedAt: row.mfaVerified === true && Number.isFinite(row.mfaVerifiedAt)
+          ? row.mfaVerifiedAt : undefined,
       });
     }
   } catch (error) {
@@ -1979,6 +1983,7 @@ function createHubSession(userId: string, organizationId: string, { mfaVerified 
     role: sessionRole(membership)!,
     expiresAt: Date.now() + 12 * 60 * 60 * 1000,
     mfaVerified,
+    mfaVerifiedAt: mfaVerified ? Date.now() : undefined,
   });
   return token;
 }
@@ -2569,8 +2574,10 @@ function requireManualBillingMfa(req: Request, res: Response, next: () => void) 
   const user = store.users.find(entry => entry.id === session.userId);
   // Financial confirmation always needs a verified MFA session even if the
   // general administrator MFA environment toggle is later disabled.
-  if (session.mfaVerified !== true || user?.mfaEnabled !== true) {
-    return res.status(403).json({ error: "Manual billing requires an MFA-verified administrator session." });
+  if (user?.mfaEnabled !== true || !recentManualPaymentMfa(session)) {
+    return res.status(403).json({
+      error: "Manual billing requires an MFA login from the last 15 minutes. Sign out and sign in again, then retry.",
+    });
   }
   next();
 }

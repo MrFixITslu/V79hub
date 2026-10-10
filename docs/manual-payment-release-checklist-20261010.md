@@ -21,7 +21,7 @@ Status: staged candidate for independent finance/security acceptance. NOT deploy
 
 ## Security and integrity requirements
 - WiPay callbacks reject manual invoices. A claimed bank transfer never directly modifies paid plans.
-- Manual verification requires fresh MFA on the actual administrator session independently of the general MFA toggle.
+- Manual verification requires a successful MFA login no older than 15 minutes, measured from original challenge completion and never extended by browsing; older/historical sessions must sign out and sign in again. This is independent of the general MFA toggle.
 - Only the V79 internal platform operator can confirm or reject; no customer may approve their own payment or see other tenants' manual requests.
 - An approval cannot be replayed or reused for the same order or bank reference; another organization's bank reference is never accepted twice.
 - Invalid/mismatched currency, amount, subscription cycle, organization or suspended plan are refused. Fractional-cent receipts fail rather than being rounded into payment.

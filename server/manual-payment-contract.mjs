@@ -55,3 +55,16 @@ export function manualReceiptDecision({ order, plan, organization, orders, bankR
   return { ok: true, bankReference: reference, evidenceNote: note, paidReference,
     paidAt: time.toISOString(), paidThroughAt, renewalDate: paidThroughAt.slice(0,10) };
 }
+
+
+/**
+ * Settlement requires a genuinely recent, MFA-challenged login. The general
+ * Hub session is sliding/renewable; it must not renew this approval window.
+ * Historical sessions with a boolean but no timestamp are intentionally denied.
+ */
+export function recentManualPaymentMfa(session, now = Date.now(), maxAgeMs = 15 * 60_000) {
+  return Boolean(session?.mfaVerified === true &&
+    Number.isFinite(session.mfaVerifiedAt) &&
+    session.mfaVerifiedAt <= now &&
+    now - session.mfaVerifiedAt <= maxAgeMs);
+}

@@ -86,7 +86,7 @@ export function PlatformManualPaymentsAdmin() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><CreditCard className="w-5 h-5"/>Manual bank-transfer reconciliation</h2>
-          <p className="mt-1 text-xs text-slate-600">Only confirm funds already received and independently verified in the bank statement. Customer payment claims never grant access.</p>
+          <p className="mt-1 text-xs text-slate-600">Only confirm funds already received and independently verified in the bank statement. Customer payment claims never grant access. For reconciliation, complete a fresh administrator MFA sign-in within the past 15 minutes.</p>
         </div>
         <button type="button" onClick={() => void load().catch(err => setError(String(err)))} className="p-2 border rounded-lg" aria-label="Refresh manual payments"><RefreshCw className="w-4 h-4"/></button>
       </div>

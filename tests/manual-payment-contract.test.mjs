@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { manualInvoiceEligibility, manualReceiptDecision } from "../server/manual-payment-contract.mjs";
+import { manualInvoiceEligibility, manualReceiptDecision, recentManualPaymentMfa } from "../server/manual-payment-contract.mjs";
 import { accessDecision } from "../server/subscription-access.mjs";
 
 const now = new Date("2026-10-10T12:00:00.000Z");
@@ -96,5 +96,17 @@ test("manual routes require an authenticated biller and fresh administrator MFA"
   assert.match(source,/app.post\("\/api\/admin\/billing\/manual\/orders\/:orderId\/reject", requireAuth, requirePlatformOperator, requireManualBillingMfa/);
   assert.match(source,/app.post\("\/api\/billing\/manual\/request", requireAuth, requirePermission\("billing"\), async \(req, res\) => \{\n  if \(!sameOriginMutation\(req\)\)/);
   assert.match(source,/manualBillingMutationBusy = true/);
-  assert.match(source,/session\.mfaVerified !== true/);
+  assert.match(source,/recentManualPaymentMfa\(session\)/);
+});
+
+
+test("bank reconciliation requires recent genuine MFA, not indefinitely renewed sessions", () => {
+  const t=Date.parse("2026-10-10T12:00:00.000Z");
+  assert.equal(recentManualPaymentMfa({mfaVerified:true,mfaVerifiedAt:t},t),true);
+  assert.equal(recentManualPaymentMfa({mfaVerified:true,mfaVerifiedAt:t},t+15*60_000),true);
+  assert.equal(recentManualPaymentMfa({mfaVerified:true,mfaVerifiedAt:t},t+15*60_000+1),false);
+  assert.equal(recentManualPaymentMfa({mfaVerified:true,mfaVerifiedAt:t+1},t),false);
+  assert.equal(recentManualPaymentMfa({mfaVerified:true},t),false);
+  assert.equal(recentManualPaymentMfa({mfaVerified:false,mfaVerifiedAt:t},t),false);
+  assert.equal(recentManualPaymentMfa(null,t),false);
 });
