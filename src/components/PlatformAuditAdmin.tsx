@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Clock3, RefreshCw, Search, ShieldCheck, UserRound } from "lucide-react";
+import { SentinelQaAdmin } from "./SentinelQaAdmin";
 
 interface AuditEvent {
   id: string;
@@ -72,6 +73,7 @@ export function PlatformAuditAdmin() {
 
   return (
     <div className="space-y-5">
+      <SentinelQaAdmin />
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
 
       <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden">

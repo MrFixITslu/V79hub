@@ -10,6 +10,9 @@ import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-co
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { acceptInvitationState, invitationStatus } from "./server/onboarding-store.mjs";
+import { registerSentinelQaRoutes } from "./server/sentinel-qa-routes.mjs";
+import { createSentinelWriteFence } from "./server/sentinel-write-fence.mjs";
+import { retainSentinelAuditMarkers } from "./server/sentinel-audit-retention.mjs";
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
@@ -37,6 +40,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = createServer(app);
+const sentinelWriteFence = createSentinelWriteFence();
+app.use(sentinelWriteFence.middleware);
+sentinelWriteFence.installHandlerTracking(app);
 const wss = new WebSocketServer({ noServer: true });
 
 app.use(express.json({ limit: "2mb", verify: (req: any, _res, body) => { req.rawBody = Buffer.from(body); } }));
@@ -691,12 +697,19 @@ const storePersistence = createHubStorePersistence({
 
 let store = await storePersistence.load(normalizeLoadedStore, initialStore) as AppStore;
 
-async function saveStore(nextStore: AppStore): Promise<void> {
-  await storePersistence.save(nextStore);
+async function saveStore(nextStore: AppStore, sentinel = false): Promise<void> {
+  const endWrite = sentinelWriteFence.beginStoreSave({ sentinel });
+  try { await storePersistence.save(nextStore); }
+  finally { endWrite(); }
 }
 
 async function commitStore(nextStore: AppStore) {
   await saveStore(nextStore);
+  store = nextStore;
+}
+
+async function commitSentinelStore(nextStore: AppStore) {
+  await saveStore(nextStore, true);
   store = nextStore;
 }
 
@@ -1755,6 +1768,13 @@ function requirePlatformOperator(req: Request, res: Response, next: () => void) 
   if (!isPlatformOperatorIdentity(session.userId, session.organizationId)) {
     return res.status(403).json({ error: "Platform operator access required" });
   }
+  // A historical session may predate MFA enrollment. An enrolled account is
+  // not evidence that this particular browser session passed an MFA challenge.
+  if (process.env.V79_REQUIRE_ADMIN_MFA === "1" &&
+      (session.mfaVerified !== true ||
+       store.users.find(user => user.id === session.userId)?.mfaEnabled !== true)) {
+    return res.status(403).json({ error: "Fresh administrator MFA verification is required" });
+  }
   next();
 }
 function requireRole(...roles: StoredUser["role"][]) {
@@ -1896,7 +1916,7 @@ function onboardingAudit(nextStore: AppStore, type: string, details: Record<stri
     organizationId,
     createdAt: new Date().toISOString(),
   });
-  if (nextStore.auditEvents.length > 5000) nextStore.auditEvents = nextStore.auditEvents.slice(-5000);
+  if (nextStore.auditEvents.length > 5000) nextStore.auditEvents = retainSentinelAuditMarkers(nextStore.auditEvents);
 }
 
 function organizationPlanFor(currentStore: AppStore, organizationId: string): OrganizationPlan {
@@ -3537,6 +3557,26 @@ app.get("/api/admin/audit", requirePlatformOperator, (req, res) => {
     });
   res.setHeader("Cache-Control", "no-store");
   res.json({ events });
+});
+
+// Sentinel QA operator routes are shared with disposable localhost HTTP tests.
+// Both creation and cleanup feature flags are disabled by default.
+registerSentinelQaRoutes(app, {
+  requirePlatformOperator,
+  sameOriginMutation,
+  // Include preserved schema extensions in the fail-closed reference scan.
+  getStore: () => ({ ...storePersistence.envelope(), ...store }),
+  commitStore: commitSentinelStore,
+  getRuntimeStatus: () => ({ ...sentinelWriteFence.snapshot(), reminderLeader: trialReminderLeader, reminderBusy }),
+  beginExclusive: (req: Request) => {
+    // A configured reminder leader can resume writes at any timer tick.
+    if (trialReminderLeader || reminderBusy) {
+      throw new Error("Disable and quiesce the reminder worker before Sentinel maintenance.");
+    }
+    return sentinelWriteFence.beginExclusive(req);
+  },
+  hashPassword,
+  deleteSessionsWhere,
 });
 
 app.get("/api/admin/onboarding/invitations", requirePlatformOperator, (_req, res) => {
@@ -5283,13 +5323,18 @@ async function startServer() {
   }
 
   const PORT = Number(process.env.PORT || 3040);
-  server.listen(PORT, "0.0.0.0", () => {
+  // Explicit loopback binding lets isolated integration runs use the full Hub.
+  const HOST = process.env.V79_HUB_BIND_HOST || "0.0.0.0";
+  if (!["0.0.0.0", "127.0.0.1", "::1"].includes(HOST)) {
+    throw new Error("V79_HUB_BIND_HOST must be 0.0.0.0, 127.0.0.1 or ::1.");
+  }
+  server.listen(PORT, HOST, () => {
     if (trialReminderLeader && recoveryEmailEnabled) {
       void dispatchTrialReminders();
       const reminderTimer=setInterval(()=>{void dispatchTrialReminders();},3600000);
       reminderTimer.unref?.();
     }
-    console.log(`V79 Client Hub Server running on http://0.0.0.0:${PORT}`);
+    console.log(`V79 Client Hub Server running on http://${HOST}:${PORT}`);
   });
 }
 
