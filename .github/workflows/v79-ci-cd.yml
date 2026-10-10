@@ -16,6 +16,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  approval-pg-race:
+    name: Isolated PostgreSQL two-process approval races
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    services:
+      synthetic-postgres:
+        image: public.ecr.aws/docker/library/postgres:17-alpine
+        env:
+          POSTGRES_USER: v79_ci_agent
+          POSTGRES_PASSWORD: synthetic-ci-password-not-reused
+          POSTGRES_DB: v79_ci_approval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U v79_ci_agent -d v79_ci_approval"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify independent approval writers against disposable PostgreSQL
+        env:
+          V79_APPROVAL_TEST_PG_URL: postgres://v79_ci_agent:synthetic-ci-password-not-reused@127.0.0.1:5432/v79_ci_approval
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          node --test --test-concurrency=1 tests/agent-approval-live-postgres.test.mjs
+
   validate:
     name: Validate, test and build
     runs-on: ubuntu-latest
@@ -48,7 +82,7 @@ jobs:
           if [ -f backend/package.json ]; then run_project backend; fi
       - name: Verify Docker image can build
         if: ${{ hashFiles('Dockerfile') != '' }}
-        run: docker build --tag v79-ci-image .
+        run: docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine --tag v79-ci-image .
       - name: Create delivery bundle
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
@@ -91,7 +125,7 @@ jobs:
         run: |
           IMAGE="${{ steps.docker.outputs.image }}"
           SHORT_SHA="${GITHUB_SHA::12}"
-          docker build -t "$IMAGE:latest" -t "$IMAGE:$SHORT_SHA" .
+          docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine -t "$IMAGE:latest" -t "$IMAGE:$SHORT_SHA" .
           docker push "$IMAGE:latest"
           docker push "$IMAGE:$SHORT_SHA"
       - name: Delivery note

@@ -93,6 +93,7 @@ export function WorkspaceConnections({ apps, onNavigate, authToken }: WorkspaceC
         {apps.map((app) => {
           const product = productByAppId[app.id];
           const check = product ? serviceStatus[product] : undefined;
+          const launchUrl = appLaunchUrl(app);
           return (
           <div
             key={app.id}
@@ -137,15 +138,21 @@ export function WorkspaceConnections({ apps, onNavigate, authToken }: WorkspaceC
                 </button>
               </div>
 
-              <a
-                href={appLaunchUrl(app) || "#"}
-                target={isManagedHubApp(app) ? undefined : "_blank"}
-                rel={isManagedHubApp(app) ? undefined : "noopener noreferrer"}
-                className="inline-flex items-center gap-1 text-slate-700 hover:text-cyan-700 font-semibold"
-              >
-                <span>Launch</span>
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </a>
+              {launchUrl ? (
+                <a
+                  href={launchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-slate-700 hover:text-cyan-700 font-semibold"
+                >
+                  <span>Launch</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </a>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                  {app.accessMessage || "Setup pending"}
+                </span>
+              )}
             </div>
           </div>
         ); })}

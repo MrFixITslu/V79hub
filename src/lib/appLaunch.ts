@@ -30,9 +30,10 @@ export function managedLaunchPath(
 }
 
 export function appLaunchUrl(
-  app?: Pick<EcosystemApp, "id" | "appUrl"> | null,
+  app?: Pick<EcosystemApp, "id" | "appUrl" | "launchReady"> | null,
   fallback = "",
 ): string | null {
+  if (app?.launchReady === false) return null;
   const external = [app?.appUrl, fallback].find(candidate => {
     if (!candidate) return false;
     try {

@@ -18,8 +18,10 @@ export interface User {
   role: UserRole;
   platformOperator?: boolean;
   ownerAgent?: boolean;
+  workspaceOwner?: boolean;
   email?: string;
   permissions?: ViewState[];
+  appIds?: string[];
   lastLogin?: string;
   createdAt?: string;
 }
@@ -60,4 +62,6 @@ export interface EcosystemApp {
   isFlagship?: boolean;
   version?: string;
   lastSync?: string;
+  launchReady?: boolean;
+  accessMessage?: string;
 }

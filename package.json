@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "store:migrate:postgres": "node scripts/migrate-store-to-postgres.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -20,6 +21,7 @@
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "pg": "^8.23.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^8.3.0",
@@ -28,11 +30,13 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.1",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.2",
+    "pg-mem": "^3.0.14",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"

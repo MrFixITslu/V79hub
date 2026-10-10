@@ -28,7 +28,7 @@ export function resolveAgentModelRuntime(env: NodeJS.ProcessEnv = process.env): 
       provider: "ollama",
       model: String(env.OLLAMA_AGENT_MODEL || "qwen2.5:1.5b").trim(),
       baseURL: String(env.OLLAMA_OPENAI_BASE_URL || "http://ollama:11434/v1").trim().replace(/\/+$/, ""),
-      timeoutMs: positiveInteger(env.OLLAMA_REQUEST_TIMEOUT_MS, 60_000),
+      timeoutMs: positiveInteger(env.OLLAMA_REQUEST_TIMEOUT_MS, 90_000),
     };
   }
   if (provider === "openai") {
@@ -94,4 +94,5 @@ export async function prewarmAgentModel(
   }
 }
 
+export const agentModelRuntime = configureAgentModelRuntime();
 export const agentModelRuntime = configureAgentModelRuntime();

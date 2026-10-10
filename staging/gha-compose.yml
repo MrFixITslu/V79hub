@@ -1,0 +1,204 @@
+name: v79-01-ephemeral
+x-guard: &guard
+  restart: "no"
+  networks: [sandbox]
+  security_opt: ["no-new-privileges:true"]
+services:
+  hub-db:
+    image: postgres:17-alpine
+    environment: {POSTGRES_DB: hub_staging, POSTGRES_USER: stage, POSTGRES_PASSWORD: "${STAGE_DB_PASSWORD:?Synthetic password}"}
+    tmpfs: ["/var/lib/postgresql/data:rw,size=268435456"]
+    networks: [sandbox]
+    healthcheck: {test: ["CMD-SHELL","pg_isready -U stage -d hub_staging"], interval: 3s, timeout: 3s, retries: 20}
+  pos-db:
+    image: postgres:17-alpine
+    environment: {POSTGRES_DB: v79commerce, POSTGRES_USER: stage, POSTGRES_PASSWORD: "${STAGE_DB_PASSWORD}"}
+    tmpfs: ["/var/lib/postgresql/data:rw,size=268435456"]
+    networks: [sandbox]
+    healthcheck: {test: ["CMD-SHELL","pg_isready -U stage -d v79commerce"], interval: 3s, timeout: 3s, retries: 20}
+  ffpro-db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_DB: fire_finance, POSTGRES_USER: stage, POSTGRES_PASSWORD: "${STAGE_DB_PASSWORD}"}
+    tmpfs: ["/var/lib/postgresql/data:rw,size=268435456"]
+    networks: [sandbox]
+    healthcheck: {test: ["CMD-SHELL","pg_isready -U stage -d fire_finance"], interval: 3s, timeout: 3s, retries: 20}
+  tiquet-db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_DB: tiquet, POSTGRES_USER: stage, POSTGRES_PASSWORD: "${STAGE_DB_PASSWORD}"}
+    tmpfs: ["/var/lib/postgresql/data:rw,size=268435456"]
+    networks: [sandbox]
+    healthcheck: {test: ["CMD-SHELL","pg_isready -U stage -d tiquet"], interval: 3s, timeout: 3s, retries: 20}
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server","--save","","--appendonly","no"]
+    networks: [sandbox]
+    healthcheck: {test: ["CMD","redis-cli","ping"], interval: 3s, timeout: 3s, retries: 20}
+  hub-seed:
+    <<: *guard
+    image: v79-01-hub:test
+    command: ["node","staging/gha-seed.mjs"]
+    environment:
+      V79_EPHEMERAL_CI: "1"
+      GITHUB_ACTIONS: "true"
+      STAGE_CUSTOMER_PASSWORD: "${STAGE_CUSTOMER_PASSWORD}"
+      STAGE_ADMIN_PASSWORD: "${STAGE_ADMIN_PASSWORD}"
+      DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@hub-db:5432/hub_staging"
+      DATA_DIR: /app/data
+    volumes: ["hub-data:/app/data"]
+    depends_on:
+      hub-db: {condition: service_healthy}
+  pos-migrate:
+    <<: *guard
+    image: v79-01-pos:test
+    entrypoint: []
+    command: ["./node_modules/.bin/prisma","migrate","deploy"]
+    environment:
+      DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@pos-db:5432/v79commerce"
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      pos-db: {condition: service_healthy}
+  v79-hub:
+    <<: *guard
+    image: v79-01-hub:test
+    environment:
+      GITHUB_ACTIONS: "true"
+      V79_EPHEMERAL_CI: "1"
+      STAGE_CUSTOMER_PASSWORD: "${STAGE_CUSTOMER_PASSWORD}"
+      STAGE_ADMIN_PASSWORD: "${STAGE_ADMIN_PASSWORD}"
+      NODE_ENV: production
+      PORT: "3040"
+      DATA_DIR: /app/data
+      APP_URL: https://hub.v79sl.com
+      V79_HUB_STORE_BACKEND: postgres
+      DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@hub-db:5432/hub_staging"
+      V79_HUB_ADMIN_EMAIL: vision79slu@gmail.com
+      V79_HUB_ADMIN_USERNAME: admin
+      V79_POS_ORG_ID: synthetic-v79-internal
+      V79_HUB_ADMIN_PASSWORD: "${STAGE_ADMIN_PASSWORD}"
+      V79_REQUIRE_ADMIN_MFA: "0"
+      V79_PLATFORM_SHARED_SECRET: "${STAGE_GENERAL_SECRET}"
+      V79_POS_PLATFORM_SHARED_SECRET: "${STAGE_POS_SECRET}"
+      V79_FFPRO_LAUNCH_SECRET: "${STAGE_FFPRO_SECRET}"
+      V79_TIQUET_LAUNCH_SECRET: "${STAGE_TIQUET_SECRET}"
+      V79_MARKETING_LAUNCH_SECRET: "${STAGE_MARKETING_SECRET}"
+      POS_BASE_URL: http://pos:8080
+      FFPRO_INTERNAL_URL: http://ffpro:3010
+      TIQUET_INTERNAL_URL: http://tiquet:3050
+      MARKETING_INTERNAL_URL: http://marketing:3070
+      V79_BILLING_PROVIDER: disabled
+      V79_TRIAL_REMINDERS_ENABLED: "0"
+      V79_TRIAL_REMINDERS_WORKER_LEADER: "0"
+      RESEND_API_KEY: ""
+    volumes: ["hub-data:/app/data"]
+    depends_on:
+      hub-seed: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD","node","-e","fetch('http://127.0.0.1:3040/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  pos:
+    <<: *guard
+    image: v79-01-pos:test
+    entrypoint: []
+    command: ["node","apps/api/dist/server.js"]
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@pos-db:5432/v79commerce"
+      REDIS_URL: redis://redis:6379
+      AUTH_MODE: hub
+      HUB_INTERNAL_URL: http://v79-hub:3040
+      HUB_JWKS_URL: http://v79-hub:3040/.well-known/jwks.json
+      JWT_ISSUER: https://hub.v79sl.com
+      POS_PUBLIC_URL: https://pos.v79sl.com
+      CORS_ORIGINS: https://pos.v79sl.com
+      # The current POS provisioner verifies its generic platform secret,
+      # while session revalidation uses the dedicated POS secret. Keep both
+      # set to the exact Hub POS signing secret in this isolated deployment.
+      V79_PLATFORM_SHARED_SECRET: "${STAGE_POS_SECRET}"
+      V79_POS_PLATFORM_SHARED_SECRET: "${STAGE_POS_SECRET}"
+      V79_ENTITLEMENT_RECHECK_ENABLED: "1"
+      GIFT_CARD_PEPPER: "${STAGE_POS_SECRET}"
+      ENCRYPTION_KEY: "${STAGE_GENERAL_SECRET}"
+    depends_on:
+      pos-migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      v79-hub: {condition: service_healthy}
+  ffpro:
+    <<: *guard
+    image: v79-01-ffpro:test
+    environment:
+      NODE_ENV: production
+      PORT: "3010"
+      FRONTEND_URL: https://ffpro.v79sl.com
+      # Signed provisioning is allowed on this exact private host, but
+      # browser launch/login must still present the public canonical host.
+      FFPRO_INTERNAL_HOST: ffpro:3010
+      DATABASE_URL: "postgresql://stage:${STAGE_DB_PASSWORD}@ffpro-db:5432/fire_finance"
+      DATABASE_SSL: "false"
+      SESSION_SECRET: "${STAGE_FFPRO_SECRET}"
+      DATA_ENCRYPTION_KEY: "${STAGE_FFPRO_ENCRYPTION_KEY:?FFPRO requires a base64-encoded 32-byte key}"
+      V79_PLATFORM_SHARED_SECRET: "${STAGE_GENERAL_SECRET}"
+      V79_FFPRO_LAUNCH_SECRET: "${STAGE_FFPRO_SECRET}"
+      V79_HUB_PUBLIC_URL: https://hub.v79sl.com
+      V79_HUB_INTERNAL_URL: http://v79-hub:3040
+      V79_ENTITLEMENT_RECHECK_ENABLED: "1"
+      V79_ALLOW_LEGACY_AUTH: "0"
+    depends_on:
+      ffpro-db: {condition: service_healthy}
+      v79-hub: {condition: service_healthy}
+  tiquet:
+    <<: *guard
+    image: v79-01-tiquet:test
+    environment:
+      NODE_ENV: production
+      PORT: "3050"
+      DB_HOST: tiquet-db
+      DB_PORT: "5432"
+      DB_USER: stage
+      DB_NAME: tiquet
+      DB_PASSWORD: "${STAGE_DB_PASSWORD}"
+      JWT_SECRET: "${STAGE_TIQUET_SECRET}"
+      SUPER_ADMIN_JWT_SECRET: "${STAGE_GENERAL_SECRET}"
+      TIQUET_DATA_ENCRYPTION_KEY: "${STAGE_TIQUET_SECRET}"
+      APP_BASE_URL: https://tiquet.v79sl.com
+      V79_HUB_PUBLIC_URL: https://hub.v79sl.com
+      V79_HUB_INTERNAL_URL: http://v79-hub:3040
+      V79_TIQUET_LAUNCH_SECRET: "${STAGE_TIQUET_SECRET}"
+      V79_PLATFORM_SHARED_SECRET: "${STAGE_GENERAL_SECRET}"
+      V79_ENTITLEMENT_RECHECK_ENABLED: "1"
+      V79_HUB_MANAGED_BILLING: "1"
+    volumes: ["tiquet-data:/app/data","tiquet-uploads:/app/uploads"]
+    depends_on:
+      tiquet-db: {condition: service_healthy}
+      v79-hub: {condition: service_healthy}
+  marketing:
+    <<: *guard
+    image: v79-01-marketing:test
+    environment:
+      NODE_ENV: production
+      PORT: "3070"
+      APP_URL: https://marketing.v79sl.com
+      DATABASE_PATH: /app/data/staging_marketing.sqlite
+      JWT_SECRET: "${STAGE_MARKETING_SECRET}"
+      V79_MARKETING_LAUNCH_SECRET: "${STAGE_MARKETING_SECRET}"
+      V79_HUB_PROVISION_SECRET: "${STAGE_GENERAL_SECRET}"
+      V79_PLATFORM_SHARED_SECRET: "${STAGE_GENERAL_SECRET}"
+      V79_HUB_PUBLIC_URL: https://hub.v79sl.com
+      V79_HUB_INTERNAL_URL: http://v79-hub:3040
+      V79_ENTITLEMENT_RECHECK_ENABLED: "1"
+      V79_HUB_MANAGED_BILLING: "1"
+      SOCIAL_TOKEN_ENCRYPTION_KEY: "${STAGE_GENERAL_SECRET}"
+      ALLOWED_ORIGINS: https://marketing.v79sl.com
+    volumes: ["marketing-data:/app/data"]
+    depends_on:
+      v79-hub: {condition: service_healthy}
+networks:
+  sandbox:
+    internal: true
+volumes:
+  hub-data:
+  tiquet-data:
+  tiquet-uploads:
+  marketing-data:

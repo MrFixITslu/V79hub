@@ -78,20 +78,6 @@ export function POSPlatformAdmin() {
     );
   }, [tenants, search]);
 
-  const setTenantActive = async (tenant: PosTenant, enabled: boolean) => {
-    if (!enabled && !window.confirm(`Deactivate "${tenant.name}" POS workspace? Users will lose POS access until it is reactivated.`)) return;
-    setBusy(tenant.id);
-    try {
-      await posAdminApi(`/tenants/${encodeURIComponent(tenant.id)}/active/${enabled ? "enabled" : "disabled"}`, { method: "PUT" });
-      await refresh();
-      flash(enabled ? "POS workspace activated." : "POS workspace deactivated.");
-    } catch (error) {
-      flash(error instanceof Error ? error.message : "POS tenant status could not be changed.", "error");
-    } finally {
-      setBusy("");
-    }
-  };
-
   const setOfflineSales = async (tenant: PosTenant, enabled: boolean) => {
     setBusy(tenant.id);
     try {
@@ -116,7 +102,7 @@ export function POSPlatformAdmin() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-bold text-slate-900">POS platform administration</h2>
-          <p className="text-xs text-slate-500 mt-1">Tenant state and usage metadata only. Product, sale and customer details remain inside each POS workspace.</p>
+          <p className="text-xs text-slate-500 mt-1">Operational tenant metadata and POS-specific settings only. Customer access is managed centrally from Hub Customers and Plans & Entitlements.</p>
         </div>
         <button onClick={() => void refresh()} className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold inline-flex items-center gap-1.5">
           <RefreshCw className={`w-3.5 h-3.5 ${busy === "refresh" ? "animate-spin" : ""}`} /> Refresh
@@ -144,7 +130,7 @@ export function POSPlatformAdmin() {
               <tr>
                 <th className="p-3">Tenant</th><th className="p-3">Status</th><th className="p-3">Members</th>
                 <th className="p-3">Locations</th><th className="p-3">Products</th><th className="p-3">Sales</th>
-                <th className="p-3">Open POs</th><th className="p-3">Offline Sales</th><th className="p-3 text-right">Control</th>
+                <th className="p-3">Open POs</th><th className="p-3">Offline Sales</th><th className="p-3 text-right">Authority</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -158,9 +144,7 @@ export function POSPlatformAdmin() {
                   <td className="p-3 text-slate-600">{tenant.completedSales}</td>
                   <td className="p-3 text-slate-600">{tenant.openPurchaseOrders}</td>
                   <td className="p-3"><button disabled={busy === tenant.id} onClick={() => void setOfflineSales(tenant, !tenant.offlineSalesEnabled)} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold ${tenant.offlineSalesEnabled ? "border-cyan-200 bg-cyan-50 text-cyan-700" : "border-slate-200 text-slate-600"}`}><Wifi className="inline w-3 h-3 mr-1" />{tenant.offlineSalesEnabled ? "Enabled" : "Disabled"}</button></td>
-                  <td className="p-3 text-right">
-                    <button disabled={busy === tenant.id} onClick={() => void setTenantActive(tenant, !tenant.active)} className={`px-3 py-2 rounded-lg text-[10px] font-semibold disabled:opacity-40 ${tenant.active ? "border border-rose-200 text-rose-700" : "bg-emerald-600 text-white"}`}>{tenant.active ? "Deactivate" : "Activate"}</button>
-                  </td>
+                  <td className="p-3 text-right"><span className="text-[9px] font-semibold text-slate-400">Managed in Hub</span></td>
                 </tr>
               ))}
             </tbody>

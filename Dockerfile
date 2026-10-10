@@ -1,4 +1,5 @@
-FROM node:22-alpine
+ARG NODE_BASE=node:22-alpine
+FROM ${NODE_BASE}
 
 WORKDIR /app
 RUN apk add --no-cache python3 make g++

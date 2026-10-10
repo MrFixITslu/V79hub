@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Archive, BookOpen, ChevronDown, ChevronRight, Copy, FileText,
   GraduationCap, Layers3, Loader2, Plus, RefreshCw, Save,
-  Search, Send, Settings2, Trash2, X,
+  Search, Send, Settings2, Trash2, X, Users, CreditCard, ShieldCheck,
 } from "lucide-react";
 import { EcosystemApp } from "../types";
 import { academyAdminApi } from "../lib/academyAdmin";
@@ -15,6 +15,9 @@ import { MarketingPlatformAdmin } from "./MarketingPlatformAdmin";
 import { POSPlatformAdmin } from "./POSPlatformAdmin";
 import { FFPROPlatformAdmin } from "./FFPROPlatformAdmin";
 import { PlatformAdminOverview } from "./PlatformAdminOverview";
+import { PlatformCustomersAdmin } from "./PlatformCustomersAdmin";
+import { PlatformPlansAdmin } from "./PlatformPlansAdmin";
+import { PlatformAuditAdmin } from "./PlatformAuditAdmin";
 
 type CourseStatus = "Draft" | "Review" | "Ready for Upload" | "Uploaded" | "Imported" | "Published" | "Archived";
 type PricingType = "free" | "free_trial" | "premium" | "subscription";
@@ -87,7 +90,8 @@ interface AdminConsoleProps {
 }
 
 type AdminSection = "academy" | "platform";
-type PlatformView = "overview" | "pos" | "ffpro" | "tiquet" | "marketing";
+type PlatformView = "overview" | "customers" | "applications" | "plans" | "audit";
+type PlatformProductView = "pos" | "ffpro" | "tiquet" | "marketing";
 type AcademyView = "courses" | "learners" | "publishing" | "import" | "junior";
 const emptyCourse = (): Partial<Course> => ({
   title: "",
@@ -115,9 +119,10 @@ const statusClass: Record<string, string> = {
 };
 
 export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
-  const [section, setSection] = useState<AdminSection>("academy");
+  const [section, setSection] = useState<AdminSection>("platform");
   const [academyView, setAcademyView] = useState<AcademyView>("courses");
   const [platformView, setPlatformView] = useState<PlatformView>("overview");
+  const [platformProductView, setPlatformProductView] = useState<PlatformProductView>("pos");
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<Course> | null>(null);
@@ -127,7 +132,7 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const flash = (text: string, type: "success" | "error" = "success") => {
@@ -152,8 +157,8 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
   }, [selectedId]);
 
   useEffect(() => {
-    void loadCourses();
-  }, []);
+    if (section === "academy") void loadCourses();
+  }, [section]);
 
   const selectCourse = async (course: Course) => {
     setSelectedId(course.id);
@@ -389,7 +394,7 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
 
   const publishedCount = courses.filter((course) => course.status === "Published" || course.status === "Uploaded").length;
   const draftCount = courses.filter((course) => course.status === "Draft" || course.status === "Review").length;
-  const connectedApps = ecosystemApps.filter((app) => app.status !== "maintenance").length;
+  const customerAppCount = ecosystemApps.filter((app) => ["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing", "app-academy"].includes(app.id)).length;
 
   return (
     <div className="w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -397,71 +402,125 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div>
             <div className="text-cyan-400 text-[11px] font-bold uppercase tracking-wider">Platform administration</div>
-            <h1 className="text-2xl font-extrabold mt-1">V79 Admin Console</h1>
+            <h1 className="text-2xl font-extrabold mt-1">V79 Platform Admin</h1>
             <p className="text-sm text-slate-300 mt-2 max-w-2xl">
-              Platform-owned controls live here. Business and personal settings remain inside each app.
+              Manage customer lifecycle, V79 applications, plans, Academy administration and audited platform controls from one place.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 min-w-[330px]">
-            <Metric label="Connected apps" value={String(connectedApps)} />
-            <Metric label="Academy courses" value={String(courses.length)} />
-            <Metric label="Published" value={String(publishedCount)} />
+            <Metric label="Admin areas" value="6" />
+            <Metric label="Customer apps" value={String(customerAppCount)} />
+            <Metric label="Admin security" value="MFA" />
           </div>
         </div>
       </section>
 
       {message && (
-        <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${message.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+        <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+          message.type === "success"
+            ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+            : "bg-rose-50 border-rose-200 text-rose-800"
+        }`}>
           {message.text}
         </div>
       )}
 
-      <div className="flex gap-2 border-b border-slate-200">
-        <Tab active={section === "academy"} onClick={() => setSection("academy")} icon={GraduationCap} label="Academy" />
-        <Tab active={section === "platform"} onClick={() => setSection("platform")} icon={Settings2} label="Platform" />
-      </div>
+      <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-3" aria-label="Platform administration">
+        <button onClick={() => { setSection("platform"); setPlatformView("overview"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "overview" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <Settings2 className="w-4 h-4" /> Overview
+        </button>
+        <button onClick={() => { setSection("platform"); setPlatformView("customers"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "customers" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <Users className="w-4 h-4" /> Customers
+        </button>
+        <button onClick={() => { setSection("platform"); setPlatformView("applications"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "applications" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <Layers3 className="w-4 h-4" /> Applications
+        </button>
+        <button onClick={() => { setSection("platform"); setPlatformView("plans"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "plans" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <CreditCard className="w-4 h-4" /> Plans & Entitlements
+        </button>
+        <button onClick={() => setSection("academy")}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "academy" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <GraduationCap className="w-4 h-4" /> Academy
+        </button>
+        <button onClick={() => { setSection("platform"); setPlatformView("audit"); }}
+          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+            section === "platform" && platformView === "audit" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <ShieldCheck className="w-4 h-4" /> Audit & Security
+        </button>
+      </nav>
 
       {section === "platform" ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {[
-              ["overview", "Overview"],
-              ["pos", "POS"],
-              ["ffpro", "FFPRO"],
-              ["tiquet", "Tiquet"],
-              ["marketing", "Marketing"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => setPlatformView(id as PlatformView)}
-                className={`px-3 py-2 rounded-lg border text-xs font-semibold ${
-                  platformView === id
-                    ? "bg-slate-950 border-slate-950 text-white"
-                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
           {platformView === "overview" ? (
             <PlatformAdminOverview onOpen={(product) => {
               if (product === "academy") {
                 setSection("academy");
                 setAcademyView("courses");
               } else {
-                setPlatformView(product);
+                setPlatformView("applications");
+                setPlatformProductView(product);
               }
             }} />
-          ) : platformView === "pos" ? (
-            <POSPlatformAdmin />
-          ) : platformView === "ffpro" ? (
-            <FFPROPlatformAdmin />
-          ) : platformView === "marketing" ? (
-            <MarketingPlatformAdmin />
+          ) : platformView === "customers" ? (
+            <PlatformCustomersAdmin />
+          ) : platformView === "plans" ? (
+            <PlatformPlansAdmin />
+          ) : platformView === "audit" ? (
+            <PlatformAuditAdmin />
           ) : (
-            <TiquetPlatformAdmin />
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  ["pos", "POS"],
+                  ["ffpro", "FFPRO"],
+                  ["tiquet", "Tiquet"],
+                  ["marketing", "Marketing"],
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setPlatformProductView(id as PlatformProductView)}
+                    className={`px-3 py-2 rounded-lg border text-xs font-semibold ${
+                      platformProductView === id
+                        ? "bg-slate-950 border-slate-950 text-white"
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setSection("academy"); setAcademyView("courses"); }}
+                  className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Academy
+                </button>
+              </div>
+
+              {platformProductView === "pos" ? (
+                <POSPlatformAdmin />
+              ) : platformProductView === "ffpro" ? (
+                <FFPROPlatformAdmin />
+              ) : platformProductView === "marketing" ? (
+                <MarketingPlatformAdmin />
+              ) : (
+                <TiquetPlatformAdmin />
+              )}
+            </div>
           )}
         </div>
       ) : (
@@ -645,10 +704,6 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return <div className="bg-[#101D35] border border-slate-700/60 rounded-xl px-3 py-3 text-center"><div className="text-xl font-extrabold">{value}</div><div className="text-[9px] text-slate-400 mt-0.5">{label}</div></div>;
-}
-
-function Tab({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: React.ComponentType<{ className?: string }>; label: string }) {
-  return <button onClick={onClick} className={`inline-flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 ${active ? "border-cyan-500 text-cyan-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}><Icon className="w-4 h-4" />{label}</button>;
 }
 
 function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {

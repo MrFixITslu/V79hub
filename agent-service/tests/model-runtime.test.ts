@@ -7,7 +7,7 @@ test("Ollama is the default model provider", () => {
     provider: "ollama",
     model: "qwen2.5:1.5b",
     baseURL: "http://ollama:11434/v1",
-    timeoutMs: 60000,
+    timeoutMs: 90000,
   });
 });
 

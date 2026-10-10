@@ -72,7 +72,7 @@ test('private data, retired embedded APIs and one-time app launch', {timeout:300
   });
   const ffproOrigin=await listen(ffpro);
   const probe=createServer();const origin=await listen(probe);await new Promise(resolve=>probe.close(resolve));
-  const server=spawn(process.execPath,['--import','tsx','server.ts'],{cwd:process.cwd(),env:{...process.env,NODE_ENV:'production',DATA_DIR:dir,PORT:new URL(origin).port,APP_URL:origin,V79_HUB_ADMIN_PASSWORD:'a-unique-admin-password-1234',V79_HUB_ADMIN_EMAIL:'owner@example.test',V79_PLATFORM_SHARED_SECRET:secret,V79_FFPRO_LAUNCH_SECRET:secret,V79_TIQUET_LAUNCH_SECRET:secret,V79_MARKETING_LAUNCH_SECRET:secret,POS_BASE_URL:posOrigin,POS_PUBLIC_URL:'https://pos.example.test',ACADEMY_INTERNAL_URL:academyOrigin,TIQUET_INTERNAL_URL:tiquetOrigin,FFPRO_INTERNAL_URL:ffproOrigin},stdio:['ignore','pipe','pipe']});
+  const server=spawn(process.execPath,['--import','tsx','server.ts'],{cwd:process.cwd(),env:{...process.env,NODE_ENV:'production',DATA_DIR:dir,PORT:new URL(origin).port,APP_URL:origin,V79_HUB_ADMIN_PASSWORD:'a-unique-admin-password-1234',V79_HUB_ADMIN_EMAIL:'vision79slu@gmail.com',V79_PLATFORM_SHARED_SECRET:secret,V79_FFPRO_LAUNCH_SECRET:secret,V79_TIQUET_LAUNCH_SECRET:secret,V79_MARKETING_LAUNCH_SECRET:secret,POS_BASE_URL:posOrigin,POS_PUBLIC_URL:'https://pos.example.test',ACADEMY_INTERNAL_URL:academyOrigin,TIQUET_INTERNAL_URL:tiquetOrigin,FFPRO_INTERNAL_URL:ffproOrigin},stdio:['ignore','pipe','pipe']});
   let errors='';server.stderr.on('data',c=>errors+=c);
   server.stdout.on('data',c=>errors+=c);
   t.after(async()=>{
@@ -124,7 +124,7 @@ test('private data, retired embedded APIs and one-time app launch', {timeout:300
   const catalogPut=(id,body)=>request(`/api/ecosystem/apps/${id}`,{method:'PUT',headers,body:JSON.stringify(body)});
   assert.equal((await catalogPut(custom.id,{id:'app-ffpro'})).status,400);
   assert.equal((await catalogPut(custom.id,{appUrl:'javascript:alert(1)'})).status,400);
-  assert.equal((await catalogPut('app-ffpro',{appUrl:'https://example.test/'})).status,400);
+  assert.equal((await catalogPut('app-ffpro',{appUrl:'https://example.test/'})).status,403);
   const catalogAfterReject=JSON.parse(await readFile(storeFile,'utf8'));
   assert.equal(catalogAfterReject.ecosystemApps.find(app=>app.id===custom.id).appUrl,'https://example.test/tool');
   const ownerSummary=await (await request('/api/dashboard/summary',{headers:{Cookie:cookie}})).json();
@@ -140,9 +140,11 @@ test('private data, retired embedded APIs and one-time app launch', {timeout:300
   assert.equal(overviewPayload.apps.academy.status,'ok');
   assert.equal(overviewPayload.apps.academy.metrics.totalCourses,4);
   assert.equal((await request('/api/admin/platform/tiquet/stats',{headers:{Cookie:cookie}})).status,200);
-  assert.equal((await request('/api/admin/platform/tiquet/accounts/a1/suspend',{method:'PUT',headers,body:'{}'})).status,200);
-  assert.equal(tiquetRequests.some(row=>row.pathname==='/api/platform/admin/accounts/a1/suspend'),true);
   const forwardedBefore=tiquetRequests.length;
+  assert.equal((await request('/api/admin/platform/tiquet/accounts/a1/suspend',{method:'PUT',headers,body:'{}'})).status,404);
+  assert.equal((await request('/api/admin/platform/tiquet/accounts/a1/plan/pro',{method:'PUT',headers,body:'{}'})).status,404);
+  assert.equal((await request('/api/admin/platform/pos/tenants/t1/active/disabled',{method:'PUT',headers,body:'{}'})).status,404);
+  assert.equal(tiquetRequests.length,forwardedBefore);
   assert.equal((await request('/api/admin/platform/tiquet/accounts/a1/private-data',{headers:{Cookie:cookie}})).status,404);
   assert.equal((await request('/api/admin/tiquet/accounts/a1/private-data',{headers:{Cookie:cookie}})).status,404);
   assert.equal(tiquetRequests.length,forwardedBefore);
@@ -228,7 +230,7 @@ test('private data, retired embedded APIs and one-time app launch', {timeout:300
     const consumed=await request('/api/platform/session/consume',signed);
     assert.equal(consumed.status,200);
     const identity=await consumed.json();
-    assert.equal(identity.user.email,'owner@example.test');
+    assert.equal(identity.user.email,'vision79slu@gmail.com');
     assert.equal(identity.entitlement.product,product);
     assert.equal(identity.organization.id,provision.organization.id);
     assert.equal((await request('/api/platform/session/consume',signed)).status,401);

@@ -24,7 +24,7 @@ if (secret.length < 32) { console.error('Platform shared secret is missing or to
 const directory = path.resolve(process.env.DATA_DIR || path.join(process.cwd(),'data'));
 try {
   const email = String(process.env.V79_HUB_ADMIN_EMAIL || '').trim().toLowerCase();
-  if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(email)) throw new Error('V79_HUB_ADMIN_EMAIL is not configured.');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('V79_HUB_ADMIN_EMAIL is not configured.');
   const identityPath = path.join(directory,'pos-identity.json');
   if (!fs.existsSync(identityPath)) throw new Error('Hub workspace identity is missing; launch POS once or restore pos-identity.json.');
   const identity = JSON.parse(fs.readFileSync(identityPath,'utf8'));
@@ -40,7 +40,6 @@ try {
     try {
       const health=await fetch(new URL(product.health,base),{signal:AbortSignal.timeout(5000)});
       if (!health.ok) throw new Error(`health HTTP ${health.status}`);
-      // A bare 404 might be an absent route; first prove the route rejects an unsigned request.
       const unsigned=await fetch(new URL(pathname,base),{signal:AbortSignal.timeout(5000)});
       if (unsigned.status!==401) throw new Error(`unsigned summary HTTP ${unsigned.status}; expected 401`);
       const summary=await fetch(new URL(pathname,base),{headers:{

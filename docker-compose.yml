@@ -12,11 +12,35 @@ services:
       V79_HUB_ADMIN_USERNAME: ${V79_HUB_ADMIN_USERNAME:-admin}
       V79_HUB_ADMIN_PASSWORD: ${V79_HUB_ADMIN_PASSWORD:?Set a unique 16+ character admin password}
       V79_HUB_ADMIN_EMAIL: ${V79_HUB_ADMIN_EMAIL:-}
-      V79_PLATFORM_SHARED_SECRET: ${V79_PLATFORM_SHARED_SECRET:?Set the same 32+ character secret as POS}
+      V79_REQUIRE_ADMIN_MFA: ${V79_REQUIRE_ADMIN_MFA:-1}
+      V79_HUB_SECURITY_KEY: ${V79_HUB_SECURITY_KEY:-}
+      V79_HUB_RECOVERY_EMAIL: ${V79_HUB_RECOVERY_EMAIL:-vision79slu@gmail.com}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      V79_HUB_EMAIL_FROM: ${V79_HUB_EMAIL_FROM:-}
+      V79_HUB_PLAN_NAME: ${V79_HUB_PLAN_NAME:-V79 Hub Beta}
+      V79_HUB_MONTHLY_PRICE_XCD: ${V79_HUB_MONTHLY_PRICE_XCD:-}
+      V79_HUB_ANNUAL_PRICE_XCD: ${V79_HUB_ANNUAL_PRICE_XCD:-}
+      V79_HUB_RENEWAL_DATE: ${V79_HUB_RENEWAL_DATE:-}
+      WIPAY_ENABLED: ${WIPAY_ENABLED:-0}
+      WIPAY_ENV: ${WIPAY_ENV:-sandbox}
+      WIPAY_SANDBOX_DOC_DEFAULTS: ${WIPAY_SANDBOX_DOC_DEFAULTS:-1}
+      WIPAY_ACCOUNT_NUMBER: ${WIPAY_ACCOUNT_NUMBER:-}
+      WIPAY_API_KEY: ${WIPAY_API_KEY:-}
+      WIPAY_PAYMENT_URL: ${WIPAY_PAYMENT_URL:-}
+      WIPAY_COUNTRY_CODE: ${WIPAY_COUNTRY_CODE:-}
+      WIPAY_CURRENCY: ${WIPAY_CURRENCY:-}
+      WIPAY_FEE_STRUCTURE: ${WIPAY_FEE_STRUCTURE:-merchant_absorb}
+      WIPAY_RESPONSE_URL: ${WIPAY_RESPONSE_URL:-https://hub.v79sl.com/api/billing/wipay/return}
+      V79_BILLING_STATE_SECRET: ${V79_BILLING_STATE_SECRET:-}
+      V79_ACADEMY_BILLING_SECRET: ${V79_ACADEMY_BILLING_SECRET:-}
+      V79_TIQUET_BILLING_SECRET: ${V79_TIQUET_BILLING_SECRET:-}
+      V79_PLATFORM_SHARED_SECRET: ${V79_PLATFORM_SHARED_SECRET:?Set the general platform shared secret}
+      V79_POS_PLATFORM_SHARED_SECRET: ${V79_POS_PLATFORM_SHARED_SECRET:-}
       POS_BASE_URL: ${POS_BASE_URL:-http://v79-commerce-api:8080}
       POS_PUBLIC_URL: ${POS_PUBLIC_URL:-https://pos.v79sl.com}
       FFPRO_PUBLIC_URL: ${FFPRO_PUBLIC_URL:-https://ffpro.v79sl.com}
       TIQUET_PUBLIC_URL: ${TIQUET_PUBLIC_URL:-https://tiquet.v79sl.com}
+      ACADEMY_PUBLIC_URL: ${ACADEMY_PUBLIC_URL:-https://academy.v79sl.com}
       MARKETING_PUBLIC_URL: ${MARKETING_PUBLIC_URL:-https://marketing.v79sl.com}
       LASERTAG_INTERNAL_URL: ${LASERTAG_INTERNAL_URL:-http://lasertag:5173}
       WEBSITE_INTERNAL_URL: ${WEBSITE_INTERNAL_URL:-http://V79website:3000}
@@ -26,6 +50,8 @@ services:
       V79_MARKETING_LAUNCH_SECRET: ${V79_MARKETING_LAUNCH_SECRET:-}
       V79_POS_ORG_ID: ${V79_POS_ORG_ID:-}
       V79_POS_OWNER_USER_ID: ${V79_POS_OWNER_USER_ID:-}
+      V79_HUB_STORE_BACKEND: ${V79_HUB_STORE_BACKEND:-json}
+      DATABASE_URL: postgresql://v79hub:${V79_HUB_DB_PASSWORD:?Set a dedicated Hub PostgreSQL password}@v79-hub-postgres:5432/v79hub
       V79_AGENT_INTERNAL_URL: ${V79_AGENT_INTERNAL_URL:-http://v79-business-agent:3055}
       V79_AGENT_API_TOKEN: ${V79_AGENT_API_TOKEN:-}
       V79_AGENT_TOKEN_FILE: /run/secrets/v79-agent-token
@@ -38,12 +64,35 @@ services:
       - ${HOME}/.v79-secrets/owner-readonly-platform.token:/run/secrets/v79-readonly-platform-token:ro
     networks:
       - proxy_network
+      - hub_data_network
+    depends_on:
+      v79-hub-postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3040/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  v79-hub-postgres:
+    image: postgres:17-alpine
+    container_name: v79-hub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: v79hub
+      POSTGRES_USER: v79hub
+      POSTGRES_PASSWORD: ${V79_HUB_DB_PASSWORD:?Set a dedicated Hub PostgreSQL password}
+    volumes:
+      - v79_hub_postgres_data:/var/lib/postgresql/data
+    networks:
+      - hub_data_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U v79hub -d v79hub"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   v79-business-agent:
     build: ./agent-service
@@ -53,11 +102,17 @@ services:
       NODE_ENV: production
       PORT: 3055
       V79_AGENT_MODEL_PROVIDER: ${V79_AGENT_MODEL_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_OPENAI_BASE_URL: ${OLLAMA_OPENAI_BASE_URL:-http://ollama:11434/v1}
       OLLAMA_AGENT_MODEL: ${OLLAMA_AGENT_MODEL:-qwen2.5:1.5b}
       OLLAMA_REQUEST_TIMEOUT_MS: ${OLLAMA_REQUEST_TIMEOUT_MS:-60000}
       OLLAMA_PREWARM_TIMEOUT_MS: ${OLLAMA_PREWARM_TIMEOUT_MS:-120000}
       OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:--1}
+      OLLAMA_REQUEST_TIMEOUT_MS: ${OLLAMA_REQUEST_TIMEOUT_MS:-90000}
+      OLLAMA_PREWARM_TIMEOUT_MS: ${OLLAMA_PREWARM_TIMEOUT_MS:-120000}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:--1}
+      OLLAMA_MAX_TOKENS: ${OLLAMA_MAX_TOKENS:-80}
+      OLLAMA_CONTEXT_SIZE: ${OLLAMA_CONTEXT_SIZE:-2048}
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-ollama-local}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_AGENT_MODEL: ${OPENAI_AGENT_MODEL:-gpt-5.6-sol}
@@ -89,3 +144,8 @@ services:
 networks:
   proxy_network:
     external: true
+  hub_data_network:
+    internal: true
+
+volumes:
+  v79_hub_postgres_data:

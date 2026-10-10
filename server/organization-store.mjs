@@ -27,6 +27,7 @@ export function migrateLegacyOrganization(store, organizationId, ownerUserId) {
       organizationId,
       userId: user.id,
       role: user.id === ownerUserId ? "owner" : user.role,
+      permissions: Array.isArray(user.permissions) ? [...user.permissions] : [],
       status: "active",
       createdAt: now,
     })),

@@ -19,3 +19,83 @@
 textarea.admin-input {
   resize: vertical;
 }
+
+
+/* Hub design-system bridge: legacy workspace/admin screens use Tailwind light
+   utilities, while the newer dashboard uses explicit dark surfaces. These
+   scoped overrides let both sets follow the user's persisted Hub theme. */
+.hub-theme-dark {
+  color-scheme: dark;
+  background: #07111f;
+}
+.hub-theme-dark .bg-white { background-color: #091728 !important; }
+.hub-theme-dark .bg-slate-50,
+.hub-theme-dark .bg-slate-100 { background-color: #07111f !important; }
+.hub-theme-dark .bg-slate-200 { background-color: #10243b !important; }
+.hub-theme-dark .text-slate-900,
+.hub-theme-dark .text-slate-800,
+.hub-theme-dark .text-slate-700 { color: #e2e8f0 !important; }
+.hub-theme-dark .text-slate-600 { color: #94a3b8 !important; }
+.hub-theme-dark .text-cyan-700 { color: #65c9ff !important; }
+.hub-theme-dark .border-slate-100,
+.hub-theme-dark .border-slate-200,
+.hub-theme-dark .border-slate-300 { border-color: #1a3854 !important; }
+.hub-theme-dark .admin-input {
+  color: #e2e8f0;
+  background: #06101d;
+  border-color: #1a3854;
+}
+.hub-theme-dark [class*="bg-[#E9F8FA]"] {
+  background-color: rgba(10, 134, 255, 0.08) !important;
+  border-color: #1a3854 !important;
+}
+
+.hub-theme-light {
+  color-scheme: light;
+  background: #f8fafc;
+  color: #0f172a;
+}
+.hub-theme-light [class*="bg-[#07111f]"],
+.hub-theme-light [class*="bg-[#06101d]"],
+.hub-theme-light [class*="bg-[#050d17]"],
+.hub-theme-light [class*="bg-[#07121f]"],
+.hub-theme-light [class*="bg-[#081422]"] {
+  background-color: #f8fafc !important;
+}
+.hub-theme-light [class*="bg-[#091728]"],
+.hub-theme-light [class*="bg-[#0a1727]"],
+.hub-theme-light [class*="bg-[#0b1a2c]"],
+.hub-theme-light [class*="bg-[#10243b]"] {
+  background-color: #ffffff !important;
+}
+.hub-theme-light [class*="border-[#1a3854]"],
+.hub-theme-light [class*="border-[#17324d]"],
+.hub-theme-light [class*="border-[#18324b]"],
+.hub-theme-light [class*="border-[#21405d]"],
+.hub-theme-light [class*="border-[#2b5275]"] {
+  border-color: #cbd5e1 !important;
+}
+.hub-theme-light [class*="bg-[#091728]"] .text-white:not([class*="bg-"]),
+.hub-theme-light [class*="bg-[#06101d]"] .text-white:not([class*="bg-"]),
+.hub-theme-light [class*="bg-[#07111f]"] .text-white:not([class*="bg-"]),
+.hub-theme-light [class*="bg-[#050d17]"] .text-white:not([class*="bg-"]) {
+  color: #0f172a !important;
+}
+.hub-theme-light [class*="bg-[#06101d]"].text-white,
+.hub-theme-light [class*="bg-[#091728]"].text-white {
+  color: #0f172a !important;
+}
+.hub-theme-light .text-slate-400 { color: #475569 !important; }
+.hub-theme-light .text-slate-500 { color: #64748b !important; }
+.hub-theme-light .text-slate-600 { color: #64748b !important; }
+.hub-theme-light .admin-input {
+  color: #0f172a;
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+
+
+/* Mobile form usability: prevent iOS zoom and keep controls readable. */
+@media (max-width: 640px) {
+  input, select, textarea { font-size: 16px; }
+}
