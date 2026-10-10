@@ -75,11 +75,11 @@ export function parseProposedSentinelSummary(
   ) return failed("invalid");
 
   const counts = payload.counts;
-  if (!countKeys.every(key =>
-    typeof counts[key] === "number" &&
-    Number.isSafeInteger(counts[key]) &&
-    (counts[key] as number) >= 0 && (counts[key] as number) <= 1_000_000
-  )) return failed("invalid");
+  if (!countKeys.every(key => {
+    const value = counts[key];
+    return typeof value === "number" && Number.isSafeInteger(value) &&
+      value >= 0 && value <= 1_000_000;
+  })) return failed("invalid");
 
   if ((counts.unreachableDevices as number) > (counts.monitoredDevices as number)) {
     return failed("invalid");
