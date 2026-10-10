@@ -40,6 +40,7 @@ The following are the v1.0 architectural invariants:
 ### Agent A — CEO (executive oversight)
 
 - Owns strategy, revenue priorities, operating targets, daily management review, risk and compliance oversight.
+- Owns competitive and regional market intelligence: competitor positioning, AI/SaaS/service pricing, Caribbean buyer needs, product gaps, new opportunities, and responses to meaningful market changes. Reviews evidence gathered by the COO and decides how findings affect V79 priorities.
 - Reads evidence-backed briefings from Hub and COO; compares performance to owner-set goals and flags uncertainty, missing data or stale sources.
 - Assigns objectives and priorities to COO. Reviews exceptions, work quality and cost/impact of proposed improvements.
 - Produces *one consolidated approval request* for owner decisions with alternatives, risks, expected benefits, rollback and clear approve/reject options.
@@ -54,6 +55,18 @@ The following are the v1.0 architectural invariants:
 - Executes only an explicit allowlisted tool action with a policy-approved grant, idempotency key and audit trail. Otherwise drafts a proposal to CEO.
 - Investigates failures, retries bounded reversible work safely, and escalates unresolved or high-risk items to CEO.
 - Identifies improvements, tests candidate prompt/playbook changes in staging and sends evidence to CEO. Never directly modifies live services by self-generated code.
+
+### COO specialist capability — Caribbean Market Intelligence (not a third agent)
+
+**Accountability:** CEO owns competitive strategy; COO operates a bounded research workflow and reports verified findings. This is a specialist *skill/playbook* belonging to the existing Growth capability, not a third independent autonomous agent.
+
+- **Coverage:** Saint Lucia first; OECS/Eastern Caribbean and wider CARICOM markets next. Research regional firms offering AI services, AI-enabled business automation, managed IT/ICT, cloud, agency services and competing SaaS products.
+- **Sources:** Public company websites, offers/pricing pages, official directories/procurement notices, documented customer needs and relevant industry announcements. Clearly distinguish verifiable facts from competitor claims, estimates and assumptions. Use lawful sources and respect access terms; no scraping private customer data, impersonation, or automated competitor contact.
+- **Weekly radar:** New entrants, competitive moves, publicly listed prices, positioning, partnerships, product launches and potential threats/opportunities. Record source URL, observation date, geography, confidence and materiality; report "not disclosed" when prices or features cannot be verified.
+- **Monthly CEO strategy review:** Competitor comparison, target-segment gaps, V79 differentiation, low-cost experiments, evidence-backed pricing hypotheses, sales/marketing positioning and prioritised opportunities. Explicitly separate observed market facts from suggested strategy.
+- **Commercial focus:** Identify leads for lawful owner-approved outreach and validate willingness-to-pay with real Saint Lucian service businesses. Research must not displace the Hub + Tiquet first-pilot milestone or trigger unapproved external communications.
+- **Governance:** COO cannot publish competitor claims, commit marketing spend, cut prices, purchase competitor services, send outreach, or alter product roadmap automatically. CEO reviews, then escalates material changes to owner under the action policy.
+- **Rollout status:** PLANNED capability, not represented as already running. Add testable search/reporting tools after the G0 source and tool inventory, with provenance, freshness, privacy and request-budget checks.
 
 ### Separation of duties
 
