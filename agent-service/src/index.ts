@@ -15,6 +15,7 @@ import { buildInvestigationBrief } from "./investigations.js";
 import { getWorkforceSpecialist } from "./workforce.js";
 import { routeWorkforceRequest, specialistInstructions, workforceRoster } from "./workforce.js";
 import { executiveWorkforceStructure } from "./executive-workforce.js";
+import { prepareExecutiveHandoff } from "./executive-handoff.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -144,6 +145,24 @@ app.post("/api/agent/investigate", async (req, res) => {
   } catch (error) {
     console.error("agent investigation read failed", error instanceof Error ? error.name : "error");
     return res.status(502).json({ error: "Investigation data is unavailable." });
+  }
+});
+
+// G1 COO -> CEO briefing. Uses the SAME token guard and verified owner snapshot
+// as the existing read-only evidence APIs. Never dispatches an action.
+app.post("/api/agent/executive-handoff", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const context = req.body?.context as AgentContext | undefined;
+  if (!context || !isValidOwnerContext(context)) {
+    return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  }
+  try {
+    const snapshot = await readBusinessSnapshot(context);
+    const evidence = buildEvidenceLedger(snapshot, getWorkforceSpecialist("owner"));
+    return res.json(prepareExecutiveHandoff(evidence));
+  } catch (error) {
+    console.error("executive handoff read failed", error instanceof Error ? error.name : "error");
+    return res.status(502).json({ error: "Verified V79 executive evidence is unavailable." });
   }
 });
 
