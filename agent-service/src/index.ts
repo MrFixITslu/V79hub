@@ -6,7 +6,7 @@ import { managerAgent } from "./agents.js";
 import { BUSINESS_SYSTEMS } from "./business.js";
 import { checkApproval, type ActionRisk } from "./policy.js";
 import { isValidOwnerContext, type AgentContext } from "./context.js";
-import { agentModelRuntime } from "./model-runtime.js";
+import { agentModelRuntime, prewarmAgentModel } from "./model-runtime.js";
 import { readBusinessSnapshot } from "./tools.js";
 import { compactOwnerSnapshot, deterministicFactAnswer, formatPriorityBrief, isPriorityBriefRequest } from "./grounding.js";
 import { prewarmOllamaOwnerAssistant, runOllamaOwnerAssistant } from "./ollama-native.js";
@@ -247,6 +247,10 @@ app.post("/api/agent/chat", async (req, res) => {
 app.listen(port, "0.0.0.0", () => {
   console.log(`Vision79 Owner Assistant listening on :${port} in read-only mode`);
   if (agentModelRuntime.provider === "ollama") {
+    prewarmAgentModel()
+      .then(() => {
+        modelWarmState = "ready";
+        console.log(`Ollama model ready and retained: ${agentModelRuntime.model}`);
     prewarmOllamaOwnerAssistant()
       .then(({ model, keepAlive }) => {
         modelWarmState = "ready";
@@ -257,4 +261,5 @@ app.listen(port, "0.0.0.0", () => {
         console.error("Ollama model prewarm failed", error);
       });
   }
+});
 });

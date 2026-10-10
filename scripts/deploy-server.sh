@@ -57,7 +57,7 @@ for name in v79-hub v79-hub-postgres v79-business-agent; do
   fi
 done
 
-docker compose --project-name v79-hub up -d --wait --wait-timeout 120
+docker compose --project-name v79-hub up -d --force-recreate --no-build --wait --wait-timeout 120
 container_id="$(docker compose --project-name v79-hub ps -q v79-hub)"
 test -n "$container_id"
 test "$(docker inspect --format '{{.State.Health.Status}}' "$container_id")" = healthy
@@ -65,11 +65,32 @@ test "$(docker inspect --format '{{.State.Health.Status}}' "$container_id")" = h
 # Verify the local Ollama model supports the OpenAI-compatible function-calling
 # surface used by the Owner Assistant. This does not expose production data.
 docker exec -i v79-business-agent node --input-type=module - <<'NODE'
-const controller = new AbortController();
-const timeout = setTimeout(() => controller.abort(), 90_000);
-try {
-  const model = process.env.OLLAMA_AGENT_MODEL || "qwen2.5:1.5b";
-  const base = (process.env.OLLAMA_OPENAI_BASE_URL || "http://ollama:11434/v1").replace(/\/+$/, "");
+const model = process.env.OLLAMA_AGENT_MODEL || "qwen2.5:1.5b";
+const base = (process.env.OLLAMA_OPENAI_BASE_URL || "http://ollama:11434/v1").replace(/\/+$/, "");
+const nativeBase = base.replace(/\/v1$/i, "");
+
+async function withTimeout(ms, fn) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+  try { return await fn(controller.signal); } finally { clearTimeout(timeout); }
+}
+
+await withTimeout(120_000, async signal => {
+  const response = await fetch(`${nativeBase}/api/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model, prompt: "", stream: false, keep_alive: -1 }),
+    signal,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Ollama preload HTTP ${response.status}: ${detail.slice(0,500)}`);
+  }
+  await response.json();
+  console.log(`Ollama model preloaded and retained: ${model}`);
+});
+
+await withTimeout(60_000, async signal => {
   const response = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -89,7 +110,7 @@ try {
         }
       }]
     }),
-    signal: controller.signal,
+    signal,
   });
   const body = await response.json();
   if (!response.ok) throw new Error(`Ollama HTTP ${response.status}: ${JSON.stringify(body).slice(0,500)}`);
@@ -103,6 +124,8 @@ try {
   } else {
     console.log(`Ollama tool-call smoke passed with ${model}`);
   }
+  console.log(`Ollama tool-call smoke passed with ${model}`);
+});
 } finally {
   clearTimeout(timeout);
 }
