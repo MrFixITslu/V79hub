@@ -1,3 +1,4 @@
+import { retainSentinelAuditMarkers } from "./sentinel-audit-retention.mjs";
 export function invitationStatus(invitation, now = Date.now()) {
   if (invitation.status !== "pending") return invitation.status;
   return Date.parse(invitation.expiresAt) <= now ? "expired" : "pending";
@@ -89,7 +90,7 @@ export function acceptInvitationState(store, invitationId, options) {
   });
 
   if (next.auditEvents.length > 5000) {
-    next.auditEvents = next.auditEvents.slice(-5000);
+    next.auditEvents = retainSentinelAuditMarkers(next.auditEvents);
   }
 
   return {

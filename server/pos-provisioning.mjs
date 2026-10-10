@@ -1,3 +1,4 @@
+import { retainSentinelAuditMarkers } from "./sentinel-audit-retention.mjs";
 export function posTenantMapping(store, organizationId) {
   return (store.appTenantMappings || []).find(mapping =>
     mapping.organizationId === organizationId && mapping.appId === "app-v79pos"
@@ -61,7 +62,7 @@ export function activatePosTenantMapping(store, organizationId, externalTenantId
     createdAt: now,
     details: { appId: "app-v79pos", externalTenantId },
   });
-  if (next.auditEvents.length > 5000) next.auditEvents = next.auditEvents.slice(-5000);
+  if (next.auditEvents.length > 5000) next.auditEvents = retainSentinelAuditMarkers(next.auditEvents);
   return next;
 }
 

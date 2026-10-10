@@ -1,3 +1,4 @@
+import { retainSentinelAuditMarkers } from "./sentinel-audit-retention.mjs";
 import crypto from "node:crypto";
 
 export function ffproTenantMapping(store, organizationId) {
@@ -69,7 +70,7 @@ export function activateFfproTenantMapping(store, organizationId, externalTenant
     createdAt: now,
     details: { appId: "app-ffpro", externalTenantId, financeUserId },
   });
-  if (next.auditEvents.length > 5000) next.auditEvents = next.auditEvents.slice(-5000);
+  if (next.auditEvents.length > 5000) next.auditEvents = retainSentinelAuditMarkers(next.auditEvents);
   return next;
 }
 
