@@ -26,6 +26,7 @@ import { createHubStorePersistence } from "./server/runtime-store.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
+import { manualInvoiceEligibility, manualReceiptDecision } from "./server/manual-payment-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
 import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
 import { createResendTransactionalSender } from "./server/resend-transactional.mjs";
@@ -136,7 +137,10 @@ interface BillingOrder {
   description: string;
   amount: number;
   currency: string;
-  provider: "wipay";
+  provider: "wipay" | "manual";
+  billingCycleAtOrder?: "monthly" | "annual";
+  manualVerifiedByUserId?: string;
+  manualEvidenceNote?: string;
   providerEnvironment: "sandbox" | "live";
   status: "pending" | "paid" | "failed" | "cancelled";
   createdByUserId?: string;
@@ -149,7 +153,8 @@ interface BillingOrder {
 
 interface BillingPaymentEvent {
   id: string;
-  provider: "wipay";
+  provider: "wipay" | "manual";
+  verifiedByUserId?: string;
   orderId?: string;
   transactionId?: string;
   status: string;
@@ -2550,7 +2555,162 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     selfServicePaymentsEnabled: provider.ready && provider.environment === "live" && provider.currency === "XCD" && ["monthly", "annual"].includes(plan.billingCycle) && Number(plan.priceXcd) > 0,
     sandboxTestPaymentsEnabled: provider.ready && provider.environment === "sandbox",
     paymentProvider: provider,
+    manualPaymentAvailable: manualInvoiceEligibility(plan, session.organizationId === posIdentity.organizationId).ok,
   });
+});
+
+const manualOrderApprovalLocks = new Set<string>();
+// Single-node release lock: prevent concurrent manual invoice/receipt writes
+// from approving the same bank reference against two pending orders.
+let manualBillingMutationBusy = false;
+
+function requireManualBillingMfa(req: Request, res: Response, next: () => void) {
+  const session = (req as any).user;
+  const user = store.users.find(entry => entry.id === session.userId);
+  // Financial confirmation always needs a verified MFA session even if the
+  // general administrator MFA environment toggle is later disabled.
+  if (session.mfaVerified !== true || user?.mfaEnabled !== true) {
+    return res.status(403).json({ error: "Manual billing requires an MFA-verified administrator session." });
+  }
+  next();
+}
+
+// A customer can request payment instructions but can never mark the order paid.
+// Bank details are provided by V79 Digital outside the app, not copied into code.
+app.post("/api/billing/manual/request", requireAuth, requirePermission("billing"), async (req, res) => {
+  if (manualBillingMutationBusy) return res.status(409).json({ error: "Manual billing is busy. Retry shortly." });
+  manualBillingMutationBusy = true;
+  try {
+  const session = (req as any).user;
+  const organization = store.organizations.find(item => item.id === session.organizationId);
+  if (!organization || organization.status !== "active" || session.organizationId === posIdentity.organizationId) {
+    return res.status(403).json({ error: "Manual billing is unavailable for this workspace." });
+  }
+  const plan = organizationPlanFor(store, session.organizationId);
+  const eligible = manualInvoiceEligibility(plan);
+  if (!eligible.ok) return res.status(409).json({ error: "Set a valid monthly or annual plan price before requesting a manual invoice.", code: eligible.code });
+  const pending = store.billingOrders.find(order =>
+    order.organizationId === session.organizationId && order.provider === "manual" &&
+    order.kind === "subscription" && order.status === "pending");
+  if (pending) {
+    // A stale pending order is NOT regenerated into a new payable quote.
+    if (pending.amount !== eligible.amount || pending.billingCycleAtOrder !== eligible.billingCycle) {
+      return res.status(409).json({ error: "An existing manual invoice requires administrator review following a plan change." });
+    }
+    return res.status(200).json({ order: { id: pending.id, amount: pending.amount, currency: pending.currency, status: pending.status }, pendingVerification: true });
+  }
+  const now = new Date().toISOString();
+  const order: BillingOrder = {
+    id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
+    organizationId: session.organizationId, sourceApp: "hub", kind: "subscription",
+    description: `${plan.planName} ${plan.billingCycle} bank-transfer invoice`,
+    amount: eligible.amount!, currency: "XCD", provider: "manual", providerEnvironment: "live",
+    billingCycleAtOrder: eligible.billingCycle!, status: "pending",
+    createdByUserId: session.userId, createdAt: now, updatedAt: now,
+  };
+  const nextStore = cloneStore();
+  nextStore.billingOrders.push(order);
+  onboardingAudit(nextStore, "manual_invoice_requested", { orderId: order.id, amount: order.amount, currency: order.currency, billingCycle: order.billingCycleAtOrder }, session.userId, session.organizationId);
+  await commitStore(nextStore);
+  return res.status(201).json({ order: { id: order.id, amount: order.amount, currency: order.currency, status: order.status }, pendingVerification: true });
+  } finally {
+    manualBillingMutationBusy = false;
+  }
+});
+
+// All manual settlements require the authenticated, MFA-verified platform operator.
+app.get("/api/admin/billing/manual/orders", requireAuth, requirePlatformOperator, requireManualBillingMfa, (req, res) => {
+  const orders = (store.billingOrders || []).filter(order => order.provider === "manual" && order.sourceApp === "hub")
+    .slice(-100).reverse().map(order => ({
+      id: order.id, organizationId: order.organizationId,
+      organization: store.organizations.find(org => org.id === order.organizationId)?.name || "Unknown workspace",
+      amount: order.amount, currency: order.currency, description: order.description, status: order.status,
+      billingCycleAtOrder: order.billingCycleAtOrder, createdAt: order.createdAt,
+      paidAt: order.paidAt || null, bankReference: order.status === "paid" ? order.providerTransactionId || null : null,
+      verifiedByUserId: order.manualVerifiedByUserId || null,
+    }));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ orders });
+});
+
+app.post("/api/admin/billing/manual/orders/:orderId/confirm", requireAuth, requirePlatformOperator, requireManualBillingMfa, async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin." });
+  const orderId = String(req.params.orderId || "");
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return res.status(400).json({ error: "Invalid order identifier." });
+  if (manualBillingMutationBusy || manualOrderApprovalLocks.has(orderId)) {
+    return res.status(409).json({ error: "A manual payment is already being reconciled. Retry shortly." });
+  }
+  manualBillingMutationBusy = true;
+  manualOrderApprovalLocks.add(orderId);
+  try {
+    const nextStore = cloneStore();
+    const order = nextStore.billingOrders.find(item => item.id === orderId);
+    const organization = nextStore.organizations.find(item => item.id === order?.organizationId && item.id !== posIdentity.organizationId);
+    const plan = nextStore.organizationPlans.find(item => item.organizationId === order?.organizationId);
+    const result = manualReceiptDecision({
+      order, organization, plan, orders: nextStore.billingOrders,
+      bankReference: req.body?.bankReference, evidenceNote: req.body?.evidenceNote,
+      receivedAmount: req.body?.receivedAmount, bankStatementVerified: req.body?.bankStatementVerified === true, confirmation: req.body?.confirmation,
+    });
+    if (!result.ok) return res.status(409).json({ error: "Manual payment verification rejected.", code: result.code });
+    const actorUserId = (req as any).user.userId as string;
+    order!.status = "paid";
+    order!.providerTransactionId = result.paidReference!;
+    order!.manualVerifiedByUserId = actorUserId;
+    order!.manualEvidenceNote = result.evidenceNote!;
+    order!.providerMessage = "Verified by V79 administrator against received bank funds";
+    order!.paidAt = result.paidAt!;
+    order!.updatedAt = result.paidAt!;
+    plan!.status = "active";
+    plan!.accessPolicyType = "paid";
+    plan!.paidThroughAt = result.paidThroughAt!;
+    plan!.renewalDate = result.renewalDate!;
+    plan!.updatedAt = result.paidAt!;
+    nextStore.billingPaymentEvents.push({
+      id: crypto.randomUUID(), provider: "manual", orderId, transactionId: result.paidReference!,
+      status: "paid", verified: true, reason: "administrator_verified_received_funds",
+      amount: order!.amount, currency: order!.currency, verifiedByUserId: actorUserId,
+      createdAt: result.paidAt!,
+    });
+    if (nextStore.billingPaymentEvents.length > 5000) nextStore.billingPaymentEvents = nextStore.billingPaymentEvents.slice(-5000);
+    onboardingAudit(nextStore, "manual_payment_verified", {
+      orderId, reference: result.bankReference, evidenceNote: result.evidenceNote,
+      amount: order!.amount, currency: order!.currency, paidThroughAt: result.paidThroughAt,
+    }, actorUserId, order!.organizationId);
+    await commitStore(nextStore);
+    return res.status(200).json({ verified: true, orderId, paidThroughAt: result.paidThroughAt });
+  } finally {
+    manualOrderApprovalLocks.delete(orderId);
+    manualBillingMutationBusy = false;
+  }
+});
+
+// Invoices can become stale after a plan edit or a failed transfer. Rejection
+// creates a new auditable state without fabricating a receipt or granting access.
+app.post("/api/admin/billing/manual/orders/:orderId/reject", requireAuth, requirePlatformOperator, requireManualBillingMfa, async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin." });
+  const orderId = String(req.params.orderId || "");
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64 ||
+      reason.length < 10 || reason.length > 500) {
+    return res.status(400).json({ error: "Valid order ID and reconciliation reason are required." });
+  }
+  if (manualBillingMutationBusy) return res.status(409).json({ error: "Manual billing is busy. Retry shortly." });
+  manualBillingMutationBusy = true;
+  try {
+    const nextStore = cloneStore();
+    const order = nextStore.billingOrders.find(item => item.id === orderId && item.provider === "manual" &&
+      item.kind === "subscription" && item.sourceApp === "hub");
+    if (!order || order.status !== "pending") return res.status(409).json({ error: "Only pending bank-transfer invoices can be rejected." });
+    order.status = "failed";
+    order.updatedAt = new Date().toISOString();
+    const actorUserId = (req as any).user.userId as string;
+    onboardingAudit(nextStore, "manual_invoice_rejected", { orderId, reason }, actorUserId, order.organizationId);
+    await commitStore(nextStore);
+    return res.json({ rejected: true, orderId });
+  } finally {
+    manualBillingMutationBusy = false;
+  }
 });
 
 function billingServiceFromRequest(req: Request) {
@@ -2881,6 +3041,7 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   const nextStore = cloneStore();
   const order = nextStore.billingOrders.find(item => item.id === orderId);
   if (!order) return redirect("error", "order_not_found");
+  if (order.provider !== "wipay") return redirect("error", "wrong_payment_provider", order);
 
   const query = req.query as Record<string, unknown>;
   const verification = verifyWipayReturn({ query, expectedOrder: order, config });

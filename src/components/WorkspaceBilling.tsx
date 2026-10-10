@@ -32,6 +32,7 @@ interface BillingSummary {
   supportEmail: string;
   selfServicePaymentsEnabled: boolean;
   sandboxTestPaymentsEnabled?: boolean;
+  manualPaymentAvailable?: boolean;
   paymentProvider?: PaymentProviderSummary;
 }
 
@@ -74,6 +75,9 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [error, setError] = useState("");
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [manualBusy, setManualBusy] = useState(false);
+  const [manualMessage, setManualMessage] = useState("");
+  const [manualError, setManualError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
 
   const paymentResult = useMemo(() => {
@@ -116,6 +120,22 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
     }
   }
 
+  async function requestManualInvoice() {
+    setManualBusy(true);
+    setManualError("");
+    try {
+      const response = await fetch("/api/billing/manual/request", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not request invoice.");
+      setManualMessage(`Manual invoice ${data.order.id} requested for EC$ ${Number(data.order.amount).toFixed(2)}. Contact V79 Digital for verified bank instructions. Paid access begins only after funds are independently confirmed.`);
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : "Could not request invoice.");
+    } finally {
+      setManualBusy(false);
+    }
+  }
   const provider = summary?.paymentProvider;
   const isSandbox = provider?.environment === "sandbox";
 
@@ -229,8 +249,21 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
               </div>
             </section>
 
+            {summary.manualPaymentAvailable && (
+              <section className="rounded-xl border border-[#1a3854] bg-[#091728] px-5 py-4 space-y-3">
+                <h2 className="text-sm font-bold text-white">Pay by verified bank transfer</h2>
+                <p className="text-xs text-slate-400">Request an invoice with your plan amount and reference. Obtain official payment instructions directly from V79 Digital. Uploading a receipt or claiming a transfer does not activate a subscription.</p>
+                {manualError && <p role="alert" className="text-xs text-rose-300">{manualError}</p>}
+                {manualMessage && <p role="status" className="text-xs text-emerald-200">{manualMessage}</p>}
+                <button disabled={manualBusy} type="button" onClick={() => void requestManualInvoice()}
+                  className="rounded-lg border border-sky-500 px-4 py-2 text-xs font-bold text-sky-200 disabled:opacity-50">
+                  {manualBusy ? "Requesting…" : "Request bank-transfer invoice"}
+                </button>
+                <a href={`mailto:${summary.supportEmail}?subject=V79%20Manual%20Payment%20Invoice`} className="ml-3 text-xs text-sky-300 underline">Contact V79 Digital</a>
+              </section>
+            )}
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.07] px-4 py-3 text-xs leading-5 text-amber-100">
-              WiPay is a payment provider only. V79 Hub remains the source of truth for plans, billing orders and app entitlements. A browser redirect alone never activates or extends access.
+              V79 Hub remains the source of truth for plans, billing orders and app entitlements. Neither a WiPay browser redirect nor a customer's bank-transfer claim activates access. Only verified payment records can extend a paid plan.
             </div>
           </>
         )}
