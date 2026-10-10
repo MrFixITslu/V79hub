@@ -16,6 +16,8 @@ import { getWorkforceSpecialist } from "./workforce.js";
 import { routeWorkforceRequest, specialistInstructions, workforceRoster } from "./workforce.js";
 import { executiveWorkforceStructure } from "./executive-workforce.js";
 import { prepareExecutiveHandoff } from "./executive-handoff.js";
+import { runReadOnlyExecutiveCycle } from "./executive-cycle.js";
+import { createLocalExecutiveSelector } from "./ollama-executive.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -163,6 +165,29 @@ app.post("/api/agent/executive-handoff", async (req, res) => {
   } catch (error) {
     console.error("executive handoff read failed", error instanceof Error ? error.name : "error");
     return res.status(502).json({ error: "Verified V79 executive evidence is unavailable." });
+  }
+});
+
+// Opt-in G1.1 model-assisted preview. OFF by default. No scheduler or writes.
+// Two constrained local Ollama calls re-order existing signed evidence only.
+app.post("/api/agent/executive-preview", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (process.env.V79_EXECUTIVE_MODEL_CYCLE_ENABLED !== "1" ||
+      agentModelRuntime.provider !== "ollama") {
+    return res.status(404).json({ error: "Executive model preview is disabled." });
+  }
+  const context = req.body?.context as AgentContext | undefined;
+  if (!context || !isValidOwnerContext(context)) {
+    return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  }
+  try {
+    const snapshot = await readBusinessSnapshot(context);
+    const evidence = buildEvidenceLedger(snapshot, getWorkforceSpecialist("owner"));
+    const preview = await runReadOnlyExecutiveCycle(evidence, createLocalExecutiveSelector());
+    return res.json(preview);
+  } catch (error) {
+    console.error("executive preview read failed", error instanceof Error ? error.name : "error");
+    return res.status(502).json({ error: "Verified V79 executive preview is unavailable." });
   }
 });
 
