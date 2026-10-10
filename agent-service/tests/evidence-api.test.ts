@@ -112,6 +112,25 @@ test("read-only evidence endpoint enforces service token, founder scope and Hub 
     assert.ok(!JSON.stringify(report).includes("private@example.invalid"));
     assert.equal(reportResponse.headers.get("cache-control"), "no-store");
 
+    // G1: actual owner-verified Hub read -> bounded COO-to-CEO briefing.
+    const route = "/api/agent/executive-handoff";
+    assert.equal((await request(founder, null, "owner", route)).status, 401);
+    assert.equal((await request({ ...founder, ownerAgent: false }, token, "owner", route)).status, 403);
+    assert.equal((await request({ ...founder, organizationId: "customer-other" }, token, "owner", route)).status, 502);
+    const handoffResponse = await request(founder, token, "owner", route);
+    assert.equal(handoffResponse.status, 200);
+    assert.equal(handoffResponse.headers.get("cache-control"), "no-store");
+    const handoff = await handoffResponse.json();
+    assert.equal(handoff.mode, "read-only");
+    assert.equal(handoff.from, "coo");
+    assert.equal(handoff.to, "ceo");
+    assert.equal(handoff.ceoReview.priority, "attention");
+    assert.ok(handoff.cooReport.findings.some((item: { id: string }) => item.id === "ffpro:currentMonthNet"));
+    assert.equal(handoff.ownerApprovalGranted, false);
+    assert.equal(handoff.executionEnabled, false);
+    assert.ok(!JSON.stringify(handoff).includes("private@example.invalid"));
+    assert.ok(!JSON.stringify(handoff).includes("never-return-this"));
+
     responsePayload = { ...successfulSnapshot, owner: { email: founder.email, organizationId: "customer-other" } };
     const wrongHub = await request(founder);
     assert.equal(wrongHub.status, 502);
