@@ -41,6 +41,20 @@ try {
     m.role==="owner"&&m.status==="active");
   const customerEntitlements=entitlements.filter(e=>
     e.organizationId===customer?.id &&e.enabled);
+  // Plans are live state. The original pre-activation baseline expected zero,
+  // but a successful, approved 14-day customer trial now exists. Validate its
+  // policy and tenancy instead of editing live data to match stale assumptions.
+  const ownerPlans=plans.filter(p=>p.organizationId===ownerOrgId);
+  const customerPlans=plans.filter(p=>p.organizationId===customer?.id);
+  const ownerPlanPolicyValid=ownerPlans.length===1 &&
+    ownerPlans[0].status==="active" &&ownerPlans[0].accessPolicyType==="internal";
+  const customerPlan=customerPlans[0];
+  const started=Date.parse(customerPlan?.trialStartedAt||"");
+  const ends=Date.parse(customerPlan?.trialEndsAt||"");
+  const customerTrialPolicyValid=customerPlans.length===1 &&
+    customerPlan.status==="trial" &&customerPlan.accessPolicyType==="trial" &&
+    Number.isFinite(started) &&Number.isFinite(ends) &&
+    ends-started===14*24*60*60*1000;
   const out={
     storeRowCount:result.rowCount,
     revisionIsPositive:Number(result.rows[0].revision)>0,
@@ -56,6 +70,8 @@ try {
     customerEnabledEntitlements:customerEntitlements.length,
     customerDistinctEnabledApps:new Set(customerEntitlements.map(e=>e.appId)).size,
     planCount:plans.length,
+    ownerPlanPolicyValid,
+    customerTrialPolicyValid,
     trialReminderEvents:Array.isArray(store.trialReminderEvents)?store.trialReminderEvents.length:0,
     emailKeyConfigured:!!process.env.RESEND_API_KEY,
     reminderWorkerEnabled:process.env.V79_TRIAL_REMINDERS_ENABLED==="1",
@@ -68,7 +84,8 @@ try {
     out.customerOrganizationCount===1&&out.customerActive&&
     out.customerActiveOwners===1&&
     out.customerEnabledEntitlements===5&&out.customerDistinctEnabledApps===5&&
-    out.planCount===0;
+    out.planCount===2 &&out.ownerPlanPolicyValid &&
+    out.customerTrialPolicyValid;
   console.log(JSON.stringify(out));
   await client.query("ROLLBACK");
 } finally {await client.end();}
