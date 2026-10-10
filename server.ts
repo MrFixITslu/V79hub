@@ -1768,6 +1768,13 @@ function requirePlatformOperator(req: Request, res: Response, next: () => void) 
   if (!isPlatformOperatorIdentity(session.userId, session.organizationId)) {
     return res.status(403).json({ error: "Platform operator access required" });
   }
+  // A historical session may predate MFA enrollment. An enrolled account is
+  // not evidence that this particular browser session passed an MFA challenge.
+  if (process.env.V79_REQUIRE_ADMIN_MFA === "1" &&
+      (session.mfaVerified !== true ||
+       store.users.find(user => user.id === session.userId)?.mfaEnabled !== true)) {
+    return res.status(403).json({ error: "Fresh administrator MFA verification is required" });
+  }
   next();
 }
 function requireRole(...roles: StoredUser["role"][]) {

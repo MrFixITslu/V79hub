@@ -287,6 +287,27 @@ for (const backend of ["json", "postgres"]) {
     assert.deepEqual(await readStore(),beforeBusy,"configured reminder worker blocks creation without mutations");
     await restart(true);
     assert.equal((await request("/api/auth/me",{cookie:operatorCookie})).status,200);
+    // Persist a deliberately stale pre-MFA operator session in this isolated
+    // fixture. MFA enrollment on the account must NOT elevate that session.
+    const staleToken="v79_tok_"+random();
+    const staleCookie="v79_hub_session="+staleToken;
+    await stop(running.child);
+    const sessionFile=path.join(dir,"hub-sessions.json");
+    const oldSessions=JSON.parse(await readFile(sessionFile,"utf8"));
+    oldSessions.sessions.push({tokenHash:crypto.createHash("sha256").update(staleToken).digest("hex"),
+      userId:f.owner,organizationId:f.ownerOrg,username:"admin",role:"admin",
+      expiresAt:Date.now()+3600000,mfaVerified:false});
+    await writeFile(sessionFile,JSON.stringify(oldSessions),{mode:0o600});
+    await start(true);
+    assert.equal((await request("/api/auth/me",{cookie:staleCookie})).status,200);
+    assert.equal((await request("/api/admin/sentinel-qa/status",{cookie:staleCookie})).status,403);
+    assert.equal((await request(create,{method:"POST",cookie:staleCookie,body:ack})).status,403);
+    assert.equal((await request(create+"/"+f.customerOrg+"/cleanup-preview",{cookie:staleCookie})).status,403);
+    assert.equal((await request(create+"/"+f.customerOrg+"/cleanup",{method:"POST",cookie:staleCookie,body:{}})).status,403);
+    assert.equal((await request("/api/auth/logout",{method:"POST",cookie:staleCookie})).status,200);
+    assert.equal((await request("/api/auth/me",{cookie:staleCookie})).status,401);
+    assert.equal((await request("/api/admin/sentinel-qa/status",{cookie:operatorCookie})).status,200);
+    t.diagnostic("legacy sessions without session-scoped MFA cannot use operator routes despite account MFA enrollment");
     assert.equal((await request(create,{method:"POST",cookie:customerCookie,body:ack})).status,403);
     assert.equal((await request(create,{method:"POST",cookie:operatorCookie,requestOrigin:null,body:ack})).status,403);
     assert.equal((await request(create,{method:"POST",cookie:operatorCookie,requestOrigin:"https://foreign.invalid",body:ack})).status,403);

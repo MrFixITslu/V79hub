@@ -80,3 +80,32 @@ reminder leader; enable only the reviewed Hub-local flags; use the authenticated
 operator browser for one create → preview → exact delete; verify state/session
 cleanup and preservation; disable flags and restore the reminder configuration.
 Any unexpected reference or uncertain cleanup stops for operator review.
+
+## Session-scoped MFA hardening — 2026-10-10 UTC
+
+A further disposable full-Hub adversarial check demonstrated that a previously
+persisted `mfaVerified: false` platform-owner session could call Sentinel status,
+creation and cleanup routes after the user account itself had MFA enrolled.
+No live account, datastore or session was used in that reproducer.
+
+`requirePlatformOperator` now refuses a platform-owner session unless this
+specific session has `mfaVerified: true` and the underlying owner account has
+MFA enabled whenever `V79_REQUIRE_ADMIN_MFA=1`. It does not revoke, rotate or
+alter ordinary Hub user sessions. The isolated regression seeds a historical
+non-MFA owner session after genuine MFA setup, checks all Sentinel routes deny
+it, logs it out, and confirms the properly MFA-verified session still works.
+
+After hardening, the complete Hub suite passed 263/263 checks (0 failures,
+0 skips), including disposable JSON and PostgreSQL 17.11 backends; lint,
+production build and whitespace check also passed. Test output:
+`/tmp/v79-sentinel-mfa-hardening-suite-20261010.log`,
+`/tmp/v79-sentinel-mfa-hardening-lint-20261010.log`,
+`/tmp/v79-sentinel-mfa-hardening-build-20261010.log`.
+
+Final read-only live check: deployed image remains `v79-hub:sentinel-1ebe335`,
+revision 54; 2 existing users, 2 existing organizations, zero Sentinel QA
+organizations and zero synthetic users. Both QA mutation flags are OFF;
+normal trial reminder leadership remains enabled. This follow-up code is
+staging-only; live supervised create/delete remains HOLD until an independent
+security review signs off on the exact new candidate and the maintenance
+release checks pass. Do not infer release approval from a successful test run.
