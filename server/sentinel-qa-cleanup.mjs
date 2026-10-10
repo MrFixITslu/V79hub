@@ -74,7 +74,7 @@ export function previewSentinelCleanup(store, { organizationId, operatorUserId }
   if (store.memberships.some(m => userSet.has(m.userId) && m.organizationId !== organizationId)) {
     deny("Shared user identity detected");
   }
-  if (store.users.filter(u => userSet.has(u.id)).length !== registered.length) {
+  if (registered.some(id => store.users.filter(u => u.id === id).length !== 1)) {
     deny("One or more synthetic users cannot be uniquely identified");
   }
   // Creation evidence includes the exact, initially generated identities; owner/staff

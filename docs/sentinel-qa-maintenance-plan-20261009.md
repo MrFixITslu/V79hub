@@ -10,7 +10,7 @@ accounts, organizations, memberships, application data, secrets and sessions.
    Review operator identity/MFA enforcement, creation marker and manifest trust,
    preserved-schema reference scan, exact-target deletion, session invalidation,
    audit retention, write fencing and background-worker refusal.
-2. Require zero unresolved material findings; confirm all 208 tests passed with
+2. Require zero unresolved material findings; confirm all 215 tests passed with
    no skips and lint/build/patch checks passed.
 3. Confirm the existing source/image match the recorded baseline or reassess any
    drift. Do not overwrite new work or use an unrelated deployment checkout.

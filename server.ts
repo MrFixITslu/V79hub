@@ -36,6 +36,7 @@ const app = express();
 const server = createServer(app);
 const sentinelWriteFence = createSentinelWriteFence();
 app.use(sentinelWriteFence.middleware);
+sentinelWriteFence.installHandlerTracking(app);
 const wss = new WebSocketServer({ noServer: true });
 
 app.use(express.json({ limit: "2mb", verify: (req: any, _res, body) => { req.rawBody = Buffer.from(body); } }));

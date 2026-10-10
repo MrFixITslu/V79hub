@@ -110,6 +110,28 @@ for (const backend of ["json", "postgres"]) {
     });
     const ownerPassword = random(), customerPassword = random();
     const f = fixture(ownerPassword, customerPassword);
+    f.state.appEntitlements.push({ organizationId:f.customerOrg, appId:"app-v79pos", enabled:true });
+    f.state.appTenantMappings.push({ organizationId:f.customerOrg, appId:"app-v79pos",
+      status:"pending", createdAt:"2026-01-01T00:00:00.000Z" });
+    // A disposable upstream exercises the real async provision route. It has
+    // no credentials, network target or records belonging to any V79 service.
+    let provisionEntered, releaseProvision;
+    const provisionStarted=new Promise(resolve=>{provisionEntered=resolve;});
+    const provisionGate=new Promise(resolve=>{releaseProvision=resolve;});
+    const posStub=createServer(async(req,res)=>{
+      let raw="";
+      for await(const chunk of req)raw+=chunk;
+      const body=JSON.parse(raw);
+      assert.equal(req.url,"/api/platform/provision");
+      assert.equal(body.organization.id,f.customerOrg);
+      provisionEntered();
+      await provisionGate;
+      res.setHeader("Content-Type","application/json");
+      res.end(JSON.stringify({provisioned:true,organizationId:body.organization.id,ownerUserId:body.user.id}));
+    });
+    await new Promise(resolve=>posStub.listen(0,"127.0.0.1",resolve));
+    const posStubUrl="http://127.0.0.1:"+posStub.address().port;
+    t.after(async()=>{releaseProvision();posStub.closeAllConnections();await new Promise(resolve=>posStub.close(resolve));});
     const storeFile = path.join(dir, "v79_store.json");
     await writeFile(storeFile, JSON.stringify(f.state), { mode: 0o600 });
     await writeFile(path.join(dir, "pos-identity.json"), JSON.stringify({
@@ -165,6 +187,8 @@ for (const backend of ["json", "postgres"]) {
       for (const key of ["POS_BASE_URL","ACADEMY_INTERNAL_URL","TIQUET_INTERNAL_URL",
         "FFPRO_INTERNAL_URL","MARKETING_INTERNAL_URL","LASERTAG_INTERNAL_URL",
         "WEBSITE_INTERNAL_URL","GAMES_INTERNAL_URL","V79_AGENT_INTERNAL_URL"]) env[key]="http://127.0.0.1:9";
+      env.POS_BASE_URL=posStubUrl;
+      env.V79_POS_PLATFORM_SHARED_SECRET=securityKey;
       const child = spawn(process.execPath, ["--import", "tsx", "server.ts"], {
         cwd, env, stdio: ["ignore","pipe","pipe"],
       });
@@ -238,6 +262,29 @@ for (const backend of ["json", "postgres"]) {
     assert.equal((await request(create,{method:"POST",cookie:customerCookie,body:ack})).status,403);
     assert.equal((await request(create,{method:"POST",cookie:operatorCookie,requestOrigin:null,body:ack})).status,403);
     assert.equal((await request(create,{method:"POST",cookie:operatorCookie,requestOrigin:"https://foreign.invalid",body:ack})).status,403);
+    // Disconnect the operator while the real route awaits provisioning. QA
+    // must stay blocked until its external side effect AND durable mapping end.
+    const disconnected=httpRequest(origin+"/api/admin/onboarding/organizations/"+f.customerOrg+"/apps/pos/provision",{
+      method:"POST",headers:{Cookie:operatorCookie,Origin:origin,"Content-Type":"application/json"},
+    });
+    disconnected.on("error",()=>{});disconnected.end("{}");
+    await provisionStarted;
+    disconnected.destroy();await wait(30);
+    const beforeProvision=await readStore();
+    try {
+      assert.equal((await request(create,{method:"POST",cookie:operatorCookie,body:ack})).status,409);
+      assert.deepEqual(await readStore(),beforeProvision,"disconnected upstream work prevents store replacement");
+    } finally {releaseProvision();}
+    let provisioned=false;
+    for(let i=0;i<100;i++){
+      const current=await readStore();
+      const mapping=current.appTenantMappings.find(m=>m.organizationId===f.customerOrg);
+      if(mapping?.status==="active"){assert.equal(mapping.externalTenantId,f.customerOrg);provisioned=true;break;}
+      await wait(20);
+    }
+    assert.ok(provisioned,"disconnected provision must durably activate the correct mapping");
+    await wait(30);
+    t.diagnostic("disconnected real Hub provisioning blocks QA until upstream and durable mapping settle");
     const baseline=await readStore();
     assert.equal((await request(create,{method:"POST",cookie:operatorCookie,body:{...ack,email:"unsafe@fixture.invalid"}})).status,400);
     // An unfinished ordinary HTTP body is a tracked in-flight mutation.
@@ -319,11 +366,15 @@ for (const backend of ["json", "postgres"]) {
         await writeFile(storeFile,JSON.stringify(state),{mode:0o600});
       }
     }
-    for (const contaminant of ["schema-extension","external-tenant"]) {
+    for (const contaminant of ["schema-extension","external-tenant","duplicate-user"]) {
       await stop(running.child);
       const contaminated=structuredClone(afterCreation);
       if (contaminant === "schema-extension") contaminated.fixtureEnvelope.futureLink={organizationId:org.id};
-      else contaminated.appTenantMappings.push({organizationId:org.id,appId:"app-pos",status:"active"});
+      else if (contaminant === "external-tenant") contaminated.appTenantMappings.push({organizationId:org.id,appId:"app-pos",status:"active"});
+      else {
+        contaminated.users=contaminated.users.filter(u=>u.id!==accounts[2].userId);
+        contaminated.users.push(structuredClone(contaminated.users.find(u=>u.id===accounts[0].userId)));
+      }
       await writeIsolatedState(contaminated);
       await start(true);
       assert.equal((await request(target+"/cleanup-preview",{cookie:operatorCookie})).status,409,contaminant+" blocks preview");

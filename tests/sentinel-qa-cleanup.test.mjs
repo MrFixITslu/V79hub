@@ -128,3 +128,11 @@ test("refuses incomplete, malformed, inconsistent snapshot", () => {
  assert.throws(()=>previewSentinelCleanup({},target),SentinelCleanupError);
  assert.throws(()=>previewSentinelCleanup(fixture(),{organizationId:"not-uuid",operatorUserId:OPERATOR}),SentinelCleanupError);
 });
+
+test("refuses duplicate manifest users even when a missing user offsets total count", () => {
+ mustBlock(s=>{
+   s.users=s.users.filter(u=>u.id!==STAFF_ID);
+   s.users.push(structuredClone(s.users.find(u=>u.id===OWNER_ID)));
+ },"equal aggregate count cannot substitute for exact per-ID uniqueness");
+ mustBlock(s=>s.users.push(structuredClone(s.users.find(u=>u.id===OWNER_ID))),"duplicate owner");
+});
