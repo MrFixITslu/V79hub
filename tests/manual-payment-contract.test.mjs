@@ -94,6 +94,7 @@ test("manual routes require an authenticated biller and fresh administrator MFA"
   assert.match(source,/if \(order.provider !== "wipay"\) return redirect\("error", "wrong_payment_provider"/);
   assert.match(source,/manualOrderApprovalLocks\.has\(orderId\)/);
   assert.match(source,/app.post\("\/api\/admin\/billing\/manual\/orders\/:orderId\/reject", requireAuth, requirePlatformOperator, requireManualBillingMfa/);
+  assert.match(source,/app.post\("\/api\/billing\/manual\/request", requireAuth, requirePermission\("billing"\), async \(req, res\) => \{\n  if \(!sameOriginMutation\(req\)\)/);
   assert.match(source,/manualBillingMutationBusy = true/);
   assert.match(source,/session\.mfaVerified !== true/);
 });

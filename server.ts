@@ -2578,6 +2578,7 @@ function requireManualBillingMfa(req: Request, res: Response, next: () => void) 
 // A customer can request payment instructions but can never mark the order paid.
 // Bank details are provided by V79 Digital outside the app, not copied into code.
 app.post("/api/billing/manual/request", requireAuth, requirePermission("billing"), async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin." });
   if (manualBillingMutationBusy) return res.status(409).json({ error: "Manual billing is busy. Retry shortly." });
   manualBillingMutationBusy = true;
   try {
