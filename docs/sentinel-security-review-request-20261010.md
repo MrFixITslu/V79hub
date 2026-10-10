@@ -5,9 +5,9 @@ Date: 2026-10-10 UTC. Status: PENDING independent reviewer approval; deployment 
 ## Candidate and scope
 
 Base deployed Hub candidate: `1ebe3357983c6f75bfd95ffa76beeee20f12984d`.
-Review the exact immutable HEAD of branch `feat/sentinel-supervised-browser-20261010` (record SHA at review time); this includes UI/status, session-scoped MFA hardening, and updated npm lockfile patches.
-Review `git diff 1ebe335...HEAD` and the existing security contracts used by the new routes, not only the most recent commit.
-The Acer's review checkout is `/home/firelion/V79-Sentinel/hub-runtime-integration`.
+Review the exact immutable HEAD of `review/sentinel-github-20261010` after integration with current GitHub main (record final SHA at review time); this includes UI/status, session-scoped MFA hardening, and updated npm lockfile patches.
+Review the full PR diff against main, plus the candidate history from `1ebe335` through `1f90a23`, and the existing security contracts used by the new routes.
+Review target is the public GitHub pull request branch. Production is not the test environment.
 
 ## Threat model and required independent challenges
 
