@@ -47,6 +47,11 @@ deploy_app() {
   test -f "$stage/docker-compose.yml" || { echo "$name bundle has no docker-compose.yml" >&2; exit 1; }
   test -f "$stage/Dockerfile" || { echo "$name bundle has no Dockerfile" >&2; exit 1; }
 
+  # Protect currently running Hub security modules before any app is touched.
+  if [ "$name" = "V79 Hub" ]; then
+    bash "$stage/scripts/verify-sentinel-preservation.sh" "$stage" "$container"
+  fi
+
   rsync -a \
     --exclude='/.env' --exclude='/.env.*' \
     --exclude='/data/' --exclude='/uploads/' --exclude='/backups/' \

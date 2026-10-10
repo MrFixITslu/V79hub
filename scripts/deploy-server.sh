@@ -36,6 +36,9 @@ trap 'rm -rf -- "$stage"' EXIT
 tar -xzf "$archive" -C "$stage"
 test -f "$stage/docker-compose.yml" && test -f "$stage/Dockerfile"
 
+# Check current image against the incoming stage before touching production files.
+bash "$stage/scripts/verify-sentinel-preservation.sh" "$stage" v79-hub
+
 # The deployment directory is reserved for this app. Preserve production state.
 rsync -a --delete --exclude='/.env' --exclude='/.env.*' --exclude='/data/' \
   --exclude='/backups/' --exclude='/.incoming.*/' "$stage/" "$root/"
