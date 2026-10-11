@@ -31,7 +31,7 @@ class WitnessEvidenceTests(unittest.TestCase):
         self.assertEqual(result["attemptsReported"], 1)
         self.assertEqual(result["elapsedMsReported"], 4)
         self.assertTrue(result["servicePortReachableReported"])
-        self.assertTrue(result["targetMatchedPreviouslyApprovedScope"])
+        self.assertTrue(result["targetMatchesSuppliedScope"])
         for key in (
             "independentlyAuthenticated", "cryptographicallyAttested",
             "tlsOrHttpHealthVerified", "collectorActiveVerified",
