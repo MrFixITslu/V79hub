@@ -56,7 +56,7 @@ class ReadOnlyGateTests(unittest.TestCase):
         self.api = IsolatedReadOnlySentinelDispatcher(
             TrustedReadCaller("v79founder", "sentinel-g2-test", SECRET),
             TrustedSourceSigner("sentinel-g2-test", "v79founder", Ed25519PrivateKey.generate()),
-            loader, clock=lambda: NOW,
+            loader, clock=lambda: NOW, allow_in_memory_for_tests=True,
         )
 
     def test_authenticated_get_returns_only_aggregate_signed_payload(self):
@@ -112,7 +112,7 @@ class ReadOnlyGateTests(unittest.TestCase):
         api = IsolatedReadOnlySentinelDispatcher(
             TrustedReadCaller("v79founder", "sentinel-g2-test", SECRET),
             TrustedSourceSigner("sentinel-g2-test", "v79founder", Ed25519PrivateKey.generate()),
-            fail, clock=lambda: NOW,
+            fail, clock=lambda: NOW, allow_in_memory_for_tests=True,
         )
         result = api.get("GET", READ_PATH, signed_headers())
         self.assertEqual(result[0], 503)
@@ -123,12 +123,20 @@ class ReadOnlyGateTests(unittest.TestCase):
         self.assertEqual(self.api.get("GET", READ_PATH, h)[0], 401)
         self.assertEqual(self.calls, 0)
 
+    def test_missing_persistent_replay_guard_denied_by_default(self):
+        with self.assertRaises(ValueError):
+            IsolatedReadOnlySentinelDispatcher(
+                TrustedReadCaller("v79founder", "sentinel-g2-test", SECRET),
+                TrustedSourceSigner("sentinel-g2-test", "v79founder", Ed25519PrivateKey.generate()),
+                synthetic_snapshot, clock=lambda: NOW,
+            )
+
     def test_reader_and_signer_must_be_bound_to_same_trusted_org(self):
         with self.assertRaises(ValueError):
             IsolatedReadOnlySentinelDispatcher(
                 TrustedReadCaller("tenant_other", "sentinel-g2-test", SECRET),
                 TrustedSourceSigner("sentinel-g2-test", "v79founder", Ed25519PrivateKey.generate()),
-                synthetic_snapshot, clock=lambda: NOW,
+                synthetic_snapshot, clock=lambda: NOW, allow_in_memory_for_tests=True,
             )
 
 
