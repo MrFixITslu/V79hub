@@ -144,11 +144,16 @@ export function buildEvidenceLedger(
       return typeof value === "number" && Number.isFinite(value) &&
         value >= 0 && value <= 1e12 ? [{ key, value }] : [];
     });
+    // Apply the same bounded clock-skew rule as product summaries: a far-future
+    // Hub snapshot is NOT current evidence, even if its upper age bound passes.
+    const hubAge = collectedAt ? Math.round((nowMs - Date.parse(collectedAt)) / 1000) : null;
+    const hubAgeValid = typeof hubAge === "number" &&
+      Number.isFinite(hubAge) && hubAge >= -120;
     records.push({
       system: "hub", name: "V79 Hub Admin", source: "hub_owner_summary",
-      connection: "online", collectedAt, reportedAt: collectedAt, ageSeconds: collectedAt
-        ? Math.max(0, Math.round((nowMs - Date.parse(collectedAt)) / 1000)) : null,
-      state: metrics.length && collectedAt && nowMs - Date.parse(collectedAt) <= 900000 ? "available" : "unknown",
+      connection: "online", collectedAt, reportedAt: collectedAt,
+      ageSeconds: hubAgeValid ? Math.max(0, hubAge) : null,
+      state: metrics.length && hubAgeValid && hubAge <= 900 ? "available" : "unknown",
       metrics,
     });
   }
