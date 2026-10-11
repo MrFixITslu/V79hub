@@ -7,6 +7,24 @@ resource and encryption checks. It does not authorize merges, deployments, live
 restarts/settings/data changes, payment activation, app starts or Sentinel work.
 Production remains NO-GO. Do not request the same approval again.
 
+## First owner preflight result: 2026-10-11 16:44 Saint Lucia
+
+Collector at `c74906d457ebf8af6b6b36d770d88c56f8ff62b4` passed image/health
+identity checks for both app/database pairs. Host reported 4644 MiB available
+memory, 240 GiB free disk and existing gpg. No backups/restores/resources created.
+Both mapping booleans were false, but that collector did not distinguish missing
+probe metadata from a real address/database/port/version mismatch. No inference
+of database misconfiguration or credential defect is justified yet.
+
+Added strictly redacted per-field probe-availability/mapping checks and a complete
+DB-size-requirement indicator, with regression tests. No database query, connection
+method, credentials, production source or settings changed. Only diagnostic
+booleans are emitted; names/addresses/raw errors remain private. The reported
+5 GiB requirement is only a floor until both DB sizes are known; disk headroom
+must be re-evaluated before backup/restore. Stop remains in effect pending focused
+mapping diagnostics. No password rotation, PostgreSQL authentication change,
+app restart, live restore or automatic workaround is authorized.
+
 ## First command: read-only preflight
 
 Run the exact checksum-verified in-memory `scripts/recovery-preflight.py` command

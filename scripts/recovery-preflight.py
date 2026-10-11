@@ -60,15 +60,21 @@ def parsed(s):
     except (ValueError, TypeError):
         return None
 
-def mapping_matches(app, target, db_container):
-    if not isinstance(app, dict) or not isinstance(target, dict):
-        return False
-    if not app.get('db') or not app.get('version') or not isinstance(app.get('port'),int):
-        return False
+def mapping_checks(app, target, db_container):
+    app_ok=isinstance(app,dict) and bool(app.get('db')) and bool(app.get('version')) and isinstance(app.get('port'),int)
+    target_ok=isinstance(target,dict) and bool(target.get('db')) and bool(target.get('version')) and isinstance(target.get('port'),int)
     addresses = {v.get('IPAddress') for v in db_container.get('NetworkSettings',{}).get('Networks',{}).values()}
-    return (app.get('addr') in addresses and bool(app.get('addr'))
-        and all(app.get(k) == target.get(k) for k in ('db','port','version'))
-        and app.get('ro') == target.get('ro') == 'on')
+    both=app_ok and target_ok
+    return {'app_metadata_probe_available':bool(app_ok),
+            'named_database_probe_available':bool(target_ok),
+            'server_address_matches_named_container':bool(app_ok and app.get('addr') and app['addr'] in addresses),
+            'database_name_matches':bool(both and app['db']==target['db']),
+            'server_port_matches':bool(both and app['port']==target['port']),
+            'server_version_matches':bool(both and app['version']==target['version']),
+            'both_transactions_read_only':bool(both and app.get('ro')==target.get('ro')=='on')}
+
+def mapping_matches(app, target, db_container):
+    return all(mapping_checks(app,target,db_container).values())
 
 def resource_checks(memory, free_disk, sizes, encryption):
     required = max(5*1024**3, 8*sum(sizes))
@@ -94,6 +100,7 @@ def main():
             a=parsed(capture(['docker','exec','-i','-e','V79_RECOVERY_APP='+name,
                 app_name,'node','--input-type=module','-'],APP_PROBE))
             b=parsed(capture(['docker','exec','-i',db_name,'sh','-s'],DB_PROBE))
+            row['mapping_checks']=mapping_checks(a,b,di[0])
             row['audit_connection_maps_to_named_db']=mapping_matches(a,b,di[0])
             if row['audit_connection_maps_to_named_db']:
                 try:
@@ -109,6 +116,7 @@ def main():
         disk=shutil.disk_usage(Path.home()).free
         encryption=[name for name in ('gpg','age') if shutil.which(name)]
         report['resources']=resource_checks(available,disk,sizes,encryption)
+        report['resources']['database_size_based_requirement_complete']=len(sizes)==2
         report['encryption_tools']=encryption
     except (OSError,KeyError,ValueError):
         report['resources']={'memory_ok':False,'disk_ok':False,'encryption_tool_available':False}

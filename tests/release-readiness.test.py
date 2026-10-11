@@ -58,6 +58,27 @@ print(json.dumps({'fixture_passed':True}))
         bad=recovery.resource_checks(1024**3,4*1024**3,[1024**3],[])
         self.assertFalse(any(bad[k] for k in ('memory_ok','disk_ok','encryption_tool_available')))
 
+    def test_recovery_mapping_diagnostics_distinguish_unavailable_from_mismatch_without_values(self):
+        app={'addr':'192.0.2.1','db':'PRIVATE_DATABASE_NAME','port':5432,'version':'17','ro':'on'}
+        target={**app,'db':'PRIVATE_OTHER_DATABASE'}
+        container={'NetworkSettings':{'Networks':{'isolated':{'IPAddress':app['addr']}}}}
+        mismatch=recovery.mapping_checks(app,target,container)
+        self.assertTrue(mismatch['app_metadata_probe_available'])
+        self.assertTrue(mismatch['named_database_probe_available'])
+        self.assertFalse(mismatch['database_name_matches'])
+        self.assertTrue(mismatch['server_address_matches_named_container'])
+        unavailable=recovery.mapping_checks(app,None,container)
+        self.assertFalse(unavailable['named_database_probe_available'])
+        for forbidden in (app['db'],target['db'],app['addr']):
+            self.assertNotIn(forbidden,json.dumps(mismatch)+json.dumps(unavailable))
+
+    def test_recovery_incomplete_database_size_is_explicit_and_does_not_pass(self):
+        with patch.object(recovery,'capture',return_value=None), contextlib.redirect_stdout(io.StringIO()) as out:
+            recovery.main()
+        report=json.loads(out.getvalue())
+        self.assertFalse(report['resources'].get('database_size_based_requirement_complete',False))
+        self.assertFalse(report['preflight_checks_passed'])
+
     def test_recovery_unavailable_preflight_never_creates_resources_or_leaks_diagnostics(self):
         with patch.object(recovery,'capture',return_value=None) as call, contextlib.redirect_stdout(io.StringIO()) as out:
             recovery.main()
