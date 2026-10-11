@@ -262,6 +262,22 @@ def audit(references):
     # Container identities only: no env, labels, ports, logs or customer records.
     rows = run(["docker", "ps", "-a", "--format", "{{.ID}} {{.Names}} {{.Status}}"])
     report["existing_service_inventory"] = rows.splitlines() if rows else "UNAVAILABLE"
+    report['database_containers'] = {}
+    for name in ('v79-hub-postgres', 'tiquet-postgres'):
+        raw = parsed(run(['docker','inspect',name]))
+        if not raw:
+            report['database_containers'][name] = {'inspection':'UNAVAILABLE','application_mapping_verified':False}
+            continue
+        db = raw[0]
+        labels = db.get('Config',{}).get('Labels') or {}
+        report['database_containers'][name] = {
+            'container_id':db['Id'],'image':image_evidence(db['Image']),
+            'status':db['State']['Status'],'health':db['State'].get('Health',{}).get('Status','UNAVAILABLE'),
+            'mounts':[{k:m.get(k) for k in ('Type','Name','Source','Destination','RW')} for m in db.get('Mounts',[])],
+            'networks':sorted(db.get('NetworkSettings',{}).get('Networks',{})),
+            'compose_project':labels.get('com.docker.compose.project'),
+            'compose_service':labels.get('com.docker.compose.service'),
+            'application_mapping_verified':False}
     report['backup_candidates'] = {}
     for root in [Path('/opt/v79/hub/backups'), Path.home()/'v79hub/backups', Path.home()/'backups']:
         files = []

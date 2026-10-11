@@ -33,6 +33,8 @@ Expected output includes:
 
 - Container ID, startup time/status/health; image ID/available RepoDigests and
   reviewed revision labels; configured user/restart policy/security context.
+- Named Hub/Tiquet PostgreSQL container image IDs/digests, health and exact mounts;
+  authoritative application-to-database mapping stays unverified until reviewed.
 - Exact volume/bind destinations, read-only bits and network membership;
   Compose project/service, configuration file names and working directory.
 - Config file metadata and whole-Compose-source fingerprints, not interpolation

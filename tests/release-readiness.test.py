@@ -21,6 +21,7 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(report['production'], 'NO-GO')
         self.assertEqual(report['apps']['hub']['inspection'], 'UNAVAILABLE')
         self.assertFalse(report['live_restore_test_performed'])
+        self.assertEqual(report['database_containers']['tiquet-postgres']['inspection'],'UNAVAILABLE')
 
     def test_capture_never_returns_failure_output_or_credentials(self):
         result = type('Result', (), {'returncode':1, 'stdout':'secret-credential', 'stderr':'postgres://private'})()
@@ -58,6 +59,7 @@ class AuditTests(unittest.TestCase):
         self.assertNotIn(secret, json.dumps(report))
         self.assertEqual(report['apps']['hub']['flags_at_container_creation']['V79_REQUIRE_ADMIN_MFA'], 'ON')
         self.assertFalse(report['apps']['hub']['application_dotenv_overlay_verified'])
+        self.assertFalse(report['database_containers']['v79-hub-postgres']['application_mapping_verified'])
         for args in calls:
             self.assertTrue(args[0] in ('docker','git'))
             if args[0] == 'docker':
