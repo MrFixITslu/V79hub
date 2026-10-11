@@ -13,8 +13,62 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('release_readiness', ROOT/'scripts/release-readiness.py')
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+recovery_spec = importlib.util.spec_from_file_location('recovery_preflight', ROOT/'scripts/recovery-preflight.py')
+recovery = importlib.util.module_from_spec(recovery_spec)
+recovery_spec.loader.exec_module(recovery)
 
 class AuditTests(unittest.TestCase):
+    def test_recovery_mapping_requires_named_container_address_database_port_and_read_only(self):
+        app={'addr':'192.0.2.1','db':'synthetic','port':5432,'version':'17','ro':'on'}
+        target={k:v for k,v in app.items() if k!='addr'}
+        container={'NetworkSettings':{'Networks':{'isolated':{'IPAddress':'192.0.2.1'}}}}
+        self.assertTrue(recovery.mapping_matches(app,target,container))
+        for key,value in [('addr','192.0.2.2'),('db','wrong'),('port',5433),('version','16'),('ro','off')]:
+            self.assertFalse(recovery.mapping_matches({**app,key:value},target,container))
+        self.assertFalse(recovery.mapping_matches(None,target,container))
+        self.assertFalse(recovery.mapping_matches({k:v for k,v in app.items() if k!='db'},
+            {k:v for k,v in target.items() if k!='db'},container))
+
+    def test_recovery_database_probe_quotes_synthetic_credentials_and_uses_read_only_sql(self):
+        import os
+        with tempfile.TemporaryDirectory(prefix='v79-recovery-shell-') as directory:
+            stub=Path(directory)/'psql'
+            stub.write_text('''#!/usr/bin/env python3
+import os,sys,json
+assert os.environ['PGPASSWORD']==os.environ['SYNTHETIC_EXPECTED']
+assert sys.argv[sys.argv.index('-U')+1]=='fixture role'
+assert sys.argv[sys.argv.index('-d')+1]=='fixture db'
+sql=sys.argv[sys.argv.index('-c')+1]
+assert sql.startswith('BEGIN READ ONLY;') and sql.endswith('ROLLBACK;')
+print(json.dumps({'fixture_passed':True}))
+''')
+            stub.chmod(0o700)
+            synthetic='synthetic $ ; " space credential'
+            result=subprocess.run(['sh','-s'],input=recovery.DB_PROBE,text=True,capture_output=True,
+                timeout=5,env={**os.environ,'PATH':directory+':'+os.environ['PATH'],
+                'POSTGRES_USER':'fixture role','POSTGRES_DB':'fixture db',
+                'POSTGRES_PASSWORD':synthetic,'SYNTHETIC_EXPECTED':synthetic})
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertTrue(json.loads(result.stdout)['fixture_passed'])
+            self.assertNotIn(synthetic,result.stdout+result.stderr)
+
+    def test_recovery_resource_thresholds_fail_closed(self):
+        good=recovery.resource_checks(2*1024**3,10*1024**3,[1024**3],['gpg'])
+        self.assertTrue(all(good[k] for k in ('memory_ok','disk_ok','encryption_tool_available')))
+        bad=recovery.resource_checks(1024**3,4*1024**3,[1024**3],[])
+        self.assertFalse(any(bad[k] for k in ('memory_ok','disk_ok','encryption_tool_available')))
+
+    def test_recovery_unavailable_preflight_never_creates_resources_or_leaks_diagnostics(self):
+        with patch.object(recovery,'capture',return_value=None) as call, contextlib.redirect_stdout(io.StringIO()) as out:
+            recovery.main()
+        report=json.loads(out.getvalue())
+        self.assertFalse(report['preflight_checks_passed'])
+        self.assertFalse(report['backup_created']);self.assertFalse(report['restore_performed'])
+        for args in call.call_args_list:
+            self.assertEqual(args.args[0][:2],['docker','inspect'])
+        self.assertNotIn('customer',recovery.DB_PROBE)
+        self.assertIn('BEGIN READ ONLY',recovery.APP_PROBE)
+        self.assertIn('BEGIN READ ONLY',recovery.DB_PROBE)
     def test_unavailable_docker_fails_closed_and_redacts_diagnostics(self):
         with patch.object(mod, 'run', return_value=None):
             report = mod.audit({})
