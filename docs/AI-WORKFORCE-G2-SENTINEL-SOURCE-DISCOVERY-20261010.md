@@ -132,3 +132,15 @@ Latest protocol run: https://github.com/MrFixITslu/V79hub/actions/runs/380999015
 2. Independently review Python HMAC dispatcher, signer and fixture's strictly loopback binding. Obtain approved immutable source files; **never copy experimental files into a running `noc/` package or substitute the operator authentication handler**.
 3. Run only disposable loopback fixture with ephemeral synthetic keys in a separate virtual environment; verify it reaches no real NOC endpoint or customer database.
 4. For an eventual real local source integration, create a new designated service identity with server-held V79 org mapping, a private mutually authenticated transport, dedicated signed GET route, source-key custody and auditable durable replay protection. Require independent security acceptance and owner authorization before enabling.
+
+## G2.5 Acer-specific test evidence received — 2026-10-11 AST
+
+The owner ran the exact isolated clone at `/home/firelion/v79-g2-staging.lqW04ehw` with pinned G2.5 SHA `fa14b046ac938baf7a4a5d4c2e622ea8817297a6` and Node `v24.18.0`. Ubuntu was missing `python3.12-venv`; that dependency was installed, `cryptography==46.0.4` was installed in an isolated virtual environment, and `npm ci` completed. The `npm allow-scripts` notice regarding esbuild was non-fatal; **do not approve install scripts without necessity**.
+
+Actual Acer results: **14 Python unit tests passed** and **11 Node interoperability/HTTP tests passed, zero failures/skips**, with the literal completion marker `=== G2.5 ACER STAGING TESTS PASSED ===`. This is host-specific evidence beyond the earlier GitHub CI success; it is **not** production Sentinel operation, independent security certification or a real NOC API connection. No existing services were restarted or modified.
+
+## G2.6 read-only source-layout preflight (development only)
+
+Added `integrations/sentinel/read_only_acer_preflight.py` and fail-closed tests. The tool requires a **fully specified expected staging SHA**; checks both worktrees are distinct, reads only git revision identifiers and presence of the isolated protocol files and Acer NOC source modules. It emits **no credential, source code, port or host data**, performs no file writes, no HTTP, no port checks, no sudo and no restart. It deliberately reports `productionReady:false`, `trustedLiveCollectorVerified:false` and `liveDeploymentAuthorized:false` regardless of source layout.
+
+This is only a convenience for the next source/transport **review**. It does not validate real secure key custody, cryptographic trust binding to running NOC, mTLS/Tailscale ACLs, monitored device readiness, multi-worker replay resistance, external audit, or customer activation. The full source review and live activation still require independent approval and controlled change management.
