@@ -1,7 +1,7 @@
 """G2.11 V79-owned monitoring inventory preflight — passive only.
 
 Reads the Acer's own Linux /proc/net/route and /proc/net/arp snapshots.
-Does NOT discover or contact endpoints, run subprocesses, enumerate packet
+Does NOT discover or contact endpoints, invoke shell commands, enumerate packet
 contents, copy addresses/MACs or service identities to output, write files,
 modify monitoring, or infer ownership. The report is a hint for the owner to
 construct a SEPARATE explicit target allowlist after review, not consent.
