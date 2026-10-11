@@ -1,6 +1,13 @@
 # Prioritized Hub + Tiquet launch blockers
 
 Status: NO-GO. Snapshot 2026-10-11; exact new draft heads/CI results are in issue #128.
+Owner supplied fresh audit at 20:06 UTC: see
+[runtime evidence and collector correction](release-runtime-evidence-20261011.md).
+Healthy/HTTP-200 image identities, volumes, config fingerprints and read-only
+catalog queries are now observed. Exact release-object parity, effective overlays,
+authoritative DB mapping, applied migrations, build provenance and actual restore
+remain open. The first audit's Tiquet identity-link false results are invalid
+because of incorrect probe column names; corrected fixture-tested collector required.
 P0 blocks any release; P1 must also close before customer/commercial onboarding.
 Independent security review is a separate gate from this internal review.
 
@@ -20,8 +27,9 @@ Independent security review is a separate gate from this internal review.
 
 ## Precise owner decisions required
 
-1. Execute/return the already-authorized **read-only** audit. This is the only
-   immediate intervention needed because remote execution is quota-blocked.
+1. Return the corrected already-authorized **read-only** audit for exact local
+   release-object parity and corrected identity-column metadata. The first audit
+   was received; direct remote execution remains quota-blocked.
 2. Review the complete private local source/config divergence and select the
    preserved combined candidate; do not publish protected original source by
    assumption. #129/#31 do not match the running local commits in full.

@@ -86,6 +86,50 @@ class AuditTests(unittest.TestCase):
         self.assertNotIn("from './db", mod.DB_HELPER)
         self.assertIn("migration_applied:'UNVERIFIED'", mod.DB_HELPER)
 
+    def test_database_identity_checks_execute_against_exact_schema_column_names(self):
+        # Exercise the actual helper using catalog fixtures, never a live DB.
+        for linked in (True, False):
+            cols = [{'table_name':t,'column_name':'id'} for t in ('accounts','users','jobs')]
+            if linked:
+                cols += [{'table_name':'accounts','column_name':'hub_organization_id'},
+                         {'table_name':'users','column_name':'hub_user_id'}]
+            stub = '''const catalog = CATALOG;
+const pg = {Client: class {
+ async connect() {} async end() {}
+ async query(sql) {
+  if(sql === 'BEGIN READ ONLY' || sql === 'ROLLBACK') return {rows:[]};
+  if(sql === 'SHOW server_version') return {rows:[{server_version:'fixture'}]};
+  if(sql === 'SHOW transaction_read_only') return {rows:[{transaction_read_only:'on'}]};
+  if(sql.includes('FROM information_schema.columns')) return {rows:catalog};
+  if(sql.includes('FROM pg_indexes')) return {rows:[]};
+  throw new Error('Noncatalog query rejected');
+ }
+}};'''.replace('CATALOG',json.dumps(cols))
+            code = mod.DB_HELPER.replace("import pg from 'pg';",stub)
+            result = subprocess.run(['node','--input-type=module','-'],input=code,
+                capture_output=True,text=True,timeout=10,env={'PATH':__import__('os').environ['PATH'],
+                'V79_AUDIT_APP':'tiquet'})
+            self.assertEqual(result.returncode,0,result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report['checks']['hub_account_link'],linked)
+            self.assertEqual(report['checks']['hub_user_link'],linked)
+            self.assertEqual(report['migration_applied'],'UNVERIFIED')
+            self.assertEqual(report['customer_rows_read'],0)
+
+    def test_pinned_release_reference_does_not_checkout_fetch_or_relabel_working_tree(self):
+        ref = 'd'*40
+        responses = [ref+'\n','100644 blob '+'b'*40+'\tserver.ts\0','c'*40+'\n']
+        with patch.object(mod,'run',side_effect=responses) as run:
+            report = mod.repo_evidence(Path('/synthetic/repo'),ref)
+        self.assertEqual(report['commit'],ref)
+        self.assertIsNone(report['tracked_status_entries'])
+        self.assertEqual(run.call_args_list[0].args[0][-1],ref+'^{commit}')
+        for call in run.call_args_list:
+            self.assertNotIn('checkout',call.args[0]);self.assertNotIn('fetch',call.args[0])
+        with patch.object(mod,'run') as run:
+            self.assertFalse(mod.repo_evidence(Path('/synthetic/repo'),'invalid')['repository'])
+        run.assert_not_called()
+
     def test_apply_mode_is_rejected_before_any_command(self):
         with patch.object(mod, 'run') as run, contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit): mod.main(['apply'])

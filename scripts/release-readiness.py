@@ -16,6 +16,8 @@ import sys
 from datetime import datetime, timezone
 
 APPS = {"hub": "v79-hub", "tiquet": "v79-tiquet-manager"}
+RELEASE_REFS = {"hub": "585f70160d74c06cf745adeaee7f418e89be9cf7",
+                "tiquet": "81f46592fa0f3d43d103bcc5202c492918c1b9b7"}
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^sha256:[0-9a-f]{64}$")
 SOURCE_ROOTS = ["server", "src", "scripts", ".github/workflows"]
@@ -89,7 +91,7 @@ if(isHub && process.env.V79_HUB_STORE_BACKEND !== 'postgres') {
   const ledgers=['schema_migrations','migrations','knex_migrations','_prisma_migrations'].filter(t=>has(t));
   const checks=isHub?{state_table:has('v79_hub_state'),revision_column:has('v79_hub_state','revision'),
     state_column:has('v79_hub_state','state')}:{accounts:has('accounts'),users:has('users'),jobs:has('jobs'),
-    hub_account_link:has('accounts','huborganizationid'),hub_user_link:has('users','hubuserid')};
+    hub_account_link:has('accounts','hub_organization_id'),hub_user_link:has('users','hub_user_id')};
   console.log(JSON.stringify({backend:'postgres',server_version:version,transaction_read_only:ro,
    schema_sha256,checks,migration_ledger_tables:ledgers,migration_applied:'UNVERIFIED',customer_rows_read:0}));
   await client.query('ROLLBACK');
@@ -137,8 +139,10 @@ def config_metadata(path):
 def source_path(path):
     return path in SOURCE_FILES or any(path.startswith(r + "/") for r in SOURCE_ROOTS)
 
-def repo_evidence(path):
-    head = run(["git", "-C", str(path), "rev-parse", "HEAD"])
+def repo_evidence(path, ref=None):
+    if ref is not None and not HEX40.fullmatch(ref):
+        return {"path": str(path), "reference": "INVALID", "repository": False}
+    head = run(["git", "-C", str(path), "rev-parse", "HEAD" if ref is None else ref + "^{commit}"])
     if not head or not HEX40.fullmatch(head.strip()):
         return {"path": str(path), "repository": False}
     commit = head.strip()
@@ -152,7 +156,7 @@ def repo_evidence(path):
                 files[name] = sha
     # Status only reports the number of changed source paths, not names of
     # untracked private files. It never refreshes the index (optional locks off).
-    status = run(["git", "-C", str(path), "status", "--porcelain=v1", "-z", "--untracked-files=no"])
+    status = run(["git", "-C", str(path), "status", "--porcelain=v1", "-z", "--untracked-files=no"]) if ref is None else None
     dirty = None if status is None else sum(bool(v) for v in status.split("\0"))
     tree = run(["git", "-C", str(path), "rev-parse", commit + "^{tree}"])
     return {"path": str(path), "repository": True, "commit": commit,
@@ -238,8 +242,13 @@ def audit(references):
         if wd:
             dirs.add(Path(wd))
         item["repositories"] = []
-        for path in sorted(dirs):
-            evidence = repo_evidence(path)
+        targets = [(path, None) for path in sorted(dirs)]
+        targets.append((Path.home() / ("v79hub" if app == "hub" else "V79Tiquet"), RELEASE_REFS[app]))
+        for path, ref_sha in targets:
+            evidence = repo_evidence(path, ref_sha)
+            if ref_sha:
+                evidence['requested_release_commit'] = ref_sha
+                evidence['working_tree_compared'] = False
             if evidence.get('files'):
                 evidence['github_vs_local_commit'] = {}
                 for label, ref in references.items():
