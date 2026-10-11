@@ -75,6 +75,7 @@ test("stale, future, missing, invalid timestamps are not monitored health facts"
   assert.equal(parseProposedMissionHealth({ ...p, lastCheck: "" }, now).state, "unknown_time");
   assert.equal(parseProposedMissionHealth({ ...p, lastCheck: "yesterday" }, now).state, "unknown_time");
   assert.equal(parseProposedMissionHealth({ ...p, lastCheck: "2026-13-91T25:75:00Z" }, now).state, "unknown_time");
+  assert.equal(parseProposedMissionHealth({ ...p, lastCheck: "2026-02-30T23:00:00Z" }, now).state, "unknown_time");
 });
 
 test("no observed services means no data, not 'all services healthy'", () => {
