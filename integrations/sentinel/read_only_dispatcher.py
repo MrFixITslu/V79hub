@@ -67,9 +67,12 @@ class IsolatedReadOnlySentinelDispatcher:
     def __init__(self, caller: TrustedReadCaller, signer: TrustedSourceSigner,
                  snapshot_loader: Callable[[], Mapping[str, Any]],
                  *, clock: Callable[[], datetime] | None = None,
-                 replay_guard: SqliteNonceReplayGuard | None = None):
+                 replay_guard: SqliteNonceReplayGuard | None = None,
+                 allow_in_memory_for_tests: bool = False):
         if caller.organization_id != signer.organization_id or caller.key_id != signer.key_id:
             raise SentinelContractError("Signer and read caller scope mismatch")
+        if replay_guard is None and allow_in_memory_for_tests is not True:
+            raise SentinelContractError("Persistent replay ledger required")
         self._caller = caller
         self._signer = signer
         self._snapshot_loader = snapshot_loader
@@ -114,9 +117,9 @@ class IsolatedReadOnlySentinelDispatcher:
         except (ValueError, UnicodeError, TypeError, OverflowError):
             return 401, {"error": "Unauthorized"}
 
-        # SQLite is required for same-host multi-process/restart safety.
-        # The in-memory fallback remains for isolated backwards-compatible
-        # fixtures ONLY; it is NOT a production release option.
+        # SQLite is the safe default for same-host multi-process/restart
+        # safety. The in-memory fallback requires explicit test opt-in.
+        # Never approve the fallback for production.
         if self._replay_guard is not None:
             try:
                 if not self._replay_guard.claim(req, int(now.timestamp() * 1000)):
