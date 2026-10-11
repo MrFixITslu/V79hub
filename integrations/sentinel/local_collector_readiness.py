@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import json
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-READY_URL = "http://127.0.0.1:8787/readyz"
+# Confirmed from owner's Acer process-to-port discovery on 2026-10-11:
+# enterprise NOC checkout PID 259865 listens on loopback 8788;
+# port 8787 belongs to a DIFFERENT legacy Sentinel sentinel.py service.
+# Fixed local diagnostic destination, not a configurable proxy URL.
+READY_URL = "http://127.0.0.1:8788/readyz"
 ALLOWED_COLLECTOR = frozenset((
     "simulated-only", "disabled", "unavailable", "staging", "live", "active"
 ))
@@ -68,7 +72,9 @@ def _unavailable() -> dict:
 
 def check_local_readiness(*, opener=None) -> dict:
     """One bounded unauthenticated GET to fixed loopback /readyz, no redirect."""
-    opener = opener or build_opener(_NoRedirect)
+    # Explicitly forbid environment HTTP proxies for loopback readiness.
+    # No redirects or arbitrary hosts/ports are ever followed.
+    opener = opener or build_opener(ProxyHandler({}), _NoRedirect)
     request = Request(
         READY_URL,
         method="GET",
