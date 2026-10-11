@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from local_collector_readiness import (
     READY_URL, MAX_RESPONSE, classify_noc_readiness, check_local_readiness,
@@ -24,6 +24,23 @@ class _Response:
 
 
 class LocalCollectorReadinessTests(unittest.TestCase):
+    def test_fixed_enterprise_noc_port_and_no_legacy_port(self):
+        self.assertEqual(READY_URL, "http://127.0.0.1:8788/readyz")
+        self.assertNotIn(":8787/", READY_URL)
+
+    def test_default_opener_disables_environment_proxies(self):
+        opener = Mock()
+        opener.open.return_value = _Response({
+            "collector": "simulated-only", "integrations": "disabled",
+        })
+        with patch("local_collector_readiness.build_opener", return_value=opener) as factory:
+            result = check_local_readiness()
+        self.assertEqual(result["probeStatus"], "readiness_report_observed")
+        handlers = factory.call_args.args
+        self.assertEqual(len(handlers), 2)
+        self.assertEqual(handlers[0].proxies, {})
+        self.assertEqual(handlers[1].__class__.__name__, "_NoRedirect")
+
     def test_simulated_only_is_reported_as_unverified(self):
         report = classify_noc_readiness({
             "collector": "simulated-only",
