@@ -50,7 +50,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --import tsx --test ../integrations/sentinel/test_cross_language.mjs ../integrations/sentinel/test_authenticated_flow.mjs
+          node --import tsx --test ../integrations/sentinel/test_cross_language.mjs ../integrations/sentinel/test_authenticated_flow.mjs ../integrations/sentinel/test_loopback_http.mjs
       - name: Isolation proof
         shell: bash
         run: |
