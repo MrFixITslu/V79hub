@@ -32,10 +32,15 @@ function runGuard({mode="protected",omitted=[]}={}){
     writeFileSync(docker,[
       "#!/usr/bin/env bash",
       'case "$1" in',
+      '  container) if [ "$FAKE_MODE" != "none" ]; then echo v79-hub; fi;;',
       '  inspect) if [ "$FAKE_MODE" = "none" ]; then exit 1; fi',
       '    if [ "${3:-}" = "{{.State.Status}}" ]; then :; fi',
       '    if [ "$FAKE_MODE" = "stopped" ]; then echo exited; else echo running; fi;;',
       '  exec) if [ "$5" = "/app/server" ]; then exit 0; fi',
+      '    if [ "$3" = "sh" ]; then',
+      '      if [ "$FAKE_MODE" = "absent" ]; then printf absent; else printf present; fi',
+      '      exit 0',
+      '    fi',
       '    if [ "$FAKE_MODE" = "absent" ]; then exit 1; fi',
       '    case "$5" in /app/server/sentinel-qa-routes.mjs|/app/server/sentinel-qa-cleanup.mjs|/app/server/sentinel-write-fence.mjs|/app/server/sentinel-audit-retention.mjs) exit 0;; *) exit 1;; esac;;',
       '  *) exit 100;;',
@@ -67,13 +72,13 @@ test("normal main pushes validate but cannot deploy or publish images automatica
   assert.match(workflow,/APPROVED_SHA.*GITHUB_SHA/);
   assert.match(workflow,/environment: production/);
 });
-test("both release mechanisms check existing live image before file synchronization",()=>{
-  const guard='bash "$stage/scripts/verify-sentinel-preservation.sh" "$stage"';
-  assert.ok(direct.includes(guard+' v79-hub'));
-  assert.ok(ecosystem.includes(guard+' "$container"'));
-  assert.ok(direct.indexOf(guard)<direct.indexOf("rsync -a --delete"));
-  assert.ok(ecosystem.indexOf(guard)<ecosystem.indexOf("  rsync -a"));
-  for(const f of files)assert.ok(readFileSync(join(root,"scripts/verify-sentinel-preservation.sh"),"utf8").includes(f));
+test("legacy direct and ecosystem release mechanisms stop before any mutation",()=>{
+  for(const file of ["scripts/deploy-server.sh","scripts/deploy-ecosystem-release.sh"]){
+    const r=spawnSync("bash",[join(root,file),"a".repeat(40)],{encoding:"utf8",timeout:4500});
+    assert.equal(r.status,78,r.stderr);
+    assert.match(r.stderr,/BLOCKED: release HOLD/);
+    assert.doesNotMatch(readFileSync(join(root,file),"utf8"),/docker (rm|compose)|rsync|head -c|curl|wget/);
+  }
 });
 test("retains every protected Sentinel file when current container uses it",()=>{
   const r=runGuard();assert.equal(r.status,0,r.stderr);
