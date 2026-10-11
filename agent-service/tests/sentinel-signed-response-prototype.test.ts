@@ -17,17 +17,12 @@ const verifier = () => createSyntheticSentinelResponseVerifier({
 
 function payload() {
   return {
+    schemaVersion: 1,
     source: "local-mission-control",
     monitorMode: "staging",
-    lastCheck: new Date(now - 20_000).toISOString(),
-    services: [
-      { name: "Sensitive site 10.0.1.2", state: "up", http: 200, latencyMs: 20 },
-      { name: "Customer ACME Private", state: "down", http: 503, latencyMs: 150 },
-    ],
-    qa: {
-      runId: "synthetic", checkedAt: new Date(now).toISOString(),
-      results: [{ name: "sensitive@example.invalid", status: "fail" }],
-    },
+    observedAt: new Date(now - 20_000).toISOString(),
+    // Pre-aggregated at the Sentinel source: NO names, IPs, QA or packets.
+    counts: { servicesObserved: 2, up: 1, down: 1, degraded: 0, unknown: 0 },
   };
 }
 type FixtureEnvelope = {
@@ -67,6 +62,8 @@ test("genuine synthetic Ed25519 signature and one-use request IDs verify but are
   assert.deepEqual(a.counts, {
     servicesObserved: 2, up: 1, down: 1, degraded: 0, unknown: 0,
   });
+  assert.ok(!e.payloadJson.includes("services"), "Raw per-service records must never be signed");
+  assert.ok(!e.payloadJson.includes("qa"), "Browser QA must never be signed");
   const serialized = JSON.stringify(a);
   for (const phrase of ["10.0.1.2", "ACME Private", "sensitive@example.invalid"]) {
     assert.ok(!serialized.includes(phrase), phrase);
@@ -120,10 +117,10 @@ test("signed content still must pass strict Mission Control parser; source claim
   const envelope = makeEnvelope(v, { payloadJson: JSON.stringify(bad) });
   assert.equal(v.verify(envelope).state, "rejected");
   const v2 = verifier();
-  const stale = { ...payload(), lastCheck: "2026-10-10T23:00:00.000Z" };
+  const stale = { ...payload(), observedAt: "2026-10-10T23:00:00.000Z" };
   assert.equal(v2.verify(makeEnvelope(v2, { payloadJson: JSON.stringify(stale) })).state, "rejected");
   const v3 = verifier();
-  const noServices = { ...payload(), services: [] };
+  const noServices = { ...payload(), counts: { servicesObserved: 0, up: 0, down: 0, degraded: 0, unknown: 0 } };
   assert.equal(v3.verify(makeEnvelope(v3, { payloadJson: JSON.stringify(noServices) })).state, "rejected");
 });
 
@@ -171,7 +168,7 @@ test("malformed envelope also burns the matched challenge", () => {
 
 test("UTF-8 multibyte content cannot evade bounded signed response size", () => {
   const v = verifier();
-  const huge = { ...payload(), qa: { results: [{ name: "📡".repeat(12_000) }] } };
+  const huge = { ...payload(), leakedQa: { results: [{ name: "📡".repeat(12_000) }] } };
   const signed = makeEnvelope(v, { payloadJson: JSON.stringify(huge) });
   assert.equal(v.verify(signed).state, "rejected");
   assert.equal(v.verify(signed).state, "rejected");
