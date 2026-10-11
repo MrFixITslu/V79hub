@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from local_collector_readiness import (
-    READY_URL, MAX_RESPONSE, classify_noc_readiness, check_local_readiness,
+    READY_URL, MAX_RESPONSE, classify_noc_readiness, check_local_readiness, _NoRedirect,
 )
 
 
@@ -39,7 +39,7 @@ class LocalCollectorReadinessTests(unittest.TestCase):
         handlers = factory.call_args.args
         self.assertEqual(len(handlers), 2)
         self.assertEqual(handlers[0].proxies, {})
-        self.assertEqual(handlers[1].__class__.__name__, "_NoRedirect")
+        self.assertIs(handlers[1], _NoRedirect)
 
     def test_simulated_only_is_reported_as_unverified(self):
         report = classify_noc_readiness({
