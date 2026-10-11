@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import net from "node:net";
+import { buildEvidenceLedger, compactFromEvidence } from "../src/evidence.js";
+import { getWorkforceSpecialist } from "../src/workforce.js";
 
 const founder = {
   userId: "owner-agent-api-test", email: "vision79slu@gmail.com",
@@ -138,5 +140,64 @@ test("read-only evidence endpoint enforces service token, founder scope and Hub 
   } finally {
     child.kill("SIGTERM");
     await new Promise<void>(resolve => hub.close(() => resolve()));
+  }
+});
+
+
+test("G1 owner Hub counters reject future, stale or missing evidence time", () => {
+  // Explicit synthetic clock prevents test flakiness and requires NO Hub process.
+  const now = Date.parse("2026-10-11T22:00:00.000Z");
+  const at = (offsetSeconds: number) => new Date(now + offsetSeconds * 1000).toISOString();
+  const ownerSnapshot = (generatedAt: string | null) => ({
+    generatedAt,
+    business: {},
+    platform: {},
+    connections: {},
+    hubAdmin: { users: 2, activeSessions: 1, customerEmail: "private@example.invalid" },
+  });
+  function hubRecord(atTime: string | null) {
+    const ledger = buildEvidenceLedger(
+      ownerSnapshot(atTime), getWorkforceSpecialist("owner"), now);
+    const record = ledger.records.find(row => row.system === "hub");
+    assert.ok(record, "Hub owner evidence record must remain present");
+    return { record, compact: compactFromEvidence(ledger) };
+  }
+  const current = hubRecord(at(-45));
+  assert.equal(current.record.state, "available", "Current owner counters must remain usable");
+  assert.equal(current.record.ageSeconds, 45);
+  assert.deepEqual(current.record.metrics.map(metric => metric.key).sort(), ["activeSessions", "users"]);
+  assert.ok(!JSON.stringify(current.compact).includes("private@example.invalid"));
+  const nearFuture = hubRecord(at(90));
+  assert.equal(nearFuture.record.state, "available", "Existing two-minute source skew remains allowed");
+  assert.equal(nearFuture.record.ageSeconds, 0);
+  const farFuture = hubRecord(at(3600));
+  assert.equal(farFuture.record.state, "unknown", "Future-dated Hub counts are not current");
+  assert.equal(farFuture.record.ageSeconds, null, "Do not show fake age zero for future evidence");
+  const stale = hubRecord(at(-901));
+  assert.equal(stale.record.state, "unknown", "Hub counters older than 15 minutes are not current");
+  const undated = hubRecord(null);
+  assert.equal(undated.record.state, "unknown", "Missing owner observation time is not current");
+  assert.equal(undated.record.ageSeconds, null);
+});
+
+test("G1 product aggregate far-future and undated reports remain non-current", () => {
+  const now = Date.parse("2026-10-11T22:00:00.000Z");
+  const snapshot = (sourceReportedAt: string | null) => ({
+    generatedAt: new Date(now).toISOString(),
+    business: { ffpro: {
+      status: "ok", sourceReportedAt,
+      metrics: { currentMonthNet: -42, customerEmail: "not-model-evidence@example.invalid" },
+    } },
+    connections: { ffpro: { status: "online" } },
+    platform: {},
+    hubAdmin: {},
+  });
+  for (const reportedAt of [new Date(now + 3600_000).toISOString(), null]) {
+    const ledger = buildEvidenceLedger(snapshot(reportedAt), getWorkforceSpecialist("owner"), now);
+    const ffpro = ledger.records.find(row =>
+      row.system === "ffpro" && row.source === "signed_product_summary");
+    assert.ok(ffpro);
+    assert.equal(ffpro.state, "unknown");
+    assert.ok(!JSON.stringify(compactFromEvidence(ledger)).includes("not-model-evidence@example.invalid"));
   }
 });
