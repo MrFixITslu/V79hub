@@ -59,6 +59,67 @@ class SourceSignerTests(unittest.TestCase):
         })
         self.assertEqual(obj["observedAt"], "2026-10-10T23:39:40.000Z")
 
+    def test_explicit_zero_offset_source_is_normalized_to_canonical_utc(self):
+        raw = sample()
+        for timestamp in (
+            "2026-10-10T23:39:40+00:00",
+            "2026-10-10T23:39:40.000+00:00",
+            "2026-10-10T23:39:40Z",
+        ):
+            raw["lastCheck"] = timestamp
+            with self.subTest(timestamp=timestamp):
+                aggregate = aggregate_mission_snapshot(raw, now=NOW)
+                self.assertEqual(aggregate["observedAt"], "2026-10-10T23:39:40.000Z")
+                signed = sign_aggregate_for_challenge(aggregate, REQUEST, self.signer, now=NOW)
+                self.assertIn("23:39:40.000Z", signed["payloadJson"])
+
+    def test_explicit_caribbean_negative_offset_is_converted_not_relabelled(self):
+        raw = sample()
+        raw["lastCheck"] = "2026-10-10T19:39:40-04:00"
+        aggregate = aggregate_mission_snapshot(raw, now=NOW)
+        self.assertEqual(aggregate["observedAt"], "2026-10-10T23:39:40.000Z")
+        self.assertNotIn("-04:00", str(aggregate))
+        signed = sign_aggregate_for_challenge(aggregate, REQUEST, self.signer, now=NOW)
+        self.assertNotIn("-04:00", signed["payloadJson"])
+
+    def test_offset_source_still_fails_freshness_and_future_checks(self):
+        raw = sample()
+        for value in (
+            "2026-10-10T19:00:00-04:00",
+            "2026-10-10T21:00:00-04:00",
+        ):
+            raw["lastCheck"] = value
+            with self.subTest(value=value), self.assertRaises(SentinelContractError):
+                aggregate_mission_snapshot(raw, now=NOW)
+
+    def test_unknown_timezone_and_unbounded_offsets_never_assumed_utc(self):
+        raw = sample()
+        for value in (
+            "2026-10-10T23:39:40",
+            "2026-10-10 23:39:40",
+            "2026-10-10T23:39:40+14:30",
+            "2026-10-10T23:39:40+24:00",
+            "2026-10-10T23:39:40 UTC",
+            "",
+            1791675580,
+        ):
+            raw["lastCheck"] = value
+            with self.subTest(value=value), self.assertRaises(SentinelContractError):
+                aggregate_mission_snapshot(raw, now=NOW)
+
+    def test_signed_aggregate_wire_format_must_remain_canonical(self):
+        aggregate = aggregate_mission_snapshot(sample(), now=NOW)
+        for value in (
+            "2026-10-10T23:39:40+00:00",
+            "2026-10-10T19:39:40.000-04:00",
+            "2026-10-10T23:39:40Z",
+            "2026-10-10T23:39:40.00Z",
+        ):
+            with self.subTest(value=value), self.assertRaises(SentinelContractError):
+                sign_aggregate_for_challenge(
+                    {**aggregate, "observedAt": value}, REQUEST, self.signer, now=NOW
+                )
+
     def test_wrong_tenant_and_key_forbidden(self):
         for altered in [
             {**REQUEST, "organizationId": "customer_123"},
