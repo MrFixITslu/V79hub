@@ -4,7 +4,7 @@ Not the Acer Sentinel NOC. NEVER import or mount this file in production.
 - Binds 127.0.0.1 on OS-selected ephemeral port (never public interfaces).
 - Receives ephemeral TEST keys + synthetic observation on stdin.
 - Emits only a port number on stdout, never keys/data.
-- Runs until the test parent terminates it; no writes to disk.
+- Runs until the test parent terminates it; uses ONLY a disposable\n  private temporary SQLite nonce ledger (no real NOC or account writes).
 - Rejects cookies, Authorization, mutation routes and any body.
 The actual NOC integration needs a separate independent security review.
 """
@@ -13,6 +13,10 @@ from __future__ import annotations
 import base64
 import json
 import sys
+import signal
+import tempfile
+import threading
+from pathlib import Path
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -22,6 +26,7 @@ from read_only_dispatcher import (
     IsolatedReadOnlySentinelDispatcher, TrustedReadCaller,
 )
 from source_signer import TrustedSourceSigner
+from sqlite_replay_guard import SqliteNonceReplayGuard
 
 HEADER_NAMES = (
     "X-V79-Read-Organization",
@@ -43,11 +48,13 @@ def main() -> None:
     )
     hmac_key = base64.urlsafe_b64decode(fixture["readHmacKey"] + "=")
     now = datetime.fromisoformat(fixture["now"].replace("Z", "+00:00"))
+    replay_directory = tempfile.TemporaryDirectory(prefix="v79-g2-test-nonces-")
     signed = IsolatedReadOnlySentinelDispatcher(
         TrustedReadCaller("v79founder", "sentinel-g2-test", hmac_key),
         TrustedSourceSigner("sentinel-g2-test", "v79founder", private_key),
         lambda: fixture["missionSnapshot"],
         clock=lambda: now,
+        replay_guard=SqliteNonceReplayGuard(Path(replay_directory.name) / "used.sqlite3"),
     )
 
     class Handler(BaseHTTPRequestHandler):
@@ -89,11 +96,19 @@ def main() -> None:
         do_OPTIONS = _handle
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+
+    def _shutdown(_signal, _frame):
+        # SIGTERM from the parent test must clean disposable SQLite state.
+        # shutdown() cannot run in the same thread as serve_forever().
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _shutdown)
     try:
         print(server.server_address[1], flush=True)  # Port only; no credentials
         server.serve_forever(poll_interval=0.1)
     finally:
         server.server_close()
+        replay_directory.cleanup()
 
 
 if __name__ == "__main__":
