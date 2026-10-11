@@ -29,7 +29,7 @@ def main() -> None:
         TrustedReadCaller("v79founder", "sentinel-g2-test", shared),
         TrustedSourceSigner("sentinel-g2-test", "v79founder", private_key),
         lambda: inp["missionSnapshot"],
-        clock=lambda: now,
+        clock=lambda: now, allow_in_memory_for_tests=True,
     )
     request = inp["readRequest"]
     status, response = gate.get(request["method"], request["path"], request["headers"])
