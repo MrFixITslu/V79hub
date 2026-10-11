@@ -60,3 +60,25 @@ Confirm the remaining Mission Control return fields and exact timestamp formats,
 8. Run GitHub CI on exact candidate SHA, independent review if required, and owner acceptance before any production activation.
 
 **This PR is a non-integrated synthetic contract/test artifact only.** It does not modify live Sentinel or Hub source paths, expose an API endpoint, request credentials or activate automated agents.
+
+## Signed machine-response prototype (isolated, not connected)
+
+New `agent-service/src/sentinel-signed-response-prototype.ts` performs **in-memory verification with an injected trusted Ed25519 public key only**. There is no network client, API endpoint, key provisioning, private key, credential, storage change, or model integration in this PR.
+
+The proposed synthetic envelope contains precisely:
+`{schemaVersion:1,keyId,organizationId,requestId,issuedAt,expiresAt,payloadJson,signature}`.
+
+The signature covers the **exact UTF-8 bytes** `V79-SENTINEL-READ-G2-v1\\n` followed by the JSON serialization of the ordered seven signed fields excluding signature (the source contract code is authoritative). `payloadJson` is a string, not an arbitrary object to be re-canonicalized by a receiver. Only ephemeral test keys are generated in the tests. The verifier pins an externally supplied Ed25519 public key and key ID and refuses unexpected keys.
+
+The test-only verifier issues random UUID challenges, enforces single-use nonces in a bounded **in-process map**, verifies the expected organization ID, strict key ID, issue/expiry windows, payload size, Ed25519 signature, and source-aligned schema with observation age. No service identifiers, QA details or free-text strings leave the projection. **Even a cryptographically valid fixture returns `sourceVerified:false`, `readyForExecutiveUse:false` and `signature_valid_synthetic_only`.** This avoids presenting a synthetic signing key as a verified actual Sentinel publisher.
+
+Critical future obligations *not* met by this experiment:
+
+1. Implement a separate **GET-only, owner-tenant-bound machine read endpoint in actual Sentinel NOC**; do not reuse browser sessions, `/api/v1/sentinel/service/approver/check`, arbitrary service URLs or incident acknowledgement routes.
+2. Provision and independently verify the **real Sentinel public-key binding**, rotation/revocation policy, owner org mapping, trusted issuer, outbound HTTPS/mTLS trust and service network restrictions; signing a synthetic payload does not establish identity.
+3. Preserve challenge ownership and replay safety across **multiple instances/restarts** using an authoritative shared, expiring nonce store or an equivalent request-bound design. The prototype's in-process replay map alone is not a distributed production security guarantee.
+4. Confirm separate server-side entitlement and founder context before any executive read; do not promote `candidate_unverified` parser results or test signatures into the existing signed Hub product ledger.
+5. Use approved signed freshness and monitor-state semantics; the currently observed NOC `/readyz` says **simulated-only**. A browser monitor claiming `live` is not sufficient to report active network protection.
+6. Demonstrate a no-write, no-customer-data, no-session-reuse, fail-closed end-to-end test against an **isolated running NOC** with a real source signing implementation before any deployment decision.
+
+This is an intentionally *non-integrated* security contract prototype, not operational monitoring.
