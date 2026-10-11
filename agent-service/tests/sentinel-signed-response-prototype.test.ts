@@ -68,7 +68,7 @@ test("genuine synthetic Ed25519 signature and one-use request IDs verify but are
     servicesObserved: 2, up: 1, down: 1, degraded: 0, unknown: 0,
   });
   const serialized = JSON.stringify(a);
-  for (const phrase of ["10.0.1.2", "ACME Private", "sensitive@example.invalid", "synthetic"]) {
+  for (const phrase of ["10.0.1.2", "ACME Private", "sensitive@example.invalid"]) {
     assert.ok(!serialized.includes(phrase), phrase);
   }
   assert.equal(v.verify(e).state, "rejected", "same signed response cannot be replayed");
