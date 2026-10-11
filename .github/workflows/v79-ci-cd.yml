@@ -116,6 +116,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Enforce reconciliation and rollback HOLD
+        shell: bash
+        run: |
+          printf '%s\n' 'BLOCKED: release HOLD — reconciliation and verified rollback required.' >&2
+          exit 78
       - name: Fail closed without approved main SHA
         shell: bash
         env:

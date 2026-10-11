@@ -137,6 +137,8 @@ to create or replace production resources.
 No command here applies a release. The draft entry points and first production
 workflow step return 78 before copying source, downloading an artifact to the
 server, using deployment secrets, creating a credential or touching Docker.
+The release-approval job also returns 78 before image publication; manually
+setting an approved SHA cannot publish or deploy through this HOLD draft.
 They cannot be enabled by an approval environment variable, `--force` or `--apply`.
 The underlying approved-SHA workflow guards remain intact for future review.
 

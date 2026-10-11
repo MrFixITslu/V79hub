@@ -41,6 +41,7 @@ Independent security review is a separate gate from this internal review.
 
 It prevents legacy scripts and production CI entry points from reaching source
 copy, token creation, dependency/container recreation/removal or remote transfer.
+The approval job stops before image publishing as a further barrier.
 It has no apply/force bypass. It does not manufacture missing runtime provenance,
 restore/rollback, genuine MFA acceptance or independent certification. It is a
 temporary reviewed barrier while the final release path is designed from verified

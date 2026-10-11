@@ -31,3 +31,15 @@ test('workflow HOLD occurs before production access', () => {
   assert.ok(deploy.indexOf('run: bash scripts/deploy-server.sh') < deploy.indexOf('actions/download-artifact@v4'));
   assert.doesNotMatch(deploy.slice(0,deploy.indexOf('run: bash scripts/deploy-server.sh')),/continue-on-error/);
 });
+test('approval HOLD blocks image publishing before the exact-SHA check', () => {
+  const workflow = readFileSync(join(root,'.github/workflows/v79-ci-cd.yml'),'utf8');
+  const approval = workflow.slice(workflow.indexOf('\n  release-approval:'),workflow.indexOf('\n  deliver-container:'));
+  const first = approval.match(/        run: \|\n((?:          .*\n)+)/);
+  assert.ok(first,'Missing first release HOLD step');
+  const script = first[1].replace(/^          /gm,'');
+  const result = spawnSync('bash',['-s'],{input:script,encoding:'utf8',timeout:5000});
+  assert.equal(result.status,78,result.stderr);
+  assert.match(result.stderr,/BLOCKED: release HOLD/);
+  assert.ok(approval.indexOf('exit 78') < approval.indexOf('REQUESTED_SHA:'));
+  assert.doesNotMatch(approval.slice(0,approval.indexOf('exit 78')),/continue-on-error/);
+});
