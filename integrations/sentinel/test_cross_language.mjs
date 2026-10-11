@@ -96,3 +96,23 @@ test("cross-language: Node rejects modified Python signed response and burns req
   assert.equal(v.verify({ ...e, organizationId: "someone_else" }).state, "rejected");
   assert.equal(v.verify(e).state, "rejected");
 });
+
+test("cross-language: timezone-offset NOC reading normalizes to canonical UTC before Ed25519 signing", () => {
+  const v = newVerifier();
+  const raw = snapshot();
+  raw.lastCheck = "2026-10-10T19:39:40-04:00";
+  const result = runPython(v.issueChallenge(), raw);
+  assert.equal(result.status, 0, "Explicit -04:00 source offset should be accepted");
+  const envelope = JSON.parse(result.stdout);
+  assert.equal(JSON.parse(envelope.payloadJson).observedAt, "2026-10-10T23:39:40.000Z");
+  assert.equal(v.verify(envelope).state, "signature_valid_synthetic_only");
+});
+
+test("cross-language: timezone-naive source is rejected without emitting signed data", () => {
+  const v = newVerifier();
+  const raw = snapshot();
+  raw.lastCheck = "2026-10-10T23:39:40";
+  const result = runPython(v.issueChallenge(), raw);
+  assert.notEqual(result.status, 0, "Ambiguous timezone must fail closed");
+  assert.equal(result.stdout, "", "Untrusted source must not produce a signed response");
+});
