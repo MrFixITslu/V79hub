@@ -73,7 +73,7 @@ class PassiveInventoryTests(unittest.TestCase):
         tests = (
             ("", neighbors()),
             ("secret" * 10000, neighbors()),
-            (ROUTE_HEADER + "private-remote.com 00000000 0101A8C0 0003 0 0 0 0\n", neighbors()),
+            (ROUTE_HEADER + "private/remote.com 00000000 0101A8C0 0003 0 0 0 0\n", neighbors()),
             (routes(), ""),
             (routes(), ARP_HEADER + "private-host 0x1 0x2 02:0a:0b:00:00:01 * wlan0\n"),
             (routes(), ARP_HEADER + "999.168.1.1 0x1 0x2 02:0a:0b:00:00:01 * wlan0\n"),
