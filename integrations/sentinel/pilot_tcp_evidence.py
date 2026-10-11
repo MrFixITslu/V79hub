@@ -73,7 +73,7 @@ def classify_owner_tcp_report(report: Any, approval: ApprovedOneShotScope) -> di
         "outcomeReported": report["outcome"],
         "elapsedMsReported": report["elapsedMs"],
         "servicePortReachableReported": report["outcome"] == "tcp-open",
-        "targetMatchedPreviouslyApprovedScope": True,
+        "targetMatchesSuppliedScope": True,
         "independentlyAuthenticated": False,
         "cryptographicallyAttested": False,
         "tlsOrHttpHealthVerified": False,
