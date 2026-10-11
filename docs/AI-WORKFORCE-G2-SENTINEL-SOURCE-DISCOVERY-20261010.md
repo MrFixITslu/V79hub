@@ -144,3 +144,18 @@ Actual Acer results: **14 Python unit tests passed** and **11 Node interoperabil
 Added `integrations/sentinel/read_only_acer_preflight.py` and fail-closed tests. The tool requires a **fully specified expected staging SHA**; checks both worktrees are distinct, reads only git revision identifiers and presence of the isolated protocol files and Acer NOC source modules. It emits **no credential, source code, port or host data**, performs no file writes, no HTTP, no port checks, no sudo and no restart. It deliberately reports `productionReady:false`, `trustedLiveCollectorVerified:false` and `liveDeploymentAuthorized:false` regardless of source layout.
 
 This is only a convenience for the next source/transport **review**. It does not validate real secure key custody, cryptographic trust binding to running NOC, mTLS/Tailscale ACLs, monitored device readiness, multi-worker replay resistance, external audit, or customer activation. The full source review and live activation still require independent approval and controlled change management.
+
+## G2.8 first owner-observed local NOC source shape (2026-10-11 AST)
+
+The owner executed a read-only `sentinel_mission_bridge.snapshot()` call inside the actual Acer `enterprise-command-center-staging` checkout (NOC source head previously verified as `5f7b226eb5e8`), reporting ONLY:
+- `source` = `local-mission-control`
+- `monitorMode` = `live` (**a string in the source response, not proof of actual collector state or device inventory**)
+- `lastCheck` present, string's trailing-`Z` test **false** (actual timestamp value and timezone not supplied)
+- `services` count 7; reported states: `up` 7 (not independent proof of seven real device health measurements)
+- `qa` object present.
+
+The existing G2.7 prototype demanded trailing Z for all raw source timestamps. That can reject a *valid, timezone-aware* native Python ISO string with `+00:00` or `-04:00`. New G2.8 producer logic accepts explicit ISO-8601 timezone offsets **only**, normalizes to canonical `YYYY-MM-DDTHH:MM:SS.mmmZ` before signing, and rejects timezone-naive/ambiguous values. The signed contract itself remains **strict canonical UTC**; it is NOT relaxed to permit ambiguous time. Signed observation freshness/expiry and source identity checks remain enforced. New unit tests cover UTC offsets, Caribbean offset, timezone-less rejection, stale/future source, unbounded offsets and wire-format rejection.
+
+New `integrations/sentinel/source_contract_probe.py` reports **only** a timestamp type category, field-shape match flags, bounded service counts and whether the current local snapshot is compatible. It does not print raw time, device names, addresses, QA records, exceptions, or secrets. It always emits `trustedLiveCollectorVerified:false`, `sourceIdentityVerified:false`, `readyForExecutiveUse:false`, `productionReady:false`, even when the source reports `live`. Nine synthetic tests verify these exclusions.
+
+**Actual timestamp format, source object field names and independent real monitored-source/collector attestation remain unknown until the new local read-only compatibility probe runs.** Do not claim G2.8 is integrated or the collector verified from a reported `live` label. No NOC server, process, key or device configuration has been changed.
