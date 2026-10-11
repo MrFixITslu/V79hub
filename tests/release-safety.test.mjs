@@ -63,16 +63,12 @@ for (const [scenario, expected, includeModules] of [
   });
 }
 
-test('deployment shell and embedded Node smoke payload parse without execution', () => {
+test('deployment entry point has no application or agent smoke execution', () => {
   const shell = spawnSync('bash', ['-n', deploy.pathname], { encoding: 'utf8' });
   assert.equal(shell.status, 0, shell.stderr);
   const script = readFileSync(deploy, 'utf8');
-  const payloads = [...script.matchAll(/<<'NODE'\n([\s\S]*?)\nNODE(?:\n|$)/g)];
-  assert.equal(payloads.length, 1, 'Expected exactly one embedded Node payload');
-  for (const [, payload] of payloads) {
-    const result = spawnSync(process.execPath, ['--check', '--input-type=module'], {
-      input: payload, encoding: 'utf8',
-    });
-    assert.equal(result.status, 0, result.stderr);
-  }
+  assert.doesNotMatch(script, /docker|rsync|fetch\(|<<'NODE'/);
+  const result = spawnSync('bash', [deploy.pathname], { encoding: 'utf8' });
+  assert.equal(result.status, 78, result.stderr);
+  assert.match(result.stderr, /BLOCKED: release HOLD/);
 });

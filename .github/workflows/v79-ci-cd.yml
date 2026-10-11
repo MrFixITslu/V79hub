@@ -64,6 +64,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify read-only release audit and HOLD
+        run: |
+          python3 -B tests/release-readiness.test.py -v
+          node --test tests/release-hold.test.mjs
       - name: Install and validate application
         shell: bash
         run: |
@@ -173,6 +177,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Enforce reconciliation and rollback HOLD
+        run: bash scripts/deploy-server.sh
       # Fail closed unless an owner has explicitly approved this immutable SHA
       # in the repository's operator-maintained V79_HUB_APPROVED_SHA variable.
       - name: Require approved immutable release
