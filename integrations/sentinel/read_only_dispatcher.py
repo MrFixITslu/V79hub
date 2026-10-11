@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Callable, Mapping, Any
 
+from sqlite_replay_guard import ReplayStoreUnavailable, SqliteNonceReplayGuard
 from source_signer import (
     SentinelContractError, TrustedSourceSigner,
     aggregate_mission_snapshot, sign_aggregate_for_challenge,
@@ -65,13 +66,15 @@ class IsolatedReadOnlySentinelDispatcher:
     """
     def __init__(self, caller: TrustedReadCaller, signer: TrustedSourceSigner,
                  snapshot_loader: Callable[[], Mapping[str, Any]],
-                 *, clock: Callable[[], datetime] | None = None):
+                 *, clock: Callable[[], datetime] | None = None,
+                 replay_guard: SqliteNonceReplayGuard | None = None):
         if caller.organization_id != signer.organization_id or caller.key_id != signer.key_id:
             raise SentinelContractError("Signer and read caller scope mismatch")
         self._caller = caller
         self._signer = signer
         self._snapshot_loader = snapshot_loader
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._replay_guard = replay_guard
         self._used: dict[str, datetime] = {}
         self._mutex = Lock()
 
@@ -111,15 +114,24 @@ class IsolatedReadOnlySentinelDispatcher:
         except (ValueError, UnicodeError, TypeError, OverflowError):
             return 401, {"error": "Unauthorized"}
 
-        # Atomic in-process replay check; distributed persistence required later.
-        with self._mutex:
-            self._used = {
-                k: seen for k, seen in self._used.items()
-                if (now - seen).total_seconds() <= 90
-            }
-            if req in self._used or len(self._used) >= 128:
-                return 409, {"error": "Duplicate or busy"}
-            self._used[req] = now
+        # SQLite is required for same-host multi-process/restart safety.
+        # The in-memory fallback remains for isolated backwards-compatible
+        # fixtures ONLY; it is NOT a production release option.
+        if self._replay_guard is not None:
+            try:
+                if not self._replay_guard.claim(req, int(now.timestamp() * 1000)):
+                    return 409, {"error": "Duplicate or busy"}
+            except ReplayStoreUnavailable:
+                return 503, {"error": "Read temporarily unavailable"}
+        else:
+            with self._mutex:
+                self._used = {
+                    k: seen for k, seen in self._used.items()
+                    if (now - seen).total_seconds() <= 90
+                }
+                if req in self._used or len(self._used) >= 128:
+                    return 409, {"error": "Duplicate or busy"}
+                self._used[req] = now
 
         try:
             # The loader must point to a reviewed LOCAL projection; never
