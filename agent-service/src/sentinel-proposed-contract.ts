@@ -87,6 +87,9 @@ export function parseProposedMissionHealth(
   const observedMs = Date.parse(payload.lastCheck);
   if (!Number.isFinite(nowMs) || !Number.isFinite(observedMs)) return failed("unknown_time");
   const observedAt = new Date(observedMs).toISOString();
+  // Some JavaScript runtimes normalize impossible calendar days (e.g. Feb 30)
+  // rather than rejecting them. Never interpret a changed date as source truth.
+  if (observedAt.slice(0, 19) !== payload.lastCheck.slice(0, 19)) return failed("unknown_time");
   if (observedMs - nowMs > CLOCK_SKEW_MS) return failed("unknown_time");
   if (nowMs - observedMs > MAX_AGE_MS) return failed("stale");
 
