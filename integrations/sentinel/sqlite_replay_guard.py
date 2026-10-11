@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import os
 import re
+from contextlib import closing
 import sqlite3
 import stat
-import time
 from pathlib import Path
 
 _NONCE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -58,7 +58,8 @@ class SqliteNonceReplayGuard:
             entry = path.stat()
             if not stat.S_ISREG(entry.st_mode) or stat.S_IMODE(entry.st_mode) & 0o077:
                 raise ReplayStoreUnavailable("Replay database must be a private file")
-            with self._connect() as connection:
+            with closing(self._connect()) as connection:
+                connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("""
                     CREATE TABLE IF NOT EXISTS used_requests (
                         request_id TEXT PRIMARY KEY,
@@ -72,7 +73,6 @@ class SqliteNonceReplayGuard:
         connection = sqlite3.connect(str(self._path), timeout=2.0, isolation_level=None)
         try:
             connection.execute("PRAGMA busy_timeout=2000")
-            connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
         except (sqlite3.Error, OSError):
             connection.close()
@@ -90,7 +90,7 @@ class SqliteNonceReplayGuard:
             return False
 
         try:
-            with self._connect() as db:
+            with closing(self._connect()) as db:
                 db.execute("BEGIN IMMEDIATE")
                 db.execute("DELETE FROM used_requests WHERE expires_at_ms <= ?", (now_ms,))
                 existing = db.execute(
