@@ -111,3 +111,24 @@ The Python producer accepts the locally constructed Mission Control bridge schem
 7. Obtain separate technical security acceptance and explicit owner release approval with exact immutable commit, backup and rollback plan. Keep Hub/Tiquet launch controls and paid onboarding unchanged.
 
 **Until these gates are completed, nothing in the Python prototype authorizes ingestion into COO/CEO business evidence, and absolutely nothing is activated in production.**
+
+## G2.5 — isolated loopback HTTP handoff (tested, NOT installed in Acer NOC)
+
+The `integrations/sentinel/loopback_http_fixture.py` harness uses a **temporary HTTP listener on `127.0.0.1` with a random OS-assigned port** for disposable tests only. It is not a production endpoint, never binds `0.0.0.0`, does not read actual NOC devices/SQLite databases, does not use real Hub/Tiquet accounts, and is not imported by `noc/server.py`. A synthetic Ed25519 private key plus HMAC secret enter only via a test child's stdin; stdout contains its ephemeral port only. The handler suppresses request logs, sends `Cache-Control: no-store` and denies browser cookies, bearer authorization, request bodies and unapproved methods.
+
+`integrations/sentinel/test_loopback_http.mjs` verifies **actual HTTP transport** across the proposed fixture trust contract:
+- Node issues a fresh request challenge and signs a GET on the fixed endpoint with an ephemeral HMAC key.
+- Python's loopback listener checks authorization, query/method restrictions and one-use request state, builds only local synthetic source-side aggregate counts, and Ed25519-signs those counts.
+- Node verifies signed response bytes against the ephemeral pinned public key and single-use challenge, **retaining `sourceVerified:false` and `readyForExecutiveUse:false`**. The response contains no raw service name, IP or QA result.
+- HTTP replay -> 409; tampered HMAC/cookies/cross-tenant -> 401; mutation/query paths -> 404; stale monitoring -> generic 503 with no signature or private details. No NOC or customer record is modified.
+
+**Precise scope:** The tests demonstrate cross-language protocol and a disposable loopback HTTP implementation **only**. They do not establish real Sentinel publisher identity or collector freshness, TLS peer identity, durable multi-process replay defense, key rotation/revocation, client org provisioning, operational high availability, firewall policy, or production NOC integration. Real Acer NOC remains unchanged. These issues are mandatory before any production or external-customer connection.
+
+Latest protocol run: https://github.com/MrFixITslu/V79hub/actions/runs/38099901550 (14 Python tests, 11 Node interoperability tests, 0 failures). Full Hub CI is independent; record its exact result before calling the latest draft head fully green.
+
+### Recommended isolated Acer staging transition (not executed)
+
+1. Verify a fresh source SHA, detached backup/restore test and absence of uncommitted work in the real Sentinel worktree.
+2. Independently review Python HMAC dispatcher, signer and fixture's strictly loopback binding. Obtain approved immutable source files; **never copy experimental files into a running `noc/` package or substitute the operator authentication handler**.
+3. Run only disposable loopback fixture with ephemeral synthetic keys in a separate virtual environment; verify it reaches no real NOC endpoint or customer database.
+4. For an eventual real local source integration, create a new designated service identity with server-held V79 org mapping, a private mutually authenticated transport, dedicated signed GET route, source-key custody and auditable durable replay protection. Require independent security acceptance and owner authorization before enabling.
