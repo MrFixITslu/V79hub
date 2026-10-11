@@ -125,25 +125,29 @@ export function createSyntheticSentinelResponseVerifier(config: {
      */
     verify(envelope: unknown): SentinelG2Verification {
       const nowMs = clock();
-      if (!Number.isFinite(nowMs) || !isObject(envelope) ||
-          !exactKeys(envelope, ENVELOPE_KEYS)) return rejected();
-      let bytes: string;
-      try { bytes = JSON.stringify(envelope); } catch { return rejected(); }
-      if (bytes.length > MAX_ENVELOPE_CHARS) return rejected();
+      if (!Number.isFinite(nowMs) || !isObject(envelope)) return rejected();
 
+      // Consume a known outstanding request ID even when the rest of the
+      // envelope is malformed or oversized. A failed attempt cannot be retried
+      // with the same nonce in this prototype.
       const requestId = envelope.requestId;
       if (typeof requestId !== "string") return rejected();
       const challengeIssuedMs = pending.get(requestId);
       if (challengeIssuedMs === undefined) return rejected();
-      pending.delete(requestId); // always consume matched challenge before validation
+      pending.delete(requestId);
       prune(nowMs);
       if (nowMs - challengeIssuedMs > MAX_CHALLENGE_AGE_MS ||
           nowMs < challengeIssuedMs - MAX_CLOCK_SKEW_MS) return rejected();
 
+      if (!exactKeys(envelope, ENVELOPE_KEYS)) return rejected();
+      let bytes: string;
+      try { bytes = JSON.stringify(envelope); } catch { return rejected(); }
+      if (Buffer.byteLength(bytes, "utf8") > MAX_ENVELOPE_CHARS) return rejected();
+
       if (envelope.schemaVersion !== 1 || envelope.keyId !== config.keyId ||
           envelope.organizationId !== config.organizationId ||
           typeof envelope.payloadJson !== "string" ||
-          envelope.payloadJson.length === 0 || envelope.payloadJson.length > MAX_PAYLOAD_CHARS ||
+          envelope.payloadJson.length === 0 || Buffer.byteLength(envelope.payloadJson, "utf8") > MAX_PAYLOAD_CHARS ||
           typeof envelope.signature !== "string" ||
           !/^[A-Za-z0-9_-]{86}$/.test(envelope.signature)) return rejected();
 
