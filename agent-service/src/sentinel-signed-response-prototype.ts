@@ -1,5 +1,6 @@
 import { createPublicKey, randomUUID, verify as cryptoVerify, type KeyObject } from "node:crypto";
-import { parseProposedMissionHealth, type MissionHealthCounts } from "./sentinel-proposed-contract.js";
+import type { MissionHealthCounts } from "./sentinel-proposed-contract.js";
+import { parseSignedMissionAggregateCandidate } from "./sentinel-signed-aggregate.js";
 
 /**
  * G2 security experiment ONLY: verifies a locally supplied, signed response
@@ -7,7 +8,8 @@ import { parseProposedMissionHealth, type MissionHealthCounts } from "./sentinel
  *
  * This code makes NO HTTP requests; it is NOT mounted on Hub, Sentinel or
  * an agent route, and a valid fixture signature is NOT a claim that the
- * actual Sentinel service owns the trusted key.
+ * actual Sentinel service owns the trusted key. The payload must contain
+ * only source-side aggregate counts, not raw NOC records.
  */
 export const SENTINEL_G2_SIGNING_DOMAIN = "V79-SENTINEL-READ-G2-v1\n";
 const ENVELOPE_KEYS = [
@@ -170,7 +172,7 @@ export function createSyntheticSentinelResponseVerifier(config: {
 
       let payload: unknown;
       try { payload = JSON.parse(envelope.payloadJson); } catch { return rejected(); }
-      const observation = parseProposedMissionHealth(payload, nowMs);
+      const observation = parseSignedMissionAggregateCandidate(payload, nowMs);
       if (observation.state !== "candidate_unverified") return rejected();
 
       // Cryptographic verification against the injected fixture key is
