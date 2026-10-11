@@ -25,7 +25,8 @@ AGGREGATE_FIELDS = frozenset(("schemaVersion", "source", "observedAt", "monitorM
 COUNT_FIELDS = frozenset(("servicesObserved", "up", "down", "degraded", "unknown"))
 CHALLENGE_FIELDS = frozenset(("requestId", "organizationId", "keyId"))
 MAX_SOURCE_CHARS = 32_000
-TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$")
+TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)$")
+CANONICAL_UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
 UUID_V4 = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$")
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -61,9 +62,13 @@ def _parse_utc(value: object) -> datetime:
         raise SentinelContractError("Invalid monitoring timestamp")
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        # A naive timestamp cannot be mapped to a trustworthy UTC instant:
+        # never infer the NOC server's local timezone.
+        if dt.tzinfo is None or dt.utcoffset() is None:
+            raise SentinelContractError("Monitoring timestamp lacks timezone")
+        return dt.astimezone(timezone.utc)
     except (ValueError, OverflowError) as exc:
         raise SentinelContractError("Invalid monitoring timestamp") from exc
-    return dt
 
 
 def aggregate_mission_snapshot(raw: object, *, now: datetime | None = None) -> dict[str, Any]:
@@ -90,6 +95,8 @@ def aggregate_mission_snapshot(raw: object, *, now: datetime | None = None) -> d
     if len(raw_bytes) > MAX_SOURCE_CHARS:
         raise SentinelContractError("Oversized monitoring summary")
 
+    # Read-only source normalization permits explicit UTC offsets such as
+    # +00:00 / -04:00. No offset means no trusted instant, so fail closed.
     observed = _parse_utc(raw["lastCheck"])
     if now.tzinfo is None or now.utcoffset() != timedelta(0):
         raise SentinelContractError("Trusted UTC time required")
@@ -153,7 +160,14 @@ def sign_aggregate_for_challenge(
     if (counts["servicesObserved"] < 1
         or counts["servicesObserved"] != sum(counts[state] for state in SERVICE_STATES)):
         raise SentinelContractError("Inconsistent aggregate counts")
+    # Signed wire timestamps must remain exact canonical UTC milliseconds,
+    # regardless of how the local source originally expressed its timezone.
+    if (not isinstance(aggregate["observedAt"], str) or
+        not CANONICAL_UTC.fullmatch(aggregate["observedAt"])):
+        raise SentinelContractError("Non-canonical signed timestamp")
     observed = _parse_utc(aggregate["observedAt"])
+    if _utc_ms(observed) != aggregate["observedAt"]:
+        raise SentinelContractError("Non-canonical signed timestamp")
     age = (now - observed).total_seconds()
     if age > 900 or age < -120:
         raise SentinelContractError("Aggregate no longer fresh")
