@@ -161,3 +161,18 @@ test("signature-verified status stays owner-review-disabled even for claimed 'li
   assert.equal(result.readyForExecutiveUse, false);
   assert.equal(result.sourceVerified, false);
 });
+
+test("malformed envelope also burns the matched challenge", () => {
+  const v = verifier();
+  const e = makeEnvelope(v);
+  assert.equal(v.verify({ ...e, extra: "cannot sneak access" }).state, "rejected");
+  assert.equal(v.verify(e).state, "rejected");
+});
+
+test("UTF-8 multibyte content cannot evade bounded signed response size", () => {
+  const v = verifier();
+  const huge = { ...payload(), qa: { results: [{ name: "📡".repeat(12_000) }] } };
+  const signed = makeEnvelope(v, { payloadJson: JSON.stringify(huge) });
+  assert.equal(v.verify(signed).state, "rejected");
+  assert.equal(v.verify(signed).state, "rejected");
+});
