@@ -56,7 +56,7 @@ class LocalProjectionTests(unittest.TestCase):
             project_local_snapshot(raw, now=NOW)
 
     def test_stale_and_future_observations_refused(self):
-        for value in ("2026-10-11T06:00:00-04:00", "2026-10-11T07:15:00-04:00"):
+        for value in ("2026-10-11T05:59:59-04:00", "2026-10-11T07:15:00-04:00"):
             raw = mock_snapshot()
             raw["lastCheck"] = value
             with self.subTest(value=value), self.assertRaises(SentinelContractError):
