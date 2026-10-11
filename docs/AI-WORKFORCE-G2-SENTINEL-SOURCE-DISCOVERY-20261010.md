@@ -84,3 +84,30 @@ Critical future obligations *not* met by this experiment:
 6. Demonstrate a no-write, no-customer-data, no-session-reuse, fail-closed end-to-end test against an **isolated running NOC** with a real source signing implementation before any deployment decision.
 
 This is an intentionally *non-integrated* security contract prototype, not operational monitoring.
+
+## G2.3 prototype: Python producer + authenticated GET policy (still not installed)
+
+Added `integrations/sentinel/source_signer.py`, `read_only_dispatcher.py` and isolated fixtures/tests to the Hub G2 feature branch **as staging source material only**. The modules have **not** been copied to the Acer Sentinel worktree or wired into `noc/server.py` and do **not** expose an HTTP listener.
+
+The current prototype uses two independent protections: (1) a fixed-path, GET-only request HMAC for a provisioned caller and (2) an Ed25519 signature on the returned pre-aggregated status envelope. Only a scoped owner organization and key ID from trusted server configuration can be accepted. Replay attempts are blocked by a bounded in-process nonce cache; the final Node verifier also requires a matching single-use challenge. **Neither ephemeral replay map is durable across workers/restarts.** An external trusted read proxy/TLS identity and centralized replay protection are mandatory before production.
+
+The Python producer accepts the locally constructed Mission Control bridge schema at the trusted source. It validates freshness and state values, discards browser QA and all service names, and signs only `{schemaVersion,source,observedAt,monitorMode,counts}`. Private keys belong only in a future protected file/secret store with least privilege; none are shipped here. **Do not reuse the existing machine-approver signature secret for this read service.**
+
+### Exact integration proof / development test
+
+- `integrations/sentinel/test_source_signer.py`: ephemeral Python Ed25519 keys, source-side raw filtering, timestamp bounds, challenge scope and private fields.
+- `integrations/sentinel/test_read_only_dispatcher.py`: HMAC caller validation, GET-only/no query, wrong tenant/key, replay, stale request, no secret in error responses and no raw-data output.
+- `integrations/sentinel/test_cross_language.mjs` + `emit_test_fixture.py`: Python creates a signed fixture, Node validates using the existing G2 verifier and rejects replay/tamper. **No live networks, browsers, actual keys or customer records**.
+- `.github/workflows/sentinel-g2-interoperability.yml`: separate isolated PR/workflow test gate with Python cryptography pinned to `46.0.4`. It makes no deployment artifact or production release.
+
+### Explicit remaining gates before connection
+
+1. Owner/maintainer must inspect and patch real Acer `noc/server.py` to mount a **distinct** authenticated GET-only machine endpoint after security code review. Never replace operator authorization with caller-controlled headers.
+2. Provision real source identity: Ed25519 signing private key in a secured source-side secret store, pin/rotate/revoke its public key in the Hub agent verifier, provision **separate** request-HMAC credentials and bind them to V79 founder organization server-side.
+3. Require actual transport trust: private tailnet/mTLS or equally reviewed mutually authenticated channel and allowlisted origin host; absolutely no public Internet listener, arbitrary proxy URL or credential printing.
+4. Implement and test a shared/durable nonce store for a multi-instance service, rate limits, credential rotation, failed-read audit without sensitive payloads and appropriate time sync.
+5. Validate with a disposable isolated NOC using real Python signing code and the Node verifier; test authentic/forged/wrong tenant/replayed/stale/overlong responses and *prove zero writes*.
+6. Distinguish the independent Mission Control browser/public QA page checks from NOC's actual collector. At reviewed SHA `5f7b226`, NOC `/readyz` still declares **simulated-only** and integrations disabled, so no real live Edge device/incident claims are permitted on this pathway.
+7. Obtain separate technical security acceptance and explicit owner release approval with exact immutable commit, backup and rollback plan. Keep Hub/Tiquet launch controls and paid onboarding unchanged.
+
+**Until these gates are completed, nothing in the Python prototype authorizes ingestion into COO/CEO business evidence, and absolutely nothing is activated in production.**
