@@ -1,112 +1,126 @@
 /**
- * G2 PROPOSED contract only. NOT connected to Sentinel, Hub, or any model.
+ * G2: synthetic-only projection of the ACTUAL observed Sentinel
+ * mission_control_snapshot() data fields.
  *
- * The Acer Sentinel source has identified authenticated NOC GET routes but
- * their payload, organization scope, and machine-to-machine signing semantics
- * are not yet verified. This parser is a synthetic contract prototype.
+ * Acer source: noc/server.py GET /api/v1/mission-control requires an
+ * operator session, while noc/sentinel_mission_bridge.py builds a bounded
+ * local status. Nothing here authenticates a machine caller, verifies
+ * the producer, signs records, invokes Sentinel, or exposes an API route.
  *
- * IMPORTANT: A structurally valid payload is NOT authenticated. Its output
- * must never be sent to CEO/COO or treated as signed product evidence.
+ * Crucially, even a syntactically valid status is UNVERIFIED. Never
+ * promote these values to owner/COO/CEO evidence based on this parser.
  */
-export type ProposedSentinelCounts = Readonly<{
-  monitoredDevices: number;
-  unreachableDevices: number;
-  criticalOpenIncidents: number;
-  warningOpenIncidents: number;
+export type MissionHealthCounts = Readonly<{
+  servicesObserved: number;
+  up: number;
+  down: number;
+  degraded: number;
+  unknown: number;
 }>;
 
-export type ProposedSentinelCandidate = Readonly<{
-  state: "candidate_unverified";
-  readyForExecutiveUse: false;
-  observedAt: string;
-  counts: ProposedSentinelCounts;
-}>;
-
-export type ProposedSentinelResult =
-  | ProposedSentinelCandidate
+export type ProposedMissionHealth =
   | Readonly<{
-      state: "invalid" | "stale" | "unknown_time";
+      state: "candidate_unverified";
       readyForExecutiveUse: false;
+      sourceVerified: false;
+      monitorModeReported: "live" | "staging";
+      observedAt: string;
+      counts: MissionHealthCounts;
+    }>
+  | Readonly<{
+      state: "invalid" | "unknown_time" | "stale" | "no_data";
+      readyForExecutiveUse: false;
+      sourceVerified: false;
+      monitorModeReported: null;
       observedAt: null;
       counts: null;
     }>;
 
-const countKeys = [
-  "monitoredDevices", "unreachableDevices",
-  "criticalOpenIncidents", "warningOpenIncidents",
-] as const;
-const outerKeys = ["schemaVersion", "organizationId", "observedAt", "counts"] as const;
+const OUTER_KEYS = ["source", "monitorMode", "lastCheck", "services", "qa"] as const;
+const SERVICE_KEYS = ["name", "state", "http", "latencyMs"] as const;
+const SERVICE_STATES = ["up", "down", "degraded", "unknown"] as const;
+const MAX_JSON_LENGTH = 32_000;
+const MAX_AGE_MS = 15 * 60_000;
+const CLOCK_SKEW_MS = 120_000;
 
-function record(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-
-function hasExactly(value: Record<string, unknown>, keys: readonly string[]) {
-  const own = Object.keys(value);
-  return own.length === keys.length && keys.every(key => Object.hasOwn(value, key));
+function exactKeys(obj: Record<string, unknown>, keys: readonly string[]) {
+  const own = Object.keys(obj);
+  return own.length === keys.length && keys.every(key => Object.hasOwn(obj, key));
+}
+function failed(state: "invalid" | "unknown_time" | "stale" | "no_data"): ProposedMissionHealth {
+  return {
+    state, readyForExecutiveUse: false, sourceVerified: false,
+    monitorModeReported: null, observedAt: null, counts: null,
+  };
 }
 
-const failed = (state: "invalid" | "stale" | "unknown_time"): ProposedSentinelResult => ({
-  state, readyForExecutiveUse: false, observedAt: null, counts: null,
-});
-
 /**
- * Shape-only validation for the future signed adapter. Never call this with
- * a model-supplied organization ID; only a verified server-side owner binding.
- * The parser accepts no packet data, IP/device addresses, user identifiers,
- * raw incident descriptions, credentials or arbitrary text.
- *
- * An independently authenticated source envelope and protected request/nonce
- * remain mandatory before any data can be promoted to a business evidence
- * ledger. Nothing here implements or pretends to verify a signature.
+ * Shape-only, strictly bounded projection.
+ * - Source strings and monitor mode are CLAIMS, never identity/provenance.
+ * - Service names, HTTP details and entire QA results are discarded.
+ * - No source requests, session cookies, secret tokens or ML tools.
+ * - Missing/stale/future data never turns into a false "all healthy".
  */
-export function parseProposedSentinelSummary(
+export function parseProposedMissionHealth(
   payload: unknown,
-  expectedOrganizationId: string,
   nowMs: number = Date.now(),
-): ProposedSentinelResult {
-  if (!record(payload) || !hasExactly(payload, outerKeys) ||
-    payload.schemaVersion !== 1 ||
-    typeof expectedOrganizationId !== "string" ||
-    expectedOrganizationId.length < 6 || expectedOrganizationId.length > 96 ||
-    !/^[a-zA-Z0-9_-]+$/.test(expectedOrganizationId) ||
-    payload.organizationId !== expectedOrganizationId ||
-    !record(payload.counts) || !hasExactly(payload.counts, countKeys)
-  ) return failed("invalid");
+): ProposedMissionHealth {
+  if (!isRecord(payload) || !exactKeys(payload, OUTER_KEYS) ||
+      payload.source !== "local-mission-control" ||
+      (payload.monitorMode !== "live" && payload.monitorMode !== "staging") ||
+      !Array.isArray(payload.services) || payload.services.length > 24 ||
+      !isRecord(payload.qa)) return failed("invalid");
 
-  const counts = payload.counts;
-  if (!countKeys.every(key => {
-    const value = counts[key];
-    return typeof value === "number" && Number.isSafeInteger(value) &&
-      value >= 0 && value <= 1_000_000;
-  })) return failed("invalid");
+  // Reject oversized or unencodable inputs rather than processing unknown
+  // browser QA data, even though the QA payload is never returned.
+  let serialized: string;
+  try { serialized = JSON.stringify(payload); } catch { return failed("invalid"); }
+  if (typeof serialized !== "string" || serialized.length > MAX_JSON_LENGTH) return failed("invalid");
 
-  if ((counts.unreachableDevices as number) > (counts.monitoredDevices as number)) {
-    return failed("invalid");
+  if (typeof payload.lastCheck !== "string" || payload.lastCheck.length > 48 ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(payload.lastCheck)) {
+    return failed("unknown_time");
   }
+  const observedMs = Date.parse(payload.lastCheck);
+  if (!Number.isFinite(nowMs) || !Number.isFinite(observedMs)) return failed("unknown_time");
+  const observedAt = new Date(observedMs).toISOString();
+  if (observedMs - nowMs > CLOCK_SKEW_MS) return failed("unknown_time");
+  if (nowMs - observedMs > MAX_AGE_MS) return failed("stale");
 
-  if (typeof payload.observedAt !== "string" || payload.observedAt.length > 40 ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(payload.observedAt)
-  ) return failed("unknown_time");
-
-  const observedMs = Date.parse(payload.observedAt);
-  if (!Number.isFinite(nowMs) || !Number.isFinite(observedMs) ||
-    new Date(observedMs).toISOString() !== new Date(Date.parse(payload.observedAt)).toISOString()
-  ) return failed("unknown_time");
-
-  const deltaMs = nowMs - observedMs;
-  if (deltaMs < -120_000) return failed("unknown_time");
-  if (deltaMs > 15 * 60_000) return failed("stale");
+  const counts: Record<(typeof SERVICE_STATES)[number], number> = {
+    up: 0, down: 0, degraded: 0, unknown: 0,
+  };
+  for (const item of payload.services) {
+    if (!isRecord(item) || !exactKeys(item, SERVICE_KEYS) ||
+        typeof item.name !== "string" || item.name.length > 65 ||
+        typeof item.state !== "string" ||
+        !(SERVICE_STATES as readonly string[]).includes(item.state) ||
+        !(item.http === null || (
+          typeof item.http === "number" && Number.isInteger(item.http) &&
+          item.http >= 100 && item.http <= 599
+        )) ||
+        !(item.latencyMs === null || (
+          typeof item.latencyMs === "number" && Number.isInteger(item.latencyMs) &&
+          item.latencyMs >= 0 && item.latencyMs <= 120_000
+        ))
+    ) return failed("invalid");
+    counts[item.state as keyof typeof counts] += 1;
+  }
+  if (payload.services.length === 0) return failed("no_data");
 
   return {
     state: "candidate_unverified",
     readyForExecutiveUse: false,
-    observedAt: new Date(observedMs).toISOString(),
+    sourceVerified: false,
+    monitorModeReported: payload.monitorMode,
+    observedAt,
     counts: {
-      monitoredDevices: counts.monitoredDevices as number,
-      unreachableDevices: counts.unreachableDevices as number,
-      criticalOpenIncidents: counts.criticalOpenIncidents as number,
-      warningOpenIncidents: counts.warningOpenIncidents as number,
+      servicesObserved: payload.services.length,
+      up: counts.up, down: counts.down,
+      degraded: counts.degraded, unknown: counts.unknown,
     },
   };
 }
