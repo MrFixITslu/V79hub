@@ -13,7 +13,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-EXPECTED_G25_SHA = "fa14b046ac938baf7a4a5d4c2e622ea8817297a6"
 SENTINEL_SOURCE_RELATIVE = ("noc/server.py", "noc/sentinel_mission_bridge.py")
 PROTOCOL_PATHS = (
     "integrations/sentinel/source_signer.py",
@@ -54,21 +53,23 @@ def _inside(source: Path, parent: Path) -> bool:
         return False
 
 
-def assess(staging: Path, sentinel: Path) -> dict:
+def assess(staging: Path, sentinel: Path, expected_staging_head: str) -> dict:
     staging = staging.resolve()
     sentinel = sentinel.resolve()
     head = _git_head(staging)
+    head_matches = head == expected_staging_head and len(expected_staging_head) == 40
     sentinel_head = _git_head(sentinel)
     separate = staging != sentinel and not _inside(staging, sentinel) and not _inside(sentinel, staging)
     staging_source = all((staging / p).is_file() for p in PROTOCOL_PATHS)
     sentinel_source = all((sentinel / p).is_file() for p in SENTINEL_SOURCE_RELATIVE)
     # This preflight never queries running processes, collects network/device
     # data, or claims that the actual NOC runtime matches these source files.
-    checked = bool(head and sentinel_head and separate and staging_source and sentinel_source)
+    checked = bool(head_matches and sentinel_head and separate and staging_source and sentinel_source)
     return {
         "schemaVersion": 1,
         "result": "source_layout_verified" if checked else "needs_attention",
         "stagingHead": head[:12] if head else None,
+        "stagingHeadMatchesExpected": head_matches,
         "sentinelHead": sentinel_head[:12] if sentinel_head else None,
         "sourceTreesSeparate": separate,
         "stagingProtocolFilesPresent": staging_source,
@@ -86,8 +87,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only G2.6 source preflight")
     parser.add_argument("--staging", required=True, type=Path)
     parser.add_argument("--sentinel", required=True, type=Path)
+    parser.add_argument("--expected-staging-head", required=True)
     args = parser.parse_args()
-    result = assess(args.staging, args.sentinel)
+    result = assess(args.staging, args.sentinel, args.expected_staging_head)
     print(json.dumps(result, sort_keys=True, indent=2))
     return 0 if result["isolatedStagingReadyForReview"] else 2
 
