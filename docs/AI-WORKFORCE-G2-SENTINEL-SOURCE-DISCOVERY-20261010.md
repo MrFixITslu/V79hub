@@ -20,25 +20,33 @@
 
 These are source callsites; **not** proof of working HTTP responses, safe field shapes, signer identities or production readiness.
 
-## Proposed shape only — not actual Sentinel response schema
+## Actual source contract discovery — 2026-10-10
 
-The standalone `agent-service/src/sentinel-proposed-contract.ts` accepts synthetic bounded V79-only totals for monitored devices, unreachable devices, critical and warning open incidents, with strict observation time, schema and organization checks.
+The founder provided actual Acer source excerpts from `5f7b226`:
 
-Even if structurally valid, output status is **`candidate_unverified`** and `readyForExecutiveUse:false`. Nothing from the parser can enter an executive evidence ledger until the real Sentinel route is independently reviewed and a new service-to-service signed source verification layer is implemented and tested. The proposed numbers and field names are **placeholders** and may be revised to match actual Sentinel data.
+- `noc/server.py:150-168`: `current()` hashes an existing operator session value, looks up `sessions` joined to non-disabled operators and enforces expiry. `authorized(mutate=False)` requires that operator session; mutation additionally verifies origin and `X-Sentinel-CSRF`. **This is a human-session authorization boundary, not a signed organization-bound machine read grant. Do not export/reuse admin cookies.**
+- `noc/server.py:169-178`: `GET /healthz` is a text liveness response; `GET /readyz` reports `collector:"simulated-only"` and `integrations:"disabled"`. **A Docker healthy status or a monitorMode "live" claim must not override this limited collector status.**
+- `noc/server.py:247-256`: authenticated `GET /api/v1/mission-control` invokes `mission_control_snapshot()` while `GET /api/v1/dashboard` invokes `self.server.store.snapshot()`. The latter's fields remain unreviewed and are **not** an approved AI source.
+- `noc/server.py:258-269`: `/api/v1/owner-pilot` needs an operator with `admin` role; `/api/v1/reports/incidents.csv` is operator-gated and is **not** an AI source.
+- `noc/sentinel_mission_bridge.py:1-75`: `snapshot()` fetches only local `http://127.0.0.1:8787/api/status` and `/api/qa/latest` with a 1.6-second timeout and 250 KB body cap per source. It constructs `source:"local-mission-control"`, `monitorMode:"live"|"staging"`, `lastCheck`, up to 24 `services` with `name/state/http/latencyMs`, and a QA object with aggregate result counts and bounded named results. **The local read is not proof of signing, source identity, or tenant isolation.** No owner organization ID appears in the observed summary fields.
 
-No external IP addresses, raw packets, usernames, MAC addresses, incident narratives, ticket bodies, device inventories, credentials or arbitrary extra keys are accepted.
+The new `agent-service/src/sentinel-proposed-contract.ts` is a **pure synthetic-only projection aligned to these observed Mission Control fields**. It accepts a strictly bounded shape, rejects unknown fields, invalid timestamps, implausible latencies/HTTP statuses and more than 24 service rows; it discards service names and the entire QA payload. It returns *only counts by service state* (up, down, degraded, unknown) and observation time. Zero services is `no_data`, not "all healthy."
+
+**All outputs remain `sourceVerified:false` and `readyForExecutiveUse:false`**, including structurally valid `candidate_unverified` results. The parser does **not** know the genuine founder tenant or validate a signer and must never be used as a replacement for server-side authorization. It is not integrated with Hub or any AI tool.
+
+No raw packet data, IP addresses, usernames, MAC addresses, incident narratives, ticket bodies, QA names, credentials or source service names are forwarded in the resulting projection.
 
 ## Required next source review
 
 From the existing Acer worktree, inspect **only source code** and redact literal secrets if any:
 ```sh
 WORK=/home/firelion/V79-Sentinel/enterprise-command-center-staging
-sed -n '145,275p' "$WORK/noc/server.py"
-sed -n '1,95p' "$WORK/noc/sentinel_mission_bridge.py"
+sed -n '72,110p' "$WORK/noc/sentinel_mission_bridge.py"
 sed -n '1,100p' "$WORK/noc/sentinel_private_gateway.py"
+grep -nE 'def snapshot|def mission_control_snapshot|def current|self.server.store.snapshot' "$WORK/noc/server.py" "$WORK/noc/store.py" "$WORK/noc/sentinel_mission_bridge.py"
 ```
 
-Confirm exact `GET /api/v1/dashboard` and `GET /api/v1/mission-control` response producer calls, **identity and authorization**, tenant scope, available aggregate metrics and a producer-observed timestamp. If these routes require browser cookies, **do not reuse or export an admin cookie** for machine access. Build a distinct narrow GET-only machine service with signed request ID, nonce/replay protection, expiring responses, server-derived founder/organization scope, strict body size, timeout and immutable read audit.
+Confirm the remaining Mission Control return fields and exact timestamp formats, then verify whether `store.snapshot()` includes sensitive inventory before ruling the dashboard source out permanently. The human-session authorization boundary is now confirmed; the dedicated machine GET contract, owner tenant mapping and signed envelope remain unimplemented. If these routes require browser cookies, **do not reuse or export an admin cookie** for machine access. Build a distinct narrow GET-only machine service with signed request ID, nonce/replay protection, expiring responses, server-derived founder/organization scope, strict body size, timeout and immutable read audit.
 
 ## G2 acceptance and future promotion criteria
 
