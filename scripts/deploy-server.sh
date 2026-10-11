@@ -129,9 +129,6 @@ await withTimeout(60_000, async signal => {
   }
   console.log(`Ollama tool-call smoke passed with ${model}`);
 });
-} finally {
-  clearTimeout(timeout);
-}
 NODE
 rm -f -- "$archive"
 echo "Deployed and healthy: $sha"
