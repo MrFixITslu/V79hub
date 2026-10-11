@@ -27,6 +27,26 @@ app restart, live restore or automatic workaround is authorized.
 
 ## First command: read-only preflight
 
+### Second result and collector correction: 16:51 Saint Lucia
+
+Owner ran exact collector `1b439a87b642e267a2a5b5a873847149e3819349`.
+Both app and named-DB probes succeeded. Database names, ports, versions and
+READ ONLY transactions matched for both pairs; only server-address equality
+failed. Images/health and host resources remained as previously reported.
+No backups, restores or test resources were created. Effective running pools
+remain unverified and size-based disk requirements remain incomplete.
+
+Found a collector defect: `inet_server_addr()::text` includes the netmask while
+Docker IP metadata uses bare host addresses. PostgreSQL documents this at
+https://www.postgresql.org/docs/17/functions-net.html. Use
+`host(inet_server_addr())` and exact parsed IPv4/IPv6 host equality instead.
+This does not relax address equality to subnet membership or change connections,
+database targets, authentication, production code/settings or Sentinel modules.
+Added address mismatch/malformed/CIDR/IPv6 regression cases and a real disposable
+PostgreSQL CI test reproducing the old false mismatch. The old address failures
+are not evidence that the apps connect to a different database container; fresh
+corrected host evidence is still required. Approval from 16:36 remains in force.
+
 Run the exact checksum-verified in-memory `scripts/recovery-preflight.py` command
 provided in #128. It performs Docker inspect/exec only and prints redacted decision
 metadata. No dump, restore, file/directory creation, installation, network/volume

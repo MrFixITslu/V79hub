@@ -3,6 +3,8 @@ import importlib.util
 import io
 import json
 import hashlib
+import ipaddress
+import os
 from pathlib import Path
 import tempfile
 import subprocess
@@ -18,6 +20,40 @@ recovery = importlib.util.module_from_spec(recovery_spec)
 recovery_spec.loader.exec_module(recovery)
 
 class AuditTests(unittest.TestCase):
+    def test_recovery_address_comparison_requires_exact_host_not_subnet_or_invalid_address(self):
+        container={'NetworkSettings':{'Networks':{'fixture':{
+            'IPAddress':'192.0.2.7','GlobalIPv6Address':'2001:db8::7'}}}}
+        for address in ('192.0.2.7','2001:0db8:0:0:0:0:0:7'):
+            self.assertTrue(recovery.same_server_address(address,container))
+        for address in ('192.0.2.8','192.0.2.7/32','192.0.2.0/24','2001:db8::8',None,'','invalid'):
+            self.assertFalse(recovery.same_server_address(address,container))
+
+    @unittest.skipUnless(os.environ.get('V79_RECOVERY_TEST_PG_URL'), 'disposable PostgreSQL URL not provided')
+    def test_recovery_real_postgres_host_format_and_read_only_probe(self):
+        env={**os.environ,'DATABASE_URL':os.environ['V79_RECOVERY_TEST_PG_URL'],
+             'V79_RECOVERY_APP':'hub','V79_HUB_STORE_BACKEND':'postgres'}
+        result=subprocess.run(['node','--input-type=module','-'],input=recovery.APP_PROBE,
+            cwd=ROOT,env=env,text=True,capture_output=True,timeout=20)
+        self.assertEqual(result.returncode,0,'disposable DB app probe failed (diagnostics suppressed)')
+        app=json.loads(result.stdout)
+        ipaddress.ip_address(app['addr'])
+        self.assertEqual(app['ro'],'on')
+        # Independently reproduce the old cast and PostgreSQL host() result.
+        query="""import pg from 'pg'; const c=new pg.Client({connectionString:process.env.DATABASE_URL});
+try { await c.connect(); await c.query('BEGIN READ ONLY');
+const r=await c.query('SELECT inet_server_addr()::text AS old,host(inet_server_addr()) AS host');
+console.log(JSON.stringify(r.rows[0])); await c.query('ROLLBACK'); } finally {await c.end();}
+"""
+        result=subprocess.run(['node','--input-type=module','-'],input=query,cwd=ROOT,env=env,
+            text=True,capture_output=True,timeout=20)
+        self.assertEqual(result.returncode,0,'disposable DB reference probe failed (diagnostics suppressed)')
+        reference=json.loads(result.stdout)
+        self.assertIn('/',reference['old'])
+        self.assertEqual(reference['host'],app['addr'])
+        container={'NetworkSettings':{'Networks':{'fixture':{'IPAddress':app['addr']}}}}
+        self.assertFalse(recovery.mapping_matches({**app,'addr':reference['old']},app,container))
+        self.assertTrue(recovery.mapping_matches(app,app,container))
+
     def test_recovery_mapping_requires_named_container_address_database_port_and_read_only(self):
         app={'addr':'192.0.2.1','db':'synthetic','port':5432,'version':'17','ro':'on'}
         target={k:v for k,v in app.items() if k!='addr'}

@@ -54,6 +54,10 @@ jobs:
           set -euo pipefail
           npm ci --no-audit --no-fund
           node --test --test-concurrency=1 tests/agent-approval-live-postgres.test.mjs
+      - name: Verify recovery address probe against disposable PostgreSQL
+        env:
+          V79_RECOVERY_TEST_PG_URL: postgres://v79_ci_agent:synthetic-ci-password-not-reused@127.0.0.1:5432/v79_ci_approval
+        run: python3 -B tests/release-readiness.test.py -v
 
   validate:
     name: Validate, test and build

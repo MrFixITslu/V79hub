@@ -5,6 +5,7 @@ No dump, restore, mkdir, Docker run/create/start/stop/rm, network or volume
 mutation. Capture diagnostics privately; print only decision metadata.
 """
 import json
+import ipaddress
 import shutil
 import subprocess
 from pathlib import Path
@@ -32,7 +33,7 @@ else Object.assign(o,{host:process.env.DB_HOST||'tiquet-postgres',port:Number(pr
 const c=new pg.Client(o);
 try {
  await c.connect(); await c.query('BEGIN READ ONLY');
- const r=await c.query(`SELECT current_database() AS db,inet_server_addr()::text AS addr,
+ const r=await c.query(`SELECT current_database() AS db,host(inet_server_addr()) AS addr,
   inet_server_port() AS port,pg_database_size(current_database())::text AS bytes,
   current_setting('server_version') AS version,current_setting('transaction_read_only') AS ro`);
  console.log(JSON.stringify(r.rows[0])); await c.query('ROLLBACK');
@@ -60,14 +61,29 @@ def parsed(s):
     except (ValueError, TypeError):
         return None
 
+def same_server_address(address, db_container):
+    # Compare individual IP addresses, never membership in a CIDR subnet. SQL
+    # host(inet_server_addr()) removes PostgreSQL's explicit-text netmask.
+    try:
+        actual=ipaddress.ip_address(address)
+    except (ValueError, TypeError):
+        return False
+    for network in db_container.get('NetworkSettings',{}).get('Networks',{}).values():
+        for key in ('IPAddress','GlobalIPv6Address'):
+            try:
+                if actual==ipaddress.ip_address(network.get(key)):
+                    return True
+            except (ValueError, TypeError):
+                pass
+    return False
+
 def mapping_checks(app, target, db_container):
     app_ok=isinstance(app,dict) and bool(app.get('db')) and bool(app.get('version')) and isinstance(app.get('port'),int)
     target_ok=isinstance(target,dict) and bool(target.get('db')) and bool(target.get('version')) and isinstance(target.get('port'),int)
-    addresses = {v.get('IPAddress') for v in db_container.get('NetworkSettings',{}).get('Networks',{}).values()}
     both=app_ok and target_ok
     return {'app_metadata_probe_available':bool(app_ok),
             'named_database_probe_available':bool(target_ok),
-            'server_address_matches_named_container':bool(app_ok and app.get('addr') and app['addr'] in addresses),
+            'server_address_matches_named_container':bool(app_ok and same_server_address(app.get('addr'),db_container)),
             'database_name_matches':bool(both and app['db']==target['db']),
             'server_port_matches':bool(both and app['port']==target['port']),
             'server_version_matches':bool(both and app['version']==target['version']),
