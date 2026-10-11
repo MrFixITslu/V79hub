@@ -155,6 +155,8 @@ const pg = {Client: class {
             (root/'data').mkdir()
             content = b'// reviewed synthetic auth source\n'
             (root/'server/auth.mjs').write_bytes(content)
+            css = b'/* public synthetic style */\n'
+            (root/'server/style.css').write_bytes(css)
             (root/'server/.env').write_text('PRIVATE_VALUE=never-read-this')
             (root/'data/customer.json').write_text('never-read-customer-data')
             outside = root/'private-source.mjs'
@@ -164,9 +166,11 @@ const pg = {Client: class {
             result = subprocess.run(['node','-e',payload],capture_output=True,text=True,timeout=10)
             self.assertEqual(result.returncode,0,result.stderr)
             data = json.loads(result.stdout)
-            self.assertEqual(list(data['source']),['server/auth.mjs'])
+            self.assertEqual(list(data['source']),['server/auth.mjs','server/style.css'])
             expected = hashlib.sha1(b'blob '+str(len(content)).encode()+b'\0'+content).hexdigest()
             self.assertEqual(data['source']['server/auth.mjs']['git'],expected)
+            css_blob = hashlib.sha1(b'blob '+str(len(css)).encode()+b'\0'+css).hexdigest()
+            self.assertEqual(data['source']['server/style.css']['git'],css_blob)
             self.assertEqual(data['symlinks'],['server/link.mjs'])
             for forbidden in ('never-read-this','never-read-customer-data','never-read-symlink-target'):
                 self.assertNotIn(forbidden,result.stdout)

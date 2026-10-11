@@ -1,6 +1,6 @@
 # Owner-executed Hub + Tiquet runtime audit
 
-Production: **NO-GO**. Owner supplied read-only collector output at
+Production: **NO-GO**. See corrected second-audit findings below. Owner supplied read-only collector output at
 2026-10-11 20:06:16 UTC (16:06:16 Saint Lucia). Collector ran from Hub
 `c06f4988fab5a760c76de3c32a13a34300b480ba`, whole-file SHA256
 `87134281b9dec7bff700f1e041a399ddefd2b40d9cc6951529d3e1b9a713d0cf`.
@@ -111,3 +111,42 @@ genuine owner acceptance, trusted image provenance, effective overlays and
 independent security/provider/finance gates are NOT PERFORMED or unverified.
 Production remains NO-GO. Immediate follow-up is corrected read-only audit;
 private combined-candidate review and authorized isolated restore/acceptance follow.
+
+## Corrected second audit: 20:23:13 UTC / 16:23:13 Saint Lucia
+
+Owner ran collector commit `2cde3b53029fba8c16d7ebbf8e6fe205bbd8b41d`,
+SHA256 `56d5f4e28d7395935de910909951abded73a7e2967b42633a27bf6275369a11a`.
+Received transcript SHA256:
+`119fede735cbc145fb582fba20b91ddfc47a3dcd3431e805660c104c26c715ce`.
+Both application/container/image/start/config/mount/source identities and catalog
+fingerprints are unchanged from the first run. Health remains healthy/HTTP 200.
+
+- Hub exact local release object resolves to commit
+  `585f70160d74c06cf745adeaee7f418e89be9cf7`, tree
+  `a288e9ab831193605ecd9cff6598e31b18a5a1a7`. **105/105 inventoried present
+  files match**, no differing/extra inventoried source paths. CSS was excluded by
+  the original runtime extension filter: `src/index.css` being listed missing
+  was a collector coverage error, not proof of physical absence. The collector
+  now includes CSS, covered by actual Node filesystem/hash fixture execution.
+  A one-file runtime hash check can close this remaining source coverage point
+  without rerunning the whole audit. Local release CSS Git blob equals pinned
+  published main `87723c1a8ea62d53da53d507878e2ca127a51009`.
+- Tiquet release object resolves to commit
+  `81f46592fa0f3d43d103bcc5202c492918c1b9b7`, tree
+  `d57c61de0892b2943db507527d101e519aa82ea2`. **35/36 packaged files match**;
+  only package-lock differs, no missing/extra expected packaged source. Earlier
+  535-entry structural comparison found only dev-field differences. Installed
+  packages/frontend/image attestation remain unverified.
+- Corrected Tiquet catalog checks: `hub_organization_id` and `hub_user_id` both
+  present. Schema fingerprint unchanged. This closes the queried column-presence
+  question, **not** all migrations, identity uniqueness/foreign-key semantics,
+  data-link integrity, real SSO/tenant acceptance or authoritative DB mapping.
+- Current checkout heads remain older and Tiquet stamp remains stale. Neither
+  should be changed as part of read-only reconciliation. Preserve exact release
+  objects and all production overlays/data/key references before any future apply.
+
+No further full collector run requested merely for CSS. Next authorization gate
+is a concrete isolated backup/restore/rollback workspace and handling plan; no
+live backup, key export, resource creation, restore, restart or customer mutation
+was executed. Private semantic review of the unpublished combined candidate and
+independent security/provider/finance/acceptance gates remain open.

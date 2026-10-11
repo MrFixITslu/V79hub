@@ -41,7 +41,7 @@ function walk(rel, assets=false) {
     walk(path.posix.join(rel,n), assets);
   } return; }
   if(!st.isFile()) return;
-  if(!assets && !/\.(?:mjs|cjs|js|ts|tsx|jsx|json|sql|sh|py|ya?ml)$/.test(rel) && !fixed.includes(rel)) return;
+  if(!assets && !/\.(?:mjs|cjs|js|ts|tsx|jsx|css|json|sql|sh|py|ya?ml)$/.test(rel) && !fixed.includes(rel)) return;
   if(st.size > 16*1024*1024) { unreadable.push(rel); return; }
   const b=fs.readFileSync(p), sha256=crypto.createHash('sha256').update(b).digest('hex');
   const git=crypto.createHash('sha1').update(Buffer.from('blob '+b.length+'\0')).update(b).digest('hex');

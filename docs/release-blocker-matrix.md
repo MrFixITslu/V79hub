@@ -8,6 +8,11 @@ catalog queries are now observed. Exact release-object parity, effective overlay
 authoritative DB mapping, applied migrations, build provenance and actual restore
 remain open. The first audit's Tiquet identity-link false results are invalid
 because of incorrect probe column names; corrected fixture-tested collector required.
+Second owner audit at 20:23 UTC confirms both real Tiquet Hub link columns and
+historical local release objects: Hub 105/105 inventoried present files match;
+Tiquet 35/36 with only the already-examined lockfile drift. CSS was excluded by
+the collector extension filter, so its missing result was invalid; corrected
+fixture coverage and a focused one-file hash check supersede a full rerun.
 P0 blocks any release; P1 must also close before customer/commercial onboarding.
 Independent security review is a separate gate from this internal review.
 
@@ -27,9 +32,10 @@ Independent security review is a separate gate from this internal review.
 
 ## Precise owner decisions required
 
-1. Return the corrected already-authorized **read-only** audit for exact local
-   release-object parity and corrected identity-column metadata. The first audit
-   was received; direct remote execution remains quota-blocked.
+1. Both read-only audits received. A focused one-file CSS hash check can finish
+   remaining source coverage; no additional full audit requested. Direct remote
+   execution remains quota-blocked. Approve the concrete isolated backup/restore
+   scope only after workspace/backup/key/outbound handling is specified.
 2. Review the complete private local source/config divergence and select the
    preserved combined candidate; do not publish protected original source by
    assumption. #129/#31 do not match the running local commits in full.
