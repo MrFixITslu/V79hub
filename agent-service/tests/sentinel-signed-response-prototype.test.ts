@@ -62,7 +62,7 @@ test("genuine synthetic Ed25519 signature and one-use request IDs verify but are
   assert.deepEqual(a.counts, {
     servicesObserved: 2, up: 1, down: 1, degraded: 0, unknown: 0,
   });
-  assert.ok(!e.payloadJson.includes("services"), "Raw per-service records must never be signed");
+  assert.ok(!e.payloadJson.includes('"services":'), "Raw per-service records must never be signed");
   assert.ok(!e.payloadJson.includes("qa"), "Browser QA must never be signed");
   const serialized = JSON.stringify(a);
   for (const phrase of ["10.0.1.2", "ACME Private", "sensitive@example.invalid"]) {
