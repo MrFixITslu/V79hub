@@ -70,6 +70,14 @@ class SqliteNonceReplayGuard:
             raise ReplayStoreUnavailable("Replay store unavailable") from exc
 
     def _connect(self) -> sqlite3.Connection:
+        # A deleted, replaced, linked or chmod-relaxed ledger is a hard
+        # failure, never silently re-created by sqlite3.connect().
+        try:
+            entry = self._path.lstat()
+            if not stat.S_ISREG(entry.st_mode) or stat.S_IMODE(entry.st_mode) & 0o077:
+                raise ReplayStoreUnavailable("Replay database is no longer private")
+        except OSError as exc:
+            raise ReplayStoreUnavailable("Replay store unavailable") from exc
         connection = sqlite3.connect(str(self._path), timeout=2.0, isolation_level=None)
         try:
             connection.execute("PRAGMA busy_timeout=2000")
