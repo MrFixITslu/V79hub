@@ -76,15 +76,25 @@ function metricsFor(system: string, raw: unknown): EvidenceMetric[] {
 }
 
 function statusFor(
-  rawStatus: unknown, observedAt: string | null, metricCount: number, nowMs: number,
+  rawStatus: unknown, observedAt: string | null, collectedAt: string | null,
+  metricCount: number, nowMs: number,
 ) : Pick<EvidenceRecord, "state" | "ageSeconds"> {
   if (rawStatus !== "ok") return { state: rawStatus === "unavailable" || rawStatus === "misconfigured" ||
     rawStatus === "needs_setup" || rawStatus === "not_configured" ? "unavailable" : "unknown", ageSeconds: null };
-  if (!observedAt) return { state: "unknown", ageSeconds: null };
-  const age = Math.round((nowMs - Date.parse(observedAt)) / 1000);
-  if (!Number.isFinite(age) || age < -120) return { state: "unknown", ageSeconds: null };
-  if (!metricCount) return { state: "unknown", ageSeconds: Math.max(0, age) };
-  return { state: age > 900 ? "stale" : "available", ageSeconds: Math.max(0, age) };
+  if (!observedAt || !collectedAt) return { state: "unknown", ageSeconds: null };
+  const sourceMs = Date.parse(observedAt);
+  const envelopeMs = Date.parse(collectedAt);
+  const ageMs = nowMs - sourceMs;
+  // A source observation cannot come from well AFTER the Hub envelope that
+  // purportedly collected it. Tolerate only the existing 120s clock skew.
+  if (!Number.isFinite(sourceMs) || !Number.isFinite(envelopeMs) ||
+      sourceMs - envelopeMs > 120_000 || ageMs < -120_000) {
+    return { state: "unknown", ageSeconds: null };
+  }
+  const ageSeconds = Math.max(0, Math.round(ageMs / 1000));
+  if (!metricCount) return { state: "unknown", ageSeconds };
+  // Compare milliseconds, not rounded seconds, at the hard freshness limit.
+  return { state: ageMs > 900_000 ? "stale" : "available", ageSeconds };
 }
 
 /** Called AFTER the service token has been verified by Hub and owner scoped by Agent. */
@@ -130,7 +140,7 @@ export function buildEvidenceLedger(
     const summaryMetrics = status === "ok" ? metricsFor(system, summary.metrics) : [];
     records.push({
       system, name: productName, source: "signed_product_summary", connection, collectedAt, reportedAt,
-      ...statusFor(status, reportedAt, summaryMetrics.length, nowMs),
+      ...statusFor(status, reportedAt, collectedAt, summaryMetrics.length, nowMs),
       metrics: summaryMetrics,
     });
 
@@ -156,14 +166,13 @@ export function buildEvidenceLedger(
     });
     // Apply the same bounded clock-skew rule as product summaries: a far-future
     // Hub snapshot is NOT current evidence, even if its upper age bound passes.
-    const hubAge = collectedAt ? Math.round((nowMs - Date.parse(collectedAt)) / 1000) : null;
-    const hubAgeValid = typeof hubAge === "number" &&
-      Number.isFinite(hubAge) && hubAge >= -120;
+    const hubAgeMs = collectedAt ? nowMs - Date.parse(collectedAt) : NaN;
+    const hubAgeValid = Number.isFinite(hubAgeMs) && hubAgeMs >= -120_000;
     records.push({
       system: "hub", name: "V79 Hub Admin", source: "hub_owner_summary",
       connection: "online", collectedAt, reportedAt: collectedAt,
-      ageSeconds: hubAgeValid ? Math.max(0, hubAge) : null,
-      state: metrics.length && hubAgeValid && hubAge <= 900 ? "available" : "unknown",
+      ageSeconds: hubAgeValid ? Math.max(0, Math.round(hubAgeMs / 1000)) : null,
+      state: metrics.length && hubAgeValid && hubAgeMs <= 900_000 ? "available" : "unknown",
       metrics,
     });
   }
