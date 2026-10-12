@@ -26,6 +26,8 @@ test("G1.1 read-only CEO COO preview uses owner-scoped Hub evidence and two mock
   const stamp = new Date().toISOString();
   let hubCalls = 0;
   let sourceAfterEnvelope = false;
+  let simulateOllamaOutage = false;
+  let outageRequests = 0;
   const modelStages: string[] = [];
   const hub = createServer((req, res) => {
     hubCalls += 1;
@@ -65,6 +67,12 @@ test("G1.1 read-only CEO COO preview uses owner-scoped Hub evidence and two mock
     const payload = JSON.stringify(body);
     assert.ok(!payload.includes("private-data-must-not-leak"));
     assert.ok(!payload.includes("APPROVE REFUND"));
+    if (simulateOllamaOutage) {
+      outageRequests += 1;
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "synthetic-model-unavailable" }));
+      return;
+    }
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ message: { content: JSON.stringify({
       findingIds: ["marketing:activeCampaigns", "ffpro:currentMonthNet"],
@@ -143,6 +151,25 @@ test("G1.1 read-only CEO COO preview uses owner-scoped Hub evidence and two mock
     assert.ok(noFindings.missingSources.some((m:{system:string})=>m.system==="marketing"));
     assert.ok(!JSON.stringify(noFindings).includes("private-data-must-not-leak"));
     assert.equal(inconsistent.headers.get("cache-control"), "no-store");
+
+    // A local Ollama failure must never prevent a safe deterministic read-only
+    // briefing or create an approval, communication or app-side action.
+    sourceAfterEnvelope = false;
+    simulateOllamaOutage = true;
+    const modelDown = await call(founder);
+    assert.equal(modelDown.status, 200);
+    const fallback = await modelDown.json();
+    assert.equal(fallback.modelAssistance, "none");
+    assert.deepEqual(fallback.stages.map((s:{result:string})=>s.result), ["fallback","fallback"]);
+    assert.ok(fallback.reviewItems.some((x:{id:string})=>x.id==="ffpro:currentMonthNet"));
+    assert.ok(fallback.reviewItems.some((x:{id:string})=>x.id==="marketing:activeCampaigns"));
+    assert.equal(fallback.executionEnabled, false);
+    assert.equal(fallback.ownerApprovalGranted, false);
+    assert.equal(fallback.actionsExecuted, 0);
+    assert.equal(fallback.externalMessagesSent, 0);
+    assert.equal(outageRequests, 2, "Both bounded model turns must fail safely");
+    assert.ok(!JSON.stringify(fallback).includes("private-data-must-not-leak"));
+    assert.equal(modelDown.headers.get("cache-control"), "no-store");
   } finally {
     child.kill("SIGTERM");
     await Promise.all([
