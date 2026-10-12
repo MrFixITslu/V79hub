@@ -91,8 +91,12 @@ test("scoped grant persists, is revocable and never grants ticket recovery/close
 test("grant issuance and revocation use ordinary fenced writes, not QA-only exclusive persistence",()=>{
   const server=readFileSync(new URL("../server.ts",import.meta.url),"utf8");
   const start=server.indexOf('const SENTINEL_GRANT_ADMIN=');
-  const end=server.indexOf('function billingServiceFromRequest(',start);
-  assert(start>0 && end>start,"Grant HTTP routes must be registered before billing service endpoints");
+  const manualStart=server.indexOf('const manualOrderApprovalLocks',start);
+  const billingStart=server.indexOf('function billingServiceFromRequest(',start);
+  // Internal full-Hub releases add manual billing routes between the grant
+  // handlers and existing billing helpers. Count grant writers only.
+  const end=manualStart>start && manualStart<billingStart ? manualStart : billingStart;
+  assert(start>0 && end>start,"Grant HTTP routes must precede billing service endpoints");
   const routes=server.slice(start,end);
   assert.equal((routes.match(/await commitStore\(/g)||[]).length,2,"Both issue and revoke must persist through ordinary Hub writes");
   assert.doesNotMatch(routes,/commitSentinelStore\(/,"QA-exclusive persistence would reject normal admin grants");
