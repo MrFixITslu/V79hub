@@ -18,6 +18,8 @@ import { executiveWorkforceStructure } from "./executive-workforce.js";
 import { prepareExecutiveHandoff } from "./executive-handoff.js";
 import { runReadOnlyExecutiveCycle } from "./executive-cycle.js";
 import { createLocalExecutiveSelector } from "./ollama-executive.js";
+import { generateDevelopmentReview, InvalidDevelopmentOrder } from "./development-worker.js";
+import { createLocalDevelopmentProposer } from "./ollama-development.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -188,6 +190,32 @@ app.post("/api/agent/executive-preview", async (req, res) => {
   } catch (error) {
     console.error("executive preview read failed", error instanceof Error ? error.name : "error");
     return res.status(502).json({ error: "Verified V79 executive preview is unavailable." });
+  }
+});
+
+// G1 supervised draft-only developer. OFF by default and local Ollama only.
+// A draft is NOT an applied patch, verified source or permission to deploy.
+app.post("/api/agent/development-proposal", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (process.env.V79_DEVELOPMENT_PROPOSALS_ENABLED !== "1" ||
+      agentModelRuntime.provider !== "ollama") {
+    return res.status(404).json({ error: "Development proposals are disabled." });
+  }
+  const context = req.body?.context as AgentContext | undefined;
+  if (!context || !isValidOwnerContext(context)) {
+    return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  }
+  try {
+    const result = await generateDevelopmentReview(
+      req.body?.workOrder, createLocalDevelopmentProposer(),
+    );
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof InvalidDevelopmentOrder) {
+      return res.status(400).json({ error: error.message });
+    }
+    console.error("development proposal failed", error instanceof Error ? error.name : "error");
+    return res.status(502).json({ error: "Development draft unavailable or rejected." });
   }
 });
 
