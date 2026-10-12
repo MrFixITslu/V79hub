@@ -88,7 +88,9 @@ function statusFor(
 }
 
 /** Called AFTER the service token has been verified by Hub and owner scoped by Agent. */
-export function verifySignedOwnerSnapshot(snapshot: unknown, context: AgentContext): asserts snapshot is UntrustedRecord {
+export function verifySignedOwnerSnapshot(
+  snapshot: unknown, context: AgentContext, nowMs: number = Date.now(),
+): asserts snapshot is UntrustedRecord {
   if (!isRecord(snapshot)) throw new Error("Missing signed owner evidence.");
   const owner = safeRecord(snapshot.owner);
   if (!context.ownerAgent || !context.hubAdmin ||
@@ -96,7 +98,15 @@ export function verifySignedOwnerSnapshot(snapshot: unknown, context: AgentConte
     context.organizationId !== owner.organizationId ||
     !context.organizationId || !context.userId
   ) throw new Error("Signed evidence owner scope mismatch.");
-  if (!parseTimestamp(snapshot.generatedAt)) throw new Error("Signed evidence collection time is invalid.");
+  const generatedAt = parseTimestamp(snapshot.generatedAt);
+  if (!generatedAt) throw new Error("Signed evidence collection time is invalid.");
+  // A fresh product source timestamp cannot cure a missing, stale or future
+  // Hub envelope. This check runs before any product metric is consumed.
+  const collectionAgeMs = nowMs - Date.parse(generatedAt);
+  if (!Number.isFinite(collectionAgeMs) ||
+      collectionAgeMs < -120_000 || collectionAgeMs > 900_000) {
+    throw new Error("Signed evidence collection time is outside the allowed freshness window.");
+  }
 }
 
 export function buildEvidenceLedger(
