@@ -25,6 +25,7 @@ async function freePort() {
 test("G1.1 read-only CEO COO preview uses owner-scoped Hub evidence and two mocked local model turns", { timeout: 25000 }, async () => {
   const stamp = new Date().toISOString();
   let hubCalls = 0;
+  let sourceAfterEnvelope = false;
   const modelStages: string[] = [];
   const hub = createServer((req, res) => {
     hubCalls += 1;
@@ -34,7 +35,9 @@ test("G1.1 read-only CEO COO preview uses owner-scoped Hub evidence and two mock
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({
       owner: { email: founder.email, organizationId: founder.organizationId },
-      generatedAt: stamp,
+      // Simulate a Hub envelope dated before its own nested product evidence.
+      // Unlike expired snapshots, this envelope itself is still within 15 min.
+      generatedAt: sourceAfterEnvelope ? new Date(Date.now() - 600_000).toISOString() : stamp,
       business: {
         ffpro: { status: "ok", sourceReportedAt: stamp,
           metrics: { currentMonthNet: -25, customerName: "private-data-must-not-leak" } },
@@ -124,6 +127,22 @@ test("G1.1 read-only CEO COO preview uses owner-scoped Hub evidence and two mock
     assert.ok(!JSON.stringify(data).includes("private-data-must-not-leak"));
     assert.ok(hubCalls >= 2);
     assert.equal(result.headers.get("cache-control"), "no-store");
+
+    // Full service-token / Hub HTTP / COO→CEO path: recent-looking product
+    // timestamps must NOT rescue a collecting Hub envelope 10 minutes earlier.
+    sourceAfterEnvelope = true;
+    const priorModelStages = [...modelStages];
+    const inconsistent = await call(founder);
+    assert.equal(inconsistent.status, 200);
+    const noFindings = await inconsistent.json();
+    assert.deepEqual(noFindings.reviewItems, []);
+    assert.equal(noFindings.modelAssistance, "none");
+    assert.deepEqual(noFindings.stages.map((s: {result:string})=>s.result), ["skipped","skipped"]);
+    assert.deepEqual(modelStages, priorModelStages, "No model invocation for inconsistent evidence");
+    assert.ok(noFindings.missingSources.some((m:{system:string})=>m.system==="ffpro"));
+    assert.ok(noFindings.missingSources.some((m:{system:string})=>m.system==="marketing"));
+    assert.ok(!JSON.stringify(noFindings).includes("private-data-must-not-leak"));
+    assert.equal(inconsistent.headers.get("cache-control"), "no-store");
   } finally {
     child.kill("SIGTERM");
     await Promise.all([
