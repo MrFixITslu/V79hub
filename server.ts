@@ -34,6 +34,9 @@ import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
 import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
 import { createResendTransactionalSender } from "./server/resend-transactional.mjs";
 import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
+import { SERVICE_PATH as SENTINEL_SERVICE_PATH, sentinelServiceRouter } from "./server/sentinel-service-entitlement.mjs";
+import { registerSentinelGrant, revokeSentinelGrant, validateSentinelGrantCollection } from "./server/sentinel-service-grants.mjs";
+import { validateSentinelOwnerGrantRequest, validateSentinelOwnerRevocation } from "./server/sentinel-grant-operator.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -280,7 +283,15 @@ interface AgentActionProposal {
   decisionNote: string | null; executionStatus: "disabled";
 }
 
+interface SentinelServiceGrant {
+  id: string; serviceId: "v79-sentinel"; sentinelCustomerId: string;
+  organizationId: string; tiquetAccountId: string; tiquetClientId: string;
+  actions: string[]; expiresAt: string; status: "active" | "revoked";
+  enabled: boolean; revokedAt: string | null; createdAt: string; approvedBy: string;
+  revokedBy?: string;
+}
 interface AppStore {
+  sentinelServiceGrants: SentinelServiceGrant[];
   users: StoredUser[];
   workspace: WorkspaceProfile;
   ecosystemApps: EcosystemApp[];
@@ -652,6 +663,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.ownerInvitations !== undefined && !Array.isArray(parsed.ownerInvitations)) ||
       (parsed.teamInvitations !== undefined && !Array.isArray(parsed.teamInvitations)) ||
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
+      (parsed.sentinelServiceGrants !== undefined && !Array.isArray(parsed.sentinelServiceGrants)) ||
       (parsed.passwordResetRequests !== undefined && !Array.isArray(parsed.passwordResetRequests)) ||
       (parsed.auditEvents !== undefined && !Array.isArray(parsed.auditEvents)) ||
       (parsed.agentActionProposals !== undefined && !Array.isArray(parsed.agentActionProposals)) ||
@@ -672,6 +684,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     ownerInvitations: Array.isArray(parsed.ownerInvitations) ? parsed.ownerInvitations : [],
     teamInvitations: Array.isArray(parsed.teamInvitations) ? parsed.teamInvitations : [],
     appTenantMappings: Array.isArray(parsed.appTenantMappings) ? parsed.appTenantMappings : [],
+    sentinelServiceGrants: validateSentinelGrantCollection(parsed.sentinelServiceGrants ?? []),
     passwordResetRequests: Array.isArray(parsed.passwordResetRequests) ? parsed.passwordResetRequests : [],
     auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
     agentActionProposals: Array.isArray(parsed.agentActionProposals) ? parsed.agentActionProposals : [],
@@ -685,7 +698,7 @@ function initialStore(): AppStore {
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
     organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], trialReminderEvents: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
-    teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
+    teamInvitations: [], appTenantMappings: [], sentinelServiceGrants: [], passwordResetRequests: [], auditEvents: [],
     agentActionProposals: [], agentProposalAuditTrail: [],
   };
 }
@@ -1562,6 +1575,17 @@ app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 // Read-only, authenticated entitlement revalidation for existing product sessions.
 // The downstream app MUST fail closed if this check fails or becomes unreachable.
 // HMAC service IDs are bound to the product so one app cannot query another.
+// Standalone MACHINE entitlement: never borrow a Hub human session or user grant.
+// OFF without explicit service enablement; no persisted Sentinel grant yet exists.
+app.use(SENTINEL_SERVICE_PATH, sentinelServiceRouter({
+  enabled: process.env.V79_SENTINEL_HUB_SERVICE_ENABLED === "1",
+  secret: process.env.V79_SENTINEL_HUB_SHARED_SECRET || "",
+  getStore: () => store,
+  getOwnerOrganizationId: () => posIdentity.organizationId,
+  tenantReady: (state: any, organizationId: string, ownerOrganizationId: string) =>
+    tiquetTenantLaunchReady(state, organizationId, ownerOrganizationId),
+}));
+
 app.post("/api/platform/entitlement/check", (req, res) => {
   const pathname = "/api/platform/entitlement/check";
   const source = req.get("x-v79-service-id") || "";
@@ -2573,6 +2597,278 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     paymentProvider: provider,
   });
 });
+
+function billingServiceFromRequest(req: Request) {
+  const source = String(req.get("x-v79-service-id") || "");
+  const entries: Record<string, { sourceApp: "academy" | "tiquet"; secret: string }> = {
+    "v79-academy-billing": { sourceApp: "academy", secret: String(process.env.V79_ACADEMY_BILLING_SECRET || "") },
+    "v79-tiquet-billing": { sourceApp: "tiquet", secret: String(process.env.V79_TIQUET_BILLING_SECRET || "") },
+  };
+  const entry = entries[source];
+  if (!entry) return null;
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  const pathname = req.path;
+  const verified = verifyPlatformRequest({
+    method: req.method,
+    pathname,
+    timestamp: req.get("x-v79-timestamp") || "",
+    signature: req.get("x-v79-signature") || "",
+    body,
+    secret: entry.secret,
+  });
+  return verified ? entry : null;
+}
+
+function validBillingReturnPath(value: unknown) {
+  const returnPath = typeof value === "string" ? value.trim() : "";
+  if (!returnPath || returnPath.length > 500 || !returnPath.startsWith("/") || returnPath.startsWith("//") || /[\r\n]/.test(returnPath)) return "";
+  return returnPath;
+}
+
+function billingOrderReturnUrl(order: BillingOrder) {
+  const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
+  const base = order.sourceApp === "academy"
+    ? String(process.env.ACADEMY_PUBLIC_URL || "https://academy.v79sl.com").replace(/\/$/, "")
+    : order.sourceApp === "tiquet"
+      ? String(process.env.TIQUET_PUBLIC_URL || "https://tiquet.v79sl.com").replace(/\/$/, "")
+      : appUrl;
+  const safePath = validBillingReturnPath(order.returnPath) || "/";
+  const target = new URL(safePath, base + "/");
+  if (target.origin !== new URL(base).origin) return new URL("/", base).toString();
+  return target.toString();
+}
+
+app.post("/api/billing/internal/order", async (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+
+  const config = getWipayConfig(process.env);
+  if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+
+  const kind = String(req.body?.kind || "");
+  const externalReference = String(req.body?.externalReference || "").trim();
+  const subjectReference = String(req.body?.subjectReference || "").trim();
+  const description = String(req.body?.description || "").trim();
+  const returnPath = validBillingReturnPath(req.body?.returnPath);
+  const amount = normalizeMoney(req.body?.amount);
+  const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
+
+  if ((service.sourceApp === "academy" && kind !== "course") ||
+      (service.sourceApp === "tiquet" && kind !== "invoice") ||
+      !externalReference || externalReference.length > 160 ||
+      !subjectReference || subjectReference.length > 160 ||
+      !description || description.length > 220 ||
+      !returnPath ||
+      amount === null || amount <= 0 || amount > 1_000_000 ||
+      !/^[A-Z]{3}$/.test(sourceCurrency)) {
+    return res.status(400).json({ error: "Valid billing order details are required." });
+  }
+  if (config.environment === "live" && sourceCurrency !== config.currency) {
+    return res.status(409).json({ error: "The source application's currency does not match the live WiPay merchant currency.", code: "BILLING_CURRENCY_MISMATCH" });
+  }
+
+  // Tiquet invoice collection is intentionally owner-only until WiPay confirms
+  // a marketplace/sub-merchant settlement model for third-party V79 tenants.
+  const requestedOrganizationId = String(req.body?.organizationId || "").trim();
+  if (service.sourceApp === "tiquet" &&
+      (req.body?.merchantScope !== "v79-owner" || requestedOrganizationId !== posIdentity.organizationId)) {
+    return res.status(403).json({ error: "Tiquet WiPay invoice collection is restricted to the V79 Digital merchant workspace." });
+  }
+
+  const now = new Date().toISOString();
+  const order: BillingOrder = {
+    id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
+    ...(service.sourceApp === "tiquet" ? { organizationId: requestedOrganizationId } : {}),
+    subjectReference,
+    sourceApp: service.sourceApp,
+    kind: kind as BillingOrder["kind"],
+    externalReference,
+    returnPath,
+    description,
+    amount,
+    currency: config.currency,
+    provider: "wipay",
+    providerEnvironment: config.environment as BillingOrder["providerEnvironment"],
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const checkout = createWipayCheckout({ order, config });
+  const nextStore = cloneStore();
+  nextStore.billingOrders.push(order);
+  onboardingAudit(nextStore, "billing_service_checkout_created", {
+    orderId: order.id,
+    sourceApp: order.sourceApp,
+    kind: order.kind,
+    externalReference: order.externalReference,
+    amount: order.amount,
+    currency: order.currency,
+    providerEnvironment: order.providerEnvironment,
+  }, undefined, order.organizationId);
+  await commitStore(nextStore);
+
+  res.status(201).json({
+    order: {
+      id: order.id,
+      sourceApp: order.sourceApp,
+      kind: order.kind,
+      externalReference: order.externalReference,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+    },
+    checkout,
+  });
+});
+
+app.post("/api/billing/internal/capabilities", (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+
+  const provider = publicWipayConfig(getWipayConfig(process.env));
+  const requestedOrganizationId = String(req.body?.organizationId || "").trim();
+  const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
+  const currencyCompatible = /^[A-Z]{3}$/.test(sourceCurrency) &&
+    (provider.environment !== "live" || sourceCurrency === provider.currency);
+  const checkoutAvailable = service.sourceApp === "tiquet"
+    ? Boolean(provider.ready && currencyCompatible && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
+    : Boolean(provider.ready && currencyCompatible);
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    sourceApp: service.sourceApp,
+    checkoutAvailable,
+    currencyCompatible,
+    provider: {
+      provider: provider.provider,
+      environment: provider.environment,
+      currency: provider.currency,
+      countryCode: provider.countryCode,
+      ready: provider.ready,
+    },
+  });
+});
+
+app.post("/api/billing/internal/status", (req, res) => {
+  const service = billingServiceFromRequest(req);
+  if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
+  const orderId = String(req.body?.orderId || "").trim();
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return res.status(400).json({ error: "Invalid billing order." });
+  const order = (store.billingOrders || []).find(item => item.id === orderId && item.sourceApp === service.sourceApp);
+  if (!order) return res.status(404).json({ error: "Billing order not found." });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    order: {
+      id: order.id,
+      sourceApp: order.sourceApp,
+      kind: order.kind,
+      externalReference: order.externalReference || null,
+      subjectReference: order.subjectReference || null,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+      providerEnvironment: order.providerEnvironment,
+      providerTransactionId: order.status === "paid" ? order.providerTransactionId || null : null,
+      paidAt: order.paidAt || null,
+    },
+  });
+});
+
+// Scoped V79 Sentinel pilot grant administration. OFF by default even if
+// ordinary Hub admin routes are available. This is NEVER an MFA substitute.
+const SENTINEL_GRANT_ADMIN="/api/admin/sentinel/service-grants";
+let sentinelGrantMutationBusy=false;
+const sentinelAdminEnabled=()=>process.env.V79_SENTINEL_GRANT_ADMIN_ENABLED==="1";
+const verifiedSentinelPilot=()=>process.env.V79_SENTINEL_OWNER_MAPPING_ATTESTED==="1";
+function expectedOwnerSentinelMapping(){
+  return {
+    sentinelCustomerId:process.env.V79_SENTINEL_OWNER_CUSTOMER_ID || "",
+    tiquetAccountId:process.env.V79_SENTINEL_OWNER_TIQUET_ACCOUNT_ID || "",
+    tiquetClientId:process.env.V79_SENTINEL_OWNER_TIQUET_CLIENT_ID || ""
+  };
+}
+app.get(SENTINEL_GRANT_ADMIN,requireAuth,requirePlatformOperator,(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  const ownerId=posIdentity.organizationId;
+  return res.json({grants:(store.sentinelServiceGrants||[])
+    .filter(g=>g.organizationId===ownerId)
+    .map(g=>({id:g.id,organizationId:g.organizationId,
+      sentinelCustomerId:g.sentinelCustomerId,tiquetClientId:g.tiquetClientId,
+      actions:g.actions,status:g.status,enabled:g.enabled,
+      createdAt:g.createdAt,expiresAt:g.expiresAt,revokedAt:g.revokedAt}))});
+});
+app.post(SENTINEL_GRANT_ADMIN,requireAuth,requirePlatformOperator,async(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  if(!sameOriginMutation(req)) return res.status(403).json({error:"Same-origin admin request required"});
+  if(sentinelGrantMutationBusy) return res.status(409).json({error:"Grant review already in progress"});
+  if(!verifiedSentinelPilot()) return res.status(409).json({error:"Independent owner pilot mapping preflight required"});
+  sentinelGrantMutationBusy=true;
+  try{
+    const session=(req as any).user;
+    const user=store.users.find(item=>item.id===session.userId);
+    const now=Date.now();
+    const intent=validateSentinelOwnerGrantRequest({
+      body:req.body,session,user,ownerOrganizationId:posIdentity.organizationId,
+      expected:expectedOwnerSentinelMapping(),now
+    } as any);
+    const next=registerSentinelGrant(store,{
+      ...intent,ownerOrganizationId:posIdentity.organizationId,now,
+      verifyMapping:(proposal: any)=>Boolean(
+        store.organizations.some(org=>org.id===proposal.organizationId && org.status==="active") &&
+        store.appEntitlements.some(e=>e.organizationId===proposal.organizationId &&
+          e.appId==="app-tiquet" && e.enabled===true) &&
+        tiquetTenantLaunchReady(store,proposal.organizationId,posIdentity.organizationId) &&
+        proposal.organizationId===posIdentity.organizationId &&
+        proposal.sentinelCustomerId===expectedOwnerSentinelMapping().sentinelCustomerId &&
+        proposal.tiquetAccountId===expectedOwnerSentinelMapping().tiquetAccountId &&
+        proposal.tiquetClientId===expectedOwnerSentinelMapping().tiquetClientId)
+    } as any);
+    onboardingAudit(next.store,"sentinel_owner_machine_grant_issued",{
+      grantId:next.grant.id,serviceId:"v79-sentinel",
+      sentinelCustomerId:next.grant.sentinelCustomerId,
+      tiquetClientId:next.grant.tiquetClientId,
+      expiresAt:next.grant.expiresAt
+    },session.userId,posIdentity.organizationId);
+    await commitStore(next.store);
+    return res.status(201).json({grantId:next.grant.id,status:"active",
+      expiresAt:next.grant.expiresAt,actions:next.grant.actions});
+  }catch{
+    return res.status(403).json({error:"Exact owner mapping and fresh MFA approval required"});
+  }finally{sentinelGrantMutationBusy=false;}
+});
+app.post(SENTINEL_GRANT_ADMIN+"/revoke",requireAuth,requirePlatformOperator,async(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  if(!sameOriginMutation(req)) return res.status(403).json({error:"Same-origin admin request required"});
+  if(sentinelGrantMutationBusy) return res.status(409).json({error:"Grant review already in progress"});
+  sentinelGrantMutationBusy=true;
+  try{
+    const session=(req as any).user;
+    const user=store.users.find(item=>item.id===session.userId);
+    if(!req.body || typeof req.body!=="object" || Array.isArray(req.body) ||
+       Object.keys(req.body).sort().join("|")!=="confirmation|grantId")
+      return res.status(400).json({error:"Exact grant revocation required"});
+    const decision=validateSentinelOwnerRevocation({
+      grantId:req.body.grantId,confirmation:req.body.confirmation,
+      session,user,ownerOrganizationId:posIdentity.organizationId
+    } as any);
+    const item=(store.sentinelServiceGrants||[]).find(g=>g.id===decision.grantId);
+    if(!item || item.organizationId!==posIdentity.organizationId)
+      return res.status(403).json({error:"Grant is not owned by this organization"});
+    const next=revokeSentinelGrant(store,decision);
+    onboardingAudit(next,"sentinel_owner_machine_grant_revoked",{
+      grantId:decision.grantId,serviceId:"v79-sentinel"
+    },session.userId,posIdentity.organizationId);
+    await commitStore(next);
+    return res.json({grantId:decision.grantId,status:"revoked"});
+  }catch{
+    return res.status(403).json({error:"Active owner grant and fresh MFA required"});
+  }finally{sentinelGrantMutationBusy=false;}
+});
+
 
 function billingServiceFromRequest(req: Request) {
   const source = String(req.get("x-v79-service-id") || "");
