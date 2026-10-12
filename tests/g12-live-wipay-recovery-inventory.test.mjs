@@ -24,6 +24,8 @@ test("read-only recovery inventory is valid Python and has a hard host guard", (
 test("inventory excludes secrets, accounts and destructive operations", () => {
   assert.ok(source.includes("wipay-return-585f701.pinned.yml"));
   assert.ok(source.includes("running_hub_code_blobs"));
+  assert.ok(source.includes("running_business_agent_code_blobs"));
+  assert.ok(source.includes("pilot_business_agent_code_blobs"));
   assert.ok(source.includes("matches_preflight"));
   assert.ok(source.includes("focused-launch-checkpoint-20261010"));
   assert.ok(source.includes("no_resources_modified"));
