@@ -18,6 +18,30 @@ ROOT = Path("/opt/v79/hub")
 PIN = ROOT / "releases/wipay-return-585f701.pinned.yml"
 EXPECTED_PIN_SHA256 = "8aa57bba2c6955ab5affe5394ed7bec2b9b2693bc05556db3bef0420bcc04b74"
 SERVICES = ("v79-hub", "v79-hub-postgres", "v79-business-agent", "v79-tiquet-manager")
+GITHUB_REFERENCE_SHA = "7f84d276a90b8d426c0a2fe33ca652321aee8d88"
+REFERENCE_BLOBS = {
+    "server/sentinel-qa-routes.mjs": "96476be32773799b473220cfd51bea54c2b4e9ed",
+    "server/sentinel-qa-cleanup.mjs": "ef4a648dc410dd84b8a32b99faec960e0b4863ae",
+    "server/sentinel-write-fence.mjs": "b60bb6a1ad381074c7faf85734b3febe4f1b5795",
+    "server/sentinel-audit-retention.mjs": "624e9ec7e28311f0a1e122169ba6208565d1e6ea",
+    "server/agent-approval-ledger.mjs": "87961e5fcd925495b0d9474e3b3d287677147e59",
+    "server/agent-evidence-attestation.mjs": "907f4da5edee6a1d0377245023f7190a7c244afa",
+    "server/agent-proposal-inbox.mjs": "914620fded08002ff85e260df81c6ab034c11e69",
+    "server/agent-reviewed-handoff.mjs": "5ba448e7b1256a07175c73e30dd15b28c744a37d",
+    "server/agent-supervised-tiquet.mjs": "0eec3d1e9f2219d91bd390c7728aeb3e7a2dc2e6",
+    "server/agent-supervised-marketing.mjs": "31ff2a72fe3519a6d31ff08750778038505d585d",
+    "server/agent-approval-audit-chain.mjs": "62db000a5ffbc6ee7138adc4f0d0bcdbc71fe95a",
+    "server/tiquet-signed-source-reader.mjs": "32e369e4c2bac83c33a3bb8add69ee35a522895e",
+    "server.ts": "b69c46637970bd7dc95f3cf45f8a29fee5a10e3a",
+    "src/index.ts": "638f43658812e8fb5b97f2575bc23faba6064d28",
+    "src/evidence.ts": "a60bedd824bea173b1f4d10485189ed1c993c494",
+    "src/workforce.ts": "e2fb6123a3bb9c3c4facfedadfea0ecb124448e6",
+    "src/executive-workforce.ts": "5c0a4a4ed3cfeaa85f416157bd3f9392a566b8e9",
+    "src/executive-handoff.ts": "b10ec2b3a4a117fbd54b14d56764e30d17c348fa",
+    "src/executive-cycle.ts": "4af563d121d95e0affb14a51482ffd4fdc6c2616",
+    "src/ollama-executive.ts": "04636f6b529e3edab02f6b351cfe4cf803ec5690",
+}
+
 ALLOWED_CODE = (
     "server/sentinel-qa-routes.mjs",
     "server/sentinel-qa-cleanup.mjs",
@@ -104,8 +128,22 @@ process.stdout.write(JSON.stringify(out));
     if proc is None or proc.returncode:
         return {"status": "unavailable"}
     try:
-        return json.loads(proc.stdout)
-    except ValueError:
+        observed = json.loads(proc.stdout)
+        for filepath in paths:
+            entry = observed.get(filepath)
+            if not isinstance(entry, dict):
+                entry = {"state": "missing_or_unreadable"}
+                observed[filepath] = entry
+            expected = REFERENCE_BLOBS.get(filepath)
+            entry["expected_git_blob_sha1"] = expected
+            digest = entry.get("git_blob_sha1")
+            entry["comparison"] = (
+                "MATCH_REFERENCE" if digest == expected else
+                "DIFFERENT_FROM_REFERENCE" if isinstance(digest, str) else
+                "MISSING_OR_UNREADABLE"
+            )
+        return observed
+    except (ValueError, TypeError, AttributeError):
         return {"status": "unavailable"}
 
 def compose_shape():
@@ -170,6 +208,7 @@ def main():
         sys.exit("STOP: only run on the v79sl server")
     out = {
         "purpose": "G1.2 LIVE RELEASE EVIDENCE INVENTORY / READ ONLY",
+        "github_comparison_sha": GITHUB_REFERENCE_SHA,
         "release_ready": False,
         "no_resources_modified": True,
         "containers": {name: image_metadata(name) for name in SERVICES},
