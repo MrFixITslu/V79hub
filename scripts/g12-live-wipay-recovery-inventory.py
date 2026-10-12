@@ -204,7 +204,13 @@ def main():
     print(json.dumps(out, indent=2, sort_keys=True))
     if not out["pin"]["matches_preflight"]:
         return 2
-    if any(not c["present"] for c in out["containers"].values()):
+    if any(not c["present"] or c["state"] != "running" or c["health"] != "healthy"
+           for c in out["containers"].values()):
+        return 2
+    if out["compose"]["status"] != "parsed":
+        return 2
+    if any(out[key].get("status") == "unavailable" for key in
+           ("running_hub_code_blobs", "running_business_agent_code_blobs")):
         return 2
     return 0  # Inspection succeeded; release_ready is always false.
 
