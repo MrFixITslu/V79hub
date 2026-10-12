@@ -195,6 +195,7 @@ app.post("/api/agent/executive-preview", async (req, res) => {
 
 // G1 supervised draft-only developer. OFF by default and local Ollama only.
 // A draft is NOT an applied patch, verified source or permission to deploy.
+let developmentProposalInFlight = false;
 app.post("/api/agent/development-proposal", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   if (process.env.V79_DEVELOPMENT_PROPOSALS_ENABLED !== "1" ||
@@ -205,6 +206,10 @@ app.post("/api/agent/development-proposal", async (req, res) => {
   if (!context || !isValidOwnerContext(context)) {
     return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
   }
+  if (developmentProposalInFlight) {
+    return res.status(429).json({ error: "Development worker is already processing a draft." });
+  }
+  developmentProposalInFlight = true;
   try {
     const result = await generateDevelopmentReview(
       req.body?.workOrder, createLocalDevelopmentProposer(),
@@ -216,6 +221,8 @@ app.post("/api/agent/development-proposal", async (req, res) => {
     }
     console.error("development proposal failed", error instanceof Error ? error.name : "error");
     return res.status(502).json({ error: "Development draft unavailable or rejected." });
+  } finally {
+    developmentProposalInFlight = false;
   }
 });
 
