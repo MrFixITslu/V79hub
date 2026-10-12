@@ -11,6 +11,15 @@ for command in docker rsync tar; do
   command -v "$command" >/dev/null || { echo "Missing server dependency: $command" >&2; exit 1; }
 done
 test -f "$archive" || { echo 'Release bundle missing' >&2; exit 1; }
+# The running Hub may be pinned to a WiPay-specific Compose overlay. The generic
+# release path has no verified method to preserve or restore that override.
+# Refuse before staging/rsync/recreation rather than silently replacing payments.
+running_hub_compose_files="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' v79-hub 2>/dev/null || true)"
+if [[ "$running_hub_compose_files" == *".pinned.yml"* ]]; then
+  echo "STOP: live Hub is using a pinned Compose override (for example WiPay)." >&2
+  echo "Use an explicitly audited, pinned-overlay-preserving release and rollback plan." >&2
+  exit 1
+fi
 test -f "$root/.env" || { echo "Create $root/.env before deploying" >&2; exit 1; }
 test -d "$root/data" || { echo "Create $root/data before deploying" >&2; exit 1; }
 grep -Eq '^V79_HUB_DB_PASSWORD=.{32,}$' "$root/.env" || { echo "Set a unique 32+ character V79_HUB_DB_PASSWORD in $root/.env before deploying" >&2; exit 1; }
