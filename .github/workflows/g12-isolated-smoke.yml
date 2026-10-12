@@ -1,0 +1,28 @@
+name: G1.2 isolated non-root smoke
+
+on:
+  pull_request:
+    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010]
+    paths:
+      - 'agent-service/**'
+      - 'scripts/g12-isolated-container-smoke.sh'
+      - '.github/workflows/g12-isolated-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  g12-isolated-smoke:
+    name: Build and test without live Hub access
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm synthetic-only test
+        run: |
+          set -euo pipefail
+          test -f agent-service/package-lock.json
+          test -f scripts/g12-isolated-container-smoke.sh
+      - name: G1.2 non-root, read-only, network-none authentication smoke
+        run: bash scripts/g12-isolated-container-smoke.sh
