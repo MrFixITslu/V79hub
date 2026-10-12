@@ -41,6 +41,8 @@ test("development model sends bounded no-tool request to local Ollama only", asy
     assert.equal(payload.format, "json");
     assert.equal(payload.stream, false);
     assert.equal(payload.tools, undefined);
+    assert.equal(payload.options.num_predict, 768);
+    assert.equal(payload.options.num_ctx <= 4096, true);
     assert.equal(payload.messages[1].role, "user");
     assert.match(payload.messages[1].content, /G1-DEV-002/);
     return new Response(JSON.stringify({
