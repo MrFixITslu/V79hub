@@ -65,9 +65,11 @@ def safe_report(expected: bytes, live: bytes) -> dict:
     matcher = difflib.SequenceMatcher(a=main, b=running, autojunk=True)
     hunks = []
     counts = collections.Counter()
+    changed_blocks = 0
     for tag, ref_a, ref_b, runtime_a, runtime_b in matcher.get_opcodes():
         if tag == "equal":
             continue
+        changed_blocks += 1
         text = "\n".join(main[ref_a:ref_b] + running[runtime_a:runtime_b])
         category = categories(text)
         for name in category:
@@ -96,10 +98,10 @@ def safe_report(expected: bytes, live: bytes) -> dict:
         "live_matches_repository": expected == live,
         "github_line_count": len(main),
         "live_line_count": len(running),
-        "changed_block_count": sum(counts.values()) if False else len([op for op in matcher.get_opcodes() if op[0] != "equal"]),
+        "changed_block_count": changed_blocks,
         "changed_blocks_by_category": dict(sorted(counts.items())),
         "changed_hunks_shown": hunks,
-        "changed_hunks_truncated": len(hunks) >= MAX_HUNKS_DISPLAYED,
+        "changed_hunks_truncated": changed_blocks > MAX_HUNKS_DISPLAYED,
         "registered_route_families": {
             family: {"github": expected_routes[family], "live": live_routes[family]}
             for family in families
