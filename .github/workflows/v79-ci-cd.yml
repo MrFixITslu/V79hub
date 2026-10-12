@@ -4,7 +4,8 @@ on:
   pull_request:
     # Temporary validation-only target for the unmerged CEO/COO G1 draft.
     # Production publication/deploy remain gated to approved main workflow_dispatch.
-    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010]
+    # Validation only for stacked draft development-worker PR. No publish/deploy.
+    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010, fix/g1-executive-evidence-future-timestamp-20261011]
   push:
     branches: [main]
   workflow_dispatch:
