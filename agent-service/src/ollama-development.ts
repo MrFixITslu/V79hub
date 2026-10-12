@@ -11,7 +11,8 @@ export function createLocalDevelopmentProposer(
   const runtime = resolveOllamaNativeRuntime(options.env);
   const base = new URL(runtime.baseURL);
   const allowedHosts = new Set(["ollama", "localhost", "127.0.0.1", "[::1]"]);
-  if (base.protocol !== "http:" || !allowedHosts.has(base.hostname)) {
+  if (base.protocol !== "http:" || !allowedHosts.has(base.hostname) ||
+      base.username || base.password || base.search || base.hash || base.pathname !== "/") {
     throw new Error("Development model endpoint must be local.");
   }
   const fetchImpl = options.fetchImpl || fetch;
