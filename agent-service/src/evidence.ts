@@ -76,19 +76,31 @@ function metricsFor(system: string, raw: unknown): EvidenceMetric[] {
 }
 
 function statusFor(
-  rawStatus: unknown, observedAt: string | null, metricCount: number, nowMs: number,
+  rawStatus: unknown, observedAt: string | null, collectedAt: string | null,
+  metricCount: number, nowMs: number,
 ) : Pick<EvidenceRecord, "state" | "ageSeconds"> {
   if (rawStatus !== "ok") return { state: rawStatus === "unavailable" || rawStatus === "misconfigured" ||
     rawStatus === "needs_setup" || rawStatus === "not_configured" ? "unavailable" : "unknown", ageSeconds: null };
-  if (!observedAt) return { state: "unknown", ageSeconds: null };
-  const age = Math.round((nowMs - Date.parse(observedAt)) / 1000);
-  if (!Number.isFinite(age) || age < -120) return { state: "unknown", ageSeconds: null };
-  if (!metricCount) return { state: "unknown", ageSeconds: Math.max(0, age) };
-  return { state: age > 900 ? "stale" : "available", ageSeconds: Math.max(0, age) };
+  if (!observedAt || !collectedAt) return { state: "unknown", ageSeconds: null };
+  const sourceMs = Date.parse(observedAt);
+  const envelopeMs = Date.parse(collectedAt);
+  const ageMs = nowMs - sourceMs;
+  // A source observation cannot come from well AFTER the Hub envelope that
+  // purportedly collected it. Tolerate only the existing 120s clock skew.
+  if (!Number.isFinite(sourceMs) || !Number.isFinite(envelopeMs) ||
+      sourceMs - envelopeMs > 120_000 || ageMs < -120_000) {
+    return { state: "unknown", ageSeconds: null };
+  }
+  const ageSeconds = Math.max(0, Math.round(ageMs / 1000));
+  if (!metricCount) return { state: "unknown", ageSeconds };
+  // Compare milliseconds, not rounded seconds, at the hard freshness limit.
+  return { state: ageMs > 900_000 ? "stale" : "available", ageSeconds };
 }
 
 /** Called AFTER the service token has been verified by Hub and owner scoped by Agent. */
-export function verifySignedOwnerSnapshot(snapshot: unknown, context: AgentContext): asserts snapshot is UntrustedRecord {
+export function verifySignedOwnerSnapshot(
+  snapshot: unknown, context: AgentContext, nowMs: number = Date.now(),
+): asserts snapshot is UntrustedRecord {
   if (!isRecord(snapshot)) throw new Error("Missing signed owner evidence.");
   const owner = safeRecord(snapshot.owner);
   if (!context.ownerAgent || !context.hubAdmin ||
@@ -96,7 +108,15 @@ export function verifySignedOwnerSnapshot(snapshot: unknown, context: AgentConte
     context.organizationId !== owner.organizationId ||
     !context.organizationId || !context.userId
   ) throw new Error("Signed evidence owner scope mismatch.");
-  if (!parseTimestamp(snapshot.generatedAt)) throw new Error("Signed evidence collection time is invalid.");
+  const generatedAt = parseTimestamp(snapshot.generatedAt);
+  if (!generatedAt) throw new Error("Signed evidence collection time is invalid.");
+  // A fresh product source timestamp cannot cure a missing, stale or future
+  // Hub envelope. This check runs before any product metric is consumed.
+  const collectionAgeMs = nowMs - Date.parse(generatedAt);
+  if (!Number.isFinite(collectionAgeMs) ||
+      collectionAgeMs < -120_000 || collectionAgeMs > 900_000) {
+    throw new Error("Signed evidence collection time is outside the allowed freshness window.");
+  }
 }
 
 export function buildEvidenceLedger(
@@ -120,7 +140,7 @@ export function buildEvidenceLedger(
     const summaryMetrics = status === "ok" ? metricsFor(system, summary.metrics) : [];
     records.push({
       system, name: productName, source: "signed_product_summary", connection, collectedAt, reportedAt,
-      ...statusFor(status, reportedAt, summaryMetrics.length, nowMs),
+      ...statusFor(status, reportedAt, collectedAt, summaryMetrics.length, nowMs),
       metrics: summaryMetrics,
     });
 
@@ -144,11 +164,15 @@ export function buildEvidenceLedger(
       return typeof value === "number" && Number.isFinite(value) &&
         value >= 0 && value <= 1e12 ? [{ key, value }] : [];
     });
+    // Apply the same bounded clock-skew rule as product summaries: a far-future
+    // Hub snapshot is NOT current evidence, even if its upper age bound passes.
+    const hubAgeMs = collectedAt ? nowMs - Date.parse(collectedAt) : NaN;
+    const hubAgeValid = Number.isFinite(hubAgeMs) && hubAgeMs >= -120_000;
     records.push({
       system: "hub", name: "V79 Hub Admin", source: "hub_owner_summary",
-      connection: "online", collectedAt, reportedAt: collectedAt, ageSeconds: collectedAt
-        ? Math.max(0, Math.round((nowMs - Date.parse(collectedAt)) / 1000)) : null,
-      state: metrics.length && collectedAt && nowMs - Date.parse(collectedAt) <= 900000 ? "available" : "unknown",
+      connection: "online", collectedAt, reportedAt: collectedAt,
+      ageSeconds: hubAgeValid ? Math.max(0, Math.round(hubAgeMs / 1000)) : null,
+      state: metrics.length && hubAgeValid && hubAgeMs <= 900_000 ? "available" : "unknown",
       metrics,
     });
   }

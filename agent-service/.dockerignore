@@ -1,0 +1,14 @@
+# Keep developer secrets and local dependencies out of Docker build context.
+node_modules
+**/node_modules
+.git
+.env
+.env.*
+!.env.example
+*.log
+coverage
+dist
+.npm
+.cache
+.vscode
+.DS_Store

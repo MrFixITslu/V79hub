@@ -2,7 +2,9 @@ name: V79 CI/CD
 
 on:
   pull_request:
-    branches: [main]
+    # Temporary validation-only target for the unmerged CEO/COO G1 draft.
+    # Production publication/deploy remain gated to approved main workflow_dispatch.
+    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010]
   push:
     branches: [main]
   workflow_dispatch:

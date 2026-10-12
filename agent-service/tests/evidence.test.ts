@@ -35,7 +35,8 @@ const snapshot = () => ({
 
 test("Hub's signed owner evidence envelope must agree with owner context", () => {
   const data = snapshot();
-  assert.doesNotThrow(() => verifySignedOwnerSnapshot(data, context));
+  // Use the fixture's deterministic clock, not the runner's current date.
+  assert.doesNotThrow(() => verifySignedOwnerSnapshot(data, context, NOW));
   assert.throws(() => verifySignedOwnerSnapshot(data, {...context, organizationId: "other"}), /scope mismatch/);
   assert.throws(() => verifySignedOwnerSnapshot(data, {...context, ownerAgent: false}), /scope mismatch/);
   assert.throws(() => verifySignedOwnerSnapshot(data, {...context, hubAdmin: false}), /scope mismatch/);
