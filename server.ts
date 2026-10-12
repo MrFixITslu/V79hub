@@ -2604,6 +2604,101 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
   });
 });
 
+// Scoped V79 Sentinel pilot grant administration. OFF by default even if
+// ordinary Hub admin routes are available. This is NEVER an MFA substitute.
+const SENTINEL_GRANT_ADMIN="/api/admin/sentinel/service-grants";
+let sentinelGrantMutationBusy=false;
+const sentinelAdminEnabled=()=>process.env.V79_SENTINEL_GRANT_ADMIN_ENABLED==="1";
+const verifiedSentinelPilot=()=>process.env.V79_SENTINEL_OWNER_MAPPING_ATTESTED==="1";
+function expectedOwnerSentinelMapping(){
+  return {
+    sentinelCustomerId:process.env.V79_SENTINEL_OWNER_CUSTOMER_ID || "",
+    tiquetAccountId:process.env.V79_SENTINEL_OWNER_TIQUET_ACCOUNT_ID || "",
+    tiquetClientId:process.env.V79_SENTINEL_OWNER_TIQUET_CLIENT_ID || ""
+  };
+}
+app.get(SENTINEL_GRANT_ADMIN,requireAuth,requirePlatformOperator,(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  const ownerId=posIdentity.organizationId;
+  return res.json({grants:(store.sentinelServiceGrants||[])
+    .filter(g=>g.organizationId===ownerId)
+    .map(g=>({id:g.id,organizationId:g.organizationId,
+      sentinelCustomerId:g.sentinelCustomerId,tiquetClientId:g.tiquetClientId,
+      actions:g.actions,status:g.status,enabled:g.enabled,
+      createdAt:g.createdAt,expiresAt:g.expiresAt,revokedAt:g.revokedAt}))});
+});
+app.post(SENTINEL_GRANT_ADMIN,requireAuth,requirePlatformOperator,async(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  if(!sameOriginMutation(req)) return res.status(403).json({error:"Same-origin admin request required"});
+  if(sentinelGrantMutationBusy) return res.status(409).json({error:"Grant review already in progress"});
+  if(!verifiedSentinelPilot()) return res.status(409).json({error:"Independent owner pilot mapping preflight required"});
+  sentinelGrantMutationBusy=true;
+  try{
+    const session=(req as any).user;
+    const user=store.users.find(item=>item.id===session.userId);
+    const now=Date.now();
+    const intent=validateSentinelOwnerGrantRequest({
+      body:req.body,session,user,ownerOrganizationId:posIdentity.organizationId,
+      expected:expectedOwnerSentinelMapping(),now
+    } as any);
+    const next=registerSentinelGrant(store,{
+      ...intent,ownerOrganizationId:posIdentity.organizationId,now,
+      verifyMapping:(proposal: any)=>Boolean(
+        store.organizations.some(org=>org.id===proposal.organizationId && org.status==="active") &&
+        store.appEntitlements.some(e=>e.organizationId===proposal.organizationId &&
+          e.appId==="app-tiquet" && e.enabled===true) &&
+        tiquetTenantLaunchReady(store,proposal.organizationId,posIdentity.organizationId) &&
+        proposal.organizationId===posIdentity.organizationId &&
+        proposal.sentinelCustomerId===expectedOwnerSentinelMapping().sentinelCustomerId &&
+        proposal.tiquetAccountId===expectedOwnerSentinelMapping().tiquetAccountId &&
+        proposal.tiquetClientId===expectedOwnerSentinelMapping().tiquetClientId)
+    } as any);
+    onboardingAudit(next.store,"sentinel_owner_machine_grant_issued",{
+      grantId:next.grant.id,serviceId:"v79-sentinel",
+      sentinelCustomerId:next.grant.sentinelCustomerId,
+      tiquetClientId:next.grant.tiquetClientId,
+      expiresAt:next.grant.expiresAt
+    },session.userId,posIdentity.organizationId);
+    await commitStore(next.store);
+    return res.status(201).json({grantId:next.grant.id,status:"active",
+      expiresAt:next.grant.expiresAt,actions:next.grant.actions});
+  }catch{
+    return res.status(403).json({error:"Exact owner mapping and fresh MFA approval required"});
+  }finally{sentinelGrantMutationBusy=false;}
+});
+app.post(SENTINEL_GRANT_ADMIN+"/revoke",requireAuth,requirePlatformOperator,async(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  if(!sameOriginMutation(req)) return res.status(403).json({error:"Same-origin admin request required"});
+  if(sentinelGrantMutationBusy) return res.status(409).json({error:"Grant review already in progress"});
+  sentinelGrantMutationBusy=true;
+  try{
+    const session=(req as any).user;
+    const user=store.users.find(item=>item.id===session.userId);
+    if(!req.body || typeof req.body!=="object" || Array.isArray(req.body) ||
+       Object.keys(req.body).sort().join("|")!=="confirmation|grantId")
+      return res.status(400).json({error:"Exact grant revocation required"});
+    const decision=validateSentinelOwnerRevocation({
+      grantId:req.body.grantId,confirmation:req.body.confirmation,
+      session,user,ownerOrganizationId:posIdentity.organizationId
+    } as any);
+    const item=(store.sentinelServiceGrants||[]).find(g=>g.id===decision.grantId);
+    if(!item || item.organizationId!==posIdentity.organizationId)
+      return res.status(403).json({error:"Grant is not owned by this organization"});
+    const next=revokeSentinelGrant(store,decision);
+    onboardingAudit(next,"sentinel_owner_machine_grant_revoked",{
+      grantId:decision.grantId,serviceId:"v79-sentinel"
+    },session.userId,posIdentity.organizationId);
+    await commitStore(next);
+    return res.json({grantId:decision.grantId,status:"revoked"});
+  }catch{
+    return res.status(403).json({error:"Active owner grant and fresh MFA required"});
+  }finally{sentinelGrantMutationBusy=false;}
+});
+
+
 function billingServiceFromRequest(req: Request) {
   const source = String(req.get("x-v79-service-id") || "");
   const entries: Record<string, { sourceApp: "academy" | "tiquet"; secret: string }> = {
@@ -2780,101 +2875,6 @@ app.post("/api/billing/internal/status", (req, res) => {
     },
   });
 });
-
-// Scoped V79 Sentinel pilot grant administration. OFF by default even if
-// ordinary Hub admin routes are available. This is NEVER an MFA substitute.
-const SENTINEL_GRANT_ADMIN="/api/admin/sentinel/service-grants";
-let sentinelGrantMutationBusy=false;
-const sentinelAdminEnabled=()=>process.env.V79_SENTINEL_GRANT_ADMIN_ENABLED==="1";
-const verifiedSentinelPilot=()=>process.env.V79_SENTINEL_OWNER_MAPPING_ATTESTED==="1";
-function expectedOwnerSentinelMapping(){
-  return {
-    sentinelCustomerId:process.env.V79_SENTINEL_OWNER_CUSTOMER_ID || "",
-    tiquetAccountId:process.env.V79_SENTINEL_OWNER_TIQUET_ACCOUNT_ID || "",
-    tiquetClientId:process.env.V79_SENTINEL_OWNER_TIQUET_CLIENT_ID || ""
-  };
-}
-app.get(SENTINEL_GRANT_ADMIN,requireAuth,requirePlatformOperator,(req,res)=>{
-  res.setHeader("Cache-Control","no-store");
-  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
-  const ownerId=posIdentity.organizationId;
-  return res.json({grants:(store.sentinelServiceGrants||[])
-    .filter(g=>g.organizationId===ownerId)
-    .map(g=>({id:g.id,organizationId:g.organizationId,
-      sentinelCustomerId:g.sentinelCustomerId,tiquetClientId:g.tiquetClientId,
-      actions:g.actions,status:g.status,enabled:g.enabled,
-      createdAt:g.createdAt,expiresAt:g.expiresAt,revokedAt:g.revokedAt}))});
-});
-app.post(SENTINEL_GRANT_ADMIN,requireAuth,requirePlatformOperator,async(req,res)=>{
-  res.setHeader("Cache-Control","no-store");
-  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
-  if(!sameOriginMutation(req)) return res.status(403).json({error:"Same-origin admin request required"});
-  if(sentinelGrantMutationBusy) return res.status(409).json({error:"Grant review already in progress"});
-  if(!verifiedSentinelPilot()) return res.status(409).json({error:"Independent owner pilot mapping preflight required"});
-  sentinelGrantMutationBusy=true;
-  try{
-    const session=(req as any).user;
-    const user=store.users.find(item=>item.id===session.userId);
-    const now=Date.now();
-    const intent=validateSentinelOwnerGrantRequest({
-      body:req.body,session,user,ownerOrganizationId:posIdentity.organizationId,
-      expected:expectedOwnerSentinelMapping(),now
-    } as any);
-    const next=registerSentinelGrant(store,{
-      ...intent,ownerOrganizationId:posIdentity.organizationId,now,
-      verifyMapping:(proposal: any)=>Boolean(
-        store.organizations.some(org=>org.id===proposal.organizationId && org.status==="active") &&
-        store.appEntitlements.some(e=>e.organizationId===proposal.organizationId &&
-          e.appId==="app-tiquet" && e.enabled===true) &&
-        tiquetTenantLaunchReady(store,proposal.organizationId,posIdentity.organizationId) &&
-        proposal.organizationId===posIdentity.organizationId &&
-        proposal.sentinelCustomerId===expectedOwnerSentinelMapping().sentinelCustomerId &&
-        proposal.tiquetAccountId===expectedOwnerSentinelMapping().tiquetAccountId &&
-        proposal.tiquetClientId===expectedOwnerSentinelMapping().tiquetClientId)
-    } as any);
-    onboardingAudit(next.store,"sentinel_owner_machine_grant_issued",{
-      grantId:next.grant.id,serviceId:"v79-sentinel",
-      sentinelCustomerId:next.grant.sentinelCustomerId,
-      tiquetClientId:next.grant.tiquetClientId,
-      expiresAt:next.grant.expiresAt
-    },session.userId,posIdentity.organizationId);
-    await commitStore(next.store);
-    return res.status(201).json({grantId:next.grant.id,status:"active",
-      expiresAt:next.grant.expiresAt,actions:next.grant.actions});
-  }catch{
-    return res.status(403).json({error:"Exact owner mapping and fresh MFA approval required"});
-  }finally{sentinelGrantMutationBusy=false;}
-});
-app.post(SENTINEL_GRANT_ADMIN+"/revoke",requireAuth,requirePlatformOperator,async(req,res)=>{
-  res.setHeader("Cache-Control","no-store");
-  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
-  if(!sameOriginMutation(req)) return res.status(403).json({error:"Same-origin admin request required"});
-  if(sentinelGrantMutationBusy) return res.status(409).json({error:"Grant review already in progress"});
-  sentinelGrantMutationBusy=true;
-  try{
-    const session=(req as any).user;
-    const user=store.users.find(item=>item.id===session.userId);
-    if(!req.body || typeof req.body!=="object" || Array.isArray(req.body) ||
-       Object.keys(req.body).sort().join("|")!=="confirmation|grantId")
-      return res.status(400).json({error:"Exact grant revocation required"});
-    const decision=validateSentinelOwnerRevocation({
-      grantId:req.body.grantId,confirmation:req.body.confirmation,
-      session,user,ownerOrganizationId:posIdentity.organizationId
-    } as any);
-    const item=(store.sentinelServiceGrants||[]).find(g=>g.id===decision.grantId);
-    if(!item || item.organizationId!==posIdentity.organizationId)
-      return res.status(403).json({error:"Grant is not owned by this organization"});
-    const next=revokeSentinelGrant(store,decision);
-    onboardingAudit(next,"sentinel_owner_machine_grant_revoked",{
-      grantId:decision.grantId,serviceId:"v79-sentinel"
-    },session.userId,posIdentity.organizationId);
-    await commitStore(next);
-    return res.json({grantId:decision.grantId,status:"revoked"});
-  }catch{
-    return res.status(403).json({error:"Active owner grant and fresh MFA required"});
-  }finally{sentinelGrantMutationBusy=false;}
-});
-
 
 app.get("/api/billing/orders", requireAuth, requirePermission("billing"), (req, res) => {
   const session = (req as any).user;
