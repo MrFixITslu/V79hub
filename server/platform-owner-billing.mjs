@@ -3,10 +3,16 @@
  * billing membership. This is a reconstructed contract, NOT a verified copy
  * of the live v79-hub implementation (live git blob af7db645565e...).
  *
- * A caller must independently attest the exact platform-owner user AND the
- * exact platform-owner organization. Membership, email, MFA and owner scope
- * are checked by server.ts before passing verifiedPlatformOwner=true.
- * Never override a general role/tenant permission or authorize a payment.
+ * The server.ts caller derives assigned from Array.includes() and
+ * verifiedPlatformOwner from a strict Boolean identity/membership check
+ * against the V79 platform user, email and organization. This helper grants
+ * an owner-scoped BILLING ROUTE permission; it does not independently check
+ * MFA or confirm a payment, settlement, subscription or provider callback.
+ * Those actions require their own route-level financial safeguards.
+ *
+ * Strict boolean comparisons deliberately reject truthy malformed inputs
+ * (for example "true" strings). This is a safety improvement even if the
+ * live helper accepts or returns non-boolean values for synthetic inputs.
  */
 export function platformOwnerBillingAllowed({
   permission, assigned, verifiedPlatformOwner
