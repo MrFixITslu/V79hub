@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { resolve, sep } from "node:path";
 import {
   generateDevelopmentReview,
-  type DevelopmentDraft,
 } from "./development-worker.js";
 import { verifyPinnedDevelopmentSources } from "./development-source.js";
 
@@ -53,7 +52,12 @@ function requirePrivateDisposableCheckout(provided: string): string {
     throw new DevelopmentPatchCheckError("Absolute disposable checkout required.");
   }
   const root = resolve(provided);
-  const actual = realpathSync(root);
+  let actual: string;
+  try {
+    actual = realpathSync(root);
+  } catch {
+    throw new DevelopmentPatchCheckError("Disposable checkout does not exist.");
+  }
   const parent = realpathSync(tmpdir());
   if (root !== actual || !root.startsWith(parent + sep + "v79-dev-sandbox-") ||
       root.length <= parent.length + "/v79-dev-sandbox-".length) {
