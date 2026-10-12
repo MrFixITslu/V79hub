@@ -105,7 +105,7 @@ test("unexpected redirect, invalid JSON, excessive body and transport failure fa
   const outcomes = [
     async () => new Response("", {status:302,headers:{location:"https://evil.invalid"}}),
     async () => new Response("not-json", {status:200}),
-    async () => new Response(JSON.stringify({value:"x".repeat(130000)}), {status:200}),
+    async () => new Response(JSON.stringify({value:"x".repeat(140000)}), {status:200}),
     async () => { throw new Error("synthetic upstream outage"); },
   ];
   for (const fetchImpl of outcomes) {
