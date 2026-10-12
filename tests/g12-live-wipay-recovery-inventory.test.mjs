@@ -27,6 +27,9 @@ test("inventory excludes secrets, accounts and destructive operations", () => {
   assert.ok(source.includes("running_business_agent_code_blobs"));
   assert.ok(source.includes("pilot_business_agent_code_blobs"));
   assert.ok(source.includes("matches_preflight"));
+  assert.ok(source.includes('GITHUB_REFERENCE_SHA = "7f84d276a90b8d426c0a2fe33ca652321aee8d88"'));
+  assert.ok(source.includes("MATCH_REFERENCE"));
+  assert.ok(source.includes("DIFFERENT_FROM_REFERENCE"));
   assert.ok(source.includes("focused-launch-checkpoint-20261010"));
   assert.ok(source.includes("no_resources_modified"));
   assert.doesNotMatch(source, /subprocess\.run\([^\n]*(?:\b(?:rm|restart|stop|kill|up|down|chmod|chown|pg_dump|psql)\b)/);
