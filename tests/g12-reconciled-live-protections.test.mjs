@@ -16,6 +16,21 @@ test("exact platform owner may recover only legacy billing permission", () => {
   }
   assert.equal(platformOwnerBillingAllowed({permission:"billing",assigned:true,verifiedPlatformOwner:false}), true);
   assert.equal(platformOwnerBillingAllowed(),false);
+
+  // The live helper differs on at least these two malformed string inputs.
+  // Do NOT turn them into new permissions just to force live parity.
+  for (const bad of ["true", "false", "1", 1, [], {}, new Boolean(true)]) {
+    const viaAssigned = platformOwnerBillingAllowed({
+      permission:"billing", assigned:bad, verifiedPlatformOwner:false
+    });
+    const viaIdentity = platformOwnerBillingAllowed({
+      permission:"billing", assigned:false, verifiedPlatformOwner:bad
+    });
+    assert.equal(typeof viaAssigned, "boolean");
+    assert.equal(typeof viaIdentity, "boolean");
+    assert.equal(viaAssigned, false);
+    assert.equal(viaIdentity, false);
+  }
 });
 
 test("platform owner proof is computed only from exact user + workspace + owner membership", () => {
@@ -30,6 +45,10 @@ test("platform owner proof is computed only from exact user + workspace + owner 
   assert.match(guard,/normalizeEmail\(user\.email\) === vision79OwnerEmail/);
   assert.match(guard,/normalizeEmail\(process\.env\.V79_HUB_ADMIN_EMAIL\) === vision79OwnerEmail/);
   assert.match(source,/verifiedPlatformOwner: isPlatformOperatorIdentity\(userId, organizationId\)/);
+  // Call-site values are booleans, even though malformed direct calls must
+  // still fail closed. Do not interpret this identity test as proof of MFA.
+  assert.match(guard,/return Boolean\(/);
+  assert.match(source,/const assigned = normalizePermissions\(membership\.permissions \?\? user\.permissions, role\)\.includes\(permission\)/);
 });
 
 test("candidate preserves Sentinel grant persistence, default-off machine routes, and G1.2 routes", () => {
