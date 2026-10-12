@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import crypto from "crypto";
+import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
@@ -1836,7 +1837,12 @@ function hasHubPermission(userId: string, organizationId: string, permission: st
   const membership = activeMembership(store, userId, organizationId);
   if (!user || !membership) return false;
   const role = sessionRole(membership) as StoredUser["role"];
-  return normalizePermissions(membership.permissions ?? user.permissions, role).includes(permission);
+  const assigned = normalizePermissions(membership.permissions ?? user.permissions, role).includes(permission);
+  // Only the independently verified platform owner, in the exact owner
+  // workspace, may recover a legacy missing billing permission.
+  return platformOwnerBillingAllowed({
+    permission, assigned, verifiedPlatformOwner: isPlatformOperatorIdentity(userId, organizationId),
+  });
 }
 function requirePermission(permission: string) {
   return (req: Request, res: Response, next: () => void) => {
