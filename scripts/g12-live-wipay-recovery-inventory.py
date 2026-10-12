@@ -33,6 +33,17 @@ ALLOWED_CODE = (
     "server/tiquet-signed-source-reader.mjs",
     "server.ts",
 )
+AGENT_CODE = (
+    "src/index.ts",
+    "src/evidence.ts",
+    "src/workforce.ts",
+    "src/executive-workforce.ts",
+    "src/executive-handoff.ts",
+    "src/executive-cycle.ts",
+    "src/ollama-executive.ts",
+)
+
+
 
 def run(args, *, timeout=20, cwd=None):
     try:
@@ -74,7 +85,7 @@ def image_metadata(name):
         "network_names": sorted((item.get("NetworkSettings") or {}).get("Networks") or {}),
     }
 
-def code_fingerprints(name):
+def code_fingerprints(name, paths=ALLOWED_CODE):
     # Allowlisted application code files only; no secrets, DBs or user records.
     # Returns Git-compatible SHA1 blob IDs (not plain SHA1 file hashes).
     script = """
@@ -89,7 +100,7 @@ for(const path of paths){
 }
 process.stdout.write(JSON.stringify(out));
 """
-    proc = run(["docker", "exec", name, "node", "-e", script, json.dumps(ALLOWED_CODE)])
+    proc = run(["docker", "exec", name, "node", "-e", script, json.dumps(paths)])
     if proc is None or proc.returncode:
         return {"status": "unavailable"}
     try:
@@ -163,6 +174,8 @@ def main():
         "no_resources_modified": True,
         "containers": {name: image_metadata(name) for name in SERVICES},
         "running_hub_code_blobs": code_fingerprints("v79-hub"),
+        "running_business_agent_code_blobs": code_fingerprints("v79-business-agent", AGENT_CODE),
+        "pilot_business_agent_code_blobs": code_fingerprints("v79-g12-agent-pilot", AGENT_CODE),
         "pin": {
             "exists": PIN.is_file() and not PIN.is_symlink(),
             "expected_sha256": EXPECTED_PIN_SHA256,
