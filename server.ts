@@ -20,6 +20,7 @@ import { prepareReviewedHandoff } from "./server/agent-reviewed-handoff.mjs";
 import { prepareSupervisedMarketingDraft } from "./server/agent-supervised-marketing.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
+import { createOwnerExecutiveProxy } from "./server/agent-executive-owner-proxy.mjs";
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
@@ -4757,6 +4758,20 @@ app.post("/api/agent/chat", async (req, res) => {
     res.status(502).json({ error: "Owner Assistant service is unavailable." });
   }
 });
+
+// G1.2: owner-MFA-only read-only executive endpoints. A browser-supplied
+// context, URL or model command is never accepted as authority.
+const executiveProxyDeps = {
+  ownerMfaContext: ownerApprovalContext,
+  readServiceToken: readAgentApiToken,
+  agentBaseUrl: agentInternalUrl,
+};
+app.get("/api/agent/executive-structure",
+  createOwnerExecutiveProxy("structure", executiveProxyDeps));
+app.post("/api/agent/executive-handoff",
+  createOwnerExecutiveProxy("handoff", executiveProxyDeps));
+app.post("/api/agent/executive-preview",
+  createOwnerExecutiveProxy("preview", executiveProxyDeps));
 
 app.use("/api/users", (req, res, next) => {
   if (req.method === "GET") return requirePermission("team")(req, res, next);
