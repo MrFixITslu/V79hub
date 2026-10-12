@@ -19,6 +19,8 @@ test("development model refuses nonlocal endpoints before making any request", (
     "https://api.openai.com",
     "http://evil.example.com",
     "https://ollama:11434",
+    "http://user:password@ollama:11434",
+    "http://ollama:11434/unexpected",
   ]) {
     assert.throws(
       () => createLocalDevelopmentProposer({
