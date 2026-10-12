@@ -11,7 +11,7 @@ This matrix is based on inspected GitHub source code; it does **not** assert tha
 | Source / layer | Code contract | Verified by CI? | Live evidence proven? | Fail-closed disposition |
 | --- | --- | --- | --- | --- |
 | Founder context | `isValidOwnerContext` and owner-scoped Hub snapshot | Yes, synthetic HTTP token/owner/cross-org tests | No | Unauthorized 401; missing owner 403; inconsistent signed Hub owner context 502 |
-| Hub internal read | `readBusinessSnapshot`: fixed internal Hub snapshot URL, shared service-token request; cross-check owner identity and organization | Yes, mock Hub integration | No production source↔image parity | Missing token/source, HTTP error and mismatch must not turn into a COO finding |
+| Hub internal read | `readBusinessSnapshot`: fixed internal Hub snapshot URL, shared service-token request; cross-check owner identity, organization **and 15-minute/120-second freshness bounds on the Hub envelope** | Yes, mock Hub integration plus synthetic envelope clock tests | No production source↔image parity | Missing token/source, HTTP error, mismatched org, stale/future/undated envelope → reject the whole snapshot before COO evidence construction |
 | Hub admin counters | `hub_owner_summary` only numeric `users`, `activeSessions`; source time `generatedAt` | New future/stale/undated unit tests in this PR | No | Missing/older than 900s/over 120s future → unknown, not available |
 | Product signed aggregates | `evidence.ts` allowlisted numeric metrics, product `sourceReportedAt`, max 900s age and 120s future tolerance | Yes, unit + isolated HTTP | Live adapters currently unverified individually | Unknown, stale, absent, nonnumeric, unapproved fields → no actionable findings |
 | COO → CEO report | `prepareExecutiveHandoff`: reviewed finding IDs with numeric source+timestamp evidence only | Yes | No deployed end-to-end workflow | If no verified findings, report incomplete and avoid invented risk |
@@ -27,8 +27,8 @@ This matrix is based on inspected GitHub source code; it does **not** assert tha
 1. **No token:** /api/agent/executive-handoff and preview reject authorization; no Hub fetch or model calls.
 2. **Forged / wrong owner flag:** no privileges, no calls, no report.
 3. **Cross-org source conflict:** Hub response owner org differs; cannot deliver a report to the wrong tenant.
-4. **Future clock drift:** Hub `generatedAt` one hour ahead → owner admin counters **unknown**; never available due negative age.
-5. **Near-future clock skew:** source timestamp ≤120 s ahead → preserve existing allowed behavior.
+4. **Future clock drift:** a Hub `generatedAt` more than 120 seconds ahead → **reject the Hub snapshot before all product/owner metrics**; a raw ledger's Hub owner counters independently remain **unknown**, never available due negative age.
+5. **Near-future clock skew:** owner-envelope/source timestamp ≤120 s ahead → preserve existing allowed behavior. Envelope timestamps older than 900 s or absent are rejected before any product finding; even a current nested product date cannot rescue a stale/future envelope.
 6. **Older than 900 seconds:** product summaries stale; Hub owner counters unknown and not current.
 7. **Missing timestamp:** source unknown, never default to "right now".
 8. **Unknown or adversarial field:** embedded personal data and prompt strings excluded by numeric allowlist and cannot reach local model ranking.
