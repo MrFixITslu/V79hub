@@ -16,6 +16,11 @@ export function createLocalDevelopmentProposer(
     throw new Error("Development model endpoint must be local.");
   }
   const fetchImpl = options.fetchImpl || fetch;
+  // Owner chat defaults to very short replies; code diffs need their own budget.
+  // Keep the budget small enough for the 8 GiB V79 internal test server.
+  const requestedTokens = Number((options.env || process.env).V79_DEVELOPMENT_MAX_TOKENS || "768");
+  const draftTokens = Number.isInteger(requestedTokens) && requestedTokens >= 256 && requestedTokens <= 1536
+    ? requestedTokens : 768;
 
   return async (order) => {
     const requestBody = JSON.stringify({
@@ -37,7 +42,7 @@ export function createLocalDevelopmentProposer(
         keep_alive: runtime.keepAlive,
         options: {
           temperature: 0,
-          num_predict: Math.min(runtime.maxTokens > 0 ? runtime.maxTokens : 1024, 2048),
+          num_predict: draftTokens,
           num_ctx: Math.min(runtime.contextSize, 4096),
         },
         messages: [
@@ -62,7 +67,7 @@ export function createLocalDevelopmentProposer(
           { role: "user", content: requestBody },
         ],
       }),
-      signal: AbortSignal.timeout(Math.min(runtime.timeoutMs, 30_000)),
+      signal: AbortSignal.timeout(Math.min(runtime.timeoutMs, 60_000)),
     });
     if (!response.ok) throw new Error("Local development model unavailable.");
     const payload: unknown = await response.json();
