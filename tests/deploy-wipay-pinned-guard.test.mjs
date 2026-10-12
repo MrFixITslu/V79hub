@@ -31,7 +31,7 @@ test("embedded post-deployment Ollama smoke is syntactically valid before deploy
   const from = script.indexOf(startMarker);
   assert.ok(from >= 0, "Expected embedded agent smoke missing");
   const bodyStart = from + startMarker.length;
-  const bodyEnd = script.indexOf("\\nNODE", bodyStart);
+  const bodyEnd = script.indexOf("\nNODE", bodyStart);
   assert.ok(bodyEnd > bodyStart, "Expected embedded agent smoke terminator missing");
   const js = script.slice(bodyStart, bodyEnd);
   const result = spawnSync(process.execPath, ["--input-type=module", "--check"], {
