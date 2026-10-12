@@ -1,5 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, CreditCard, Loader2, PackageCheck, RefreshCw, Search } from "lucide-react";
+import { PlatformManualPaymentsAdmin } from "./PlatformManualPaymentsAdmin";
 
 interface AssignableApp { id: string; name: string; shortName: string; }
 interface CustomerRecord {
@@ -238,6 +239,7 @@ export function PlatformPlansAdmin() {
           )}
         </section>
       </div>
+      <PlatformManualPaymentsAdmin />
     </div>
   );
 }
