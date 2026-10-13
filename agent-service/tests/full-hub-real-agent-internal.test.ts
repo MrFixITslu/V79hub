@@ -1,16 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+// @ts-expect-error Existing JavaScript security module has no TypeScript declarations.
 import { totpCode } from "../../server/security-contract.mjs";
 
 async function availableUrl() {
   const socket=createServer();
-  await new Promise(resolve=>socket.listen(0,"127.0.0.1",resolve));
-  const origin="http://127.0.0.1:"+socket.address().port;
+  await new Promise<void>(resolve=>socket.listen(0,"127.0.0.1",()=>resolve()));
+  const address=socket.address();
+  if (!address || typeof address==="string") throw new Error("No ephemeral TCP port");
+  const origin="http://127.0.0.1:"+address.port;
   await new Promise(resolve=>socket.close(resolve));
   return origin;
 }
@@ -21,7 +24,7 @@ test("actual V79 Hub + actual Business Agent complete MFA-fenced CEO/COO handoff
   const agentOrigin=await availableUrl();
   const secret="SYNTHETIC-BUSINESS-AGENT-TOKEN-ONLY-NEVER-DEPLOY";
   const base=resolve(process.cwd(),"..");
-  const children=[];
+  const children: ChildProcess[]=[];
   t.after(async()=>{
     for(const child of children){
       if(child.exitCode===null){
@@ -80,7 +83,7 @@ test("actual V79 Hub + actual Business Agent complete MFA-fenced CEO/COO handoff
   let agentOutput="";
   agent.stdout.on("data",d=>agentOutput=(agentOutput+d).slice(-900));
   agent.stderr.on("data",d=>agentOutput=(agentOutput+d).slice(-900));
-  const wait=async(origin,endpoint,child,log)=>{
+  const wait=async(origin:string,endpoint:string,child:ChildProcess,log:()=>string)=>{
     for(let i=0;i<250;i++){
       if(child.exitCode!==null)break;
       try {
@@ -95,7 +98,7 @@ test("actual V79 Hub + actual Business Agent complete MFA-fenced CEO/COO handoff
     wait(hubOrigin,"/api/health",hub,()=>hubOutput),
     wait(agentOrigin,"/health",agent,()=>agentOutput),
   ]);
-  const call=(path,options={})=>fetch(hubOrigin+path,{
+  const call=(path:string,options:RequestInit={})=>fetch(hubOrigin+path,{
     redirect:"manual",signal:AbortSignal.timeout(25000),...options,
   });
   const anon=await call("/api/agent/executive-structure");
@@ -126,7 +129,7 @@ test("actual V79 Hub + actual Business Agent complete MFA-fenced CEO/COO handoff
   const structure=await call("/api/agent/executive-structure",{headers});
   assert.equal(structure.status,200,await structure.clone().text());
   const team=await structure.json();
-  assert.deepEqual(team.roles.map(r=>r.id),["ceo","coo"]);
+  assert.deepEqual(team.roles.map((r:{id:string})=>r.id),["ceo","coo"]);
   assert.equal(team.actionsEnabled,false);
   assert.equal(team.applicationWriteAdaptersEnabled,false);
 
