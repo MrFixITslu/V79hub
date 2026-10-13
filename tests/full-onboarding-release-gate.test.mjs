@@ -317,6 +317,89 @@ test("invite-only onboarding release gate keeps two SMBs isolated across all cus
   assert.equal(billingBody.renewalDate, "2027-01-15");
   assert.deepEqual(new Set(billingBody.enabledApps.map(app => app.id)), new Set(assignedAppIds));
 
+  // Full internal Hub acceptance excluding WiPay: exercise the new manual
+  // invoice path against this ACTUAL disposable Hub server and two tenant
+  // sessions. No real bank account, transfer, receipt, or paid activation.
+  assert.equal(billingBody.manualPaymentAvailable, true);
+  const manualHeadersA = {
+    Cookie: a.cookie,
+    Origin: origin,
+    "content-type": "application/json",
+  };
+  const manualHeadersB = {
+    Cookie: b.cookie,
+    Origin: origin,
+    "content-type": "application/json",
+  };
+  assert.equal((await request("/api/billing/manual/request", {
+    method: "POST", headers: { Origin: origin, "content-type": "application/json" }, body: "{}",
+  })).status, 401, "anonymous user must not request an invoice");
+
+  assert.equal((await request("/api/billing/manual/request", {
+    method: "POST", headers: operatorHeaders, body: "{}",
+  })).status, 403, "the founder's internal owner workspace cannot generate its own payable invoice");
+
+  const missingPrice = await request("/api/billing/manual/request", {
+    method: "POST", headers: manualHeadersB, body: "{}",
+  });
+  assert.equal(missingPrice.status, 409, "unpriced synthetic tenant must not create an invoice");
+
+  const wrongOrigin = await request("/api/billing/manual/request", {
+    method: "POST", headers: { ...manualHeadersA, Origin: "https://cross-tenant.example.invalid" },
+    body: "{}",
+  });
+  assert.equal(wrongOrigin.status, 403, "cross-origin invoice mutation must fail");
+
+  const requested = await request("/api/billing/manual/request", {
+    method: "POST", headers: manualHeadersA, body: "{}",
+  });
+  assert.equal(requested.status, 201, await requested.clone().text());
+  const pendingInvoice = await requested.json();
+  assert.equal(pendingInvoice.pendingVerification, true);
+  assert.equal(pendingInvoice.order.amount, 199);
+  assert.equal(pendingInvoice.order.currency, "XCD");
+  assert.equal(pendingInvoice.order.status, "pending");
+
+  const repeated = await request("/api/billing/manual/request", {
+    method: "POST", headers: manualHeadersA, body: "{}",
+  });
+  assert.equal(repeated.status, 200);
+  assert.equal((await repeated.json()).order.id, pendingInvoice.order.id, "invoice request must be idempotent");
+
+  const ordersA = await request("/api/billing/orders", { headers: { Cookie: a.cookie } });
+  assert.equal(ordersA.status, 200);
+  const ordersBodyA = await ordersA.json();
+  assert.equal(ordersBodyA.orders.length, 1);
+  assert.equal(ordersBodyA.orders[0].provider, "manual");
+  assert.equal(ordersBodyA.orders[0].status, "pending");
+  assert.equal(ordersBodyA.orders[0].id, pendingInvoice.order.id);
+
+  const ordersB = await request("/api/billing/orders", { headers: { Cookie: b.cookie } });
+  assert.equal(ordersB.status, 200);
+  assert.deepEqual((await ordersB.json()).orders, [], "foreign tenant's invoice must not leak");
+
+  const manualAdminPath = "/api/admin/billing/manual/orders";
+  assert.equal((await request(manualAdminPath)).status, 401);
+  assert.equal((await request(manualAdminPath, { headers: { Cookie: a.cookie } })).status, 403);
+  assert.equal((await request(manualAdminPath, { headers: operatorHeaders })).status, 403,
+    "unverified owner session must not reconcile bank transfers");
+
+  const confirmPath = manualAdminPath + "/" + pendingInvoice.order.id + "/confirm";
+  const syntheticClaim = JSON.stringify({
+    bankReference: "SYNTHETIC-NO-REAL-FUNDS",
+    evidenceNote: "Synthetic test has no verified receiving bank statement",
+    receivedAmount: 199, bankStatementVerified: false,
+    confirmation: "CONFIRM " + pendingInvoice.order.id,
+  });
+  for (const headers of [manualHeadersA, manualHeadersB, operatorHeaders]) {
+    const denied = await request(confirmPath, { method: "POST", headers, body: syntheticClaim });
+    assert.equal(denied.status, 403, "customer or owner without fresh MFA cannot settle invoice");
+  }
+  const afterClaim = await (await request("/api/billing/summary", { headers: { Cookie: a.cookie } })).json();
+  assert.equal(afterClaim.status, "trial", "manual invoice and unverified claims must not activate paid access");
+  const afterOrders = await (await request("/api/billing/orders", { headers: { Cookie: a.cookie } })).json();
+  assert.equal(afterOrders.orders[0].status, "pending", "unverified manual invoice remains unpaid");
+
   for (const customer of [a, b]) {
     const provisioned = await request(
       `/api/admin/customers/${customer.organization.id}/provision`,
