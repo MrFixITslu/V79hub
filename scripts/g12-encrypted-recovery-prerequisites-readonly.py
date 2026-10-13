@@ -42,7 +42,9 @@ def mounts(obj):
     """Destination/volume metadata only; never leak host source paths."""
     return [
         {"type": m.get("Type"), "destination": m.get("Destination"),
-         "namedVolume": m.get("Type") == "volume", "writable": bool(m.get("RW"))}
+         "namedVolume": m.get("Type") == "volume",
+         "volumeName": m.get("Name") if m.get("Type") == "volume" else None,
+         "writable": bool(m.get("RW"))}
         for m in sorted(obj.get("Mounts") or [], key=lambda x: str(x.get("Destination", "")))
         if str(m.get("Destination", "")).startswith(("/app/", "/var/lib/postgresql", "/run/secrets"))
     ]
