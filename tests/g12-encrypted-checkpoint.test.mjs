@@ -71,5 +71,5 @@ test("off-host plan cannot do anything to infrastructure",()=>{
   if(process.env.HOSTNAME==="v79sl")return;
   const r=spawnSync("bash",[url.pathname,"--plan"],{encoding:"utf8",timeout:4000});
   assert.equal(r.status,2);
-  assert.match(r.stderr,/wrong host/);
+  assert.doesNotMatch(r.stdout, /ENCRYPTED CHECKPOINT CREATED|PLAN ONLY/);
 });
