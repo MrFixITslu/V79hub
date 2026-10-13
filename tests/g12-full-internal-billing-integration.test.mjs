@@ -50,3 +50,27 @@ test("WiPay return can never settle a manual order and existing Sentinel G1.2 bo
   assert.match(server,/app\.get\("\/api\/agent\/executive-structure"/);
   assert.match(server,/app\.post\("\/api\/agent\/executive-handoff"/);
 });
+
+test("manual billing persistence failure returns fail-closed operator status in Express 4",()=>{
+  const boundaries=[
+    ['app.post("/api/billing/manual/request"', 'app.get("/api/admin/billing/manual/orders"'],
+    ['app.post("/api/admin/billing/manual/orders/:orderId/confirm"', 'app.post("/api/admin/billing/manual/orders/:orderId/reject"'],
+    ['app.post("/api/admin/billing/manual/orders/:orderId/reject"', 'function billingServiceFromRequest('],
+  ];
+  for(const [begin,end] of boundaries) {
+    const i=server.indexOf(begin),j=server.indexOf(end,i);
+    assert.ok(i>=0 && j>i, "must locate financial mutation boundary: "+begin);
+    const route=server.slice(i,j);
+    assert.match(route,/await commitStore\(nextStore\)/);
+    assert.match(route,/}\s*catch\s*\{/,"unhandled async rejection can crash Express 4");
+    assert.match(route,/if \(res\.headersSent\) return/);
+    assert.match(route,/res\.status\(503\)/);
+    assert.match(route,/}\s*finally\s*\{/,"advisory busy lock must still be released");
+  }
+  const confirm=server.slice(
+    server.indexOf('app.post("/api/admin/billing/manual/orders/:orderId/confirm"'),
+    server.indexOf('app.post("/api/admin/billing/manual/orders/:orderId/reject"')
+  );
+  assert.match(confirm,/outcome is uncertain/);
+  assert.match(confirm,/manualOrderApprovalLocks\.delete\(orderId\)/);
+});
