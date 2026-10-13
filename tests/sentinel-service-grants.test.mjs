@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import {registerSentinelGrant,revokeSentinelGrant,validateSentinelGrantCollection} from "../server/sentinel-service-grants.mjs";
+import {registerSentinelGrant,revokeSentinelGrant,validateSentinelGrantCollection,MAX_SENTINEL_GRANT_HISTORY} from "../server/sentinel-service-grants.mjs";
 import {validateSentinelServiceEntitlement} from "../server/sentinel-service-entitlement.mjs";
 
 const now=Date.parse("2026-10-10T16:00:00.000Z");
@@ -62,4 +62,40 @@ test("malformed persisted grant lists fail closed and never synthesize privilege
   assert.throws(()=>validateSentinelGrantCollection([{...g,serviceId:"v79-user"}]));
   assert.throws(()=>validateSentinelGrantCollection([{...g,status:"revoked",enabled:true}]));
   assert.throws(()=>validateSentinelGrantCollection([{...g,actions:["ticket.close"]}]));
+});
+
+// Keep expired/revoked evidence without making Hub unrestartable after 20
+// legitimate pilot grant rotations; malformed or conflicting active grants
+// still fail closed before any machine entitlement can be authorized.
+test("retained revoked grants beyond legacy 20-entry limit do not block store load",()=>{
+  const active=registerSentinelGrant(store(),options()).grant;
+  const revoked=Array.from({length:30},()=>({
+    ...active,
+    id:crypto.randomUUID(),
+    sentinelCustomerId:crypto.randomUUID(),
+    status:"revoked",enabled:false,
+    revokedAt:new Date(now+1000).toISOString(),
+    revokedBy:review.userId,
+  }));
+  const original=[...revoked,active];
+  const validated=validateSentinelGrantCollection(original);
+  assert.equal(validated.length,31);
+  assert.equal(allowed({...store(),sentinelServiceGrants:validated}),true);
+  assert.equal(original.length,31,"validation never discards historical audit records");
+  assert.throws(()=>validateSentinelGrantCollection(
+    Array.from({length:MAX_SENTINEL_GRANT_HISTORY+1},(_,i)=>({
+      ...active,id:crypto.randomUUID(),sentinelCustomerId:crypto.randomUUID(),
+      status:"revoked",enabled:false,
+      revokedAt:new Date(now+1000).toISOString(),revokedBy:review.userId,
+    }))
+  ),/Unsafe persisted Sentinel grants/);
+});
+
+test("two different active customer IDs may not bind the same tenant/client",()=>{
+  const active=registerSentinelGrant(store(),options()).grant;
+  const conflicting={...active,id:crypto.randomUUID(),sentinelCustomerId:crypto.randomUUID()};
+  assert.throws(
+    ()=>validateSentinelGrantCollection([active,conflicting]),
+    /Unsafe persisted Sentinel grants/
+  );
 });
