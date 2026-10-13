@@ -212,8 +212,8 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
           </div>
         )}
         {paymentResult && paymentResult.status !== "success" && (
-          <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
-            <strong>Payment was not applied.</strong> No access was granted from this return. {paymentResult.reason ? `Reference: ${paymentResult.reason}.` : "Please try again or contact V79 Digital."}
+          <div role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+            <strong>Checkout returned an unsuccessful status.</strong> This URL is not an authoritative billing record; review your authenticated billing orders before retrying or contact V79 Digital. {paymentResult.reason ? `Checkout reference: ${paymentResult.reason}.` : ""}
           </div>
         )}
         {error && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">{error}</div>}
