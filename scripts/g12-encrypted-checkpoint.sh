@@ -22,6 +22,9 @@ pin="$root/releases/wipay-return-585f701.pinned.yml"
 hub_compose="$root/docker-compose.yml"
 tiquet_compose=/home/firelion/V79-Sentinel/Tiquet-release-merge-20261010/docker-compose.yml
 tiquet_overlay=/home/firelion/backups/v79-sentinel-tiquet-integration-premerge-20261010/tiquet-darklaunch-release.yml
+# Tiquet's Compose uses env_file: .env; without this file a full restore
+# loses its database credentials and application signing configuration.
+tiquet_env=/home/firelion/V79-Sentinel/Tiquet-release-merge-20261010/.env
 expect_pin=8aa57bba2c6955ab5affe5394ed7bec2b9b2693bc05556db3bef0420bcc04b74
 declare -A images=(
   [v79-hub]=sha256:7876715a44166c1cbeb6b5070a774efb4d69fe36427bda1c4dee4fc637c67e30
@@ -30,7 +33,7 @@ declare -A images=(
   [v79-tiquet-manager]=sha256:ee3deff332977160d66e0dbb448aef1e1e6d4418eac333e1feaf8a07c044715b
 )
 fail(){ echo "STOP: $1; nothing has been deployed or restored" >&2; exit 2; }
-for file in "$pin" "$hub_compose" "$root/.env" "$tiquet_compose" "$tiquet_overlay"; do
+for file in "$pin" "$hub_compose" "$root/.env" "$tiquet_compose" "$tiquet_overlay" "$tiquet_env"; do
   [[ -f "$file" && ! -L "$file" && -r "$file" ]] || fail "required configuration missing or unreadable"
 done
 [[ "$(sha256sum "$pin" | cut -d' ' -f1)" == "$expect_pin" ]] || fail "WiPay overlay changed"
@@ -131,7 +134,7 @@ encrypt_stream live-inspect inspect_runtime
 encrypt_stream hub-resolved-compose compose_resolved
 encrypt_stream hub-and-tiquet-config tar -C / -cf - \
   "${hub_compose#/}" "${pin#/}" "${root#/}/.env" \
-  "${tiquet_compose#/}" "${tiquet_overlay#/}"
+  "${tiquet_compose#/}" "${tiquet_overlay#/}" "${tiquet_env#/}"
 # Capture exact rollback container images (includes the old Agent).
 for name in v79-hub v79-hub-postgres v79-business-agent v79-tiquet-manager tiquet-postgres; do
   image="$(docker inspect --format '{{.Image}}' "$name")"
