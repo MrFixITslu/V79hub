@@ -34,7 +34,9 @@ declare -A images=(
 )
 fail(){ echo "STOP: $1; nothing has been deployed or restored" >&2; exit 2; }
 for file in "$pin" "$hub_compose" "$root/.env" "$tiquet_compose" "$tiquet_overlay" "$tiquet_env"; do
-  [[ -f "$file" && ! -L "$file" && -r "$file" ]] || fail "required configuration missing or unreadable"
+  [[ -f "$file" ]] || fail "required configuration not a regular file: $file"
+  [[ ! -L "$file" ]] || fail "required configuration is a symlink: $file"
+  [[ -r "$file" ]] || fail "required configuration unreadable: $file"
 done
 [[ "$(sha256sum "$pin" | cut -d' ' -f1)" == "$expect_pin" ]] || fail "WiPay overlay changed"
 for container in v79-hub v79-hub-postgres v79-business-agent v79-tiquet-manager; do
