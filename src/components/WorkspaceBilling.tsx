@@ -79,6 +79,7 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
   const [manualMessage, setManualMessage] = useState("");
   const [manualError, setManualError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
+  const [verifiedReturn, setVerifiedReturn] = useState<"checking" | "live" | "sandbox" | "unverified">("checking");
 
   const paymentResult = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -90,6 +91,37 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
       orderId: params.get("order") || "",
     };
   }, []);
+
+  // Browser query parameters are untrusted, even when a checkout redirect
+  // normally sets them. Verify a paid order against this authenticated
+  // workspace's Hub ledger before displaying any success claim.
+  useEffect(() => {
+    if (paymentResult?.status !== "success") return;
+    const orderId = paymentResult.orderId;
+    if (!/^v79_[A-Za-z0-9_]{1,60}$/.test(orderId) || orderId.length > 64) {
+      setVerifiedReturn("unverified");
+      return;
+    }
+    let active = true;
+    fetch("/api/billing/orders", { cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) throw new Error("Billing verification unavailable");
+        const data = await response.json();
+        const order = Array.isArray(data.orders)
+          ? data.orders.find((row: any) =>
+              row?.id === orderId && row?.provider === "wipay" &&
+              row?.sourceApp === "hub" && row?.status === "paid" &&
+              typeof row?.providerTransactionId === "string" &&
+              row.providerTransactionId.length > 0 &&
+              typeof row?.paidAt === "string" && row.paidAt.length > 0)
+          : undefined;
+        if (active) setVerifiedReturn(order?.providerEnvironment === "live"
+          ? "live" : order?.providerEnvironment === "sandbox"
+            ? "sandbox" : "unverified");
+      })
+      .catch(() => { if (active) setVerifiedReturn("unverified"); });
+    return () => { active = false; };
+  }, [paymentResult]);
 
   useEffect(() => {
     fetch("/api/billing/summary", { cache: "no-store" })
@@ -165,8 +197,18 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
         </section>
 
         {paymentResult?.status === "success" && (
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
-            <strong>Payment verified.</strong> Your V79 billing record has been updated{paymentResult.orderId ? ` for order ${paymentResult.orderId}` : ""}.
+          <div role="status" className={`rounded-xl border px-4 py-3 text-xs ${verifiedReturn === "live"
+            ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-100"
+            : "border-amber-500/25 bg-amber-500/10 text-amber-100"}`}>
+            {verifiedReturn === "live" ? (
+              <><strong>Payment verified in Hub.</strong> Your authenticated billing ledger confirms a paid live WiPay order{paymentResult.orderId ? ` ${paymentResult.orderId}` : ""}.</>
+            ) : verifiedReturn === "sandbox" ? (
+              <><strong>Sandbox test recorded.</strong> The authenticated ledger shows a completed test transaction. No paid subscription access was granted by the sandbox test.</>
+            ) : verifiedReturn === "checking" ? (
+              <><strong>Checking payment status.</strong> Confirming the checkout return against the Hub billing ledger.</>
+            ) : (
+              <><strong>Payment not verified.</strong> The checkout URL alone is not proof of payment. Check your billing orders or contact V79 Digital before relying on this result.</>
+            )}
           </div>
         )}
         {paymentResult && paymentResult.status !== "success" && (
