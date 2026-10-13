@@ -52,6 +52,30 @@ Then ONLY within a maintenance window, with rollback immediately available, appl
 
 **Never run generic `scripts/deploy-server.sh`, generic ecosystem deployment or a plain `docker compose up -d --build` on the pinned release.** These paths are not certified to preserve the active WiPay override, release images and Tiquet overlays.
 
+
+## Actual checkpoint progress — 2026-10-13 (supersedes older planned-status bullets)
+
+**Evidence from founder/operator transcripts, not an independent end-to-end application restore.** The original "Final current status" section below is historical at the time of the initial design; this section records subsequent evidence.
+
+- Encrypted GPG public/private key flow: Acer-generated key `484CF39CE37A02884497AD9C41A17102D2842ECE`; Acer private key preserved and independently AES-256 backup-encrypted to hardware-identified Kingston USB; server-side public-key ciphertext decrypted on Acer, `KEY_RECIPIENT_ROUNDTRIP_VERIFIED`.
+- Narrowly owner-approved 14-artifact encrypted Hub/Tiquet checkpoint created on server at `/home/firelion/.v79-g12-encrypted-recovery/g12-20261013T144536Z-3589644` using audited draft SHA `d42010aada290817be07353979343f29415e9da7`. Contains both PostgreSQL custom dumps, three app data/upload tar snapshots, runtime configs and relevant secrets, resolved Hub Compose, live runtime inspect, and exactly five saved Docker image archives.
+- 14/14 archive SHA-256 hashes and recorded manifest checked; checkpoint ~743MiB. Both PostgreSQL archives stream-decrypted with Acer-only private GPG key; PGDMP magic and full stream consumption verified.
+- Isolated restored DBs using original cached PostgreSQL images, `--network none`, read-only root, tmpfs data and no persistent binds/volumes. **Hub: 1 business table, 2 app constraints; Tiquet: 24 business tables, 51 app constraints.** Scratch containers auto-removed and confirmed. Hub PG single state-JSONB table is expected by source; running `V79_HUB_STORE_BACKEND=postgres`, not JSON.
+- Decrypted application archive listings: Hub 10 entries including auxiliary JSON, POS signing key, Agent runtime token; Tiquet app data 21 entries, uploads 9, combined configuration 6 including exact live Tiquet `/home/firelion/V79Tiquet/.env`.
+- All five encrypted rollback-image tar streams decrypted on Acer and passed Docker-save structural listing: Hub 21 entries, Hub PG 22, Business Agent 21, Tiquet 23, Tiquet PG 23. **Tar listing does not prove image import/operational startup.**
+- No live service restart, application deployment, secret leak, `main` merge, or data restore into live resources reported. Live WiPay overlay unchanged during earlier preflight; fresh parity required before cutover.
+
+### Remaining gates — still NO GO
+
+1. **Isolated full-application restore**: preflight an internal-only Docker network, no published ports, no production networks, no external email/payment/third-party egress, temporary scratch storage only. Use preserved exact app images and streams to restore archived app data without leaking keys/plaintext to host disk. Start Hub+Tiquet on isolated PostgreSQL restorations, ensure correct app health and DB schema, check safe diagnostic aggregate counts without leaking tenant contents, and prove scratch teardown. Preserve original Hub Business Agent image if testing that service.
+2. **Full data fidelity and security**: compare restored account/organization/membership/entitlement/trial/billing/ticket counts against protected provenance (sensitive values never logged); prove MFA owner login, SSO launch denial/acceptance and tenant segmentation in a controlled browser environment. Prevent sending real email, creating real payments, or connecting to other live V79 apps.
+3. **Exact rollback rehearsal**: separately verify saved Docker images actually load/start and current configs are usable in isolation, and record how Hub+Agent could be returned to their exact pinned WiPay runtime without modifying live.
+4. **Final security review, user acceptance and release-owner exact-commit signoff** only after prior gates. The commercial launch and active merchant payments have separate explicit approval gates.
+
+**Caveat:** These backups were captured at different times; database and file snapshots are not cross-app atomic. The full 743MiB encrypted application checkpoint is on the Dell, not on the Kingston USB (the USB has only private-key escrow); whole-server disaster recovery requires a separate off-host encrypted copy.
+
+---
+
 ## Final current status
 
 - **Source/isolated functional CI:** PASS for exact reviewed candidate.
