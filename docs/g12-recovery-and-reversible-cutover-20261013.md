@@ -65,25 +65,47 @@ Then ONLY within a maintenance window, with rollback immediately available, appl
 - All five encrypted rollback-image tar streams decrypted on Acer and passed Docker-save structural listing: Hub 21 entries, Hub PG 22, Business Agent 21, Tiquet 23, Tiquet PG 23. **Tar listing does not prove image import/operational startup.**
 - No live service restart, application deployment, secret leak, `main` merge, or data restore into live resources reported. Live WiPay overlay unchanged during earlier preflight; fresh parity required before cutover.
 
+### Verified operator recovery evidence — updated 2026-10-13
+
+The evidence below **supersedes the older TAR-listing-only and "NOT VERIFIED" statements** in this draft. All observed outputs were supplied by the founder from an independent Zorin OS Acer; they are not a full Docker-engine rollback or authorization to deploy.
+
+| Gate | Observed result | Boundary |
+|---|---|---|
+| Encrypted checkpoint integrity | 14/14 ciphertext SHA-256 checks PASS | Does not establish atomic multi-app capture or off-host backup of full checkpoint |
+| Exact saved-image import | All five encrypted images IMPORTED using Acer rootless Podman and LUKS2-backed storage; 0 failures | Importer is **Podman**, not a recovery rehearsal using the Dell's Docker Engine 29 |
+| Image filesystem equivalence | All five imported `linux/amd64` images' RootFS layer fingerprints MATCH the running Docker images | Metadata/OCI manifest IDs and run configuration not necessarily identical |
+| DB and application data recovery | Both encrypted PostgreSQL dumps and Hub/Tiquet application-file snapshots restored into temporary offline containers | No live accounts/databases touched; original owner key/session identity not validated |
+| Recovered application execution | Hub and Tiquet started, both local health checks PASS; two DB schema-shape checks PASS; five protected anonymous API requests correctly returned 401 | Hub Business Agent not started from recovery in this run; no current-owner MFA, live billing, real SSO or UI browser acceptance |
+| Network isolation | Podman network-disabled namespace; no published ports, no real external calls | Egress control reported by the executed recovery script |
+| Recovery cleanup | Exact-scoped temporary recovery containers removed; original Acer `/swapfile` restored | Hub/Tiquet required SIGKILL after the 10-second SIGTERM timeout; this did not prevent removal |
+| Release | All prior production images, Hub/Tiquet services, accounts, and pinned WiPay overlay preserved | No candidate G1.2 image deployed; **NO-GO** |
+
+Observed final console evidence: `IMPORTS_PASSED=5`, `IMPORTS_FAILED=0`, `IMPORTED_IMAGES_MATCH_LIVE_ROOTFS=5/5`, `IMPORTED_IMAGES_AND_CHECKPOINT_CORE_APPLICATION_OFFLINE_RECOVERY_PASS`, `ISOLATED_RECOVERY_CONTAINERS_REMOVED` and `ACER_SWAP_RESTORED=YES`. Source-of-truth incident notes and operator transcripts are maintained in issue #138.
+
+Independent off-Acer GPG private-key escrow is described elsewhere in this draft as an AES-256-wrapped Kingston USB copy; **do not treat possession as sufficient disaster-recovery proof without independently testing the secondary copy and recovery procedure**. The full encrypted 14-artifact checkpoint itself remains on the V79 Dell: whole-host disaster recovery would also need a protected off-server checkpoint copy. Do not copy decryption keys, raw secrets or plaintext backup data into GitHub or issue comments.
+
 ### Remaining gates — still NO GO
 
-1. **Isolated full-application restore**: preflight an internal-only Docker network, no published ports, no production networks, no external email/payment/third-party egress, temporary scratch storage only. Use preserved exact app images and streams to restore archived app data without leaking keys/plaintext to host disk. Start Hub+Tiquet on isolated PostgreSQL restorations, ensure correct app health and DB schema, check safe diagnostic aggregate counts without leaking tenant contents, and prove scratch teardown. Preserve original Hub Business Agent image if testing that service.
-2. **Full data fidelity and security**: compare restored account/organization/membership/entitlement/trial/billing/ticket counts against protected provenance (sensitive values never logged); prove MFA owner login, SSO launch denial/acceptance and tenant segmentation in a controlled browser environment. Prevent sending real email, creating real payments, or connecting to other live V79 apps.
-3. **Exact rollback rehearsal**: separately verify saved Docker images actually load/start and current configs are usable in isolation, and record how Hub+Agent could be returned to their exact pinned WiPay runtime without modifying live.
-4. **Final security review, user acceptance and release-owner exact-commit signoff** only after prior gates. The commercial launch and active merchant payments have separate explicit approval gates.
+1. **Business Agent and candidate integration**: Verify the backed-up Business Agent actually starts with safe isolated dependencies; then run the exact reconciled G1.2 candidate against disposable Hub/Tiquet and agent test instances. The archived old Hub/Tiquet startup PASS must not be mistaken for candidate G1.2 acceptance.
+2. **Data fidelity and authenticated function**: Verify sensitive restored owner MFA decryptability without displaying secrets, tenant authorization, trials, SSO, synthetic manual billing and agent capability boundaries. Preserve live accounts and block real payments/email during tests. Synthetic positive MFA and signed SSO were previously proven only in disposable scratch tests.
+3. **Exact Docker-native reversible cutover**: Separately validate the old pinned Docker image references and full runtime/Compose environment including the immutable WiPay override; rehearse safe return to old Hub and Business Agent from a separate environment. Matching root filesystem layers in Acer Podman is not exact Docker rollback proof.
+4. **Independent source/security review, F01–F16 browser acceptance and founder exact-SHA sign-off**: GitHub CI passed for draft head `bb88d7cfff3df218916d180db14154342cac31e9` (root CI, isolated smoke, five-app disposable staging), but no upgrade or live browser acceptance has occurred. Keep PR #143 draft, `main` unchanged and the live system untouched until approval.
+
 
 **Caveat:** These backups were captured at different times; database and file snapshots are not cross-app atomic. The full 743MiB encrypted application checkpoint is on the Dell, not on the Kingston USB (the USB has only private-key escrow); whole-server disaster recovery requires a separate off-host encrypted copy.
 
 ---
 
-## Final current status
+## Latest gate status (supersedes original pre-checkpoint status)
 
-- **Source/isolated functional CI:** PASS for exact reviewed candidate.
-- **Live metadata parity/pinned overlay health:** PASS.
-- **Current complete encrypted backup:** NOT VERIFIED.
-- **Decrypt + full isolated restore + rollback:** NOT VERIFIED.
-- **Live upgraded Hub + Agent browser acceptance:** NOT PERFORMED.
-- **Internal test-server cutover:** NO GO.
-- **Commercial launch/live WiPay/real customer onboarding:** SEPARATE NO GO.
+- **G1.2 draft PR #143 at `bb88d7c`**: Three GitHub workflows passed; PR remains DRAFT/UNMERGED.
+- **Encrypted checkpoint integrity**: 14/14 ciphertext hashes PASS; five saved image archives independently imported on Acer.
+- **Recovered running-image filesystem parity**: 5/5 PASS by `RootFS.Layers` and platform; not byte-identical metadata nor a Docker-native rollback claim.
+- **Hub + Tiquet core restore and offline startup**: PASS with restored PostgreSQL and application data, health, schema checks and anonymous authorization denial; exact-scoped cleanup and Acer swap restoration PASS.
+- **Business Agent recovery, current-owner MFA and full billing/SSO against original identities**: OPEN.
+- **Exact Docker/Compose/WiPay rollback, candidate G1.2 integration + full desktop/mobile acceptance**: OPEN.
+- **Off-host recovery readiness**: Claimed independent key escrow must be recovery-tested; full encrypted checkpoint copy exists on Dell only.
+- **Internal test-server cutover**: **NO GO**.
+- **Commercial customer activation / live WiPay**: **SEPARATE NO GO**.
 
-The user's only permitted *functional* exception is WiPay processing. Data loss, MFA, SSO, tenant separation, manual billing, and app functionality are NOT exceptions.
+The founder's only permitted **functional** internal-test exception is WiPay processing; backups, MFA, tenancy, manual billing and non-WiPay capabilities are not waived.
