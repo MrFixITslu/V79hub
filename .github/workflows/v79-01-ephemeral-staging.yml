@@ -9,6 +9,18 @@ on:
       - server/subscription-access.mjs
       - server/entitlement-validation.mjs
       - server/legacy-cutover.mjs
+      # Owner-approved internal Hub functionality; disposable 5-app smoke.
+      # One synthetic PR runner, no production secrets or published ports.
+      - server.ts
+      - server/manual-payment-contract.mjs
+      - server/sentinel-service-grants.mjs
+      - server/sentinel-service-entitlement.mjs
+      - server/sentinel-grant-operator.mjs
+      - src/components/WorkspaceBilling.tsx
+      - src/components/PlatformPlansAdmin.tsx
+      - src/components/ExecutiveReviewPanel.tsx
+      - tests/g12-ceo-coo-full-hub-http.test.mjs
+      - tests/full-onboarding-release-gate.test.mjs
   workflow_dispatch:
 
 # PR-only until explicitly promoted. No environment: production, deployment
