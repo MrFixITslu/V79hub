@@ -20,6 +20,7 @@ export function PlatformManualPaymentsAdmin() {
   const [busy, setBusy] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [reference, setReference] = useState("");
+  const [receivedAmount, setReceivedAmount] = useState("");
   const [evidence, setEvidence] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [bankVerified, setBankVerified] = useState(false);
@@ -46,7 +47,7 @@ export function PlatformManualPaymentsAdmin() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not reject invoice.");
       setMessage("Pending manual invoice marked rejected. No paid access was granted.");
-      setSelectedId(""); setEvidence(""); setReference(""); setConfirmation(""); setBankVerified(false);
+      setSelectedId(""); setEvidence(""); setReference(""); setReceivedAmount(""); setConfirmation(""); setBankVerified(false);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Rejection failed.");
@@ -54,6 +55,11 @@ export function PlatformManualPaymentsAdmin() {
   }
   async function verify() {
     if (!selected) return;
+    // Do not silently claim the invoice amount is what cleared the bank.
+    if (!/^\d+(?:\.\d{1,2})?$/.test(receivedAmount.trim()) || Number(receivedAmount) !== selected.amount) {
+      setError("Enter the exact amount received from the bank statement; it must match the invoice.");
+      return;
+    }
     if (confirmation !== `CONFIRM ${selected.id}`) { setError("Enter the full confirmation phrase."); return; }
     if (!window.confirm("Have you independently verified received funds in the bank statement? This action grants paid access.")) return;
     setBusy(true);
@@ -64,13 +70,14 @@ export function PlatformManualPaymentsAdmin() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bankReference: reference, evidenceNote: evidence,
-          receivedAmount: selected.amount, bankStatementVerified: bankVerified, confirmation }),
+          receivedAmount: receivedAmount.trim(), bankStatementVerified: bankVerified, confirmation }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error + (data.code ? ` (${data.code})` : ""));
       setMessage(`Bank receipt confirmed for ${selected.organization}. Paid through ${new Date(data.paidThroughAt).toLocaleDateString()}.`);
       setSelectedId("");
       setReference("");
+      setReceivedAmount("");
       setEvidence("");
       setConfirmation("");
       setBankVerified(false);
@@ -96,7 +103,7 @@ export function PlatformManualPaymentsAdmin() {
         <div className="max-h-[360px] overflow-y-auto divide-y">
           {orders.length === 0 && <p className="p-4 text-sm text-slate-500">No manual payment requests.</p>}
           {orders.map(order => (
-            <button type="button" key={order.id} onClick={() => { setSelectedId(order.status === "pending" ? order.id : ""); setConfirmation(""); setReference(""); setEvidence(""); setBankVerified(false); setError(""); }}
+            <button type="button" key={order.id} onClick={() => { setSelectedId(order.status === "pending" ? order.id : ""); setConfirmation(""); setReference(""); setReceivedAmount(""); setEvidence(""); setBankVerified(false); setError(""); }}
               className={`w-full text-left p-3 hover:bg-slate-50 ${selectedId === order.id ? "bg-cyan-50" : ""}`}>
               <span className="block font-semibold text-sm text-slate-900">{order.organization}</span>
               <span className="block text-xs text-slate-600">{order.currency} {order.amount.toFixed(2)} · {order.status} · {new Date(order.createdAt).toLocaleDateString()}</span>
@@ -109,6 +116,11 @@ export function PlatformManualPaymentsAdmin() {
             <>
               <div className="text-sm font-semibold text-slate-900">{selected.organization}: EC$ {selected.amount.toFixed(2)}</div>
               <p className="text-xs text-slate-600">Check the receiving bank account, exact incoming amount, transaction reference and applicable customer invoice. Do not enter bank account numbers or customer passwords.</p>
+              <label className="block text-xs font-semibold text-slate-700">Amount actually received (XCD)
+                <input type="number" inputMode="decimal" min="0" step="0.01" value={receivedAmount}
+                  onChange={e => setReceivedAmount(e.target.value)} className="admin-input mt-1"
+                  placeholder="Enter amount from cleared bank statement" />
+              </label>
               <label className="block text-xs font-semibold text-slate-700">Verified bank transaction reference
                 <input value={reference} onChange={e => setReference(e.target.value)} maxLength={100} className="admin-input mt-1" placeholder="Bank reference from received funds"/>
               </label>
@@ -122,7 +134,7 @@ export function PlatformManualPaymentsAdmin() {
               <label className="block text-xs font-semibold text-slate-700">Type CONFIRM followed by the exact order ID
                 <input value={confirmation} onChange={e => setConfirmation(e.target.value)} className="admin-input mt-1" placeholder={`CONFIRM ${selected.id}`}/>
               </label>
-              <button type="button" disabled={busy || !bankVerified || confirmation !== `CONFIRM ${selected.id}` || evidence.trim().length < 20 || reference.trim().length < 6}
+              <button type="button" disabled={busy || !bankVerified || !/^\d+(?:\.\d{1,2})?$/.test(receivedAmount.trim()) || Number(receivedAmount) !== selected.amount || confirmation !== `CONFIRM ${selected.id}` || evidence.trim().length < 20 || reference.trim().length < 6}
                 onClick={() => void verify()}
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">
                 <ShieldCheck className="w-4 h-4"/> {busy ? "Verifying…" : "Confirm received funds"}
