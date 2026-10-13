@@ -2767,6 +2767,11 @@ app.post("/api/billing/manual/request", requireAuth, requirePermission("billing"
   onboardingAudit(nextStore, "manual_invoice_requested", { orderId: order.id, amount: order.amount, currency: order.currency, billingCycle: order.billingCycleAtOrder }, session.userId, session.organizationId);
   await commitStore(nextStore);
   return res.status(201).json({ order: { id: order.id, amount: order.amount, currency: order.currency, status: order.status }, pendingVerification: true });
+  } catch {
+    // Express 4 does not automatically forward a rejected async route Promise.
+    // A persistence error must not crash the Hub or claim a saved invoice.
+    if (res.headersSent) return;
+    return res.status(503).json({ error: "Unable to verify the invoice request. Refresh billing orders before retrying." });
   } finally {
     manualBillingMutationBusy = false;
   }
@@ -2833,6 +2838,11 @@ app.post("/api/admin/billing/manual/orders/:orderId/confirm", requireAuth, requi
     }, actorUserId, order!.organizationId);
     await commitStore(nextStore);
     return res.status(200).json({ verified: true, orderId, paidThroughAt: result.paidThroughAt });
+  } catch {
+    // An interrupted write can have an ambiguous commit outcome. Never tell
+    // the operator to confirm a bank receipt again without checking the ledger.
+    if (res.headersSent) return;
+    return res.status(503).json({ error: "Payment confirmation outcome is uncertain. Refresh the invoice and payment ledger before taking another action." });
   } finally {
     manualOrderApprovalLocks.delete(orderId);
     manualBillingMutationBusy = false;
@@ -2862,6 +2872,9 @@ app.post("/api/admin/billing/manual/orders/:orderId/reject", requireAuth, requir
     onboardingAudit(nextStore, "manual_invoice_rejected", { orderId, reason }, actorUserId, order.organizationId);
     await commitStore(nextStore);
     return res.json({ rejected: true, orderId });
+  } catch {
+    if (res.headersSent) return;
+    return res.status(503).json({ error: "Invoice rejection outcome is uncertain. Refresh order status before retrying." });
   } finally {
     manualBillingMutationBusy = false;
   }
