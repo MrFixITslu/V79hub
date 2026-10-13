@@ -66,17 +66,26 @@ export function revokeSentinelGrant(store,{grantId,reviewer,now=Date.now()}={}){
 
 // Only accept exact, explicitly valid shapes for persisted data. Anything
 // suspicious makes the receiver reject grants rather than repair stale state.
+// Revoked grants remain part of the audit history: a 20-entry lifetime ceiling
+// would eventually block the entire Hub from restarting after normal renewals.
+// Keep a generous finite bound against malformed untrusted persisted state.
+export const MAX_SENTINEL_GRANT_HISTORY=4096;
 export function validateSentinelGrantCollection(value){
-  if(!Array.isArray(value) || value.length>20) throw Error("Unsafe persisted Sentinel grants");
-  const ids=new Set(),activeCustomers=new Set();
+  if(!Array.isArray(value) || value.length>MAX_SENTINEL_GRANT_HISTORY) throw Error("Unsafe persisted Sentinel grants");
+  const ids=new Set(),activeCustomers=new Set(),activeClientMappings=new Set();
   for(const g of value){
     if(!validGrant(g) || !UUID.test(g.id||"") ||
        !["active","revoked"].includes(g.status) || typeof g.enabled!=="boolean" ||
        (g.status==="active")!==g.enabled ||
        !Number.isFinite(Date.parse(g.expiresAt)) || ids.has(g.id) ||
-       (g.status==="active" && activeCustomers.has(g.sentinelCustomerId)))
+       (g.status==="active" && activeCustomers.has(g.sentinelCustomerId)) ||
+       (g.status==="active" && activeClientMappings.has(g.organizationId+"|"+g.tiquetClientId)))
       throw Error("Unsafe persisted Sentinel grants");
-    ids.add(g.id);if(g.status==="active") activeCustomers.add(g.sentinelCustomerId);
+    ids.add(g.id);
+    if(g.status==="active") {
+      activeCustomers.add(g.sentinelCustomerId);
+      activeClientMappings.add(g.organizationId+"|"+g.tiquetClientId);
+    }
   }
   return value.map(x=>({...x,actions:[...x.actions]}));
 }
