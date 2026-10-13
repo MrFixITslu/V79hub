@@ -32,7 +32,9 @@ jobs:
       contents: read
     services:
       synthetic-postgres:
-        image: public.ecr.aws/docker/library/postgres:17-alpine
+        # Official upstream PostgreSQL from Docker Hub; public ECR registry
+        # returned an upstream data-limit response before tests could start.
+        image: postgres:17-alpine
         env:
           POSTGRES_USER: v79_ci_agent
           POSTGRES_PASSWORD: synthetic-ci-password-not-reused
