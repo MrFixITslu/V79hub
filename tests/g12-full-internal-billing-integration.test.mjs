@@ -83,3 +83,18 @@ test("manual reconciliation UI never autofills bank receipt amount from invoice"
   assert.match(reconcile,/Number\(receivedAmount\) !== selected\.amount/);
   assert.match(reconcile,/setReceivedAmount\(""\)/);
 });
+
+test("WiPay success banner requires authenticated order, never trusts URL query",()=>{
+  const marker=billing.indexOf('Browser query parameters are untrusted');
+  assert.ok(marker>0);
+  assert.match(billing,/fetch\("\/api\/billing\/orders", \{ cache: "no-store" \}\)/);
+  assert.match(billing,/row\?\.id === orderId && row\?\.provider === "wipay"/);
+  assert.match(billing,/row\?\.sourceApp === "hub" && row\?\.status === "paid"/);
+  assert.match(billing,/typeof row\?\.providerTransactionId === "string"/);
+  assert.match(billing,/typeof row\?\.paidAt === "string"/);
+  assert.match(billing,/verifiedReturn === "live"/);
+  assert.match(billing,/verifiedReturn === "sandbox"/);
+  assert.match(billing,/Payment not verified\./);
+  assert.match(billing,/No paid subscription access was granted by the sandbox test\./);
+  assert.doesNotMatch(billing,/<strong>Payment verified\.<\/strong>/);
+});
