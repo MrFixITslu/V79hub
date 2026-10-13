@@ -22,9 +22,12 @@ pin="$root/releases/wipay-return-585f701.pinned.yml"
 hub_compose="$root/docker-compose.yml"
 tiquet_compose=/home/firelion/V79-Sentinel/Tiquet-release-merge-20261010/docker-compose.yml
 tiquet_overlay=/home/firelion/backups/v79-sentinel-tiquet-integration-premerge-20261010/tiquet-darklaunch-release.yml
-# Tiquet's Compose uses env_file: .env; without this file a full restore
-# loses its database credentials and application signing configuration.
-tiquet_env=/home/firelion/V79-Sentinel/Tiquet-release-merge-20261010/.env
+# The LIVE Tiquet Compose project explicitly points its working directory
+# to /home/firelion/V79Tiquet, NOT the checkout holding its -f Compose file.
+# Preserve its env_file: .env (database and app signing material) from the
+# verified runtime project directory, and fail closed if that identity changes.
+tiquet_workdir=/home/firelion/V79Tiquet
+tiquet_env="$tiquet_workdir/.env"
 expect_pin=8aa57bba2c6955ab5affe5394ed7bec2b9b2693bc05556db3bef0420bcc04b74
 declare -A images=(
   [v79-hub]=sha256:7876715a44166c1cbeb6b5070a774efb4d69fe36427bda1c4dee4fc637c67e30
@@ -47,6 +50,8 @@ for container in v79-hub v79-hub-postgres v79-business-agent v79-tiquet-manager;
 done
 [[ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' v79-hub)" == v79-hub ]] || fail "Hub Compose project changed"
 [[ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' v79-tiquet-manager)" == v79tiquet ]] || fail "Tiquet Compose project changed"
+[[ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' v79-tiquet-manager)" == "$tiquet_workdir" ]] || fail "Tiquet Compose working directory changed"
+[[ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' v79-tiquet-manager)" == "$tiquet_compose,$tiquet_overlay" ]] || fail "Tiquet Compose file list changed"
 for spec in \
   'v79-hub-postgres|/var/lib/postgresql/data|v79-hub_v79_hub_postgres_data' \
   'tiquet-postgres|/var/lib/postgresql/data|v79tiquet_tiquet_pg_data' \
