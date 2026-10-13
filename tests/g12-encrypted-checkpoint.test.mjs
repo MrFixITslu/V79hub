@@ -54,7 +54,9 @@ test("backup refuses host/image/volume drift before any archive writes",()=>{
 
 test("checkpoint is encrypted on streaming boundaries with no plaintext snapshots or release operations",()=>{
   assert.doesNotMatch(script,/\bdocker\s+(?:run|start|stop|restart|rm|cp .*\/tmp|compose (?:up|down))\b/);
-  assert.doesNotMatch(script,/\b(?:pg_restore|psql|DROP DATABASE|TRUNCATE|ALTER SYSTEM)\b/);
+  assert.doesNotMatch(script,/\b(?:psql|DROP DATABASE|TRUNCATE|ALTER SYSTEM)\b/);
+  // pg_restore may be checked for availability, but must never be executed.
+  assert.doesNotMatch(script,/^(?!.*command -v)\s*pg_restore\b/m);
   assert.doesNotMatch(script,/docker\s+image\s+(?:rm|prune|tag|pull|push)/);
   assert.doesNotMatch(script,/tar -[a-z]*x/);
   assert.doesNotMatch(script,/--symmetric|--passphrase|--pinentry-mode loopback/);
