@@ -74,3 +74,12 @@ test("manual billing persistence failure returns fail-closed operator status in 
   assert.match(confirm,/outcome is uncertain/);
   assert.match(confirm,/manualOrderApprovalLocks\.delete\(orderId\)/);
 });
+
+test("manual reconciliation UI never autofills bank receipt amount from invoice",()=>{
+  assert.match(reconcile,/const \[receivedAmount, setReceivedAmount\] = useState\(""\)/);
+  assert.match(reconcile,/Amount actually received \(XCD\)/);
+  assert.match(reconcile,/receivedAmount: receivedAmount\.trim\(\)/);
+  assert.doesNotMatch(reconcile,/receivedAmount:\s*selected\.amount/);
+  assert.match(reconcile,/Number\(receivedAmount\) !== selected\.amount/);
+  assert.match(reconcile,/setReceivedAmount\(""\)/);
+});
