@@ -95,6 +95,8 @@ test("WiPay success banner requires authenticated order, never trusts URL query"
   assert.match(billing,/verifiedReturn === "live"/);
   assert.match(billing,/verifiedReturn === "sandbox"/);
   assert.match(billing,/Payment not verified\./);
+  assert.match(billing,/Checkout returned an unsuccessful status\./);
+  assert.doesNotMatch(billing,/Payment was not applied\./);
   assert.match(billing,/No paid subscription access was granted by the sandbox test\./);
   assert.doesNotMatch(billing,/<strong>Payment verified\.<\/strong>/);
 });
