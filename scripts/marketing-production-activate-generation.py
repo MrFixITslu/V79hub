@@ -331,7 +331,21 @@ def activation_command(name):
         args += ['--file', str(path)]
     return args+['up', '--no-deps', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '120', service]
 
-def verify_active(name):
+def compare_runtime_config(before, current, configured_hostname=None):
+    old_config, new_config = copy.deepcopy(before['Config']), copy.deepcopy(current['Config'])
+    old_labels, new_labels = old_config.pop('Labels'), new_config.pop('Labels')
+    old_config.pop('Env'); new_config.pop('Env')
+    if configured_hostname is None:
+        require(old_config.get('Hostname') == before['Id'][:12] and new_config.get('Hostname') == current['Id'][:12],
+                'Unexpected hostname outside exact Docker-generated container identity')
+        old_config['Hostname'] = new_config['Hostname'] = '<docker-generated-container-id>'
+    else:
+        require(old_config.get('Hostname') == configured_hostname and new_config.get('Hostname') == configured_hostname,
+                'Explicit configured hostname changed')
+    require(old_config == new_config, 'Activation changed application runtime configuration')
+    return old_labels, new_labels
+
+def verify_active(name, configured_hostname=None):
     current = inspect(name)
     before = runtime[name]
     require(current['Image'] == before['Image'] and healthy(current) and current['Id'] != before['Id'],
@@ -343,10 +357,7 @@ def verify_active(name):
             'Activation changed mounts, resources, network or runtime permissions')
     require(set(current['NetworkSettings']['Networks']) == set(before['NetworkSettings']['Networks']),
             'Activation changed network membership')
-    old_config, new_config = copy.deepcopy(before['Config']), copy.deepcopy(current['Config'])
-    old_labels, new_labels = old_config.pop('Labels'), new_config.pop('Labels')
-    old_config.pop('Env'); new_config.pop('Env')
-    require(old_config == new_config, 'Activation changed application runtime configuration')
+    old_labels, new_labels = compare_runtime_config(before, current, configured_hostname)
     expected_files = old_labels['com.docker.compose.project.config_files']+','+str(ACTIVATION/('enable-'+name+'.yml'))
     require(new_labels.get('com.docker.compose.project.config_files') == expected_files, 'Activated Compose stack differs')
     for labels in (old_labels, new_labels):
@@ -558,7 +569,7 @@ def main():
             verify_untouched()
             for application in SPECS:
                 if application in attempted:
-                    verify_active(application)
+                    verify_active(application, disabled[application]['services'][SPECS[application][1]].get('hostname'))
                 else:
                     meta = inspect(application)
                     require(healthy(meta) and stable_runtime(meta) == stable_runtime(runtime[application]), 'Disabled application changed before activation')
@@ -570,13 +581,13 @@ def main():
             write_json(ACTIVATION/('switch-attempted-'+name+'.json'), {'at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
             attempted.append(name)
             run(activation_command(name), timeout=150)
-            verify_active(name)
+            verify_active(name, disabled[name]['services'][SPECS[name][1]].get('hostname'))
             write_json(ACTIVATION/('switch-verified-'+name+'.json'), {'at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
         mark('verify-live-founder-signature-replay-mfa-and-g2-boundaries')
         paired_live_boundaries()
         probe_live()
         for name in SPECS:
-            verify_active(name)
+            verify_active(name, disabled[name]['services'][SPECS[name][1]].get('hostname'))
         verify_untouched()
         unchanged_files()
         require(protected_state('v79-hub-postgres') == hub_before, 'Hub identities/billing/G2 ledger changed during activation')

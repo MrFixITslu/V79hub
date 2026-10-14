@@ -16,8 +16,8 @@ from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1]/'scripts/marketing-production-activate-generation.py'
 
-def load():
-    spec = importlib.util.spec_from_file_location('activation', SOURCE)
+def load(source=SOURCE):
+    spec = importlib.util.spec_from_file_location('activation', source)
     m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
     return m
 
@@ -42,6 +42,19 @@ class ActivationTests(unittest.TestCase):
                 if change == 'mount': target['volumes'][0]['source'] = 'different'
                 if change == 'unrelated': bad['services']['unrelated']['image'] = 'different'
                 with self.assertRaises(RuntimeError): m.activation_config_parity(name, old, bad)
+
+    def test_only_verified_docker_generated_hostname_changes_are_normalized(self):
+        m = self.m
+        before = {'Id': 'a'*64, 'Config': {'Hostname': 'a'*12, 'User': 'node', 'Cmd': ['node','server'], 'Env': [], 'Labels': {}}}
+        after = copy.deepcopy(before); after['Id'] = 'b'*64; after['Config']['Hostname'] = 'b'*12
+        m.compare_runtime_config(before, after)
+        for field, value in [('Hostname', 'unexpected-host'), ('User', 'root'), ('Cmd', ['sh'])]:
+            bad = copy.deepcopy(after); bad['Config'][field] = value
+            with self.assertRaises(RuntimeError): m.compare_runtime_config(before, bad)
+        before['Config']['Hostname'] = after['Config']['Hostname'] = 'configured-name'
+        m.compare_runtime_config(before, after, 'configured-name')
+        after['Config']['Hostname'] = 'b'*12
+        with self.assertRaises(RuntimeError): m.compare_runtime_config(before, after, 'configured-name')
 
     def test_pristine_gate_rejects_existing_ledger_or_changed_owner(self):
         m = self.m
@@ -77,7 +90,7 @@ class ActivationTests(unittest.TestCase):
         self.assertIn(b'state.paused,true', captured[2][1])
         self.assertIn(b'state.jobs,[]', captured[2][1])
 
-    def simulate(self, failure=None, existing_ledger=False, provider_drift=False):
+    def simulate(self, failure=None, existing_ledger=False, provider_drift=False, reconcile=False, wrong_hub_state=False):
         m = self.m; tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         root = Path(tmp.name); m.WORK = root/'cutover'; m.WORK.mkdir(mode=0o700)
         m.ACTIVATION = m.WORK/'generation-only-v1'; m.RECOVERY = root/'recovery'; m.RECOVERY.mkdir(mode=0o700)
@@ -88,7 +101,7 @@ class ActivationTests(unittest.TestCase):
         old = {}; original = {}; disabled = {}
         for name, image in m.BASELINES.items():
             old[name] = {'Id': 'accepted-'+name, 'Image': image,
-                'Config': {'Env': [], 'Labels': {}, 'Image': image, 'Cmd': ['original']}, 'HostConfig': {'Memory': 0, 'NanoCpus': 0},
+                'Config': {'Env': [], 'Labels': {}, 'Image': image, 'Cmd': ['original'], 'Hostname': ('accepted-'+name)[:12]}, 'HostConfig': {'Memory': 0, 'NanoCpus': 0},
                 'Mounts': [], 'State': {'StartedAt': 'fixed', 'Running': True, 'Health': {'Status': 'healthy'}},
                 'NetworkSettings': {'Networks': {'private': {}}}}
         for name, (project, service, working, files, filename, image, _commit) in m.SPECS.items():
@@ -128,6 +141,29 @@ class ActivationTests(unittest.TestCase):
         save(m.WORK/'deployment-disabled.json', {'candidateImages': candidates, 'healthy': True,
             'generationEnabled': False, 'publicationEnabled': False, 'at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'g2SignedAcceptanceReplayDenialAndWorkerVisibilityVerified': True, 'protectedStatePreserved': True, 'untouchedContainerIdsPreserved': True})
+        if reconcile:
+            m.ACTIVATION.mkdir(mode=0o700); m.RECONCILE = m.ACTIVATION/'reconcile-v1'
+            activation_hashes = {}
+            enabled = copy.deepcopy(disabled)
+            for name, spec in m.SPECS.items():
+                path = m.ACTIVATION/('enable-'+name+'.yml')
+                save(path, {'services': {spec[1]: {'environment': {'V79_MARKETING_PRODUCTION_ENABLED': '1'}}}})
+                activation_hashes[str(path)] = m.file_hash(path, True)
+                enabled[name]['services'][spec[1]]['environment']['V79_MARKETING_PRODUCTION_ENABLED'] = '1'
+            record = {'candidateImages': candidates, 'cutoverDirectory': str(m.WORK), 'preparedOverlayHashes': recovery['preparedOverlayHashes'],
+                'generationEnabled': True, 'publicationEnabled': False, 'automaticRetryOrRollback': False,
+                'at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'activationOverlayHashes': activation_hashes,
+                'originalContainerIds': {name: meta['Id'] for name, meta in old.items()}, 'hubProtectedStateSha256': 'protected',
+                'marketingProtectedState': state, 'originalResolvedConfigHashes': {name: m.fingerprint(value) for name, value in disabled.items()},
+                'desiredResolvedConfigHashes': {name: m.fingerprint(value) for name, value in enabled.items()}}
+            save(m.ACTIVATION/'manifest.json', record)
+            save(m.ACTIVATION/'failure.json', {'stage': 'activate-generation-only-v79-hub', 'attemptedServices': ['v79-hub'], 'automaticRollbackPerformed': False})
+            save(m.ACTIVATION/'switch-attempted-v79-hub.json', {'at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
+            hub = live['v79-hub']; hub['Id'] = 'partial-active-hub'; hub['Config']['Hostname'] = hub['Id'][:12]
+            environment = m.env_map(hub['Config']['Env']); environment['V79_MARKETING_PRODUCTION_ENABLED'] = '0' if wrong_hub_state else '1'
+            hub['Config']['Env'] = [key+'='+value for key,value in environment.items()]
+            hub['Config']['Labels']['com.docker.compose.project.config_files'] += ','+str(m.ACTIVATION/'enable-v79-hub.yml')
+            hub['Config']['Labels']['com.docker.compose.config-hash'] = 'partial-active'
         calls = []
         def resolved(name, _files, extra=()):
             if not extra: return copy.deepcopy(original[name])
@@ -137,15 +173,18 @@ class ActivationTests(unittest.TestCase):
         def run(args, data=None, **_kw):
             if args[:3] == ['docker', 'image', 'inspect']:
                 name = next(name for name, spec in m.SPECS.items() if spec[5] == args[3])
-                return json.dumps([{'Id': args[3], 'Config': {'Labels': {'org.opencontainers.image.revision': m.SPECS[name][6]}}}]).encode()
+                return json.dumps([{'Id': args[3], 'Config': {'Labels': {'org.opencontainers.image.revision': m.SPECS[name][6]},
+                    'Env': [], 'Cmd': ['original']}}]).encode()
             self.assertEqual(args[:2], ['docker', 'compose'])
             name = next(name for name, spec in m.SPECS.items() if spec[1] == args[-1])
-            self.assertTrue((m.ACTIVATION/('switch-attempted-'+name+'.json')).is_file())
+            markers = m.RECONCILE if reconcile else m.ACTIVATION
+            self.assertTrue((markers/('switch-attempted-'+name+'.json')).is_file())
             self.assertIn('--no-build', args); self.assertIn('--no-deps', args)
             self.assertEqual(args[args.index('--pull')+1], 'never')
             calls.append(name)
             if failure == name: raise RuntimeError('Synthetic uncertain restart')
             meta = live[name]; meta['Id'] = 'activated-'+name
+            meta['Config']['Hostname'] = meta['Id'][:12]
             environment = m.env_map(meta['Config']['Env']); environment['V79_MARKETING_PRODUCTION_ENABLED'] = '1'
             meta['Config']['Env'] = [key+'='+value for key, value in environment.items()]
             meta['Config']['Labels']['com.docker.compose.project.config_files'] += ','+str(m.ACTIVATION/('enable-'+name+'.yml'))
@@ -196,5 +235,24 @@ class ActivationTests(unittest.TestCase):
         m, calls, error = self.simulate(provider_drift=True)
         self.assertIsNotNone(error); self.assertEqual(calls, ['v79-hub'])
         self.assertFalse((m.ACTIVATION/'switch-attempted-v79marketing-app.json').exists())
+
+    def test_reviewed_partial_state_reconciliation_restarts_only_marketing(self):
+        self.m = load(SOURCE.with_name('marketing-production-reconcile-generation.py'))
+        m, calls, error = self.simulate(reconcile=True)
+        self.assertIsNone(error, str(error)); self.assertEqual(calls, ['v79marketing-app'])
+        receipt = json.loads((m.ACTIVATION/'generation-enabled.json').read_text())
+        self.assertTrue(receipt['hubContainerUnchangedDuringReconciliation']); self.assertFalse(receipt['publicationEnabled'])
+        self.assertTrue((m.RECONCILE/'switch-verified-v79marketing-app.json').is_file())
+
+    def test_reconciliation_uncertain_marketing_restart_never_restarts_hub_or_retries(self):
+        self.m = load(SOURCE.with_name('marketing-production-reconcile-generation.py'))
+        m, calls, error = self.simulate(reconcile=True, failure='v79marketing-app')
+        self.assertIsNotNone(error); self.assertEqual(calls, ['v79marketing-app'])
+        self.assertFalse((m.ACTIVATION/'generation-enabled.json').exists())
+
+    def test_reconciliation_rejects_a_partial_state_different_from_owner_diagnostic(self):
+        self.m = load(SOURCE.with_name('marketing-production-reconcile-generation.py'))
+        m, calls, error = self.simulate(reconcile=True, wrong_hub_state=True)
+        self.assertIsNotNone(error); self.assertEqual(calls, []); self.assertFalse(m.RECONCILE.exists())
 
 if __name__ == '__main__': unittest.main()

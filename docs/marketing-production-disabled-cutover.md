@@ -97,3 +97,26 @@ python3 -B tests/marketing-production-activation.test.py
 
 These also parse all embedded Node probes locally; actual cross-service checks
 run only on `v79sl` after the authorized activation.
+
+## Reviewed partial-activation reconciliation
+
+The first activation restarted Hub, then its comparison stopped on Docker's
+generated container hostname. The owner ran a read-only diagnostic confirming
+Hub healthy with the exact generation-only resolved configuration, Marketing
+healthy with its original disabled configuration and unchanged container ID,
+and no Marketing restart attempt. Publication remained disabled on Marketing.
+
+`scripts/marketing-production-reconcile-generation.py` handles only that exact
+recorded state. It checks the original failure/attempt records, immutable images,
+keys, overlays, complete resolved configurations and protected data before
+recreating **only Marketing**. It preserves the already-active Hub and all other
+services, then completes the live signed-founder, replay, MFA, G2 and empty paused
+production-ledger checks. It preserves the original failure as history and writes
+the successful completion receipt only after all checks pass. An uncertain
+Marketing restart is not retried or rolled back automatically.
+
+The runtime comparison now normalizes an implicit hostname only when the old
+and new values each exactly equal that container's short ID and no Compose
+hostname was configured. Explicit hostnames, command, user and other runtime
+configuration must still match. Re-running the original activation script is not
+the reconciliation procedure.
