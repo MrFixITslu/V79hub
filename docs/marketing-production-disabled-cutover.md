@@ -145,3 +145,23 @@ checkpoint. Successful local guard/key-reuse checks can be run with:
 ```sh
 python3 -B tests/marketing-production-refresh.test.py
 ```
+
+The fresh rehearsal passed at
+`/home/firelion/v79-g3-refresh-20261014T232003Z-iyexdyhg`. The owner reported all
+nine ciphertext checksums and full-stream decryptions passing on the Acer at
+`/home/firelion/v79-g3-refresh.Dm7MTN3b`.
+
+`scripts/marketing-production-reconcile-fresh-generation.py` binds exactly that
+directory, its private checkpoint reference and receipt, all nine ciphertext
+hashes, original G3 key/overlay hashes, source-document/configuration hashes,
+protected data and captured live container IDs. Freshness is checked on the new
+restore receipt. Original receipt and activation dates remain unchanged and serve
+as historical provenance. The existing keys and original live Compose paths are
+reused; only Marketing is recreated with the generation flag enabled, and
+publication remains disabled. The private `reconcile-fresh-v2` directory records
+the owner-reported off-host proof separately from machine-observed checks.
+
+```sh
+python3 -B tests/marketing-production-fresh-reconciliation.test.py
+python3 -B tests/marketing-production-activation.test.py
+```

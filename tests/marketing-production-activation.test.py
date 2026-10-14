@@ -90,7 +90,7 @@ class ActivationTests(unittest.TestCase):
         self.assertIn(b'state.paused,true', captured[2][1])
         self.assertIn(b'state.jobs,[]', captured[2][1])
 
-    def simulate(self, failure=None, existing_ledger=False, provider_drift=False, reconcile=False, wrong_hub_state=False):
+    def simulate(self, failure=None, existing_ledger=False, provider_drift=False, reconcile=False, wrong_hub_state=False, fresh=False):
         m = self.m; tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         root = Path(tmp.name); m.WORK = root/'cutover'; m.WORK.mkdir(mode=0o700)
         m.ACTIVATION = m.WORK/'generation-only-v1'; m.RECOVERY = root/'recovery'; m.RECOVERY.mkdir(mode=0o700)
@@ -142,7 +142,7 @@ class ActivationTests(unittest.TestCase):
             'generationEnabled': False, 'publicationEnabled': False, 'at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'g2SignedAcceptanceReplayDenialAndWorkerVisibilityVerified': True, 'protectedStatePreserved': True, 'untouchedContainerIdsPreserved': True})
         if reconcile:
-            m.ACTIVATION.mkdir(mode=0o700); m.RECONCILE = m.ACTIVATION/'reconcile-v1'
+            m.ACTIVATION.mkdir(mode=0o700); m.RECONCILE = m.ACTIVATION/('reconcile-fresh-v2' if fresh else 'reconcile-v1')
             activation_hashes = {}
             enabled = copy.deepcopy(disabled)
             for name, spec in m.SPECS.items():
@@ -164,6 +164,11 @@ class ActivationTests(unittest.TestCase):
             hub['Config']['Env'] = [key+'='+value for key,value in environment.items()]
             hub['Config']['Labels']['com.docker.compose.project.config_files'] += ','+str(m.ACTIVATION/'enable-v79-hub.yml')
             hub['Config']['Labels']['com.docker.compose.config-hash'] = 'partial-active'
+            if fresh:
+                m.FRESH=root/'fresh';m.FRESH.mkdir(mode=0o700);save(m.FRESH/'rehearsal-receipt.json',{})
+                m.fresh_receipt={'sourceDocumentHashes':{str(m.ACTIVATION/'manifest.json'):m.file_hash(m.ACTIVATION/'manifest.json',True)},
+                    'liveRuntimeIds':{name:meta['Id'] for name,meta in live.items()}, 'hubProtectedStateSha256':'protected',
+                    'marketingProtectedState':state,'encryptedBackups':{}}
         calls = []
         def resolved(name, _files, extra=()):
             if not extra: return copy.deepcopy(original[name])
@@ -254,5 +259,20 @@ class ActivationTests(unittest.TestCase):
         self.m = load(SOURCE.with_name('marketing-production-reconcile-generation.py'))
         m, calls, error = self.simulate(reconcile=True, wrong_hub_state=True)
         self.assertIsNotNone(error); self.assertEqual(calls, []); self.assertFalse(m.RECONCILE.exists())
+
+    def test_owner_decrypted_fresh_checkpoint_reconciliation_restarts_only_marketing(self):
+        self.m=load(SOURCE.with_name('marketing-production-reconcile-fresh-generation.py'))
+        m,calls,error=self.simulate(reconcile=True,fresh=True)
+        self.assertIsNone(error,str(error));self.assertEqual(calls,['v79marketing-app'])
+        custody=json.loads((m.RECONCILE/'fresh-checkpoint-custody.json').read_text())
+        self.assertFalse(custody['oldReceiptDatesModified'])
+        self.assertTrue(custody['existingG3KeysReused'])
+        self.assertEqual(custody['offhostDecryptionEvidence']['acerDirectory'],m.ACER_FRESH_COPY)
+
+    def test_fresh_reconciliation_uncertain_restart_still_never_retries_or_restarts_hub(self):
+        self.m=load(SOURCE.with_name('marketing-production-reconcile-fresh-generation.py'))
+        m,calls,error=self.simulate(reconcile=True,fresh=True,failure='v79marketing-app')
+        self.assertIsNotNone(error);self.assertEqual(calls,['v79marketing-app'])
+        self.assertFalse((m.ACTIVATION/'generation-enabled.json').exists())
 
 if __name__ == '__main__': unittest.main()
