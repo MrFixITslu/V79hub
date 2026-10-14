@@ -120,7 +120,17 @@ class CutoverTest(unittest.TestCase):
             with self.assertRaises(RuntimeError) as failure: m.run(['docker', 'synthetic-secret-should-never-print'])
         self.assertNotIn('synthetic-secret', str(failure.exception)+output.getvalue())
 
-    def simulate(self, fail_service=None, data_drift=False):
+    def test_missing_field_diagnostic_shows_code_location_without_key_value(self):
+        m = self.m
+        with patch.object(m, 'inspect', return_value={}):
+            try:
+                m.original_runtime({})
+            except KeyError as exc:
+                text = m.safe_error(exc)
+        self.assertIn('KeyError at original_runtime:', text)
+        self.assertNotIn('Image', text)
+
+    def simulate(self, fail_service=None, data_drift=False, reference_drift=False):
         m = self.m
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         root = Path(temporary.name); m.WORK = root/'cutover'; m.RECOVERY = root/'recovery'; m.RECOVERY.mkdir()
@@ -130,7 +140,7 @@ class CutoverTest(unittest.TestCase):
         image_env = ['NODE_ENV=production', 'NODE_VERSION=22.synthetic', 'PATH=/usr/local/bin']
         for name, digest in m.BASELINES.items():
             old[name] = {'Id': 'old-'+name, 'Image': digest, 'State': {'Running': True, 'StartedAt': 'fixed', 'Health': {'Status': 'healthy'}},
-                'Config': {'Labels': {}, 'Env': image_env}, 'HostConfig': {'Memory': 0, 'NanoCpus': 0},
+                'Config': {'Labels': {}, 'Env': image_env, 'Image': digest}, 'HostConfig': {'Memory': 0, 'NanoCpus': 0},
                 'Mounts': [{'Type': 'volume', 'Name': name+'-data', 'Source': '/data/'+name, 'Destination': '/app/data', 'RW': True}],
                 'NetworkSettings': {'Networks': {'private': {}}}}
             image_metadata[digest] = {'Id': digest, 'Config': {'Env': image_env}}
@@ -143,6 +153,13 @@ class CutoverTest(unittest.TestCase):
                                'V79_WORKFORCE_TOKEN_FILE': '/run/secrets/v79-workforce-token'}
             old[name]['Config']['Env'] = image_env+[k+'='+v for k, v in environment.items()]
             original[name] = {'services': {service: {'image': m.BASELINES[name], 'environment': environment}}}
+            if name == 'v79marketing-app':
+                # Reproduce the verified production Compose file: no image key.
+                original[name]['services'][service].pop('image')
+                original[name]['services'][service]['build'] = {'context': '/home/firelion/V79Marketing', 'dockerfile': 'Dockerfile'}
+                old[name]['Config']['Image'] = 'v79marketing-v79-marketing'
+                image_metadata['v79marketing-v79-marketing'] = copy.deepcopy(image_metadata[m.BASELINES[name]])
+                if reference_drift: image_metadata['v79marketing-v79-marketing']['Id'] = 'unapproved-moved-tag'
             overlays[name] = {'image': image, 'environment': {'V79_MARKETING_PRODUCTION_ENABLED': '0',
                 'V79_MARKETING_PRODUCTION_SHARED_SECRET': 'b'*64}}
             if name == 'v79marketing-app':
@@ -227,6 +244,20 @@ class CutoverTest(unittest.TestCase):
         m, calls, error = self.simulate(data_drift=True)
         self.assertIsNotNone(error); self.assertEqual(calls, ['v79-hub'])
         self.assertFalse((m.WORK/'switch-attempted-v79marketing-app.json').exists())
+
+    def test_moved_generated_marketing_tag_stops_before_any_workspace_or_mutation(self):
+        m, calls, error = self.simulate(reference_drift=True)
+        self.assertIsNotNone(error); self.assertEqual(calls, [])
+        self.assertFalse(m.WORK.exists())
+
+    def test_missing_image_reference_is_only_allowed_for_verified_marketing_build_service(self):
+        m = self.m
+        m.runtime = {'v79marketing-app': {'Config': {'Image': 'generated-tag'}}}
+        good = {'services': {'v79-marketing': {'build': {'context': '/home/firelion/V79Marketing'}}}}
+        with patch.object(m, 'run', return_value=json.dumps([{'Id': m.BASELINES['v79marketing-app']}]).encode()):
+            m.verify_original_image('v79marketing-app', good)
+            with self.assertRaises(RuntimeError): m.verify_original_image('v79-hub', {'services': {'v79-hub': {'build': {'context': '.'}}}})
+            with self.assertRaises(RuntimeError): m.verify_original_image('v79marketing-app', {'services': {'v79-marketing': {}}})
 
 def patch_target(module, dotted, replacement):
     target = module

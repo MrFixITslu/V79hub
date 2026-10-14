@@ -12,7 +12,11 @@ The rehearsal checkpoint must be less than one hour old when the script starts.
 
 The script verifies both resolved Compose configurations and all original
 configuration/environment file hashes before changing any live container. The
-approved changes are the two exact images, dedicated G3 keys and disabled flags,
+baseline Marketing service uses `build:` without `image:`. For that exact
+service, the script checks the existing container's recorded image reference
+against the rehearsed runtime digest; moved generated tags are rejected. Both
+candidate and rollback overlays explicitly pin image IDs, and neither builds.
+The approved changes are the two exact images, dedicated G3 keys and disabled flags,
 and Marketing's 768 MiB / one CPU limit. Existing G2 action keys, token mounts
 and enabled flag are preserved. It recreates Hub and then Marketing, each with
 `--no-deps --no-build --pull never`, without restoring or editing live databases.

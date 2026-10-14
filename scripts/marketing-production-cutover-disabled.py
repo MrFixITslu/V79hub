@@ -21,7 +21,7 @@ import sys
 
 RECOVERY = Path('/home/firelion/v79-g3-recovery-20261014T220437Z-bp9zg67v')
 ACER_COPY = '/home/firelion/v79-g3-recovery.Uc019pSJ'
-WORK = Path('/home/firelion/v79-g3-cutover-c42f671f4ccd-b7934c03f0e3-v1')
+WORK = Path('/home/firelion/v79-g3-cutover-c42f671f4ccd-b7934c03f0e3-v2')
 runtime = {}
 stage = 'preflight'
 attempted = []
@@ -318,6 +318,20 @@ def expected_environment(name, original, additions, image):
                 old.get('V79_WORKFORCE_TOKEN_FILE') == '/run/secrets/v79-workforce-token', 'Current G2 configuration differs')
     return expected
 
+def verify_original_image(name, original):
+    service = original['services'][SPECS[name][1]]
+    reference = service.get('image')
+    if reference is None:
+        # The exact baseline Marketing Compose file has build: and no image:.
+        # Compose's generated tag is recorded on the existing container, whose
+        # ID, digest and source provenance were already bound to the build receipt.
+        require(name == 'v79marketing-app' and isinstance(service.get('build'), dict) and
+                bool(service['build'].get('context')), 'Original application image reference missing')
+        reference = runtime[name]['Config'].get('Image')
+    require(isinstance(reference, str) and bool(reference), 'Original application image reference invalid')
+    require(json.loads(run(['docker', 'image', 'inspect', reference]))[0]['Id'] == BASELINES[name],
+            'Original Compose/runtime image reference differs from exact live baseline: '+name)
+
 def mounts(meta):
     # Compare stable permissions and source identity; addresses and mount ordering may change.
     return sorted([{k: m.get(k) for k in ('Type', 'Name', 'Source', 'Destination', 'Driver', 'Mode', 'RW', 'Propagation')}
@@ -422,14 +436,17 @@ def main():
     require(not WORK.exists(), 'Cutover workspace exists; inspect prior status before any retry')
     mark('verify-exact-recovery-and-disabled-overlays')
     receipt = verify_checkpoint()
+    mark('verify-build-receipt-and-live-runtime')
     file_hash(BUILD_RECEIPT, True)
     build = json.loads(BUILD_RECEIPT.read_text())
     require(build.get('live_identity_unchanged') is True and build.get('deployment_performed') is False,
             'Verified candidate build receipt missing')
     runtime = original_runtime(build)
+    mark('verify-backed-up-g3-key-and-overlay-scope')
     additions = approved_overlays()
     original, desired, expected_env = {}, {}, {}
     for name, (_project, service, _root, files, filename, image_id, commit) in SPECS.items():
+        mark('verify-original-and-candidate-config-'+name)
         repo = 'V79hub' if name == 'v79-hub' else 'V79Marketing'
         require(build['candidates'][repo]['image'] == image_id and build['candidates'][repo]['commit'] == commit,
                 'Candidate build record differs')
@@ -437,12 +454,11 @@ def main():
         require(image['Id'] == image_id and (image['Config'].get('Labels') or {}).get('org.opencontainers.image.revision') == commit,
                 'Candidate image/revision differs')
         original[name] = resolve_stack(name, files)
-        ref = original[name]['services'][service]['image']
-        require(json.loads(run(['docker', 'image', 'inspect', ref]))[0]['Id'] == BASELINES[name],
-                'Original Compose image reference differs from live baseline: '+name)
+        verify_original_image(name, original[name])
         desired[name] = resolve_stack(name, files, [RECOVERY/filename])
         configuration_parity(name, original[name], desired[name], additions[name])
         expected_env[name] = expected_environment(name, original[name], additions[name], image)
+    mark('verify-protected-hub-and-marketing-state')
     hub_before = protected_state('v79-hub-postgres')
     marketing_before = sqlite_state('v79marketing-app')
     require(marketing_before['founderLinks'] == [{'businessId': OWNER_ORG, 'organizationId': OWNER_ORG, 'scopedHubUserId': OWNER_SCOPED_ID}],
@@ -486,12 +502,14 @@ def main():
         for name, (_project, _service, _root, files, filename, *_rest) in SPECS.items():
             require(resolve_stack(name, files) == original[name] and
                     resolve_stack(name, files, [RECOVERY/filename]) == desired[name], 'Resolved configuration changed before cutover')
+            verify_original_image(name, original[name])
         require(protected_state('v79-hub-postgres') == hub_before and sqlite_state('v79marketing-app') == marketing_before,
                 'Protected data changed before cutover; fresh review required')
         print('EXACT_TWO_SERVICE_DISABLED_CONFIG_AND_OFFHOST_KEY_CUSTODY_PASS', flush=True)
         for name in SPECS:
             verify_files(receipt)
             verify_untouched()
+            verify_original_image(name, original[name])
             for service_name in SPECS:
                 if service_name in attempted:
                     verify_candidate(service_name, runtime[service_name], expected_env[service_name])
@@ -529,11 +547,24 @@ def main():
         print('CUTOVER_DIRECTORY='+str(WORK))
         print('OWNER_HUB_AND_MARKETING_BROWSER_ACCEPTANCE_PENDING')
 
+def safe_error(exc):
+    if isinstance(exc, RuntimeError):
+        return str(exc)
+    # Show only our own function name and line, never a missing key value,
+    # traceback source line, argument, Docker stderr or credential-bearing locals.
+    location = ''
+    tb = exc.__traceback__
+    while tb:
+        if tb.tb_frame.f_globals is globals():
+            location = ' at '+tb.tb_frame.f_code.co_name+':'+str(tb.tb_lineno)
+        tb = tb.tb_next
+    return type(exc).__name__+location
+
 if __name__ == '__main__':
     try:
         main()
     except (Exception, KeyboardInterrupt) as exc:
-        print('STOP: '+(str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__))
+        print('STOP: '+safe_error(exc))
         print('CUTOVER_DIRECTORY='+str(WORK))
         print('LIVE_CUTOVER_UNCERTAIN_INSPECT_BEFORE_ANY_RETRY' if attempted else 'NO_LIVE_RECREATION_ATTEMPTED')
         if WORK.is_dir():
