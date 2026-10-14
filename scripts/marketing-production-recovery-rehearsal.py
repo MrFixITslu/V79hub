@@ -439,6 +439,17 @@ def resolve_stack(name, files, extra=()):
         args+=['--file',str(p)]
     return json.loads(run(args+['config','--format','json']))
 
+def normalize_approved_memory(config, service):
+    result=json.loads(json.dumps(config))
+    target=result['services'][service]
+    value=target.get('mem_limit')
+    allowed_strings={'805306368','805306368b','768m','768mb','768mib'}
+    require((type(value) is int and value==805306368) or
+            (isinstance(value,str) and value.lower() in allowed_strings),
+            'Marketing memory limit differs from exact approved 768 MiB')
+    target['mem_limit']=805306368
+    return result
+
 def prepare_overlays():
     original={}
     overlays={
@@ -466,6 +477,9 @@ def prepare_overlays():
         if name=='v79marketing-app':
             target.update(mem_limit=805306368,cpus=1.0)
         actual=resolve_stack(name,files,[work/filename])
+        if name=='v79marketing-app':
+            expected=normalize_approved_memory(expected,service)
+            actual=normalize_approved_memory(actual,service)
         require(actual==expected,'G3 overlay changes exceed approved image/key/flag/resource scope')
     return json.dumps(original,sort_keys=True).encode()
 
