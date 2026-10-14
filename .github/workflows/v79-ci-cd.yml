@@ -92,6 +92,14 @@ jobs:
       - name: Verify Docker image can build
         if: ${{ hashFiles('Dockerfile') != '' }}
         run: docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine --tag v79-ci-image .
+      - name: Verify exact approval and marketing routes as isolated non-root user
+        run: >-
+          docker run --rm --network none --read-only --user node --cap-drop ALL
+          --security-opt no-new-privileges --memory 768m --cpus 2
+          --tmpfs /tmp:rw,nosuid,nodev,size=192m --entrypoint node
+          --env NODE_OPTIONS=--import=./tests/isolated-env.mjs v79-ci-image
+          --test tests/marketing-production-routes.test.mjs tests/workforce-actions.test.mjs
+          tests/workforce-action-routes.test.mjs tests/workforce-release-worker.test.mjs
       - name: Create delivery bundle
         if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
         run: |

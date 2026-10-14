@@ -138,6 +138,20 @@ pause/expiry/config changes, uncertain outcomes, newsletter scope/consent checks
 and no duplicate provider dispatch. Provider tests use synthetic adapters and
 mock transport; no live post or email was sent.
 
+The first server candidate build completed both images but stopped before the
+Hub smoke tests: a private build-directory umask also made copied public source
+directories/files unreadable to the non-root test user. The candidate builder
+now normalizes only public checkout directories/files to readable modes while
+keeping its parent recovery/build directory private. CI runs the same exact
+approval/marketing route tests inside the non-root, read-only, network-none image.
+
+The Marketing lockfile additionally updates only `ip-address` 10.7.0 to 10.7.4,
+`proxy-addr` 2.0.7 to 2.0.8, and `source-map-js` 1.2.1 to 1.2.2. Their reported
+advisories were confirmed against maintainer/GitHub security notices. The patched
+Marketing lockfile and current Hub lockfile both report zero known runtime npm
+advisories at this check; this is not a guarantee against undisclosed issues.
+Marketing CI now fails on known high/critical runtime dependency advisories.
+
 Hub's full suite is run with a test-only preload which rejects every non-loopback
 fetch, including child processes. This replaces an inherited Games destination
 that automatic approval review rejected. PostgreSQL-specific CI checks, real
