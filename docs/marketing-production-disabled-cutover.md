@@ -120,3 +120,28 @@ and new values each exactly equal that container's short ID and no Compose
 hostname was configured. Explicit hostnames, command, user and other runtime
 configuration must still match. Re-running the original activation script is not
 the reconciliation procedure.
+
+## Expired checkpoint in the partial state
+
+The Marketing-only reconciliation stopped before live recreation when the
+original recovery receipt became older than one hour. Do not edit that receipt's
+timestamp or rerun the initial cutover/recovery scripts against the new runtime.
+
+`scripts/marketing-production-refresh-checkpoint.py` requires the observed
+Hub-active/Marketing-disabled state and the recorded Hub-only attempt. It reuses
+the exact existing G3 keys and overlays, captures nine new encrypted backups,
+restores copied PostgreSQL and online SQLite snapshots in isolated containers,
+tests both enabled G3 signature/replay boundaries and original-image startup
+rollback, and verifies live identities, configuration, mounts and protected data
+remain unchanged. It never starts the pending live Marketing activation.
+
+The script creates a new private recovery directory and an atomic metadata
+reference at `generation-only-v1/fresh-checkpoint-reference.json`. Earlier
+backups and receipts remain intact. The reference explicitly says off-host
+decryption is unverified. All nine new ciphertext checksums and full-stream
+decryption must be checked on the Acer before a reconciliation uses the fresh
+checkpoint. Successful local guard/key-reuse checks can be run with:
+
+```sh
+python3 -B tests/marketing-production-refresh.test.py
+```
