@@ -11,10 +11,11 @@ import sys
 import tempfile
 import uuid
 
-HUB = ("V79hub", "3b89dc919f9f37e7d1ac72df2c22b0455ef79cbc",
-       "c4a9655b570449419170fc6f035d1fd8a047b5da", "v79-hub-g3:3b89dc919f9f")
-MARKETING = ("V79Marketing", "1ea2370345c18904f7efa847d4dccceac83ea2b4",
-             "e6f85a1d539342a14603cfc7d02a7f1252bd0230", "v79-marketing-g3:1ea2370345c1")
+HUB = ("V79hub", "c42f671f4ccd4b268f6701989cceba0ba27b5dbd",
+       "19ac2c136889bc9f3139a8545298e18c86e60aaa", "v79-hub-g3:c42f671f4ccd")
+MARKETING = ("V79Marketing", "b7934c03f0e3fd91f826af52e68b62422ef55616",
+             "fbf0c80efa6c605178a2b1b4941f7c5cfd1e2919", "v79-marketing-g3:b7934c03f0e3")
+NODE_BASE = "public.ecr.aws/docker/library/node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402"
 LIVE = {
     "v79marketing-app": "sha256:0d6f09ef37d73f2826900a8e3232a6f5ef4839614c1f92b42455ef03acf2cbf3",
     "v79-hub": "sha256:26e959fbc07ace5cf20a1d3ea001229911014346c6eb1c89d629d88993bbca8a",
@@ -72,6 +73,44 @@ def live():
     return result
 
 
+def normalize_public_checkout(checkout):
+    """Public source is readable in a non-root image; the parent stays private."""
+    for directory, dirs, files in os.walk(checkout, followlinks=False):
+        dirs[:] = [name for name in dirs if name != ".git"]
+        p = pathlib.Path(directory)
+        if p.is_symlink():
+            raise RuntimeError("Unexpected source directory symlink")
+        p.chmod(0o755)
+        for name in dirs:
+            if (p / name).is_symlink():
+                raise RuntimeError("Unexpected source directory symlink")
+        for name in files:
+            file = p / name
+            if file.is_symlink() or not file.is_file():
+                raise RuntimeError("Unexpected non-regular source file")
+            file.chmod(0o755 if file.stat().st_mode & 0o111 else 0o644)
+
+
+def smoke_program(repo):
+    versions = {"proxy-addr": "2.0.8", "source-map-js": "1.2.2"}
+    if repo == HUB[0]:
+        files = ["tests/marketing-production-routes.test.mjs", "tests/workforce-actions.test.mjs",
+                 "tests/workforce-action-routes.test.mjs", "tests/workforce-release-worker.test.mjs"]
+        child_args = ["--test"] + files
+    elif repo == MARKETING[0]:
+        versions["ip-address"] = "10.7.4"
+        files = ["dist/production-renderer-smoke.mjs"]
+        child_args = files
+    else:
+        raise RuntimeError("Unknown candidate repository")
+    return ("const fs=require('node:fs'),cp=require('node:child_process');"
+            "for(const[p,v]of Object.entries(" + json.dumps(versions) + "))"
+            "if(require('/app/node_modules/'+p+'/package.json').version!==v)throw Error('Runtime dependency version mismatch');"
+            "for(const f of " + json.dumps(files) + ")fs.accessSync(f,fs.constants.R_OK);"
+            "console.log('NONROOT_SOURCE_READABILITY_AND_PATCHED_RUNTIME_DEPENDENCIES_PASS');"
+            "cp.execFileSync(process.execPath," + json.dumps(child_args) + ",{stdio:'inherit',timeout:120000});")
+
+
 def main():
     os.umask(0o077)
     if run(["hostname", "-s"]).decode().strip() != "v79sl":
@@ -101,7 +140,8 @@ def main():
             raise RuntimeError("Candidate commit mismatch")
         if run(["git", "-C", str(checkout), "rev-parse", "HEAD^{tree}"]).decode().strip() != tree:
             raise RuntimeError("Candidate tree mismatch")
-        run(["docker", "build", "--build-arg", "NODE_BASE=public.ecr.aws/docker/library/node:22-alpine",
+        normalize_public_checkout(checkout)
+        run(["docker", "build", "--build-arg", "NODE_BASE=" + NODE_BASE,
              "--label", "org.opencontainers.image.revision=" + commit,
              "--tag", tag, str(checkout)], visible=True, timeout=1800)
         image = json.loads(run(["docker", "image", "inspect", tag]))[0]
@@ -120,11 +160,8 @@ def main():
                     "--security-opt", "no-new-privileges", "--memory", "768m", "--cpus", "2",
                     "--tmpfs", "/tmp:rw,nosuid,nodev,size=192m", "--entrypoint", "node"]
             if repo == HUB[0]:
-                args += ["--env", "NODE_OPTIONS=--import=./tests/isolated-env.mjs", candidates[repo]["image"],
-                         "--test", "tests/marketing-production-routes.test.mjs", "tests/workforce-actions.test.mjs",
-                         "tests/workforce-action-routes.test.mjs", "tests/workforce-release-worker.test.mjs"]
-            else:
-                args += [candidates[repo]["image"], "dist/production-renderer-smoke.mjs"]
+                args += ["--env", "NODE_OPTIONS=--import=./tests/isolated-env.mjs"]
+            args += [candidates[repo]["image"], "--input-type=commonjs", "-e", smoke_program(repo)]
             print("STAGE=isolated-smoke-" + repo, flush=True)
             run(args, visible=True, timeout=180)
     finally:
