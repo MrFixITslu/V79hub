@@ -55,3 +55,45 @@ python3 -B tests/marketing-production-cutover.test.py
 ```
 
 They use fake Docker responses and temporary files, never the live server.
+
+## Generation-only activation after browser acceptance
+
+The owner reported browser checks passed for Hub billing, Marketing SSO and the
+existing business/YouTube listing. `scripts/marketing-production-activate-generation.py`
+records that report as owner evidence. It verifies the accepted disabled-cutover
+receipt, unchanged image IDs, backed-up keys, configuration and runtime settings,
+and changes only `V79_MARKETING_PRODUCTION_ENABLED` to `1` on Hub and Marketing.
+Marketing's publication flag stays `0`. Both app restarts use the same pinned
+images with no dependency recreation, build or pull.
+
+Activation requires no existing live G3 ledger. The engine initializes an empty,
+paused, signed ledger with no brand, plan, job or approval. Verification uses
+the actual service URLs in both directions for current-founder authorization,
+signed read access, replay denial, wrong-user/cookie denial and mutation denial
+without fresh MFA. It does not fabricate an owner MFA timestamp. Only G3 replay
+nonces and empty worker state may be added; protected customer/provider records
+and the G2 accepted work-item ledger must remain unchanged.
+
+The private `generation-only-v1` subdirectory records per-service attempt and
+verification markers. An uncertain activation is not retried or rolled back
+automatically. Inspect the actual service state and markers before any new
+action. Generation activation does not mean the owner approved a brand plan,
+reviewed a generated package or authorized publication.
+
+After successful activation, open Hub's owner assistant and expand **V79 marketing
+· Production and approvals**. Use **Review brand and draft plan**, verify the
+service facts and brand assets, and start with **Produce drafts automatically**
+unchecked. Configure the desired draft channels and keep YouTube visibility
+private. Saving the plan requires fresh owner MFA and authorizes draft production.
+Queue one package, review the rendered PNG/MP4, copy and subtitles, and test
+rejection/cancellation before deciding on a standing automatic-draft cadence.
+Publication remains disabled throughout this stage.
+
+Run the activation checks with:
+
+```sh
+python3 -B tests/marketing-production-activation.test.py
+```
+
+These also parse all embedded Node probes locally; actual cross-service checks
+run only on `v79sl` after the authorized activation.
