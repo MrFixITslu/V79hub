@@ -166,6 +166,10 @@ class ActivationTests(unittest.TestCase):
             hub['Config']['Labels']['com.docker.compose.config-hash'] = 'partial-active'
             if fresh:
                 m.FRESH=root/'fresh';m.FRESH.mkdir(mode=0o700);save(m.FRESH/'rehearsal-receipt.json',{})
+                # Match observed Docker inspect: Hub image User is omitted, but
+                # the container exposes ''; Marketing retains explicit node.
+                live['v79-hub']['Config']['User']=''
+                live['v79marketing-app']['Config']['User']='node'
                 m.fresh_receipt={'sourceDocumentHashes':{str(m.ACTIVATION/'manifest.json'):m.file_hash(m.ACTIVATION/'manifest.json',True)},
                     'liveRuntimeIds':{name:meta['Id'] for name,meta in live.items()}, 'hubProtectedStateSha256':'protected',
                     'marketingProtectedState':state,'encryptedBackups':{}}
@@ -178,8 +182,9 @@ class ActivationTests(unittest.TestCase):
         def run(args, data=None, **_kw):
             if args[:3] == ['docker', 'image', 'inspect']:
                 name = next(name for name, spec in m.SPECS.items() if spec[5] == args[3])
-                return json.dumps([{'Id': args[3], 'Config': {'Labels': {'org.opencontainers.image.revision': m.SPECS[name][6]},
-                    'Env': [], 'Cmd': ['original']}}]).encode()
+                config={'Labels': {'org.opencontainers.image.revision': m.SPECS[name][6]},'Env': [],'Cmd':['original']}
+                if fresh and name=='v79marketing-app':config['User']='node'
+                return json.dumps([{'Id':args[3],'Config':config}]).encode()
             self.assertEqual(args[:2], ['docker', 'compose'])
             name = next(name for name, spec in m.SPECS.items() if spec[1] == args[-1])
             markers = m.RECONCILE if reconcile else m.ACTIVATION

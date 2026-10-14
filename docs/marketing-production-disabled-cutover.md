@@ -95,6 +95,14 @@ Run the activation checks with:
 python3 -B tests/marketing-production-activation.test.py
 ```
 
+The first fresh reconciliation stopped before recreation on Hub's unset `User`
+representation: image inspect returned null/omitted, while container inspect
+returned an empty string. A read-only field comparison confirmed both apps'
+command, entrypoint and working directory matched, and Marketing's explicit
+user matched. The fresh reconciliation now accepts only null/empty-string
+runtime user when both image and Compose leave the user unset. Explicit users
+and all other application profile fields still require exact matches.
+
 These also parse all embedded Node probes locally; actual cross-service checks
 run only on `v79sl` after the authorized activation.
 

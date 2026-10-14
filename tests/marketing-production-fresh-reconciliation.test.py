@@ -38,6 +38,27 @@ class FreshReceiptTests(unittest.TestCase):
     def test_fresh_scope_and_original_key_binding_pass(self):
         self.m.verify_fresh_receipt(self.receipt,self.history)
 
+    def test_only_unset_image_user_accepts_runtime_empty_string(self):
+        m=self.m
+        image={'User':None,'Cmd':['node','server'],'Entrypoint':['docker-entrypoint.sh'],'WorkingDir':'/app'}
+        runtime=dict(image,User='')
+        m.verify_application_profile({},image,runtime)
+        for value in ('root','0','0:0','node','1000',False,[]):
+            with self.assertRaises(RuntimeError):m.verify_application_profile({},image,dict(runtime,User=value))
+        configured=dict(image,User='node')
+        m.verify_application_profile({},configured,dict(runtime,User='node'))
+        with self.assertRaises(RuntimeError):m.verify_application_profile({},configured,runtime)
+        with self.assertRaises(RuntimeError):m.verify_application_profile({'user':'node'},image,runtime)
+
+    def test_command_entrypoint_workdir_and_explicit_user_stay_exact(self):
+        m=self.m
+        image={'User':'node','Cmd':['node','server'],'Entrypoint':['docker-entrypoint.sh'],'WorkingDir':'/app'}
+        m.verify_application_profile({},image,image)
+        for field,value in [('User','root'),('Cmd',['sh']),('Entrypoint',[]),('WorkingDir','/tmp')]:
+            with self.assertRaises(RuntimeError):m.verify_application_profile({},image,dict(image,**{field:value}))
+        m.verify_application_profile({'user':'1000:1000'},image,dict(image,User='1000:1000'))
+        with self.assertRaises(RuntimeError):m.verify_application_profile({'user':'1000:1000'},image,image)
+
     def test_stale_and_future_fresh_dates_stop(self):
         for delta in (datetime.timedelta(hours=-2),datetime.timedelta(hours=2)):
             bad=copy.deepcopy(self.receipt);bad['capturedAt']=(datetime.datetime.now(datetime.timezone.utc)+delta).isoformat()

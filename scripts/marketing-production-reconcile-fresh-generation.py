@@ -538,6 +538,19 @@ def protected_marketing_equal(before, after):
     require(all(after[field] == before[field] for field in ('digest', 'founderLinks', 'ownerConnectedPlatforms')),
             'Marketing customer/identity/provider rows changed during activation')
 
+def verify_application_profile(profile, image_config, runtime_config):
+    for docker_key, compose_key in [('User', 'user'), ('Cmd', 'command'), ('Entrypoint', 'entrypoint'), ('WorkingDir', 'working_dir')]:
+        value = profile.get(compose_key)
+        if value is None:
+            value = image_config.get(docker_key)
+        actual = runtime_config.get(docker_key)
+        if docker_key == 'User' and profile.get('user') is None and image_config.get('User') is None:
+            # Observed Docker inspect representations of an unset image user:
+            # the image omits it/null, while the container exposes an empty string.
+            require(actual is None or actual == '', 'Partial-state default user changed to an explicit user')
+        else:
+            require(actual == value, 'Partial-state application '+docker_key+' configuration differs')
+
 def verify_partial_runtime(record, cutover, disabled, enabled):
     result = {}
     for name, image in BASELINES.items():
@@ -569,11 +582,7 @@ def verify_partial_runtime(record, cutover, disabled, enabled):
         env = env_map(meta['Config']['Env'])
         require(env == expected_env and env.get('V79_MARKETING_PRODUCTION_ENABLED') == ('1' if active else '0'),
                 'Partial-state runtime environment differs from exact approved configuration')
-        for docker_key, compose_key in [('User', 'user'), ('Cmd', 'command'), ('Entrypoint', 'entrypoint'), ('WorkingDir', 'working_dir')]:
-            value = profile.get(compose_key)
-            if value is None:
-                value = image_meta['Config'].get(docker_key)
-            require(meta['Config'].get(docker_key) == value, 'Partial-state application command/user configuration differs')
+        verify_application_profile(profile, image_meta['Config'], meta['Config'])
         require(meta['HostConfig'].get('Privileged', False) == profile.get('privileged', False) and
                 meta['HostConfig'].get('ReadonlyRootfs', False) == profile.get('read_only', False), 'Partial-state runtime permissions differ')
         for docker_key, compose_key in [('CapAdd', 'cap_add'), ('CapDrop', 'cap_drop'), ('SecurityOpt', 'security_opt')]:
