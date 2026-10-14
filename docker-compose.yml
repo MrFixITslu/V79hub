@@ -55,12 +55,16 @@ services:
       V79_AGENT_INTERNAL_URL: ${V79_AGENT_INTERNAL_URL:-http://v79-business-agent:3055}
       V79_AGENT_API_TOKEN: ${V79_AGENT_API_TOKEN:-}
       V79_AGENT_TOKEN_FILE: /run/secrets/v79-agent-token
+      V79_WORKFORCE_ACTIONS_ENABLED: ${V79_WORKFORCE_ACTIONS_ENABLED:-0}
+      V79_WORKFORCE_AUDIT_KEY: ${V79_WORKFORCE_AUDIT_KEY:-}
+      V79_WORKFORCE_TOKEN_FILE: /run/secrets/v79-workforce-token
       V79_READONLY_PLATFORM_SECRET_FILE: /run/secrets/v79-readonly-platform-token
     expose:
       - "3040"
     volumes:
       - ./data:/app/data
       - ./data/agent-runtime.token:/run/secrets/v79-agent-token:ro
+      - ${V79_WORKFORCE_TOKEN_FILE_HOST:-/dev/null}:/run/secrets/v79-workforce-token:ro
       - ${HOME}/.v79-secrets/owner-readonly-platform.token:/run/secrets/v79-readonly-platform-token:ro
     networks:
       - proxy_network

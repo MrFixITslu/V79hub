@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 // @ts-expect-error Existing JavaScript security module has no TypeScript declarations.
@@ -23,6 +23,9 @@ test("actual V79 Hub + actual Business Agent complete MFA-fenced CEO/COO handoff
   const hubOrigin=await availableUrl();
   const agentOrigin=await availableUrl();
   const secret="SYNTHETIC-BUSINESS-AGENT-TOKEN-ONLY-NEVER-DEPLOY";
+  const workerToken="SYNTHETIC-WORKFORCE-WORKER-TOKEN-ONLY-NEVER-DEPLOY";
+  const workerTokenFile=join(dir,"synthetic-worker.token");
+  await writeFile(workerTokenFile,workerToken,{mode:0o600});
   const base=resolve(process.cwd(),"..");
   const children: ChildProcess[]=[];
   t.after(async()=>{
@@ -57,6 +60,9 @@ test("actual V79 Hub + actual Business Agent complete MFA-fenced CEO/COO handoff
       V79_HUB_ADMIN_PASSWORD:"synthetic-owner-password-123456789",
       V79_REQUIRE_ADMIN_MFA:"1",
       V79_HUB_SECURITY_KEY:"SYNTHETIC-LOCAL-SECURITY-KEY-LONG-ENOUGH",
+      V79_WORKFORCE_AUDIT_KEY:"SYNTHETIC-WORKFORCE-AUDIT-KEY-LONG-ENOUGH",
+      V79_WORKFORCE_TOKEN_FILE:workerTokenFile,
+      V79_WORKFORCE_ACTIONS_ENABLED:"1",
       V79_PLATFORM_SHARED_SECRET:"SYNTHETIC-LOCAL-PLATFORM-KEY-LONG-ENOUGH",
       V79_AGENT_INTERNAL_URL:agentOrigin,
       POS_BASE_URL:forbiddenOrigin,FFPRO_INTERNAL_URL:forbiddenOrigin,
@@ -156,7 +162,31 @@ test("actual V79 Hub + actual Business Agent complete MFA-fenced CEO/COO handoff
     method:"POST",headers,body:"{}",
   })).status,404);
 
+  // Actual Hub owner session must approve the exact G2 action before a
+  // separate authenticated worker can create a real disposable work record.
+  assert.equal((await call("/api/agent/work-actions")).status,401);
+  const taskInput={operation:"create_work_item",system:"hub",summary:"Review synthetic Hub release readiness",
+    payload:{detail:"Review the disposable test backlog and prepare a release plan."},idempotencyKey:"synthetic-real-hub-work-item-1234"};
+  const jobResponse=await call("/api/agent/work-actions",{method:"POST",headers,body:JSON.stringify(taskInput)});
+  assert.equal(jobResponse.status,201,await jobResponse.clone().text());
+  const job=(await jobResponse.json()).job;
+  const workerHeaders={"content-type":"application/json","x-v79-workforce-token":workerToken};
+  const workCall=()=>call("/internal/workforce/execute-work-item",{method:"POST",headers:workerHeaders,body:"{}"});
+  assert.equal((await (await workCall()).json()).job,null);
+  const approve=await call("/api/agent/work-actions/"+job.id+"/decision",{method:"POST",headers,
+    body:JSON.stringify({decision:"approve",expectedRevision:1,digest:job.digest})});
+  assert.equal(approve.status,200,await approve.clone().text());
+  const execution=await workCall();
+  assert.equal(execution.status,200,await execution.clone().text());
+  assert.equal((await execution.json()).job.status,"succeeded");
+  assert.equal((await (await workCall()).json()).job,null);
+  const queue=await call("/api/agent/work-actions",{headers});
+  assert.equal((await queue.json()).tasks.length,1);
+  assert.equal((await call("/internal/workforce/execute-work-item",{method:"POST",
+    headers:{"content-type":"application/json","x-v79-agent-token":secret},body:"{}"})).status,403);
+
   const logout=await call("/api/auth/logout",{method:"POST",headers,body:"{}"});
   assert.equal(logout.status,200);
   assert.equal((await call("/api/agent/executive-structure",{headers})).status,401);
+  assert.equal((await call("/api/agent/work-actions",{headers})).status,401);
 });

@@ -4,7 +4,7 @@ on:
   pull_request:
     # Temporary validation-only target for the unmerged CEO/COO G1 draft.
     # Production publication/deploy remain gated to approved main workflow_dispatch.
-    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010]
+    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010, feature/g12-reconciled-sentinel-preservation-20261012]
   push:
     branches: [main]
   workflow_dispatch:

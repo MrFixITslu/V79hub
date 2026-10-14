@@ -7,6 +7,8 @@ import { PostgresStoreRepository } from "../server/postgres-store.mjs";
 import { createHubStorePersistence } from "../server/runtime-store.mjs";
 import { createAgentProposal, appendAgentProposalAudit, decideAgentProposal } from "../server/agent-approval-ledger.mjs";
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "../server/agent-approval-audit-chain.mjs";
+import { createWorkActionStore } from "../server/workforce-action-store.mjs";
+import { proposeWork, decideWork, claimWork } from "../server/workforce-actions.mjs";
 
 const connection = String(process.env.V79_APPROVAL_TEST_PG_URL || "");
 const workerPath = fileURLToPath(new URL("./helpers/agent-approval-pg-worker.mjs", import.meta.url));
@@ -163,4 +165,31 @@ test("real PostgreSQL rejects independent process races and preserves signed app
   });
   assert.equal(replay.kind, "conflict", "a stale independent decision cannot supersede the winner");
   assert.equal(persisted.state.agentActionProposals.every(item => item.executionStatus === "disabled"), true);
+});
+
+test("G2 real PostgreSQL transaction preserves concurrent proposals and permits only one approval and claim", {
+  skip: !connection && "No isolated CI PostgreSQL configured; never use the live Hub DB", timeout: 30000,
+}, async t => {
+  assertIsolatedDatabase();
+  const options = { backend: "postgres", databaseUrl: connection,
+    secret: "SYNTHETIC-G2-POSTGRES-AUDIT-KEY-1234567890" };
+  const first = createWorkActionStore(options), second = createWorkActionStore(options);
+  t.after(async () => { await first.close(); await second.close(); });
+  const scope = { organizationId: "ci-owner-org", actor: "ci-founder" };
+  const input = key => ({ operation: "validate_release", system: "hub", summary: "Validate disposable Hub candidate",
+    payload: { commitSha: "a".repeat(40), manifestSha256: "b".repeat(64) }, idempotencyKey: key });
+  const jobs = await Promise.all([
+    first.transact(s => proposeWork(s, input("synthetic-g2-pg-key-0001"), scope)),
+    second.transact(s => proposeWork(s, input("synthetic-g2-pg-key-0002"), scope)),
+  ]);
+  assert.equal((await first.read()).jobs.length, 2, "neither independent writer may erase the other's action");
+  const job = jobs[0];
+  const approvals = await Promise.allSettled([first, second].map(store => store.transact(s => decideWork(s, job.id, "approve", {
+    ...scope, expectedRevision: 1, digest: job.digest }))));
+  assert.equal(approvals.filter(r => r.status === "fulfilled").length, 1);
+  assert.equal(approvals.filter(r => r.status === "rejected").length, 1);
+  const worker = { organizationId: scope.organizationId, worker: "v79-release-worker", operations: ["validate_release"], systems: ["hub"] };
+  const claims = await Promise.all([first, second].map(store => store.transact(s => claimWork(s, worker))));
+  assert.equal(claims.filter(Boolean).length, 1, "exactly one worker may receive the execution token");
+  assert.equal((await first.read()).jobs.find(j => j.id === job.id).status, "running");
 });
