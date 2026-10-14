@@ -17,6 +17,8 @@ import { retainSentinelAuditMarkers } from "./server/sentinel-audit-retention.mj
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
+import { createWorkActionStore } from "./server/workforce-action-store.mjs";
+import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
 import { prepareReviewedHandoff } from "./server/agent-reviewed-handoff.mjs";
 import { prepareSupervisedMarketingDraft } from "./server/agent-supervised-marketing.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
@@ -4726,6 +4728,36 @@ function ownerApprovalContext(req: Request) {
   if (!user?.mfaEnabled) return null;
   return ownerAssistantContext(req);
 }
+
+// G2: separate durable execution ledger. Existing G1 evidence endpoints and
+// planning approvals cannot authorize any action in this queue.
+const workforceLedgerKey = String(process.env.V79_WORKFORCE_AUDIT_KEY || "");
+const workforceLedger = workforceLedgerKey.length >= 32 ? createWorkActionStore({
+  file: path.join(DATA_DIR, "workforce-actions.json"),
+  secret: workforceLedgerKey,
+  backend: process.env.V79_HUB_STORE_BACKEND || "json",
+  databaseUrl: process.env.DATABASE_URL || "",
+}) : null;
+function readWorkforceToken() {
+  try { return fs.readFileSync(process.env.V79_WORKFORCE_TOKEN_FILE || "/run/secrets/v79-workforce-token", "utf8").trim(); }
+  catch { return ""; }
+}
+const workforceRouters = workforceActionRouters({
+  ledger: workforceLedger,
+  enabled: () => process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
+  ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
+  workerToken: readWorkforceToken,
+  ownerOrganizationId: () => posIdentity.organizationId,
+  ownerReady: () => {
+    const user = store.users.find(u => u.id === posIdentity.ownerUserId);
+    const membership = activeMembership(store, posIdentity.ownerUserId, posIdentity.organizationId);
+    return Boolean(user?.mfaEnabled && hasOwnerAssistantAccess({ user, membership,
+      organizationId: posIdentity.organizationId, ownerOrganizationId: posIdentity.organizationId,
+      ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL }));
+  },
+});
+app.use("/api/agent/work-actions", workforceRouters.owner);
+app.use("/internal/workforce", workforceRouters.worker);
 
 // Stage 2C source-signature pilot: strict read-only GET, no downstream writes.
 // Disabled unless an operator separately configures the Tiquet signer/public key
