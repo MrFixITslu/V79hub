@@ -2,7 +2,7 @@ name: V79-01 Disposable Five-App Staging
 
 on:
   pull_request:
-    branches: [main, feature/g12-reconciled-sentinel-preservation-20261012]
+    branches: [main, feature/g12-reconciled-sentinel-preservation-20261012, feature/workforce-approved-actions-20261014]
     paths:
       - .github/workflows/v79-01-ephemeral-staging.yml
       - staging/gha-**

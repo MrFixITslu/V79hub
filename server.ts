@@ -1,3 +1,4 @@
+import { marketingProductionRouter, marketingWorkerAuthorization } from "./server/marketing-production-routes.mjs";
 import express, { Request, Response } from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -4758,6 +4759,48 @@ const workforceRouters = workforceActionRouters({
 });
 app.use("/api/agent/work-actions", workforceRouters.owner);
 app.use("/internal/workforce", workforceRouters.worker);
+app.use("/api/agent/marketing-production", marketingProductionRouter({
+  ownerContext: (req: Request) => {
+    const context = ownerApprovalContext(req);
+    return context ? { ...context, userId: posUserId(context.userId, context.organizationId) } : null;
+  },
+  sameOrigin: sameOriginMutation,
+  enabled: () => process.env.V79_MARKETING_PRODUCTION_ENABLED === "1",
+  forward: async (envelope: unknown) => {
+    const secret = String(process.env.V79_MARKETING_PRODUCTION_SHARED_SECRET || "");
+    if (secret.length < 32) throw Error("Dedicated Marketing production signing key required");
+    const pathname = "/api/platform/marketing-production";
+    const body = JSON.stringify(envelope), timestamp = String(Date.now());
+    const response = await fetch(new URL(pathname, process.env.MARKETING_INTERNAL_URL || "http://v79marketing-app:3070"), {
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(15000),
+      headers: { "content-type": "application/json", "x-v79-service-id": "v79-hub", "x-v79-timestamp": timestamp,
+        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret }) }, body,
+    });
+    // No automatic retry: a response loss can follow a committed approval.
+    return { status: response.status, body: await response.json() };
+  },
+}));
+
+
+app.post("/internal/marketing-production/authorization", marketingWorkerAuthorization({
+  enabled: () => process.env.V79_MARKETING_PRODUCTION_ENABLED === "1",
+  verifySignature: (req: Request) => verifyPlatformRequest({
+    method: "POST", pathname: "/internal/marketing-production/authorization",
+    timestamp: req.get("x-v79-timestamp") || "", signature: req.get("x-v79-signature") || "",
+    body: (req as any).rawBody?.toString("utf8") || "",
+    secret: process.env.V79_MARKETING_PRODUCTION_SHARED_SECRET || "",
+  }),
+  allowed: (identity: { organizationId: string; actorHubUserId: string }) => {
+    const user = store.users.find(u => u.id === posIdentity.ownerUserId);
+    const membership = activeMembership(store, posIdentity.ownerUserId, posIdentity.organizationId);
+    return Boolean(identity.organizationId === posIdentity.organizationId &&
+      identity.actorHubUserId === posUserId(posIdentity.ownerUserId, posIdentity.organizationId) &&
+      user?.mfaEnabled && hasOwnerAssistantAccess({ user, membership,
+        organizationId: posIdentity.organizationId, ownerOrganizationId: posIdentity.organizationId,
+        ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL }) &&
+      membershipCanAccessApp(membership, "app-marketing"));
+  },
+}));
 
 // Stage 2C source-signature pilot: strict read-only GET, no downstream writes.
 // Disabled unless an operator separately configures the Tiquet signer/public key
