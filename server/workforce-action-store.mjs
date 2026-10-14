@@ -11,7 +11,11 @@ export function createWorkActionStore({ file, secret, backend = "json", database
   const key = String(secret || "");
   if (key.length < 32) throw new Error("Workforce audit key requires at least 32 characters");
   if (!["json", "postgres"].includes(backend)) throw new Error("Invalid workforce store backend");
-  const mac = state => createHmac("sha256", key).update(JSON.stringify(state)).digest("hex");
+  // PostgreSQL JSONB reorders object keys. Authenticate semantic JSON rather
+  // than JavaScript insertion order, including every nested payload/receipt.
+  const canonical = state => JSON.stringify(state, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map(k => [k, value[k]])) : value);
+  const mac = state => createHmac("sha256", key).update(canonical(state)).digest("hex");
   const seal = state => ({ state, mac: mac(state) });
   function open(envelope) {
     if (!envelope?.state || !/^[a-f0-9]{64}$/.test(envelope.mac || "") ||

@@ -67,6 +67,12 @@ test("file ledger survives restart, rolls back failed mutation, detects payload 
   const opts = { file: path.join(dir, "actions.json"), secret: "SYNTHETIC-WORKFORCE-AUDIT-KEY-1234567890" };
   const a = createWorkActionStore(opts), j = await a.transact(s => proposeWork(s, input(), scope));
   const b = createWorkActionStore(opts); assert.equal((await b.read()).jobs[0].id, j.id);
+  // JSONB may reorder all nested object keys. Equivalent persisted content
+  // must verify while a real value edit below must still be rejected.
+  const reorder = value => Array.isArray(value) ? value.map(reorder) : value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).reverse().map(k => [k, reorder(value[k])])) : value;
+  await fs.writeFile(opts.file, JSON.stringify(reorder(JSON.parse(await fs.readFile(opts.file, "utf8")))));
+  assert.equal((await b.read()).jobs[0].digest, j.digest);
   await assert.rejects(a.transact(s => { s.jobs.length = 0; throw new Error("disk failure"); }));
   assert.equal((await b.read()).jobs.length, 1);
   await fs.mkdir(opts.file + ".lock"); await assert.rejects(b.transact(s => proposeWork(s, input(), scope))); await fs.rmdir(opts.file + ".lock");
