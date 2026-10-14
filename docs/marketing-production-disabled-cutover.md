@@ -1,0 +1,53 @@
+# G3 disabled cutover
+
+`scripts/marketing-production-cutover-disabled.py` uses the two images already
+built and tested on `v79sl`, and the exact private overlays prepared by the
+successful paired recovery rehearsal. Its constants intentionally bind it to
+that candidate build and recovery directory. It does not generate new keys.
+
+The owner reported all nine encrypted backups passing checksums and decryption
+on the Acer at `/home/firelion/v79-g3-recovery.Uc019pSJ`. The server manifest
+records that report as owner evidence, not independent machine attestation.
+The rehearsal checkpoint must be less than one hour old when the script starts.
+
+The script verifies both resolved Compose configurations and all original
+configuration/environment file hashes before changing any live container. The
+approved changes are the two exact images, dedicated G3 keys and disabled flags,
+and Marketing's 768 MiB / one CPU limit. Existing G2 action keys, token mounts
+and enabled flag are preserved. It recreates Hub and then Marketing, each with
+`--no-deps --no-build --pull never`, without restoring or editing live databases.
+
+The private cutover directory holds a manifest and durable per-service attempt
+and verification markers. Each rollback command in that manifest uses the
+original ordered Compose files plus an overlay pinning the original image.
+Rollback omits the new G3 overlays; original G2 settings remain in its original
+stack. Old image retention tags are checked before creation. No rollback command
+is executed by the cutover script.
+
+If it prints `NO_LIVE_RECREATION_ATTEMPTED`, inspect the reported preflight
+failure before changing the script or checkpoint. If it prints
+`LIVE_CUTOVER_UNCERTAIN_INSPECT_BEFORE_ANY_RETRY`, inspect both current image IDs,
+health, Compose labels, and the private attempt/verification markers. Either
+application may have changed even if Compose returned an error. Do not rerun,
+restore data, or blindly execute rollback commands. Determine the actual state
+and review the exact recorded rollback commands first.
+
+A success keeps G3 generation and publication disabled and verifies signed G2
+acceptance, replay denial, worker separation, protected identity/billing/provider
+records, private draft media and anonymous access denial. Agent, PostgreSQL and
+Tiquet container identities must remain unchanged. These checks do not establish
+owner browser acceptance or provider token validity.
+
+The next acceptance stage is owner sign-in to Hub and Marketing, checking SSO,
+accounts, billing and connected destinations. Generation can then be enabled
+separately while publication remains disabled, followed by review of an actual
+draft package and rejection/cancellation behavior. A real provider pilot needs
+approval of its exact material, destination, visibility and schedule.
+
+Run the local synthetic failure/scope checks with:
+
+```sh
+python3 -B tests/marketing-production-cutover.test.py
+```
+
+They use fake Docker responses and temporary files, never the live server.
