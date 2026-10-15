@@ -32,7 +32,7 @@ jobs:
           git merge-base --is-ancestor "$G3_TRACKING_BASE" HEAD
           while IFS= read -r changed; do
             case "$changed" in
-              .github/workflows/hub-g3-launch-qa-contracts.yml|docs/hub-g3-launch-qa-contracts.md) ;;
+              .github/workflows/hub-g3-launch-qa-contracts.yml|docs/hub-g3-launch-qa-contracts.md|tests/paired-hub-tiquet-real-app.test.mjs) ;;
               *) echo "UNEXPECTED_APPLICATION_CHANGE=$changed" >&2; exit 1 ;;
             esac
           done < <(git diff --name-only "$G3_TRACKING_BASE" HEAD)
@@ -69,3 +69,71 @@ jobs:
         run: |
           set -euo pipefail
           test -z "$(git status --porcelain --untracked-files=no)"
+
+
+  paired-real-app:
+    name: Real Hub + real Tiquet synthetic dual-tenant localhost acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16-alpine
+        env:
+          POSTGRES_DB: tiquet_test
+          POSTGRES_USER: tiquet_test
+          POSTGRES_PASSWORD: tiquet_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tiquet_test -d tiquet_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      V79_PAIRED_TEST_SCOPE: github-ci-disposable
+      DATABASE_URL: postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test
+      NODE_ENV: test
+      WIPAY_ENABLED: "0"
+      V79_MCP_READONLY_ENABLE: "0"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Checkout exact public Tiquet source ONLY for disposable CI
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: MrFixITslu/V79Tiquet
+          ref: c8e00f1b3fe74ecdbfaf4fa60165c8dd3638e08e
+          path: .paired-tiquet
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Pin both exact sources and forbid tracked secrets/files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .paired-tiquet rev-parse HEAD)" = c8e00f1b3fe74ecdbfaf4fa60165c8dd3638e08e
+          git merge-base --is-ancestor ffae1c104d6ded918a0028f92c76624bc0501d8b HEAD
+          if [ -n "$(git ls-files -- data uploads backups logs)" ] ||
+             [ -n "$(git -C .paired-tiquet ls-files -- data uploads backups logs)" ]; then
+            echo 'CI source checkout unexpectedly tracks production runtime records' >&2
+            exit 1
+          fi
+          test "$V79_PAIRED_TEST_SCOPE" = github-ci-disposable
+          test "$DATABASE_URL" = postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test
+      - name: Install source dependencies without package lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm ci --prefix .paired-tiquet --ignore-scripts --no-audit --no-fund
+      - name: Run actual localhost Hub and Tiquet with disposable A/B PostgreSQL
+        run: node --test tests/paired-hub-tiquet-real-app.test.mjs
+      - name: Assert no tracked application changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git -C .paired-tiquet status --porcelain --untracked-files=no)"
