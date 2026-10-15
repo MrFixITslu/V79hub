@@ -96,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           image="v79-hub-login-only:${SOURCE_SHA}"
-          docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine --label "org.opencontainers.image.revision=${SOURCE_SHA}" --tag "$image" .
+          docker build --build-arg NODE_BASE=docker.io/library/node:22-alpine --label "org.opencontainers.image.revision=${SOURCE_SHA}" --tag "$image" .
           docker image inspect "$image" --format '{{.Id}}'
       - name: Isolated image regression in network-none non-root container
         shell: bash
