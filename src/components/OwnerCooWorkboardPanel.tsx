@@ -30,7 +30,15 @@ function validReport(value: unknown): value is CooReport {
       ["OPEN_IN_GITHUB", "NOT_LISTED_AS_OPEN", "UNKNOWN_INCOMPLETE", "UNKNOWN_SOURCE"].includes(item.githubState));
 }
 
-export function OwnerCooWorkboardPanel() {
+export type CooWorkItemDraft = { sourceId: string; system: string; summary: string; detail: string };
+
+const issueSystem: Record<string, string> = {
+  V79hub: "hub", V79Tiquet: "tiquet", "V79-Sentinel": "sentinel",
+  V79Marketing: "marketing", V79acaedmy: "academy", V79POS: "pos",
+};
+export function OwnerCooWorkboardPanel({ onPrepareTask }: {
+  onPrepareTask?: (draft: CooWorkItemDraft) => void;
+} = {}) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<CooReport | null>(null);
@@ -106,6 +114,18 @@ export function OwnerCooWorkboardPanel() {
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-slate-400">{item.repo} · Review: {item.nextStep}</p>
+                {onPrepareTask && item.githubState === "OPEN_IN_GITHUB" && issueSystem[item.repo] && (
+                  <button type="button" className="mt-2 rounded-md border border-slate-600 px-2 py-1 text-xs text-cyan-200"
+                    onClick={() => onPrepareTask({
+                      sourceId: item.repo + "#" + item.number,
+                      system: issueSystem[item.repo],
+                      summary: ("Review: " + item.label).slice(0,180),
+                      detail: ("Inspect " + item.url + ". " + item.nextStep +
+                        ". Record source evidence, test results and decisions needed. No production change or customer action is authorized.").slice(0,2000),
+                    })}>
+                    Prepare COO work item · approval required
+                  </button>
+                )}
               </div>)}
             </div>
           </div>)}
