@@ -86,7 +86,7 @@ async function shot(page,name,description){
 }
 function checkErrors(page,name){page.on("pageerror",e=>report.errors.push({screen:name,error:String(e).slice(0,500)}));}
 try{
-  for(const [width,height,name] of [[1440,900,"01-login-desktop"],[390,844,"02-login-mobile"]]){
+  for(const [width,height,name] of [[1440,900,"01-login-desktop"],[1440,810,"01b-login-reference-1440x810"],[390,844,"02-login-mobile"],[768,1024,"02b-login-tablet"]]){
     const context=await contextFor(width,height,false);const page=await context.newPage();checkErrors(page,name);
     await page.goto(root);await page.getByRole("heading",{name:/Sign in to your account/}).waitFor();
     await shot(page,name,"Uploaded-reference login ("+width+" px)");
