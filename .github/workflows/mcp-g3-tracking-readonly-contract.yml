@@ -47,5 +47,11 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Full Hub TypeScript and lint gate
         run: npm run lint
+      - name: Ephemeral two-tenant Hub and launch replay regressions (fixture only)
+        env:
+          # Prevent inherited owner/provider integration configuration reaching the fixture.
+          V79_MCP_READONLY_ENABLE: "0"
+          V79_HUB_STORE_BACKEND: json
+        run: node --test tests/hub-security.test.mjs tests/tiquet-tenant-contract.test.mjs
       - name: G3 panel and owner approval regression
         run: node --test tests/marketing-production-panel.test.mjs tests/agent-approval-ledger.test.mjs
