@@ -27,6 +27,12 @@ The founder supplied a seven-screen Canva concept: sign-in; overview; applicatio
 9. PR validation is nondeploying, has read-only GitHub permissions and uses no secrets.
 10. Never merge/deploy from this design PR until owner browser acceptance, QA and independent launch security/recovery prerequisites applicable to the proposed release are met.
 
+## Additional template-to-product fidelity
+
+- Workspace & Team: the member-management entry screen now uses the shared cobalt/navy command-centre header. Existing invitations and team role rules are unchanged.
+- My Apps: existing connected-services page now presents an ecosystem launcher title with matching visual shell, while preserving checks and signed launch logic.
+- Security, Billing and Platform Admin: reuse the same responsive page treatment; internal tab, payment and MFA logic remains unchanged.
+
 ## File scope
 
 - `src/components/Login.tsx`: visual split login shell only
@@ -34,6 +40,7 @@ The founder supplied a seven-screen Canva concept: sign-in; overview; applicatio
 - `src/components/HubOverview.tsx`: visual density, KPI-first hierarchy, truthful no-data states, app tiles
 - `src/components/AppSwitcher.tsx`: searchable, accessible quick switcher
 - `src/App.tsx`: header and My Apps shortcut
+- `src/components/WorkspaceTeam.tsx`, `WorkspaceConnections.tsx`, `WorkspaceSecurity.tsx`, `WorkspaceBilling.tsx`, `AdminConsole.tsx`: shared branded page shells only
 - `src/index.css`: scoped command-centre styling with reduced-motion controls
 - `tests/hub-design-contract.test.mjs`: regression constraints
 - `.github/workflows/hub-design-validate.yml`: validation-only PR pipeline
