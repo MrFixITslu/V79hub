@@ -49,6 +49,10 @@ class UiCutoverTests(unittest.TestCase):
         m=self.m;m.helper={'healthy':lambda x:x['State']['Health']['Status']=='healthy','mounts':lambda x:x['Mounts']}
         old,new=self.runtime();m.runtime_parity(old,new,None)
         new['Config']['Env'].reverse();m.runtime_parity(old,new,None)
+        old['HostConfig']['Binds']=['data:/app/data:rw','token:/run/secrets/token:ro']
+        new['HostConfig']['Binds']=list(reversed(old['HostConfig']['Binds']));m.runtime_parity(old,new,None)
+        bad=copy.deepcopy(new);bad['HostConfig']['Binds'][0]='token:/run/secrets/token:rw'
+        with self.assertRaises(RuntimeError):m.runtime_parity(old,bad,None)
         for field in ('Env','Cmd','User','Hostname'):
             bad=copy.deepcopy(new);bad['Config'][field]='changed'
             with self.assertRaises(RuntimeError):m.runtime_parity(old,bad,None)

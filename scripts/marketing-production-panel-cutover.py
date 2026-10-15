@@ -115,7 +115,11 @@ def runtime_parity(before, after, configured_hostname):
         require(a.get('Hostname') == before['Id'][:12] and b.get('Hostname') == after['Id'][:12], 'Unexpected Docker-generated hostname')
         a.pop('Hostname'); b.pop('Hostname')
     require(a == b, 'Hub environment, command, user or runtime configuration changed')
-    require(before['HostConfig'] == after['HostConfig'] and helper['mounts'](before) == helper['mounts'](after) and
+    old_host, new_host = copy.deepcopy(before['HostConfig']), copy.deepcopy(after['HostConfig'])
+    for host in (old_host, new_host):
+        if isinstance(host.get('Binds'), list):
+            host['Binds'] = sorted(host['Binds'])
+    require(old_host == new_host and helper['mounts'](before) == helper['mounts'](after) and
             set(before['NetworkSettings']['Networks']) == set(after['NetworkSettings']['Networks']), 'Hub resources, mounts or networks changed')
     require(old_labels.get('com.docker.compose.project.config_files') == ','.join(FILES) and
             new_labels.get('com.docker.compose.project.config_files') == ','.join(FILES + [str(WORK/'ui-image.yml')]), 'Hub Compose provenance changed')
