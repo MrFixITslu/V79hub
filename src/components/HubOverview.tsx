@@ -435,10 +435,10 @@ export function HubOverview({
                 );
               })
             ) : (
-              <div className="lg:col-span-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 flex items-start gap-3">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />
+              <div className={`lg:col-span-2 rounded-2xl border p-4 flex items-start gap-3 ${!dashboard || loadError ? "border-slate-500/20 bg-slate-500/[0.07]" : "border-emerald-500/20 bg-emerald-500/[0.07]"}`} role="status">
+                {!dashboard || loadError ? <Activity className="w-4 h-4 text-slate-400 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />}
                 <div>
-                  <div className="text-xs font-bold text-emerald-200">{!dashboard || loadError ? "Action insights are not available yet" : "No action alerts reported"}</div>
+                  <div className={`text-xs font-bold ${!dashboard || loadError ? "text-slate-200" : "text-emerald-200"}`}>{!dashboard || loadError ? "Action insights are not available yet" : "No action alerts reported"}</div>
                   <div className="text-[10px] text-slate-500 mt-1">Only connected apps with available data contribute alerts. Check your apps for complete activity.</div>
                 </div>
               </div>
