@@ -17,6 +17,7 @@ const claim = {
   client_id: "v79-mcp-internal", agent_id: "v79-coo", scope: "hub.apps.read",
   iat: NOW / 1000 - 20, nbf: NOW / 1000 - 20, exp: NOW / 1000 + 60,
   jti: "synthetic-read-nonce-01",
+  acr: "urn:v79:mfa", auth_time: NOW / 1000 - 40,
 };
 const encode = value => Buffer.from(JSON.stringify(value)).toString("base64url");
 function sign(payload=claim, header=headers, signer=privateKey) {
@@ -25,7 +26,7 @@ function sign(payload=claim, header=headers, signer=privateKey) {
 }
 function makeStore() {
   return {
-    users: [{ id: userId, email: "vision79slu@gmail.com", role: "admin" }],
+    users: [{ id: userId, email: "vision79slu@gmail.com", role: "admin", mfaEnabled: true }],
     organizations: [{ id: org, status: "active" }],
     memberships: [{ organizationId: org, userId, status: "active", role: "owner" }],
     organizationPlans: [{ organizationId: org, status: "active", accessPolicyType: "internal" }],
@@ -80,34 +81,40 @@ test("owner-only entitled minimal app list", () => {
   });
 });
 test("owner MFA/session cookies cannot serve as credentials", () => {
-  assert.equal(decide({authorization:"Bearer session-token-value"}).status,403);
+  assert.equal(decide({authorization:"Bearer session-token-value"}).status,401);
 });
 test("forged signature denied", () => {
   const token=sign(), parts=token.split(".");
   parts[1]=encode({...claim,tenant:"someone-else"});
-  assert.equal(decide({token:parts.join(".")}).status,403);
+  assert.equal(decide({token:parts.join(".")}).status,401);
 });
 test("wrong audience and issuer denied", () => {
-  assert.equal(decide({token:sign({...claim,aud:"v79-mcp"})}).status,403);
-  assert.equal(decide({token:sign({...claim,iss:"https://evil.invalid"})}).status,403);
+  assert.equal(decide({token:sign({...claim,aud:"v79-mcp"})}).status,401);
+  assert.equal(decide({token:sign({...claim,iss:"https://evil.invalid"})}).status,401);
 });
 test("wrong OAuth client and fake agent denied", () => {
-  assert.equal(decide({token:sign({...claim,client_id:"browser"})}).status,403);
-  assert.equal(decide({token:sign({...claim,agent_id:"wildcard-agent"})}).status,403);
+  assert.equal(decide({token:sign({...claim,client_id:"browser"})}).status,401);
+  assert.equal(decide({token:sign({...claim,agent_id:"wildcard-agent"})}).status,401);
 });
 test("write/wildcard scope denied", () => {
   for (const scope of ["hub.apps.write","*","hub.apps.read hub.apps.write"]) {
-    assert.equal(decide({token:sign({...claim,scope})}).status,403);
+    assert.equal(decide({token:sign({...claim,scope})}).status,401);
   }
 });
+test("MFA proof and recent authentication required", () => {
+  assert.equal(decide({token:sign({...claim,acr:"urn:v79:pwd"})}).status,401);
+  assert.equal(decide({token:sign({...claim,auth_time:NOW/1000-1000})}).status,401);
+  const s=makeStore();s.users[0].mfaEnabled=false;
+  assert.equal(decide({store:s}).status,403);
+});
 test("expiration, future time and long lifetime denied", () => {
-  assert.equal(decide({token:sign({...claim,exp:NOW/1000-1})}).status,403);
-  assert.equal(decide({token:sign({...claim,iat:NOW/1000+30})}).status,403);
-  assert.equal(decide({token:sign({...claim,exp:NOW/1000+500})}).status,403);
+  assert.equal(decide({token:sign({...claim,exp:NOW/1000-1})}).status,401);
+  assert.equal(decide({token:sign({...claim,iat:NOW/1000+30})}).status,401);
+  assert.equal(decide({token:sign({...claim,exp:NOW/1000+500})}).status,401);
 });
 test("missing tenant or subject denied", () => {
-  assert.equal(decide({token:sign({...claim,tenant:""})}).status,403);
-  assert.equal(decide({token:sign({...claim,sub:""})}).status,403);
+  assert.equal(decide({token:sign({...claim,tenant:""})}).status,401);
+  assert.equal(decide({token:sign({...claim,sub:""})}).status,401);
 });
 test("token identity outside owner org denied", () => {
   assert.equal(decide({token:sign({...claim,tenant:"other-company"})}).status,403);
@@ -136,7 +143,7 @@ test("noncanonical JWT JSON claims denied before cryptographic validation", () =
   const body=Buffer.from(JSON.stringify(claim)+" ").toString("base64url");
   const h=encode(headers), input=h+"."+body;
   const sig=crypto.sign("RSA-SHA256",Buffer.from(input,"ascii"),privateKey).toString("base64url");
-  assert.equal(decide({token:input+"."+sig}).status,403);
+  assert.equal(decide({token:input+"."+sig}).status,401);
 });
 test("duplicate JSON member denied even with valid signature", () => {
   const payload=JSON.stringify(claim).replace('"iss":', '"iss":"https://evil.invalid","iss":');
@@ -146,12 +153,12 @@ test("duplicate JSON member denied even with valid signature", () => {
 });
 test("signer key mismatch and unsupported algorithms denied", () => {
   const evil=crypto.generateKeyPairSync("rsa",{modulusLength:2048});
-  assert.equal(decide({token:sign(claim,headers,evil.privateKey)}).status,403);
-  assert.equal(decide({token:sign(claim,{...headers,alg:"none"})}).status,403);
+  assert.equal(decide({token:sign(claim,headers,evil.privateKey)}).status,401);
+  assert.equal(decide({token:sign(claim,{...headers,alg:"none"})}).status,401);
 });
 test("fixed trust parameters must be configured", () => {
-  assert.equal(decide({tokenOptions:{...options,publicKeyPem:""}}).status,403);
-  assert.equal(decide({tokenOptions:{...options,kid:""}}).status,403);
+  assert.equal(decide({tokenOptions:{...options,publicKeyPem:""}}).status,401);
+  assert.equal(decide({tokenOptions:{...options,kid:""}}).status,401);
 });
 test("no secrets, customer fields or user identifiers in output", () => {
   const x=JSON.stringify(decide().body).toLowerCase();
