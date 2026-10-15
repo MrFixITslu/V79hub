@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 import subprocess
 import unittest
+import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1]/'scripts/marketing-production-panel-build.py'
 spec = importlib.util.spec_from_file_location('ui_build', SOURCE)
@@ -32,6 +35,65 @@ class UiBuildTests(unittest.TestCase):
         bad_lock['packages']['node_modules/react']['version'] = 'changed'
         with self.assertRaises(RuntimeError):
             build.verify_ui_scope(package, new_package, lock, bad_lock, ['package-lock.json'])
+
+    def test_disposable_runner_sets_test_mode_without_changing_the_image(self):
+        image = 'sha256:' + 'a' * 64
+        command = build.isolated_test_command(image)
+        self.assertEqual(command[:3], ['docker', 'run', '--rm'])
+        self.assertEqual(command[command.index('--network')+1], 'none')
+        self.assertIn('--read-only', command)
+        self.assertEqual(command[command.index('--user')+1], 'node')
+        self.assertIn('NODE_ENV=test', command)
+        self.assertIn('NODE_OPTIONS=--import=./tests/isolated-env.mjs', command)
+        self.assertEqual(command[command.index(image)+1], '--test')
+        self.assertNotIn('--volume', command)
+        self.assertNotIn('-v', command)
+        self.assertNotIn('NODE_ENV=production', command)
+
+    def test_existing_image_verification_is_non_deploying_and_writes_receipt_only_after_pass(self):
+        for failure in (None, 'wrong-image', 'tests', 'live-drift'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                real_root = Path(directory)
+                class PrivateRoot:
+                    def is_dir(self): return True
+                    def is_symlink(self): return False
+                    def stat(self): return SimpleNamespace(st_uid=1000, st_mode=0o40700)
+                    def __truediv__(self, name): return real_root/name
+                calls = []
+                image = 'sha256:ac3f3262476deeba190a362a6782e02836fff2a7d701ab219a60be7f8caaba0e'
+                metadata = {'Id': image, 'Config': {'Labels': {'org.opencontainers.image.revision': build.COMMIT}, 'Env': ['NODE_ENV=production']}}
+                if failure == 'wrong-image': metadata['Id'] = 'different'
+                def runner(args, **kwargs):
+                    calls.append(args)
+                    if args[:3] == ['docker', 'image', 'inspect']: return json.dumps([metadata]).encode()
+                    if args[:2] == ['docker', 'run']:
+                        if failure == 'tests': raise RuntimeError('synthetic failed test run')
+                        return b''
+                    if args[:2] == ['docker', 'exec']: return b'{"signedLedgerVerified":true,"approvedBrandHasLogo":false}'
+                    raise AssertionError('Unexpected command: ' + repr(args))
+                snapshots = [{'id': 'unchanged'}, {'id': 'changed' if failure == 'live-drift' else 'unchanged'}]
+                with patch.object(build, 'Path', return_value=PrivateRoot()), \
+                     patch.object(build.socket, 'gethostname', return_value='v79sl'), \
+                     patch.object(build.os, 'getuid', return_value=1000), \
+                     patch.object(build.pwd, 'getpwuid', return_value=SimpleNamespace(pw_name='firelion')), \
+                     patch.object(build, 'snapshot', side_effect=snapshots), \
+                     patch.object(build, 'verify_checkout_scope') as verify_scope, \
+                     patch.object(build, 'run', side_effect=runner):
+                    if failure:
+                        with self.assertRaises(RuntimeError): build.verify_existing()
+                    else: build.verify_existing()
+                    verify_scope.assert_called_once_with(real_root/'V79hub')
+                receipt = real_root/'ui-build-receipt.json'
+                self.assertEqual(receipt.exists(), failure is None)
+                self.assertFalse(any('build' in args or 'compose' in args for args in calls))
+                self.assertEqual(metadata['Config']['Env'], ['NODE_ENV=production'])
+                if failure is None:
+                    record = json.loads(receipt.read_text())
+                    self.assertEqual(record['candidate']['image'], image)
+                    self.assertTrue(record['isolatedTestsPassed'])
+                    self.assertTrue(record['reusedExistingImage'])
+                    self.assertFalse(record['deploymentPerformed'])
+                    self.assertEqual(record['testEnvironment'], 'test')
 
     def test_logo_probe_verifies_signature_and_emits_only_metadata(self):
         harness = r'''

@@ -86,6 +86,60 @@ def readable_source(checkout):
                 path.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
 
 
+
+def isolated_test_command(image_id):
+    # React's act() helper exists only in its development/test entry point.
+    # This override applies to the network-none disposable test container only.
+    return ['docker', 'run', '--rm', '--network', 'none', '--read-only', '--user', 'node', '--cap-drop', 'ALL',
+            '--security-opt', 'no-new-privileges', '--memory', '768m', '--cpus', '2', '--tmpfs', '/tmp:rw,nosuid,nodev,size=128m',
+            '--env', 'NODE_ENV=test', '--env', 'NODE_OPTIONS=--import=./tests/isolated-env.mjs', '--entrypoint', 'node', image_id, '--test',
+            'tests/marketing-production-panel.test.mjs', 'tests/marketing-production-routes.test.mjs',
+            'tests/workforce-action-routes.test.mjs', 'tests/workforce-actions.test.mjs']
+
+
+def verify_checkout_scope(checkout):
+    require(run(['git', '-C', str(checkout), 'rev-parse', 'HEAD']).decode().strip() == COMMIT and
+            run(['git', '-C', str(checkout), 'rev-parse', 'HEAD^{tree}']).decode().strip() == TREE, 'Candidate commit/tree mismatch')
+    run(['git', '-C', str(checkout), 'diff', '--quiet', 'HEAD', '--'])
+    changed = run(['git', '-C', str(checkout), 'diff', '--name-only', BASE_COMMIT, COMMIT]).decode().splitlines()
+    old = lambda file: json.loads(run(['git', '-C', str(checkout), 'show', BASE_COMMIT + ':' + file]))
+    verify_ui_scope(old('package.json'), json.loads((checkout/'package.json').read_text()), old('package-lock.json'),
+                    json.loads((checkout/'package-lock.json').read_text()), changed)
+
+
+def verify_existing():
+    os.umask(0o077)
+    require(socket.gethostname().split('.')[0] == 'v79sl' and os.getuid() == 1000 and pwd.getpwuid(os.getuid()).pw_name == 'firelion', 'Run as firelion on v79sl')
+    root = Path('/home/firelion/v79-g3-ui-build-36jqnxjq')
+    require(root.is_dir() and not root.is_symlink() and root.stat().st_uid == os.getuid() and root.stat().st_mode & 0o077 == 0,
+            'Existing private build directory differs')
+    require(not (root/'ui-build-receipt.json').exists(), 'Build already verified; inspect the receipt before proceeding')
+    before = snapshot()
+    print('STAGE=verify-existing-pinned-ui-image-and-checkout', flush=True)
+    verify_checkout_scope(root/'V79hub')
+    expected_image = 'sha256:ac3f3262476deeba190a362a6782e02836fff2a7d701ab219a60be7f8caaba0e'
+    image = json.loads(run(['docker', 'image', 'inspect', expected_image]))[0]
+    require(image['Id'] == expected_image and image['Config']['Labels'].get('org.opencontainers.image.revision') == COMMIT,
+            'Previously built UI image identity differs')
+    require('NODE_ENV=production' in image['Config'].get('Env', []), 'Candidate production environment changed')
+    print('STAGE=isolated-ui-and-approval-tests-in-test-mode', flush=True)
+    run(isolated_test_command(expected_image), visible=True, timeout=180)
+    diagnostic = json.loads(run(['docker', 'exec', '-i', 'v79marketing-app', 'node', '--input-type=commonjs', '-'], data=LOGO_PROBE.encode()))
+    require(snapshot() == before, 'Live runtime changed during verification; inspect before proceeding')
+    receipt = {'at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'deploymentPerformed': False,
+               'candidate': {'commit': COMMIT, 'tree': TREE, 'image': expected_image, 'tag': TAG},
+               'liveRuntime': before, 'logoDiagnostic': diagnostic, 'sourceScopeVerified': True, 'isolatedTestsPassed': True,
+               'testEnvironment': 'test', 'reusedExistingImage': True, 'candidateProductionEnvironmentPreserved': True}
+    with (root/'ui-build-receipt.json').open('x') as output:
+        output.write(json.dumps(receipt, indent=2) + '\n')
+    print('HUB_UI_CANDIDATE_BUILD_AND_ISOLATED_TESTS_PASS')
+    print('CANDIDATE_IMAGE=' + expected_image)
+    print('BUILD_RECEIPT=' + str(root/'ui-build-receipt.json'))
+    print('LOGO_DIAGNOSTIC=' + json.dumps(diagnostic, separators=(',', ':')))
+    print('LIVE_CONTAINERS_UNCHANGED_PUBLICATION_DISABLED')
+    print('HUB_UI_DEPLOYMENT_STILL_REQUIRED')
+
+
 def main():
     os.umask(0o077)
     require(socket.gethostname().split('.')[0] == 'v79sl' and os.getuid() == 1000 and pwd.getpwuid(os.getuid()).pw_name == 'firelion', 'Run as firelion on v79sl')
@@ -116,11 +170,7 @@ def main():
     image = json.loads(run(['docker', 'image', 'inspect', TAG]))[0]
     require(image['Config']['Labels'].get('org.opencontainers.image.revision') == COMMIT, 'Candidate image revision mismatch')
     print('STAGE=isolated-ui-and-approval-boundary-tests', flush=True)
-    run(['docker', 'run', '--rm', '--network', 'none', '--read-only', '--user', 'node', '--cap-drop', 'ALL',
-         '--security-opt', 'no-new-privileges', '--memory', '768m', '--cpus', '2', '--tmpfs', '/tmp:rw,nosuid,nodev,size=128m',
-         '--env', 'NODE_OPTIONS=--import=./tests/isolated-env.mjs', '--entrypoint', 'node', image['Id'], '--test',
-         'tests/marketing-production-panel.test.mjs', 'tests/marketing-production-routes.test.mjs',
-         'tests/workforce-action-routes.test.mjs', 'tests/workforce-actions.test.mjs'], visible=True, timeout=180)
+    run(isolated_test_command(image['Id']), visible=True, timeout=180)
     require(snapshot() == before, 'Live runtime changed during build; inspect before proceeding')
     receipt = {'at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'deploymentPerformed': False,
                'candidate': {'commit': COMMIT, 'tree': TREE, 'image': image['Id'], 'tag': TAG},
@@ -135,7 +185,10 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        if globals().get('VERIFY_EXISTING_BUILD') is True:
+            verify_existing()
+        else:
+            main()
     except (Exception, KeyboardInterrupt) as exc:
         print('STOP: ' + (str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__))
         print('NO_LIVE_RECREATION_ATTEMPTED')
