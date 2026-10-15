@@ -1,0 +1,58 @@
+name: V79 Hub Login-only Release Safety
+
+on:
+  pull_request:
+    branches: [feature/marketing-production-20261014]
+    paths:
+      - "src/components/Login.tsx"
+      - "src/index.css"
+      - "public/assets/v79-login-earth.svg"
+      - "scripts/login-release-preview.mjs"
+      - "tests/hub-login-only-release.test.mjs"
+      - ".github/workflows/hub-login-only-release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  login-only-safety:
+    name: Validate frontend and isolated login browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Typecheck, regression suite, static frontend build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm test
+          npm run build
+      - name: Disposable Chromium for browser acceptance
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Start loopback-only static frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4179 --bind 127.0.0.1 --directory dist > "${RUNNER_TEMP}/hub-login-static.log" 2>&1 &
+          for i in $(seq 1 30); do
+            curl --silent --fail http://127.0.0.1:4179/ >/dev/null && exit 0
+            sleep 1
+          done
+          echo "Cannot start isolated preview"; exit 1
+      - name: Synthetic sign-in / MFA / recovery browser QA
+        run: node scripts/login-release-preview.mjs
+      - name: Screenshot artifact for owner review
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V79-Hub-Login-Only-Release-Preview
+          path: login-release-artifacts/
+          retention-days: 14
+          if-no-files-found: warn
+# Never connects to hub.v79sl.com; no production secrets, containers, database or remote requests.
