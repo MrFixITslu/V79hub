@@ -149,7 +149,7 @@ test("duplicate JSON member denied even with valid signature", () => {
   const payload=JSON.stringify(claim).replace('"iss":', '"iss":"https://evil.invalid","iss":');
   const input=encode(headers)+"."+Buffer.from(payload).toString("base64url");
   const sig=crypto.sign("RSA-SHA256",Buffer.from(input,"ascii"),privateKey).toString("base64url");
-  assert.equal(decide({token:input+"."+sig}).status,403);
+  assert.equal(decide({token:input+"."+sig}).status,401);
 });
 test("signer key mismatch and unsupported algorithms denied", () => {
   const evil=crypto.generateKeyPairSync("rsa",{modulusLength:2048});
