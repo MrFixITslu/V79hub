@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -54,6 +55,26 @@ class UiCutoverTests(unittest.TestCase):
         old['Config']['Hostname']=new['Config']['Hostname']='explicit';m.runtime_parity(old,new,'explicit')
         new['Config']['Hostname']='different'
         with self.assertRaises(RuntimeError):m.runtime_parity(old,new,'explicit')
+
+    def test_signed_schedule_guard_accepts_idle_future_automation_and_rejects_active_or_imminent_work(self):
+        harness=r"""
+const assert=require('node:assert/strict'),vm=require('node:vm'),crypto=require('node:crypto');
+const key='k'.repeat(64),id='44289786-2583-4bf1-9db2-99eca95dfd96',now=Date.parse('2026-10-15T02:10:45Z');
+const canonical=v=>JSON.stringify(v,(_k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,x[k]])):x);
+let state={paused:false,plan:{automaticDrafts:true,cadenceDays:7},lastAutomaticAt:'2026-10-14T23:59:59.437Z',seenRequests:[],jobs:[{status:'awaiting_owner',deliveries:[]}]},out=[],closed=false,tamper=false;
+const original=structuredClone(state);
+class DB{constructor(_path,options){assert.equal(options.readonly,true);assert.equal(options.fileMustExist,true);}pragma(v){assert.equal(v,'query_only=ON');}prepare(_sql){return {get(){const hmac=tamper?'0'.repeat(64):crypto.createHmac('sha256',key).update('v79-marketing-production-v1\n'+id+'\n'+canonical(state)).digest('hex');return {envelope:JSON.stringify({state,hmac})};}};}close(){closed=true;}}
+const run=()=>{out=[];closed=false;return vm.runInNewContext(PROBE,{require:n=>n==='better-sqlite3'?DB:require(n),process:{env:{V79_MARKETING_PRODUCTION_AUDIT_KEY:key}},Buffer,Date:class extends Date{static now(){return now;}},console:{log(v){out.push(v);}}});};
+run();assert.match(out[0],/^[a-f0-9]{64}$/);assert.ok(closed);assert.deepEqual(state,original);
+for(const change of [s=>s.jobs[0].status='queued',s=>s.jobs[0].status='generating',s=>s.jobs[0].deliveries=[{status:'running'}],s=>s.lastAutomaticAt=null,s=>s.lastAutomaticAt='invalid',s=>s.lastAutomaticAt=new Date(now+1000).toISOString(),s=>s.lastAutomaticAt=new Date(now-7*86400000+600000).toISOString(),s=>s.lastAutomaticAt=new Date(now-7*86400000+1000).toISOString(),s=>s.plan.cadenceDays=0]){
+ state=structuredClone(original);change(state);assert.throws(run);assert.ok(closed);assert.deepEqual(out,[]);
+}
+state=structuredClone(original);state.lastAutomaticAt=new Date(now-7*86400000+600001).toISOString();run();assert.equal(out.length,1);
+state=structuredClone(original);tamper=true;assert.throws(run,/Ledger integrity/);assert.deepEqual(out,[]);
+"""
+        program='const PROBE='+json.dumps(self.m.MARKETING_STATE)+';\n'+harness
+        result=subprocess.run(['node','--input-type=commonjs','-'],input=program.encode(),capture_output=True)
+        self.assertEqual(result.returncode,0,result.stderr.decode())
 
     def test_success_and_failures_do_not_retry_or_rollback_or_recreate_other_services(self):
         for failure in (None,'config','restart','data'):

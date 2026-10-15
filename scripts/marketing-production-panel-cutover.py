@@ -47,7 +47,12 @@ try{
  const {state,hmac}=JSON.parse(db.prepare('SELECT envelope FROM marketing_production_state WHERE business_id=?').get(id).envelope);
  const mac=crypto.createHmac('sha256',process.env.V79_MARKETING_PRODUCTION_AUDIT_KEY).update('v79-marketing-production-v1\n'+id+'\n'+canonical(state)).digest('hex');
  if(!/^[a-f0-9]{64}$/.test(hmac)||!crypto.timingSafeEqual(Buffer.from(mac),Buffer.from(hmac)))throw Error('Ledger integrity');
- if(state.plan?.automaticDrafts||state.jobs.some(j=>['queued','generating'].includes(j.status)||j.deliveries.some(d=>d.status==='running')))throw Error('Worker is active; wait for production before a UI cutover');
+ if(state.jobs.some(j=>['queued','generating'].includes(j.status)||j.deliveries.some(d=>d.status==='running')))throw Error('Worker is active; wait for production before a UI cutover');
+ if(!state.paused&&state.plan?.automaticDrafts){
+  const cadence=state.plan.cadenceDays,last=Date.parse(state.lastAutomaticAt||''),now=Date.now();
+  if(!Number.isInteger(cadence)||cadence<3||cadence>30||!Number.isFinite(last)||last>now||last+cadence*86400000-now<=600000)
+   throw Error('Automatic production is due within the ten-minute cutover buffer; wait for it to finish');
+ }
  // Replay nonces and SQL row revision/timestamps may change during read polling.
  // All brand, plan, package, approval, digest and audit content remains bound.
  delete state.seenRequests;
@@ -64,6 +69,8 @@ def require(ok, message):
 def mark(value):
     global stage
     stage = value
+    if helper is not None:
+        helper['stage'] = value
     print('STAGE=' + value, flush=True)
 
 
@@ -147,15 +154,20 @@ def main():
     labels = before['Config']['Labels']
     require(labels['com.docker.compose.project.config_files'].split(',') == FILES and labels['com.docker.compose.project'] == 'v79-hub' and
             labels['com.docker.compose.service'] == 'v79-hub' and labels['com.docker.compose.project.working_dir'] == '/opt/v79/hub', 'Accepted Hub Compose stack differs')
+    mark('verify-immutable-candidate-image')
     image = json.loads(helper['run'](['docker', 'image', 'inspect', IMAGE]))[0]
     require(image['Id'] == IMAGE and image['Config']['Labels'].get('org.opencontainers.image.revision') == COMMIT, 'Tested image revision differs')
     file_hashes = {p: helper['file_hash'](p) for p in FILES}
     secret_files = {mount['Source']: helper['file_hash'](mount['Source']) for mount in before['Mounts']
                     if mount.get('Type') == 'bind' and Path(mount['Source']).is_file()}
+    mark('resolve-accepted-hub-compose-stack')
     original = resolve(FILES)
     require(original['services']['v79-hub']['image'] == OLD_IMAGE, 'Current Hub image is not pinned')
+    mark('read-hub-protected-state')
     hub_state = helper['protected_state']('v79-hub-postgres')
+    mark('read-marketing-protected-state')
     marketing = helper['sqlite_state']('v79marketing-app')
+    mark('verify-signed-marketing-worker-idle-window')
     packages = semantic_marketing()
     WORK.mkdir(mode=0o700)
     with (WORK/'deployment.lock').open('x') as lock:
