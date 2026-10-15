@@ -15,6 +15,7 @@ REDTEAM residual risks: GitHub is not the system of record for runtime health; c
 - Server: server/owner-coo-workboard.mjs; fixed repo/issue/PR register, no mutations, bounded API fetch and no GitHub-controlled text passed through.
 - Hub route: GET /api/agent/coo-workboard, gated by existing ownerApprovalContext requiring verified session MFA.
 - UI: src/components/OwnerCooWorkboardPanel.tsx under existing OwnerAssistant beside executive review and separate signed work queue.
+- Confirmed open tasks offer a user-initiated **Prepare COO work item** button. This only pre-fills the existing WorkforceActionPanel; it does not submit the work item, approve it, call a worker or bypass fresh MFA. Unknown/absent tasks offer no prefill. Curated fixed labels/next actions are used, never arbitrary GitHub issue content.
 - Tests: tests/owner-coo-workboard.test.mjs using Node built-ins, negative checks for unauthorized, token missing, disabled, redirect, body overflow, pagination, prompt injection.
 - Isolated CI: .github/workflows/coo-workboard-isolated.yml; no image publication, server deployment or release worker change.
 
@@ -37,6 +38,9 @@ Separate [draft Hub #153](https://github.com/MrFixITslu/V79hub/pull/153) remains
 3. Compare installed G3 images to source, confirm encrypted restore and pinned WiPay rollback.
 4. Explicit owner approval for an isolated staging run with flag enabled, test owner and unauthorized sessions.
 5. Separate authorized immutable candidate release GO. No real customer invitation, payments or autonomous actions from this feature.
+
+## Second REDTEAM — draft-to-approved task bridge
+Considered direct automated GitHub→G2 queue writes (rejected: duplicate or dangerous actions), copying arbitrary issue text into G2 (rejected: prompt injection), and **selected** fixed, owner-clicked local prefill of an existing separately-approved work-item UI. No API POST occurs until the founder chooses Queue for review. A further fresh MFA owner approval is required before execution. Prefilling never handles a task in an UNKNOWN state; all text is limited to the fixed task register.
 
 ## Status semantics
 OPEN_IN_GITHUB means only that an issue/PR appeared on queried open list. NOT_LISTED_AS_OPEN is **not** the same as closed, fixed or deployed. UNKNOWN states must stay visible. Runtime health, deployed revision, customer launch and Sentinel coverage remain UNKNOWN / NOT_ESTABLISHED and approval/execution false, regardless of GitHub state.
