@@ -85,6 +85,19 @@ V79 Digital
 From Idea to Advantage
 https://v79sl.com
 
+## Potential independent reviewer sourcing — research only, not vetted/engaged
+
+To reduce the founder's back-and-forth, ask for **two or three fixed-scope quotes** using this same brief. Public contact starting points identified on 15 Oct 2026; **availability, independent status, exact web/API pentest skills, certifications, quote and conflict of interest are NOT verified**, and no outreach has been sent:
+
+- **[CipherQuest](https://cipherquest.com/contact/)** — Trinidad and Tobago contact offered for cybersecurity consulting; confirm capability for multi-tenant Node/Express + WebSocket app penetration testing and independent retest.
+- **[CLICK+](https://www.clickplus.co/home/contact-us/)** — regional contact in Roseau, Dominica; offers cybersecurity project consultation; ask specifically whether independent application/API security assessment is performed by qualified named testers.
+- **[Innovative Business Solutions (IBS)](https://www.ibsstlucia.com/)** — Saint Lucia local ICT/cybersecurity services; publicly emphasizes managed security; ask if they perform **independent application penetration testing** or can refer a suitable specialist. Not prequalified for this review.
+- **[CREST Supplier Marketplace](https://marketplace.crest.org/suppliers/)** — alternative directory for selecting a third-party firm with an independently assessed security-testing practice. Confirm *current company-level* penetration-testing accreditation and **Caribbean remote service capability**, not simply an employee certification.
+
+Selection criteria: independent from software authors/builders; written 1–2-page scope and fixed deliverables; own-tenant synthetic test methodology; secure handling/NDA; signed severity register, remediation verification, exact-digest retest and cost/timeline. Compare the quotes on evidence of auth/tenant/API expertise rather than logo prestige. No assumptions on affordability or availability.
+
+**Action status:** research and RFP draft prepared; contacting firms and agreeing paid services requires founder direction. Never share repository access, code archives, config or credentials with a prospect before scope/NDA and owner authorization.
+
 ## Signoff tracker
 
 `Reviewer | NDA & scope approved | Exact image IDs | Findings report | Critical/high fixed & retested | Recovery assessment | Signed Tier B recommendation | Founder Tier B decision`
