@@ -26,6 +26,7 @@ import { createAgentEvidenceAttestations } from "./server/agent-evidence-attesta
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
 import { createOwnerExecutiveProxy } from "./server/agent-executive-owner-proxy.mjs";
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
+import { mcpReadAccessDecision } from "./server/mcp-owner-readonly.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
@@ -1585,6 +1586,32 @@ app.get("/.well-known/jwks.json", (_req, res) => {
   res.json({ keys: [{ ...posPublicKey.export({ format: "jwk" }), kid: posKeyId, alg: "EdDSA", use: "sig" }] });
 });
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+// Separate owner-only MCP downstream read. DISABLED unless explicitly enabled
+// after source/runtime matching, independent review, audit and rollback rehearsal.
+// It does not use Hub browser cookies, login tickets or platform service secrets.
+// Its audience-bound downstream assertion must NOT be an inbound MCP client token.
+app.all("/api/integrations/mcp/v1/apps", (req, res) => {
+  const decision = mcpReadAccessDecision({
+    enabled: process.env.V79_MCP_READONLY_ENABLE === "1",
+    method: req.method,
+    authorization: req.get("authorization") || "",
+    cookie: req.get("cookie") || "",
+    tokenOptions: {
+      publicKeyPem: (process.env.V79_MCP_DOWNSTREAM_PUBLIC_KEY_PEM || "").replace(/\\n/g, "\n"),
+      issuer: process.env.V79_MCP_DOWNSTREAM_ISSUER || "",
+      kid: process.env.V79_MCP_DOWNSTREAM_KEY_ID || "",
+    },
+    store,
+    ownerOrganizationId: posIdentity.organizationId,
+    ownerUserId: posIdentity.ownerUserId,
+    ownerEmail: "vision79slu@gmail.com",
+    now: Date.now(),
+  });
+  res.setHeader("Cache-Control", "no-store");
+  if (decision.status !== 200) return res.status(decision.status).json({ error: decision.error });
+  return res.json(decision.body);
+});
+
 // Read-only, authenticated entitlement revalidation for existing product sessions.
 // The downstream app MUST fail closed if this check fails or becomes unreachable.
 // HMAC service IDs are bound to the product so one app cannot query another.
