@@ -10,6 +10,7 @@ import {
   Sparkles,
   Target,
   ArrowRight,
+  Search,
 } from "lucide-react";
 import { EcosystemApp } from "../types";
 
@@ -25,6 +26,8 @@ export function AppSwitcher({
   authToken,
 }: AppSwitcherProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const filteredApps = apps.filter((app) => `${app.name} ${app.shortName} ${app.category}`.toLowerCase().includes(query.trim().toLowerCase()));
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -37,9 +40,12 @@ export function AppSwitcher({
         setIsOpen(false);
       }
     }
+    const handleEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setIsOpen(false); };
     document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
     };
   }, []);
 
@@ -82,7 +88,10 @@ export function AppSwitcher({
       {/* 9-Dot Launcher Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        title="V79 Ecosystem App Launcher"
+        title="Open V79 app launcher"
+        aria-label="Open V79 app launcher"
+        aria-expanded={isOpen}
+        aria-controls="v79-app-launcher"
         className={`p-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center ${
           isOpen
             ? "bg-slate-800 text-cyan-400 shadow-md ring-2 ring-cyan-500/30"
@@ -94,7 +103,7 @@ export function AppSwitcher({
 
       {/* App Launcher Dropdown Popover */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-[#0B1528] border border-slate-700/80 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95">
+        <div id="v79-app-launcher" role="region" aria-label="V79 application launcher" className="hub-app-switcher absolute right-0 mt-2 w-[min(22rem,calc(100vw-1.5rem))] bg-[#0B1528] border border-slate-700/80 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95">
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2">
@@ -115,9 +124,14 @@ export function AppSwitcher({
             </button>
           </div>
 
-          {/* Quick App Grid using native <a> links */}
-          <div className="grid grid-cols-3 gap-2 py-3">
-            {apps.map((app) => {
+          <label className="mt-3 flex items-center gap-2 rounded-xl border border-[#234463] bg-[#07111f] px-3 py-2.5 text-slate-400 focus-within:border-[#0A86FF]">
+            <Search className="w-4 h-4 shrink-0" />
+            <span className="sr-only">Search your applications</span>
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find an app..." className="w-full min-w-0 bg-transparent outline-none text-sm text-white placeholder:text-slate-500" />
+          </label>
+          {/* Managed apps still use the Hub signed launch paths. */}
+          <div className="grid grid-cols-3 gap-2 py-3 max-h-64 overflow-y-auto">
+            {filteredApps.map((app) => {
               const url = getLaunchUrl(app);
               const managedLaunch = app.id in { "app-ffpro": true, "app-tiquet": true, "app-marketing": true, "app-v79pos": true };
               if (!url) return null;
@@ -146,10 +160,12 @@ export function AppSwitcher({
             })}
           </div>
 
+          {filteredApps.length === 0 && <p className="py-2 text-xs text-slate-400" role="status">No matching apps in this workspace.</p>}
+
           {/* Footer Quick Launch Action */}
           <div className="pt-2.5 border-t border-slate-800 flex items-center justify-between text-[11px] px-1">
             <span className="text-slate-400 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#55c7ff]" />
               <span>Open apps in a new tab</span>
             </span>
 
