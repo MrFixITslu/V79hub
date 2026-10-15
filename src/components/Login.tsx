@@ -205,16 +205,51 @@ export function Login({ onLoginSuccess }: LoginProps) {
   );
 
   return (
-    <div className="min-h-screen bg-[#06101d] flex items-center justify-center p-4 font-sans relative overflow-hidden">
+    <div className="hub-login min-h-screen bg-[#06101d] flex items-center justify-center px-4 py-8 font-sans relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-15%] left-[-10%] w-[50%] h-[50%] bg-[#0A86FF]/15 rounded-full blur-[140px]" />
         <div className="absolute bottom-[-15%] right-[-10%] w-[50%] h-[50%] bg-violet-600/15 rounded-full blur-[140px]" />
       </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-        className="w-full max-w-md relative z-10">
-        <div className="bg-[#091728]/95 backdrop-blur-xl border border-[#1a3854] rounded-3xl shadow-2xl overflow-hidden p-7 sm:p-8">
+      <div className="relative z-10 mx-auto grid w-full max-w-[1180px] grid-cols-1 items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(400px,460px)] xl:gap-16">
+        <aside className="hub-login-story relative hidden min-h-[570px] flex-col justify-between overflow-hidden rounded-[28px] border border-[#1b3753] bg-[#081628] p-10 text-white lg:flex xl:p-12" aria-label="About V79 Digital Hub">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_90%_18%,rgba(10,134,255,.28),transparent_38%),radial-gradient(circle_at_12%_100%,rgba(41,79,171,.18),transparent_40%)]" />
+          <div className="pointer-events-none absolute -right-24 top-28 h-80 w-80 rounded-full border border-[#0A86FF]/25 shadow-[0_0_0_24px_rgba(10,134,255,.03),0_0_0_70px_rgba(10,134,255,.025)]" />
+          <div className="relative">
+            <div className="text-2xl font-black tracking-tight">V79 <span className="text-[#49b4ff]">Digital</span></div>
+            <p className="mt-1 text-xs font-semibold tracking-wide text-sky-300">From Idea to Advantage.</p>
+          </div>
+          <div className="relative py-10">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#2b5275] bg-[#0A86FF]/10 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-sky-200">
+              <ShieldCheck className="h-4 w-4" />
+              YOUR BUSINESS COMMAND CENTRE
+            </div>
+            <h2 className="max-w-[490px] text-4xl font-black leading-[1.12] tracking-[-0.045em] xl:text-5xl">Welcome to <span className="text-[#55b7ff]">V79 Digital Hub.</span></h2>
+            <p className="mt-5 max-w-[430px] text-sm leading-7 text-slate-300">Access your tools, understand your operations, and move your business forward—all from one workspace.</p>
+          </div>
+          <div className="relative grid grid-cols-3 gap-3 border-t border-[#254463] pt-6">
+            <div>
+              <ShieldCheck className="mb-3 h-5 w-5 text-sky-400" />
+              <div className="text-xs font-bold">Secure access</div>
+              <p className="mt-1 text-[11px] leading-5 text-slate-400">Account and MFA protection</p>
+            </div>
+            <div>
+              <CheckCircle2 className="mb-3 h-5 w-5 text-sky-400" />
+              <div className="text-xs font-bold">Connected tools</div>
+              <p className="mt-1 text-[11px] leading-5 text-slate-400">Workspace app launcher</p>
+            </div>
+            <div>
+              <KeyRound className="mb-3 h-5 w-5 text-sky-400" />
+              <div className="text-xs font-bold">Team controls</div>
+              <p className="mt-1 text-[11px] leading-5 text-slate-400">Scoped permissions</p>
+            </div>
+          </div>
+        </aside>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
+          className="w-full max-w-md relative z-10 mx-auto">
+        <div className="hub-login-form bg-[#091728]/95 backdrop-blur-xl border border-[#1a3854] rounded-3xl shadow-2xl overflow-hidden p-7 sm:p-8">
           <div className="text-center mb-7">
+            <div className="mb-4 flex items-center justify-center gap-2 text-[10px] uppercase font-bold tracking-[0.15em] text-sky-400 lg:hidden">V79 Digital · From Idea to Advantage.</div>
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#0A86FF] to-violet-500 shadow-lg shadow-blue-500/20 mb-4 text-white">
               <ShieldCheck className="w-7 h-7" />
             </div>
@@ -370,7 +405,8 @@ export function Login({ onLoginSuccess }: LoginProps) {
             </form>
           )}
         </div>
-      </motion.div>
+        </motion.div>
+      </div>
     </div>
   );
 }
