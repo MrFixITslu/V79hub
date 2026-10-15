@@ -110,7 +110,13 @@ def main() -> int:
     checks["tiquet_running_healthy"] = tiquet.get("status") == "running" and tiquet.get("health") == "healthy"
     checks["tiquet_compose_separate"] = tiquet.get("compose_project") == "v79tiquet"
     checks["network_proxy_preserved"] = "proxy_network" in hub.get("network_names", [])
-    checks["hub_internal_database_network_preserved"] = "hub_data_network" in hub.get("network_names", [])
+    expected_internal_network = hub.get("compose_project", "") + "_hub_data_network"
+    checks["hub_internal_database_network_preserved"] = (
+        expected_internal_network == "v79-hub_hub_data_network"
+        and expected_internal_network in hub.get("network_names", [])
+        and expected_internal_network in db.get("network_names", [])
+        and "proxy_network" not in db.get("network_names", [])
+    )
 
     result = {
         "task": "hub_login_only_readonly_runtime_inventory",
