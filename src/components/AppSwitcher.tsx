@@ -160,7 +160,7 @@ export function AppSwitcher({
             })}
           </div>
 
-          {filteredApps.every((app) => !getLaunchUrl(app)) && <p className="py-2 text-xs text-slate-400" role="status">No matching apps in this workspace.</p>}
+          {filteredApps.every((app) => !getLaunchUrl(app)) && <p className="py-2 text-xs text-slate-400" role="status">No apps available to launch for this search.</p>}
 
           {/* Footer Quick Launch Action */}
           <div className="pt-2.5 border-t border-slate-800 flex items-center justify-between text-[11px] px-1">
