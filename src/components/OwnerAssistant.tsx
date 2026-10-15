@@ -5,6 +5,7 @@ import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
 import { MarketingProductionPanel } from "./MarketingProductionPanel";
 import { WorkforceActionPanel } from "./WorkforceActionPanel";
+import { OwnerCooWorkboardPanel } from "./OwnerCooWorkboardPanel";
 
 type EvidenceMetric = { key: string; value: number };
 type EvidenceRecord = {
@@ -92,6 +93,7 @@ export function OwnerAssistant() {
         </div>
 
         <ExecutiveReviewPanel />
+        <OwnerCooWorkboardPanel />
         <WorkforceActionPanel />
         <MarketingProductionPanel />
         <AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} />
