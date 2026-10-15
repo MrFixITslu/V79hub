@@ -88,8 +88,16 @@ function checkErrors(page,name){page.on("pageerror",e=>report.errors.push({scree
 try{
   for(const [width,height,name] of [[1440,900,"01-login-desktop"],[390,844,"02-login-mobile"]]){
     const context=await contextFor(width,height,false);const page=await context.newPage();checkErrors(page,name);
-    await page.goto(root);await page.getByRole("heading",{name:/Sign in to V79 Hub/}).waitFor();
-    await shot(page,name,"Original Hub React login ("+width+" px)");await context.close();
+    await page.goto(root);await page.getByRole("heading",{name:/Sign in to your account/}).waitFor();
+    await shot(page,name,"Uploaded-reference login ("+width+" px)");
+    const google=page.getByRole("button",{name:/Continue with Google/});
+    assert.equal(await google.isDisabled(),true,"Unconfigured Google OAuth must not appear functional");
+    await page.getByRole("button",{name:"Forgot password?"}).click();
+    await page.getByRole("heading",{name:"Reset your password"}).waitFor();
+    await page.getByRole("button",{name:"Back to sign in"}).click();
+    await page.getByRole("heading",{name:"Sign in to your account"}).waitFor();
+    console.log("LOGIN_RECOVERY_AND_GOOGLE_SAFETY_OK "+name);
+    await context.close();
   }
   const context=await contextFor(1440,900,true);const page=await context.newPage();checkErrors(page,"desktop");
   await page.goto(root);await page.locator(".hub-dashboard").waitFor();
