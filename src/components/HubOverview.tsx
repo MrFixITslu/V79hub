@@ -163,7 +163,7 @@ const appCards: Array<{
 
 function statusMeta(summary?: ProductSummary) {
   if (!summary) return { label: "Loading", dot: "bg-slate-500", text: "text-slate-400", score: 35 };
-  if (summary.status === "ok") return { label: "Operational", dot: "bg-emerald-400", text: "text-emerald-300", score: 100 };
+  if (summary.status === "ok") return { label: "Data available", dot: "bg-emerald-400", text: "text-emerald-300", score: 100 };
   if (summary.status === "restricted") return { label: "Restricted", dot: "bg-slate-400", text: "text-slate-300", score: 55 };
   if (summary.status === "not_enabled") return { label: "Not enabled", dot: "bg-slate-600", text: "text-slate-500", score: 15 };
   if (summary.status === "not_configured") return { label: "Not connected", dot: "bg-slate-500", text: "text-slate-400", score: 30 };
@@ -267,9 +267,13 @@ export function HubOverview({
   const lastUpdated = dashboard?.generatedAt
     ? new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "-";
-  const attentionLabel = actions.length === 0
-    ? "Nothing urgent"
-    : `${actions.length} item${actions.length === 1 ? "" : "s"} need attention`;
+  const attentionLabel = loadError
+    ? "Dashboard update failed"
+    : !dashboard
+      ? "Checking app signals"
+      : actions.length === 0
+        ? "No new action alerts"
+        : `${actions.length} item${actions.length === 1 ? "" : "s"} need attention`;
 
   const metricCards = [
     {
@@ -313,20 +317,20 @@ export function HubOverview({
 
   return (
     <div className="min-h-full bg-[#07111f] text-slate-100 pb-24 lg:pb-10">
-      <div className="mx-auto w-full max-w-[1540px] px-4 sm:px-5 xl:px-7 py-5 space-y-4">
-        <section className="relative overflow-hidden rounded-[24px] border border-[#1a3854] bg-[#091728] shadow-[0_28px_80px_rgba(0,0,0,.26)]">
+      <div className="hub-dashboard mx-auto w-full max-w-[1540px] px-4 sm:px-5 xl:px-7 py-6 space-y-5">
+        <section className="hub-hero relative overflow-hidden rounded-[24px] border border-[#1a3854] bg-[#091728] shadow-[0_28px_80px_rgba(0,0,0,.26)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(10,134,255,.24),transparent_35%),radial-gradient(circle_at_95%_65%,rgba(255,122,0,.12),transparent_28%)]" />
           <div className="absolute inset-y-0 right-0 w-[58%] opacity-30 bg-[linear-gradient(120deg,transparent_5%,rgba(10,134,255,.16)_38%,rgba(255,122,0,.13)_70%,transparent_100%)]" />
           <div className="relative px-5 sm:px-7 py-6 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
             <div>
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#65c9ff]">
                 <Sparkles className="w-3.5 h-3.5" />
-                Business dashboard
+                V79 command centre
               </div>
-              <h1 className="mt-2 text-3xl sm:text-[38px] leading-tight font-black tracking-[-0.03em] text-white">{greeting}</h1>
+              <h1 className="mt-2 text-3xl sm:text-[38px] leading-tight font-black tracking-[-0.03em] text-white">{greeting}{user.fullName ? `, ${user.fullName.trim().split(/\s+/)[0]}` : ""}</h1>
               <div className="mt-1 text-sm font-semibold text-[#55c7ff]">{organizationName}</div>
               <p className="mt-2 text-sm text-slate-400 max-w-2xl">
-                See how the business is performing, what needs attention and the V79 tools available to your team.
+                Your workspace at a glance. Follow live app signals, take action, and open the tools your business uses.
               </p>
             </div>
 
@@ -336,7 +340,7 @@ export function HubOverview({
                 <div className="mt-1 text-sm font-black text-white">{attentionLabel}</div>
               </div>
               <div className="rounded-2xl border border-[#21405d] bg-[#081422]/80 px-4 py-3 min-w-[135px]">
-                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Updated</div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Data refreshed</div>
                 <div className="mt-1 text-sm font-bold text-white">{lastUpdated}</div>
               </div>
               <button
@@ -356,6 +360,42 @@ export function HubOverview({
             {loadError}
           </div>
         )}
+
+        <section>
+          <div className="mb-2 px-1">
+            <div className="text-base font-bold text-white">Performance overview</div>
+            <div className="text-[10px] text-slate-500 mt-0.5">Live metrics from connected products, with source-specific reporting periods.</div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {visibleMetricCards.map((metric) => {
+              const Icon = metric.icon;
+              const summary = summaries?.[metric.key];
+              const meta = statusMeta(summary);
+              return (
+                <div
+                  key={metric.key}
+                  className="hub-kpi group relative overflow-hidden rounded-[20px] border border-[#1a3854] bg-[#0a1727] p-5 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
+                >
+                  <div className={`absolute inset-0 bg-gradient-to-br ${metric.glow} opacity-90 pointer-events-none`} />
+                  <div className="relative">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#07111f]/75 border border-white/10 flex items-center justify-center">
+                        <Icon className={`w-5 h-5 ${metric.color}`} />
+                      </div>
+                      <span className={`inline-flex items-center gap-1.5 text-[9px] font-semibold ${meta.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="mt-4 text-[10px] uppercase tracking-[0.13em] text-slate-500 font-bold">{metric.label}</div>
+                    <div className="mt-2 text-[30px] leading-none font-black tracking-tight text-white truncate" title={metric.value}>{metric.value}</div>
+                    <div className="mt-3 text-[11px] leading-relaxed text-slate-400">{metric.detail}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
         <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
           <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
@@ -395,57 +435,21 @@ export function HubOverview({
                 );
               })
             ) : (
-              <div className="lg:col-span-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 flex items-start gap-3">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />
+              <div className={`lg:col-span-2 rounded-2xl border p-4 flex items-start gap-3 ${!dashboard || loadError ? "border-slate-500/20 bg-slate-500/[0.07]" : "border-emerald-500/20 bg-emerald-500/[0.07]"}`} role="status">
+                {!dashboard || loadError ? <Activity className="w-4 h-4 text-slate-400 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />}
                 <div>
-                  <div className="text-xs font-bold text-emerald-200">Nothing urgent right now</div>
-                  <div className="text-[10px] text-slate-500 mt-1">Your connected business apps are not surfacing urgent actions.</div>
+                  <div className={`text-xs font-bold ${!dashboard || loadError ? "text-slate-200" : "text-emerald-200"}`}>{!dashboard || loadError ? "Action insights are not available yet" : "No action alerts reported"}</div>
+                  <div className="text-[10px] text-slate-500 mt-1">Only connected apps with available data contribute alerts. Check your apps for complete activity.</div>
                 </div>
               </div>
             )}
           </div>
         </section>
 
-        <section>
-          <div className="mb-2 px-1">
-            <div className="text-sm font-bold text-white">Business KPIs</div>
-            <div className="text-[10px] text-slate-500 mt-0.5">Current operational snapshot. Time periods are shown where the source app defines them.</div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            {visibleMetricCards.map((metric) => {
-              const Icon = metric.icon;
-              const summary = summaries?.[metric.key];
-              const meta = statusMeta(summary);
-              return (
-                <div
-                  key={metric.key}
-                  className="group relative overflow-hidden rounded-2xl border border-[#1a3854] bg-[#0a1727] p-4 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
-                >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${metric.glow} opacity-90 pointer-events-none`} />
-                  <div className="relative">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-[#07111f]/75 border border-white/10 flex items-center justify-center">
-                        <Icon className={`w-5 h-5 ${metric.color}`} />
-                      </div>
-                      <span className={`inline-flex items-center gap-1.5 text-[9px] font-semibold ${meta.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                        {meta.label}
-                      </span>
-                    </div>
-                    <div className="mt-4 text-[10px] uppercase tracking-[0.13em] text-slate-500 font-bold">{metric.label}</div>
-                    <div className="mt-1 text-[24px] leading-none font-black tracking-tight text-white truncate">{metric.value}</div>
-                    <div className="mt-2 text-[10px] text-slate-500">{metric.detail}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
         <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
           <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-white">Your apps</div>
+              <div className="text-base font-bold text-white">Your V79 ecosystem</div>
               <div className="text-[10px] text-slate-500 mt-0.5">Only the V79 modules enabled for this workspace appear here</div>
             </div>
             <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff] hover:text-white">
@@ -467,7 +471,7 @@ export function HubOverview({
                   target={launchUrl ? "_blank" : undefined}
                   rel={launchUrl ? "noopener noreferrer" : undefined}
                   aria-disabled={!launchUrl}
-                  className={`group relative overflow-hidden min-h-[150px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
+                  className={`hub-product-card group relative overflow-hidden min-h-[206px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
                 >
                   <div className="absolute -right-8 -bottom-10 w-28 h-28 rounded-full blur-2xl opacity-25" style={{ backgroundColor: card.accent }} />
                   <div className="relative h-full flex flex-col">
@@ -481,7 +485,8 @@ export function HubOverview({
                     </div>
                     <div className="mt-3">
                       <div className="text-[13px] font-black text-white leading-tight">{card.title}</div>
-                      <div className="mt-1 text-[9px] text-slate-500">{card.category}</div>
+                      <div className="mt-1 text-[10px] font-medium text-slate-300">{card.category}</div>
+                       <p className="mt-2 text-[11px] leading-relaxed text-slate-400 line-clamp-2">{card.description}</p>
                     </div>
                     <div className="mt-3 flex gap-4">
                       {metrics.map((metric) => (
@@ -515,8 +520,8 @@ export function HubOverview({
               <div className="text-[11px] font-bold text-white">System status</div>
               <div className="text-[9px] text-slate-500 mt-1">
                 {onlineCount === visibleAppCards.length
-                  ? "All enabled Hub data connections are operational."
-                  : `${onlineCount} of ${visibleAppCards.length} enabled Hub data connections are operational.`}
+                  ? "All enabled app data connections responded to the latest check."
+                  : `${onlineCount} of ${visibleAppCards.length} enabled app data connections responded to the latest check.`}
               </div>
             </div>
           </div>
