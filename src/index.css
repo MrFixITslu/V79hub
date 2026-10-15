@@ -99,3 +99,104 @@ textarea.admin-input {
 @media (max-width: 640px) {
   input, select, textarea { font-size: 16px; }
 }
+
+
+/* Template-inspired command centre visual language.
+   Deliberately CSS-only: no Canva output, remote assets, or mocked telemetry. */
+:root {
+  --hub-accent: #0a86ff;
+  --hub-accent-soft: #55b7ff;
+  --hub-ink: #06101d;
+}
+.hub-sidebar {
+  background-image: linear-gradient(180deg, #060e1c 0%, #071425 70%, #050e1a 100%);
+}
+.hub-sidebar::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  width: 270px;
+  height: 200px;
+  right: -120px;
+  bottom: 105px;
+  border: 1px solid rgba(10,134,255,0.12);
+  border-radius: 50%;
+  transform: rotate(-26deg);
+  box-shadow: 0 0 0 24px rgba(10,134,255,0.025), 0 0 0 55px rgba(10,134,255,0.015);
+}
+.hub-nav-item {
+  position: relative;
+  isolation: isolate;
+}
+.hub-nav-item:focus-visible,
+.hub-app-switcher a:focus-visible,
+.hub-dashboard a:focus-visible,
+.hub-dashboard button:focus-visible,
+.hub-topbar button:focus-visible,
+.hub-login button:focus-visible,
+.hub-login input:focus-visible {
+  outline: 2px solid #55b7ff;
+  outline-offset: 3px;
+}
+.hub-topbar {
+  box-shadow: 0 6px 22px rgba(0, 3, 17, 0.12);
+}
+.hub-hero {
+  background-image: linear-gradient(117deg, #0a1a32 0%, #091b38 52%, #07172a 100%);
+}
+.hub-hero::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  right: -12%;
+  top: -115%;
+  width: 45%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid rgba(85, 183, 255, 0.16);
+  box-shadow: 0 0 0 32px rgba(10,134,255,.03), 0 0 0 110px rgba(10,134,255,.02);
+}
+.hub-kpi {
+  box-shadow: 0 16px 36px rgba(0, 4, 21, 0.12);
+  min-height: 172px;
+}
+.hub-kpi::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 17px;
+  right: 17px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(85, 183, 255, 0.60), transparent);
+  pointer-events: none;
+}
+.hub-product-card {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+}
+.hub-product-card:focus-visible {
+  outline: 2px solid #55b7ff;
+  outline-offset: 3px;
+}
+.hub-login-form {
+  box-shadow: 0 34px 90px rgba(0,0,0,.34), 0 0 0 1px rgba(10,134,255,.03);
+}
+.hub-login-story {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.045), 0 18px 80px rgba(0,0,0,.20);
+}
+.hub-theme-light .hub-hero {
+  background-image: linear-gradient(118deg, #f3f8ff 0%, #e8f3ff 60%, #f6faff 100%);
+}
+.hub-theme-light .hub-hero::after,
+.hub-theme-light .hub-sidebar::after {
+  opacity: .4;
+}
+.hub-theme-light .hub-kpi {
+  box-shadow: 0 12px 30px rgba(9,38,70,.05);
+}
+@media (max-width: 1023px) {
+  .hub-hero::after { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub-nav-item, .hub-product-card, .hub-kpi { transition-duration: 0.01ms !important; transform: none !important; }
+  .hub-dashboard .animate-spin { animation: none !important; }
+}
