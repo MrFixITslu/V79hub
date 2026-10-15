@@ -25,6 +25,7 @@ import { prepareSupervisedMarketingDraft } from "./server/agent-supervised-marke
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
 import { createOwnerExecutiveProxy } from "./server/agent-executive-owner-proxy.mjs";
+import { createOwnerCooWorkboard } from "./server/owner-coo-workboard.mjs";
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
@@ -5154,6 +5155,22 @@ app.post("/api/agent/executive-handoff",
   createOwnerExecutiveProxy("handoff", executiveProxyDeps));
 app.post("/api/agent/executive-preview",
   createOwnerExecutiveProxy("preview", executiveProxyDeps));
+
+// P1 internal COO development register: separate from verified app telemetry.
+// Fixed GitHub GET paths, owner-session MFA, disabled by default; no agent writes.
+app.get("/api/agent/coo-workboard", createOwnerCooWorkboard({
+  ownerMfaContext: ownerApprovalContext,
+  enabled: () => process.env.V79_COO_WORKBOARD_ENABLED === "1",
+  readToken: () => {
+    try {
+      return fs.readFileSync(
+        process.env.V79_COO_GITHUB_TOKEN_FILE || "/run/secrets/v79-coo-github-token",
+        "utf8"
+      ).trim();
+    } catch { return ""; }
+  },
+}));
+
 
 app.use("/api/users", (req, res, next) => {
   if (req.method === "GET") return requirePermission("team")(req, res, next);
