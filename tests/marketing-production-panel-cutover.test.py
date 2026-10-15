@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import subprocess
+import shutil
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -83,7 +84,7 @@ state=structuredClone(original);tamper=true;assert.throws(run,/Ledger integrity/
             m.PREVIOUS_WORK=Path(directory);m.helper={'file_hash':lambda *args:'unchanged'}
             for name,image in [('ui-image.yml',m.IMAGE),('rollback-image.yml',m.OLD_IMAGE)]:
                 (m.PREVIOUS_WORK/name).write_text(json.dumps({'services':{'v79-hub':{'image':image}}}))
-            failure={'stage':'capture-encrypted-hub-recovery-and-exact-rollback-stack','liveSwitchAttempted':False,'automaticRetryOrRollback':False}
+            failure={'stage':'encrypt-captured-hub-recovery','liveSwitchAttempted':False,'automaticRetryOrRollback':False}
             (m.PREVIOUS_WORK/'failure.json').write_text(json.dumps(failure));self.assertEqual(len(m.verify_previous_backup_failure()),3)
             (m.PREVIOUS_WORK/'switch-attempted.json').write_text('{}')
             with self.assertRaises(RuntimeError):m.verify_previous_backup_failure()
@@ -91,11 +92,70 @@ state=structuredClone(original);tamper=true;assert.throws(run,/Ledger integrity/
             (m.PREVIOUS_WORK/'failure.json').write_text(json.dumps(failure))
             with self.assertRaises(RuntimeError):m.verify_previous_backup_failure()
 
+    def test_public_keyring_checks_fingerprint_no_private_keys_and_nonempty_encryption(self):
+        m=self.m
+        for failure in (None,'fingerprint','private','empty'):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as directory:
+                m.WORK=Path(directory);m.PUBLIC=m.WORK/'owner-public.asc';m.PUBLIC.write_text('synthetic public key')
+                calls=[]
+                def run(args,**kwargs):
+                    calls.append(args);self.assertEqual(args[args.index('--homedir')+1],str(m.WORK/'gnupg'))
+                    if '--import' in args:return b''
+                    if '--list-keys' in args:return ('fpr:::::::::'+('0'*40 if failure=='fingerprint' else m.RECIPIENT)+':').encode()
+                    if '--list-secret-keys' in args:return b'sec:synthetic' if failure=='private' else b''
+                    if '--encrypt' in args:
+                        self.assertEqual(args[args.index('--recipient')+1],m.RECIPIENT)
+                        self.assertEqual(kwargs['data'],b'V79 public-key encryption preflight')
+                        self.assertEqual(args[args.index('--output')+1],'-')
+                        return b'' if failure=='empty' else b'synthetic encrypted preflight'*3
+                    raise AssertionError('Unexpected command')
+                m.helper={'run':run,'file_hash':lambda *a:'public-hash'}
+                if failure:
+                    with self.assertRaises(RuntimeError):m.prepare_public_keyring()
+                else:self.assertEqual(m.prepare_public_keyring(),'public-hash')
+                self.assertFalse(any('PRIVATE KEY' in arg for args in calls for arg in args))
+
+    @unittest.skipUnless(shutil.which('gpg'),'GPG required for real encryption integration test')
+    def test_real_public_only_keyring_encrypts_and_the_test_owner_can_decrypt(self):
+        m=self.m
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);owner=root/'owner';owner.mkdir(mode=0o700);m.WORK=root/'work';m.WORK.mkdir(mode=0o700);m.PUBLIC=root/'public.asc'
+            def run(args,data=None,**kwargs):
+                result=subprocess.run(args,input=data,capture_output=True,timeout=kwargs.get('timeout',30))
+                self.assertEqual(result.returncode,0,'Synthetic GPG operation failed')
+                return result.stdout
+            try:
+                agent=subprocess.run(['gpg-agent','--daemon','--homedir',str(owner),'--debug-level','basic'],capture_output=True,timeout=10)
+                if agent.returncode and b"can't create socket: Operation not permitted" in agent.stderr:
+                    self.skipTest('This environment blocks the local GPG agent socket; production encryption has an explicit preflight')
+                self.assertEqual(agent.returncode,0,'Synthetic GPG agent could not start')
+                base=['gpg','--homedir',str(owner),'--batch','--pinentry-mode','loopback','--passphrase','']
+                run(base+['--quick-generate-key','V79 synthetic test <test@example.invalid>','ed25519','cert','0'])
+                listed=run(base+['--with-colons','--fingerprint','--list-keys']).decode()
+                m.RECIPIENT=next(line.split(':')[9] for line in listed.splitlines() if line.startswith('fpr:'))
+                run(base+['--quick-add-key',m.RECIPIENT,'cv25519','encr','0'])
+                m.PUBLIC.write_bytes(run(base+['--armor','--export',m.RECIPIENT]))
+                m.helper={'run':run,'file_hash':lambda p,*a:'public-hash'}
+                self.assertEqual(m.prepare_public_keyring(),'public-hash')
+                payload=b'synthetic protected configuration for integration test'
+                encrypted=run(m.encryption_command()+['--output','-','--encrypt'],data=payload)
+                self.assertNotIn(payload,encrypted)
+                self.assertEqual(run(base+['--decrypt'],data=encrypted),payload)
+                secrets=run(['gpg','--homedir',str(m.WORK/'gnupg'),'--batch','--with-colons','--list-secret-keys'])
+                self.assertNotIn(b'sec:',secrets)
+                m.RECIPIENT='0'*40
+                with self.assertRaises(RuntimeError):
+                    # A fresh keyring is necessary because initialization is exclusive.
+                    m.WORK=root/'wrong';m.WORK.mkdir(mode=0o700);m.prepare_public_keyring()
+            finally:
+                for home in (owner,root/'work'/'gnupg',root/'wrong'/'gnupg'):
+                    subprocess.run(['gpgconf','--homedir',str(home),'--kill','all'],capture_output=True)
+
     def test_success_and_failures_do_not_retry_or_rollback_or_recreate_other_services(self):
         for failure in (None,'config','restart','data'):
             with self.subTest(failure=failure),tempfile.TemporaryDirectory() as directory:
-                m=load();root=Path(directory);m.BUILD=root/'build';m.BUILD.mkdir();m.WORK=root/'cutover';m.PREVIOUS_WORK=root/'previous';m.PREVIOUS_WORK.mkdir(mode=0o700)
-                (m.PREVIOUS_WORK/'failure.json').write_text(json.dumps({'stage':'capture-encrypted-hub-recovery-and-exact-rollback-stack','liveSwitchAttempted':False,'automaticRetryOrRollback':False}))
+                m=load();root=Path(directory);m.BUILD=root/'build';m.BUILD.mkdir();m.WORK=root/'cutover';m.PREVIOUS_WORK=root/'previous';m.PREVIOUS_WORK.mkdir(mode=0o700);m.PUBLIC=root/'public.asc';m.PUBLIC.write_text('synthetic public key')
+                (m.PREVIOUS_WORK/'failure.json').write_text(json.dumps({'stage':'encrypt-captured-hub-recovery','liveSwitchAttempted':False,'automaticRetryOrRollback':False}))
                 for filename,image in [('ui-image.yml',m.IMAGE),('rollback-image.yml',m.OLD_IMAGE)]:
                     (m.PREVIOUS_WORK/filename).write_text(json.dumps({'services':{'v79-hub':{'image':image}}}))
                 m.FILES=[str(root/'base.yml')];Path(m.FILES[0]).write_text('original compose')
@@ -125,7 +185,13 @@ state=structuredClone(original);tamper=true;assert.throws(run,/Ledger integrity/
                         self.assertEqual(args[args.index('--pull')+1],'never');switched=True
                         if failure=='restart':raise RuntimeError('Synthetic restart error')
                         return b''
-                    if args[0]=='gpg':Path(args[args.index('--output')+1]).write_bytes(b'encrypted');return b''
+                    if args[0]=='gpg':
+                        self.assertEqual(args[args.index('--homedir')+1],str(m.WORK/'gnupg'))
+                        if '--list-keys' in args:return ('fpr:::::::::'+m.RECIPIENT+':').encode()
+                        if '--list-secret-keys' in args or '--import' in args:return b''
+                        target=args[args.index('--output')+1]
+                        if target=='-':return b'encryption preflight ciphertext'*3
+                        Path(target).write_bytes(b'encrypted');return b''
                     if args[:2]==['docker','exec'] and data==m.MARKETING_STATE.encode():return b'signed-campaign-digest'
                     if args[:2]==['docker','exec'] and data and b'PINNED_UI_ASSET_SERVED_PASS' in data:return b'PINNED_UI_ASSET_SERVED_PASS'
                     if args[:5]==['docker','exec','--user','0','v79-hub']:

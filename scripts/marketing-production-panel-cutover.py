@@ -12,13 +12,14 @@ import socket
 import urllib.request
 
 BUILD = Path('/home/firelion/v79-g3-ui-build-36jqnxjq')
-PREVIOUS_WORK = Path('/home/firelion/v79-g3-ui-cutover-8d82b21a4def-v1')
-WORK = Path('/home/firelion/v79-g3-ui-cutover-8d82b21a4def-v2')
+PREVIOUS_WORK = Path('/home/firelion/v79-g3-ui-cutover-8d82b21a4def-v2')
+WORK = Path('/home/firelion/v79-g3-ui-cutover-8d82b21a4def-v3')
 IMAGE = 'sha256:ac3f3262476deeba190a362a6782e02836fff2a7d701ab219a60be7f8caaba0e'
 OLD_IMAGE = 'sha256:4a2320ad18549adf42fa60d9a1d06d2c124dba0db2f80b85a1a9cf0fc27dabb1'
 COMMIT = '8d82b21a4defe47a3d377a57dcd648b3c9818fea'
 TREE = '7a6f5e5835f1e141bb4197060da634cd6c2cefcc'
 RECIPIENT = '484CF39CE37A02884497AD9C41A17102D2842ECE'
+PUBLIC = Path('/home/firelion/.v79-g12-recovery-public.asc')
 FILES = [
     '/opt/v79/hub/docker-compose.yml',
     '/opt/v79/hub/releases/wipay-return-585f701.pinned.yml',
@@ -140,13 +141,33 @@ def verify_previous_backup_failure():
     hashes = {str(PREVIOUS_WORK/name): helper['file_hash'](PREVIOUS_WORK/name, True)
               for name in ('failure.json', 'ui-image.yml', 'rollback-image.yml')}
     failure = json.loads((PREVIOUS_WORK/'failure.json').read_text())
-    require(failure.get('stage') == 'capture-encrypted-hub-recovery-and-exact-rollback-stack' and
+    require(failure.get('stage') == 'encrypt-captured-hub-recovery' and
             failure.get('liveSwitchAttempted') is False and failure.get('automaticRetryOrRollback') is False,
             'Previous failure is not the reviewed pre-switch backup failure')
     for filename, image in [('ui-image.yml', IMAGE), ('rollback-image.yml', OLD_IMAGE)]:
         require(json.loads((PREVIOUS_WORK/filename).read_text()) == {'services': {'v79-hub': {'image': image}}},
                 'Previous image-only overlay differs')
     return hashes
+
+
+def encryption_command():
+    return ['gpg', '--homedir', str(WORK/'gnupg'), '--batch', '--yes', '--quiet', '--trust-model', 'always',
+            '--recipient', RECIPIENT, '--compress-algo', 'none']
+
+
+def prepare_public_keyring():
+    public_hash = helper['file_hash'](PUBLIC)
+    require(b'PRIVATE KEY' not in PUBLIC.read_bytes(), 'Expected owner public key only')
+    home = WORK/'gnupg'
+    home.mkdir(mode=0o700)
+    helper['run'](['gpg', '--homedir', str(home), '--batch', '--quiet', '--import', str(PUBLIC)])
+    keys = helper['run'](['gpg', '--homedir', str(home), '--batch', '--with-colons', '--fingerprint', '--list-keys'])
+    require(('fpr:::::::::'+RECIPIENT+':').encode() in keys, 'Owner public encryption fingerprint mismatch')
+    private = helper['run'](['gpg', '--homedir', str(home), '--batch', '--with-colons', '--list-secret-keys'])
+    require(b'sec:' not in private and b'ssb:' not in private, 'Private key must not be on the server')
+    probe = helper['run'](encryption_command()+['--output', '-', '--encrypt'], data=b'V79 public-key encryption preflight', timeout=30)
+    require(len(probe)>32, 'Public-key encryption preflight produced no ciphertext')
+    return public_hash
 
 
 def main():
@@ -197,6 +218,8 @@ def main():
         helper['write_json'](WORK/'rollback-image.yml', {'services': {'v79-hub': {'image': OLD_IMAGE}}})
         candidate = resolve(FILES + [WORK/'ui-image.yml'])
         parity(original, candidate)
+        mark('verify-owner-public-keyring-and-encryption-preflight')
+        public_key_hash = prepare_public_keyring()
         mark('capture-hub-database-backup')
         database_backup = helper['run'](['docker', 'exec', 'v79-hub-postgres', 'pg_dump', '-U', 'v79hub', '-d', 'v79hub', '-Fc'], timeout=120)
         mark('capture-hub-files-through-running-container')
@@ -212,14 +235,13 @@ def main():
         }
         mark('encrypt-captured-hub-recovery')
         for name, data in blobs.items():
-            helper['run'](['gpg', '--batch', '--yes', '--trust-model', 'always', '--encrypt', '--recipient', RECIPIENT,
-                           '--output', str(WORK/name)], data=data, timeout=120)
+            helper['run'](encryption_command()+['--output', str(WORK/name), '--encrypt'], data=data, timeout=120)
         backup_hashes = {name: helper['file_hash'](WORK/name, True) for name in blobs}
         with (WORK/'encrypted-checksums.sha256').open('x') as output:
             output.write(''.join(digest+'  '+name+'\n' for name, digest in backup_hashes.items()))
         helper['write_json'](WORK/'manifest.json', {'at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'candidateImage': IMAGE, 'originalImage': OLD_IMAGE, 'previousPreSwitchFailureHashes': previous_failure_hashes, 'buildReceiptSha256': receipt_sha, 'originalStack': FILES,
-            'sourceFileHashes': file_hashes, 'mountedSecretFileHashes': secret_files, 'encryptedBackups': backup_hashes, 'hubProtectedStateSha256': hub_state,
+            'ownerPublicKeySha256': public_key_hash, 'ownerPublicKeyFingerprint': RECIPIENT, 'sourceFileHashes': file_hashes, 'mountedSecretFileHashes': secret_files, 'encryptedBackups': backup_hashes, 'hubProtectedStateSha256': hub_state,
             'marketingProtectedStateSha256': marketing['digest'], 'signedMarketingPackagesSha256': packages,
             'onlyServiceToRecreate': 'v79-hub', 'publicationEnabled': False, 'automaticRetryOrRollback': False})
         mark('final-image-only-config-and-live-drift-check')
