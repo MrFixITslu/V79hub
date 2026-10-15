@@ -69,7 +69,7 @@ export async function readCooGithubRepo(repo, token, { fetchImpl = fetch, timeou
             Object.hasOwn(entries, row.number)) throw new Error("INVALID_ENTRY");
         // Do NOT include GitHub-controlled title, body, paths, URLs or attachments.
         entries[row.number] = { kind: Object.hasOwn(row, "pull_request") ? "pr" : "issue",
-          updatedAt: typeof row.updated_at === "string" ? row.updated_at : null };
+          updatedAt: typeof row.updated_at === "string" && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$/.test(row.updated_at) &&\n            Number.isFinite(Date.parse(row.updated_at)) ? row.updated_at : null };
       }
       if (body.length < 100) return { state: "COMPLETE", entries };
     }
@@ -118,7 +118,7 @@ export function createOwnerCooWorkboard({ ownerMfaContext, enabled, readToken,
     if (!enabled()) return res.json({ ...formatCooWorkboard(blank, now()), connection: "DISABLED" });
     let token = "";
     try { token = readToken(); } catch { /* fail closed */ }
-    if (typeof token !== "string" || token.trim().length < 16) {
+    if (typeof token !== "string" || token.trim().length < 16 || token.trim().length > 256 || /\\s/.test(token.trim())) {
       return res.json({ ...formatCooWorkboard(blank, now()), connection: "NOT_CONFIGURED" });
     }
     const result = await Promise.all(REPOS.map(async repo => [repo, await readCooGithubRepo(repo, token.trim(), { fetchImpl })]));
