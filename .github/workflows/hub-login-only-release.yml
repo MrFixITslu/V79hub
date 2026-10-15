@@ -1,0 +1,131 @@
+name: V79 Hub Login-only Release Safety
+
+on:
+  pull_request:
+    branches: [feature/marketing-production-20261014]
+    paths:
+      - "src/components/Login.tsx"
+      - "src/index.css"
+      - "public/assets/v79-login-earth.svg"
+      - "scripts/login-release-preview.mjs"
+      - "tests/hub-login-only-release.test.mjs"
+      - "tests/hub-login-production-preflight.test.mjs"
+      - "scripts/hub-login-production-preflight.py"
+      - ".github/workflows/hub-login-only-release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  login-only-safety:
+    name: Validate frontend and isolated login browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Typecheck, regression suite, static frontend build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm test
+          npm run build
+      - name: Disposable Chromium for browser acceptance
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Start loopback-only static frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4179 --bind 127.0.0.1 --directory dist > "${RUNNER_TEMP}/hub-login-static.log" 2>&1 &
+          for i in $(seq 1 30); do
+            curl --silent --fail http://127.0.0.1:4179/ >/dev/null && exit 0
+            sleep 1
+          done
+          echo "Cannot start isolated preview"; exit 1
+      - name: Synthetic sign-in / MFA / recovery browser QA
+        run: node scripts/login-release-preview.mjs
+      - name: Screenshot artifact for owner review
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V79-Hub-Login-Only-Release-Preview
+          path: login-release-artifacts/
+          retention-days: 14
+          if-no-files-found: warn
+# Never connects to hub.v79sl.com; no production secrets, containers, database or remote requests.
+
+  immutable-image-candidate:
+    name: Build isolated Hub-only immutable candidate artifact
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+    runs-on: ubuntu-latest
+    needs: login-only-safety
+    timeout-minutes: 28
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify source is exactly login-only allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_HEAD_REF" = "release/hub-login-only-20261015"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$GITHUB_BASE_REF" = "feature/marketing-production-20261014"
+          git fetch --no-tags --depth=160 origin "refs/heads/feature/marketing-production-20261014:refs/remotes/origin/feature/marketing-production-20261014"
+          mapfile -t changed < <(git diff --name-only origin/feature/marketing-production-20261014...HEAD | LC_ALL=C sort)
+          printf '%s\n' "${changed[@]}"
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/hub-login-only-release.yml|public/assets/v79-login-earth.svg|scripts/login-release-preview.mjs|scripts/hub-login-production-preflight.py|src/components/Login.tsx|src/index.css|tests/hub-login-only-release.test.mjs|tests/hub-login-production-preflight.test.mjs) ;;
+              *) echo "BLOCKED: non-login-only source in release: $file" >&2; exit 1 ;;
+            esac
+          done
+          test "${#changed[@]}" -eq 8
+      - name: Build without remote credentials or production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="v79-hub-login-only:${SOURCE_SHA}"
+          docker build --build-arg NODE_BASE=docker.io/library/node:22-alpine --label "org.opencontainers.image.revision=${SOURCE_SHA}" --tag "$image" .
+          docker image inspect "$image" --format '{{.Id}}'
+      - name: Isolated image regression in network-none non-root container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only --user node \
+            --cap-drop ALL --security-opt no-new-privileges --memory 768m --cpus 2 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            --env NODE_OPTIONS=--import=./tests/isolated-env.mjs \
+            --entrypoint node "v79-hub-login-only:${SOURCE_SHA}" \
+            --test tests/hub-login-only-release.test.mjs tests/hub-login-production-preflight.test.mjs
+      - name: Seal tested image as transferable immutable Docker archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/immutable-login-image"
+          image="v79-hub-login-only:${SOURCE_SHA}"
+          archive="${RUNNER_TEMP}/immutable-login-image/v79-hub-login-only-${SOURCE_SHA}.docker.tar.gz"
+          docker image inspect "$image" --format '{{.Id}}' > "${RUNNER_TEMP}/immutable-login-image/docker-image-id.txt"
+          docker save "$image" | gzip -1 > "$archive"
+          (cd "${RUNNER_TEMP}/immutable-login-image" && sha256sum "v79-hub-login-only-${SOURCE_SHA}.docker.tar.gz" > archive-sha256.txt)
+          printf 'SOURCE_COMMIT=%s\nIMAGE_TAG=%s\nPRODUCTION_DEPLOYED=NO\nRUNTIME_RESTORED=NO\nOFFHOST_RECOVERY_VERIFIED=NO\n' \
+            "$SOURCE_SHA" "$image" > "${RUNNER_TEMP}/immutable-login-image/release-candidate.txt"
+          echo "Immutable image and offline archive created. This job cannot reach production."
+      - name: Upload isolated image, hashes and candidate manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: V79-Hub-Login-Only-Immutable-Image
+          path: ${{ runner.temp }}/immutable-login-image/
+          retention-days: 14
+          if-no-files-found: error
+# No packages:write, no secrets, no Tailscale or SSH, no production environment or auto-deploy.
