@@ -3,6 +3,7 @@ import { Bot, Send, ShieldCheck } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
 import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
+import { MarketingProductionPanel } from "./MarketingProductionPanel";
 import { WorkforceActionPanel } from "./WorkforceActionPanel";
 
 type EvidenceMetric = { key: string; value: number };
@@ -86,12 +87,13 @@ export function OwnerAssistant() {
           </div>
           <div className="flex items-center gap-2 text-xs text-emerald-300">
             <ShieldCheck className="w-4 h-4" />
-            Owner only · Read-only
+            Owner only · Approval controlled
           </div>
         </div>
 
         <ExecutiveReviewPanel />
         <WorkforceActionPanel />
+        <MarketingProductionPanel />
         <AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} />
         <SignedTiquetEvidencePanel />
         <div className="px-5 py-3 border-b border-slate-800 bg-slate-900/50">
