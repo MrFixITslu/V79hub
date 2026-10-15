@@ -45,6 +45,7 @@ class TrackingBuilderTests(unittest.TestCase):
     files=('server.ts','src/lib/productionTracking.ts','src/lib/publicationLinks.ts','src/lib/productionWorkflow.ts','src/lib/productionStore.ts','src/lib/publisher.ts','src/lib/db.ts')
     for filename in files:
      p=checkout/filename;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('synthetic public source')
+    (checkout/'Dockerfile').write_text('RUN npm install -g npm@11.9.0\n')
     hashes={'../'+f:m.hashlib.sha256((checkout/f).read_bytes()).hexdigest() for f in files}
     if mismatch:hashes['../src/lib/productionTracking.ts']='changed'
     def run(args,**kwargs):
@@ -60,6 +61,33 @@ class TrackingBuilderTests(unittest.TestCase):
      else:self.assertTrue(m.build(root,m.MARKETING)['isolatedTestsPassed'])
     containers=[c for c in calls if c[:2]==['docker','run']];self.assertEqual(len(containers),3)
     for c in containers:self.assertEqual(c[c.index('--network')+1],'none');self.assertNotIn('--mount',c)
-    verification=(root/'marketing-verification.Dockerfile').read_text();self.assertIn('npm ci --include=dev',verification);self.assertTrue(verification.endswith('USER node\n'))
+    verification=(root/'marketing-verification-npm11.Dockerfile').read_text();self.assertIn('npm ci --include=dev',verification);self.assertIn('npm install -g npm@11.9.0',verification);self.assertLess(verification.index('npm install -g npm@11.9.0'),verification.index('npm ci --include=dev'));self.assertTrue(verification.endswith('USER node\n'))
+
+ def test_resume_checks_existing_candidates_and_never_rebuilds_runtime_images(self):
+  for failure in (None,'tests','drift','prior-receipt'):
+   with self.subTest(failure=failure),tempfile.TemporaryDirectory() as directory:
+    m=load();m.EXISTING_BUILD=Path(directory);calls=[];checks=0
+    for spec in (m.HUB,m.MARKETING):(m.EXISTING_BUILD/spec[0]).mkdir()
+    if failure=='prior-receipt':(m.EXISTING_BUILD/'tracking-build-receipt.json').write_text('{}')
+    def snapshot():
+     nonlocal checks
+     checks+=1;return {'live':'changed' if failure=='drift' and checks>1 else 'same'}
+    def verify(root,spec,path,tag,expected):
+     calls.append((spec[0],expected))
+     if failure=='tests':raise RuntimeError('Synthetic isolated test failure')
+     return {'image':expected,'commit':spec[1],'tree':spec[2],'isolatedTestsPassed':True}
+    original_stat=Path.stat
+    def owned_stat(path,**kwargs):
+     value=original_stat(path,**kwargs)
+     return SimpleNamespace(st_mode=value.st_mode,st_uid=1000) if path==m.EXISTING_BUILD else value
+    with patch.object(m.socket,'gethostname',return_value='v79sl'),patch.object(m.os,'getuid',return_value=1000),patch.object(m.pwd,'getpwuid',return_value=SimpleNamespace(pw_name='firelion')),patch.object(m,'snapshot',side_effect=snapshot),patch.object(m,'verify_source'),patch.object(m,'verify_image',side_effect=verify),patch.object(m,'build',side_effect=AssertionError('Must not rebuild runtime')),patch.object(m,'run',side_effect=AssertionError('Unexpected command')),patch.object(m.Path,'stat',owned_stat),redirect_stdout(io.StringIO()):
+     if failure:
+      with self.assertRaises(RuntimeError):m.verify_existing()
+     else:m.verify_existing()
+    receipt=m.EXISTING_BUILD/'tracking-build-receipt.json'
+    if failure in ('tests','drift'):self.assertFalse(receipt.exists())
+    if failure=='prior-receipt':self.assertEqual(calls,[])
+    if failure is None:
+     doc=json.loads(receipt.read_text());self.assertTrue(doc['reusedExistingImages']);self.assertFalse(doc['deploymentPerformed']);self.assertEqual(len(calls),2)
 
 if __name__=='__main__':unittest.main()

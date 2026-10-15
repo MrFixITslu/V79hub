@@ -13,6 +13,7 @@ import tempfile
 
 HUB=('V79hub','045d68a61257c758f2f6ca229d050e4e7a7df618','d1157d636ede68b5981a4c69306f1d29cf58041c','8d82b21a4defe47a3d377a57dcd648b3c9818fea')
 MARKETING=('V79Marketing','de806c5c8db2d798ecb94621e3e1b04e9d7c8592','15595d37621996d866100e6a57297e5406006b2c','b7934c03f0e3fd91f826af52e68b62422ef55616')
+EXISTING_BUILD=Path('/home/firelion/v79-g3-tracking-build-1qcu4yh_')
 NODE_BASE='public.ecr.aws/docker/library/node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402'
 LIVE={
  'v79-hub':'sha256:ac3f3262476deeba190a362a6782e02836fff2a7d701ab219a60be7f8caaba0e',
@@ -57,17 +58,25 @@ def isolated(image,args,environment=()):
  return command+['--entrypoint','node',image]+list(args)
 
 
+def verify_source(path,spec):
+ repo,commit,tree,base=spec
+ require(run(['git','-C',str(path),'rev-parse','HEAD']).decode().strip()==commit and run(['git','-C',str(path),'rev-parse','HEAD^{tree}']).decode().strip()==tree,'Pinned checkout/tree differs')
+ run(['git','-C',str(path),'diff','--quiet','HEAD','--'])
+ require(not run(['git','-C',str(path),'ls-files','--others','--exclude-standard']).strip(),'Unexpected untracked source files')
+ changed=run(['git','-C',str(path),'diff','--name-only',base,commit]).decode().splitlines()
+ allowed={'src/components/MarketingProductionPanel.tsx'} if repo=='V79hub' else MARKETING_FILES
+ require(all(p in allowed or p.startswith(('tests/','docs/','scripts/')) for p in changed),'Source changes exceed UI/receipt-tracking scope')
+ for filename in ('package.json','package-lock.json'):
+  require(run(['git','-C',str(path),'show',base+':'+filename])==(path/filename).read_bytes(),'Dependencies changed beyond receipt-tracking scope')
+
+
 def checkout(root,spec):
  repo,commit,tree,base=spec;path=root/repo;path.mkdir()
  run(['git','init','--quiet',str(path)])
  for sha in (commit,base):run(['git','-C',str(path),'fetch','--depth','1','https://github.com/MrFixITslu/'+repo+'.git',sha],timeout=180)
  run(['git','-C',str(path),'checkout','--quiet','--detach',commit])
  require(run(['git','-C',str(path),'rev-parse','HEAD']).decode().strip()==commit and run(['git','-C',str(path),'rev-parse','HEAD^{tree}']).decode().strip()==tree,'Pinned checkout/tree differs')
- changed=run(['git','-C',str(path),'diff','--name-only',base,commit]).decode().splitlines()
- allowed={'src/components/MarketingProductionPanel.tsx'} if repo=='V79hub' else MARKETING_FILES
- require(all(p in allowed or p.startswith(('tests/','docs/','scripts/')) for p in changed),'Source changes exceed UI/receipt-tracking scope')
- for filename in ('package.json','package-lock.json'):
-  require(run(['git','-C',str(path),'show',base+':'+filename])==(path/filename).read_bytes(),'Dependencies changed beyond receipt-tracking scope')
+ verify_source(path,spec)
  for directory,dirs,files in os.walk(path,followlinks=False):
   dirs[:]=[n for n in dirs if n!='.git'];Path(directory).chmod(0o755)
   for name in dirs+files:
@@ -80,7 +89,13 @@ def build(root,spec):
  repo,commit,tree,_=spec;path=checkout(root,spec);tag=('v79-hub' if repo=='V79hub' else 'v79-marketing')+'-tracking:'+commit[:12]
  print('STAGE=build-'+repo,flush=True)
  run(['docker','build','--build-arg','NODE_BASE='+NODE_BASE,'--label','org.opencontainers.image.revision='+commit,'--tag',tag,str(path)],visible=True,timeout=1800)
+ return verify_image(root,spec,path,tag)
+
+
+def verify_image(root,spec,path,tag,expected_image=None):
+ repo,commit,tree,_=spec
  meta=json.loads(run(['docker','image','inspect',tag]))[0];image=meta['Id']
+ require(expected_image is None or image==expected_image,'Existing immutable candidate image differs')
  require(meta['Config']['Labels'].get('org.opencontainers.image.revision')==commit and 'NODE_ENV=production' in meta['Config']['Env'],'Candidate source/environment differs')
  print('STAGE=network-isolated-tests-'+repo,flush=True)
  if repo=='V79hub':
@@ -88,8 +103,9 @@ def build(root,spec):
  else:
   # The deployed image keeps dev dependencies pruned. A separate disposable
   # verification image restores only lockfile-bound test dependencies.
-  dockerfile=root/'marketing-verification.Dockerfile'
-  dockerfile.write_text('FROM '+tag+'\nUSER root\nRUN apk add --no-cache python3 make g++\nCOPY package.json package-lock.json ./\nRUN npm ci --include=dev --no-audit --no-fund\nCOPY . .\nUSER node\n')
+  require('RUN npm install -g npm@11.9.0' in (path/'Dockerfile').read_text(),'Candidate npm toolchain differs')
+  dockerfile=root/'marketing-verification-npm11.Dockerfile'
+  dockerfile.write_text('FROM '+tag+'\nUSER root\nRUN apk add --no-cache python3 make g++\nRUN npm install -g npm@11.9.0\nCOPY package.json package-lock.json ./\nRUN npm ci --include=dev --no-audit --no-fund\nCOPY . .\nUSER node\n')
   verify_tag='v79-marketing-tracking-tests:'+commit[:12]
   run(['docker','build','--file',str(dockerfile),'--tag',verify_tag,str(path)],visible=True,timeout=1800)
   verify=json.loads(run(['docker','image','inspect',verify_tag]))[0]['Id']
@@ -111,8 +127,12 @@ def main():
  root=Path(tempfile.mkdtemp(prefix='v79-g3-tracking-build-',dir='/home/firelion'));print('BUILD_DIRECTORY='+str(root),flush=True)
  candidates={spec[0]:build(root,spec) for spec in (HUB,MARKETING)}
  require(snapshot()==before,'Live runtime changed during builds; inspect before deployment')
+ write_receipt(root,before,candidates)
+
+
+def write_receipt(root,before,candidates,reused=False):
  receipt={'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'deploymentPerformed':False,'liveRuntime':before,'candidates':candidates,
-  'publicationEnabled':True,'cleanupPerformed':False,'testEnvironment':'test','runtimeSourceVerified':True}
+  'publicationEnabled':True,'cleanupPerformed':False,'testEnvironment':'test','runtimeSourceVerified':True,'reusedExistingImages':reused}
  with (root/'tracking-build-receipt.json').open('x') as output:
   json.dump(receipt,output,indent=2);output.write('\n');output.flush();os.fsync(output.fileno())
  print('TRACKING_STATUS_LINKS_AND_CLEANUP_CANDIDATES_BUILD_AND_ISOLATED_TESTS_PASS')
@@ -122,8 +142,31 @@ def main():
  print('FRESH_COPIED_STATE_RECOVERY_AND_DEPLOYMENT_PENDING')
 
 
+def verify_existing():
+ os.umask(0o077)
+ require(socket.gethostname().split('.')[0]=='v79sl' and os.getuid()==1000 and pwd.getpwuid(os.getuid()).pw_name=='firelion','Run as firelion on v79sl')
+ root=EXISTING_BUILD
+ require(root.is_dir() and not root.is_symlink() and root.stat().st_uid==os.getuid() and root.stat().st_mode&0o077==0,'Existing private build directory differs')
+ require(not (root/'tracking-build-receipt.json').exists(),'Build already verified; inspect its receipt')
+ before=snapshot();candidates={}
+ expected={'V79hub':'sha256:33a357c6c73f45ef05edcef57c6c0abf9234022cbec1c30041c463b2f3ff8d06',
+  'V79Marketing':'sha256:32641b8f302b4ec38a56167ee6df9d5e0a185bf017431fa86f5bb9f462f7eaf3'}
+ print('BUILD_DIRECTORY='+str(root),flush=True)
+ print('STAGE=verify-existing-immutable-images-and-checkouts',flush=True)
+ for spec in (HUB,MARKETING):
+  repo,commit,_,_=spec;path=root/repo
+  require(path.is_dir() and not path.is_symlink(),'Existing checkout differs')
+  verify_source(path,spec)
+  tag=('v79-hub' if repo=='V79hub' else 'v79-marketing')+'-tracking:'+commit[:12]
+  candidates[repo]=verify_image(root,spec,path,tag,expected[repo])
+ require(snapshot()==before,'Live runtime changed during verification; inspect before deployment')
+ write_receipt(root,before,candidates,reused=True)
+
+
 if __name__=='__main__':
- try:main()
+ try:
+  if globals().get('VERIFY_EXISTING_BUILD') is True:verify_existing()
+  else:main()
  except (Exception,KeyboardInterrupt) as exc:
   print('STOP: '+(str(exc) if isinstance(exc,RuntimeError) else type(exc).__name__))
   print('NO_LIVE_RECREATION_UPLOAD_OR_CAMPAIGN_CLEANUP_ATTEMPTED')
