@@ -6,6 +6,8 @@ on:
     paths:
       - "server/owner-coo-workboard.mjs"
       - "src/components/OwnerCooWorkboardPanel.tsx"
+      - "src/components/WorkforceActionPanel.tsx"
+      - "tests/owner-coo-workboard-ui.test.mjs"
       - "src/components/OwnerAssistant.tsx"
       - "server.ts"
       - "tests/owner-coo-workboard.test.mjs"
