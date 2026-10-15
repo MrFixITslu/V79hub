@@ -52,6 +52,9 @@ jobs:
             tests/v79-invitation-delivery.test.mjs \
             tests/trial-reminders.test.mjs \
             tests/organization-access.test.mjs
+            tests/billing-contract.test.mjs \
+            tests/g12-full-internal-billing-integration.test.mjs \
+            tests/legacy-plan-migration.test.mjs
       - name: Ephemeral Hub HTTP signup, MFA, tenant, ticket and team tests
         shell: bash
         run: |
