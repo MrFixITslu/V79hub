@@ -197,7 +197,8 @@ state=structuredClone(original);tamper=true;assert.throws(run,/Ledger integrity/
                         if target=='-':return b'encryption preflight ciphertext'*3
                         Path(target).write_bytes(b'encrypted');return b''
                     if args[:2]==['docker','exec'] and data==m.MARKETING_STATE.encode():return b'signed-campaign-digest'
-                    if args[:2]==['docker','exec'] and data and b'PINNED_UI_ASSET_SERVED_PASS' in data:return b'PINNED_UI_ASSET_SERVED_PASS'
+                    if args[:2]==['docker','exec'] and data and b'PINNED_UI_ASSET_SERVED_PASS' in data:
+                        self.assertIn('-i',args);return b'PINNED_UI_ASSET_SERVED_PASS'
                     if args[:5]==['docker','exec','--user','0','v79-hub']:
                         self.assertEqual(args[5:],['tar','-C','/app','-cf','-','data']);return b'captured files'
                     if 'pg_dump' in args:return b'captured database'

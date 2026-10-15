@@ -270,7 +270,7 @@ def main():
         helper['probe_live']()
         require(helper['protected_state']('v79-hub-postgres') == hub_state and helper['sqlite_state']('v79marketing-app')['digest'] == marketing['digest'] and
                 semantic_marketing() == packages, 'Protected accounts, billing or campaign packages changed')
-        served = helper['run'](['docker', 'exec', 'v79-hub', 'node', '--input-type=module', '-'], data=b"const r=await fetch('http://127.0.0.1:3040/');if(!r.ok||!(await r.text()).includes('index-CHQuh9Xa.js'))throw Error('UI asset identity differs');console.log('PINNED_UI_ASSET_SERVED_PASS');")
+        served = helper['run'](['docker', 'exec', '-i', 'v79-hub', 'node', '--input-type=module', '-'], data=b"const r=await fetch('http://127.0.0.1:3040/');if(!r.ok||!(await r.text()).includes('index-CHQuh9Xa.js'))throw Error('UI asset identity differs');console.log('PINNED_UI_ASSET_SERVED_PASS');")
         require(b'PINNED_UI_ASSET_SERVED_PASS' in served, 'New UI assets were not served')
         helper['write_json'](WORK/'deployed.json', {'at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'image': IMAGE,
             'hubContainerId': after['Id'], 'healthy': True, 'publicationEnabled': False, 'protectedStatePreserved': True,

@@ -61,7 +61,7 @@ try:
  h['probe_live']()
  require(h['protected_state']('v79-hub-postgres')==manifest['hubProtectedStateSha256'],'Accounts, billing or accepted G2 task changed')
  require(h['sqlite_state']('v79marketing-app')['digest']==manifest['marketingProtectedStateSha256'] and ns['semantic_marketing']()==manifest['signedMarketingPackagesSha256'],'Marketing customer/provider records or signed campaigns changed')
- served=h['run'](['docker','exec','v79-hub','node','--input-type=module','-'],data=b"const r=await fetch('http://127.0.0.1:3040/');if(!r.ok||!(await r.text()).includes('index-CHQuh9Xa.js'))throw Error('UI asset differs');console.log('PINNED_UI_ASSET_SERVED_PASS');")
+ served=h['run'](['docker','exec','-i','v79-hub','node','--input-type=module','-'],data=b"const r=await fetch('http://127.0.0.1:3040/');if(!r.ok||!(await r.text()).includes('index-CHQuh9Xa.js'))throw Error('UI asset differs');console.log('PINNED_UI_ASSET_SERVED_PASS');")
  require(b'PINNED_UI_ASSET_SERVED_PASS' in served,'Pinned UI was not served')
  h['write_json'](root/'deployed.json',{'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'image':ns['IMAGE'],'hubContainerId':current['Id'],'healthy':True,'publicationEnabled':False,'protectedStatePreserved':True,'campaignPackagesPreserved':True,'onlyHubRecreated':True,'automaticRetryOrRollback':False,'finalizedWithoutRestart':True,'verifiedDifference':'Exact HostConfig.Binds entries reordered only','offhostCopy':payload['acerCopy'],'ownerRanThreeChecksumAndFullStreamDecryptionChecks':True,'liveRuntimeSha256':fingerprint(h['stable_runtime'](current))})
  print('HUB_UI_LOGO_AND_AUTOMATIC_STATUS_FIX_DEPLOYED_HEALTHY')
