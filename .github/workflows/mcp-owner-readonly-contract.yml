@@ -23,6 +23,10 @@ jobs:
         run: node --test tests/mcp-owner-readonly.test.mjs
       - name: Verify existing organization and owner-agent access contracts
         run: node --test tests/organization-access.test.mjs tests/agent-access.test.mjs
+      - name: Install lockfile-pinned dependencies (no scripts, no production secrets)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Typecheck complete Hub source without emitting files
+        run: npm run lint
       - name: Verify no production changes or deployment scripts
         run: |
           git diff --name-only b450db70ece047f74aa502bca862a870e5d74c00 HEAD |
