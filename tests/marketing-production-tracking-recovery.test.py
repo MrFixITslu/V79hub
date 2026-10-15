@@ -61,15 +61,33 @@ state=structuredClone(original);tamper=true;assert.throws(run,/Signed ledger int
    self.assertFalse(any('compose' in c or 'restart' in c for c,d in calls));self.assertEqual([d for c,d in calls if d in (b'synthetic-sqlite',b'synthetic-tar')],[b'synthetic-sqlite',b'synthetic-tar'])
 
  def test_cleanup_only_removes_the_exact_owned_scratch_container(self):
-  m=load();removed=[];m.h={'run':lambda args:removed.append(args)}
-  for owner in (m.NONCE,'another-attempt'):
-   meta={'Config':{'Labels':{m.LABEL:owner}}}
-   with patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=json.dumps([meta]).encode(),stderr=b'')):
-    if owner==m.NONCE:m.cleanup_one('scratch')
-    else:
-     with self.assertRaises(RuntimeError):m.cleanup_one('scratch')
-  self.assertEqual(removed,[['docker','rm','--force','scratch']])
-  with patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],1,stdout=b'',stderr=b'daemon unavailable')):
-   with self.assertRaises(RuntimeError):m.cleanup_one('scratch')
+  m=load();meta={'Config':{'Labels':{m.LABEL:m.NONCE}},'State':{'Status':'running'}}
+  present=subprocess.CompletedProcess([],0,stdout=json.dumps([meta]).encode(),stderr=b'')
+  absent=subprocess.CompletedProcess([],1,stdout=b'',stderr=b'Error: No such object: scratch')
+  with patch.object(m.subprocess,'run',side_effect=[present,absent]),patch.object(m.subprocess,'Popen') as start:
+   m.cleanup_one('scratch');self.assertEqual(start.call_args.args[0],['docker','rm','--force','scratch'])
+  meta['Config']['Labels'][m.LABEL]='another-attempt'
+  for result in [subprocess.CompletedProcess([],0,stdout=json.dumps([meta]).encode(),stderr=b''),subprocess.CompletedProcess([],1,stdout=b'',stderr=b'daemon unavailable')]:
+   with patch.object(m.subprocess,'run',return_value=result),patch.object(m.subprocess,'Popen') as start:
+    with self.assertRaises(RuntimeError):m.cleanup_one('scratch')
+    start.assert_not_called()
+
+ def test_slow_removal_waits_for_absence_and_never_reissues_a_pending_request(self):
+  for already_removing in (False,True):
+   m=load();meta={'Config':{'Labels':{m.LABEL:m.NONCE}},'State':{'Status':'removing' if already_removing else 'running'}}
+   present=lambda:subprocess.CompletedProcess([],0,stdout=json.dumps([meta]).encode(),stderr=b'')
+   first=present();meta['State']['Status']='removing'
+   absent=subprocess.CompletedProcess([],1,stdout=b'',stderr=b'No such object: scratch')
+   with patch.object(m.subprocess,'run',side_effect=[first,present(),present(),absent]),patch.object(m.subprocess,'Popen') as start,patch.object(m.time,'sleep'),patch.object(m.time,'monotonic',side_effect=[0,0,90,150]):
+    start.return_value.poll.return_value=None
+    m.cleanup_one('scratch');self.assertEqual(start.call_count,0 if already_removing else 1)
+
+ def test_pending_removal_timeout_cannot_start_the_next_phase_or_duplicate_removal(self):
+  m=load();meta={'Config':{'Labels':{m.LABEL:m.NONCE}},'State':{'Status':'removing'}}
+  present=subprocess.CompletedProcess([],0,stdout=json.dumps([meta]).encode(),stderr=b'')
+  with patch.object(m.subprocess,'run',return_value=present),patch.object(m.subprocess,'Popen') as start,patch.object(m.time,'monotonic',side_effect=[0,0,301]):
+   with self.assertRaisesRegex(RuntimeError,'five minutes'):m.cleanup_one('scratch')
+   with self.assertRaisesRegex(RuntimeError,'remains uncertain'):m.cleanup_one('scratch')
+   start.assert_not_called()
 
 if __name__=='__main__':unittest.main()

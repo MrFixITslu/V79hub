@@ -21,6 +21,8 @@ EXPECTED={
 NONCE=secrets.token_hex(8)
 LABEL='v79.tracking-recovery'
 created=[]
+removal_requested=set()
+cleanup_uncertain=set()
 h=None
 root=None
 ram=None
@@ -86,13 +88,47 @@ def protected_equal(before,after,require_schema=False):
 
 
 def cleanup_one(name):
- result=subprocess.run(['docker','inspect',name],capture_output=True,timeout=30)
- if result.returncode:
-  require(any(v in result.stderr.lower() for v in (b'no such object',b'no such container')),'Scratch cleanup could not be verified')
-  return
- meta=json.loads(result.stdout)[0]
- require(meta['Config']['Labels'].get(LABEL)==NONCE,'Scratch ownership label differs; not removed')
- h['run'](['docker','rm','--force',name])
+ def inspect_owned():
+  result=subprocess.run(['docker','inspect',name],capture_output=True,timeout=15)
+  if result.returncode:
+   require(any(v in result.stderr.lower() for v in (b'no such object',b'no such container')),'Scratch cleanup could not be verified')
+   return None
+  meta=json.loads(result.stdout)[0]
+  require(meta['Config']['Labels'].get(LABEL)==NONCE,'Scratch ownership label differs; not removed')
+  return meta
+ meta=inspect_owned()
+ if meta is None:return
+ require(name not in cleanup_uncertain,'Previous scratch removal remains uncertain; inspect before another rehearsal')
+ mark('confirm-owned-scratch-removal-'+name)
+ process=None
+ try:
+  # A timed-out Docker client does not prove the daemon stopped removing.
+  # Send at most one request, then wait for inspect to confirm absence.
+  if meta['State']['Status']!='removing':
+   require(name not in removal_requested,'Scratch removal was already requested; inspect before retry')
+   removal_requested.add(name)
+   process=subprocess.Popen(['docker','rm','--force',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+  deadline=time.monotonic()+300;next_report=time.monotonic()+15
+  while True:
+   meta=inspect_owned()
+   if meta is None:
+    print('OWNED_SCRATCH_REMOVAL_CONFIRMED='+name,flush=True)
+    return
+   require(not process or process.poll() in (None,0) or meta['State']['Status']=='removing','Scratch removal request failed; inspect before retry')
+   now=time.monotonic()
+   require(now<deadline,'Scratch removal still pending after five minutes; inspect before retry')
+   if now>=next_report:
+    print('WAITING_FOR_DOCKER_SCRATCH_REMOVAL='+name,flush=True);next_report=now+15
+   time.sleep(2)
+ except BaseException:
+  cleanup_uncertain.add(name)
+  raise
+ finally:
+  if process:
+   # Reap only this CLI child; never signal Docker or containerd.
+   try:process.wait(timeout=2)
+   except subprocess.TimeoutExpired:
+    process.kill();process.wait(timeout=5)
 
 
 def scratch(image,phase,database,assets,baseline,runtime):
@@ -147,6 +183,7 @@ def main():
   meta=json.loads(h['run'](['docker','image','inspect',expected['image']]))[0]
   require(meta['Id']==expected['image'] and meta['Config']['Labels'].get('org.opencontainers.image.revision')==expected['commit'],'Candidate image provenance differs')
  before=builder['snapshot']();require(before==receipt['liveRuntime'],'Live services changed since passed build; inspect before checkpoint')
+ require(not h['run'](['docker','ps','--all','--filter','label='+LABEL,'--format','{{.ID}}']).strip(),'An earlier tracking scratch container still exists; inspect before retry')
  runtime={name:h['inspect'](name) for name in before}
  mark('verify-signed-idle-window-and-preserved-approved-schedules')
  baseline=basis('v79marketing-app');hub_state=h['protected_state']('v79-hub-postgres')
