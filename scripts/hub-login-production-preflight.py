@@ -21,7 +21,7 @@ EXPECTED_STACK = (
     "/opt/v79/hub/releases/wipay-return-585f701.pinned.yml",
 )
 SERVICES = ("v79-hub", "v79-hub-postgres", "v79-business-agent", "v79-tiquet-manager")
-RELEASE_SRC = "21e19d3efc6584e32ba482dc51a902f2f6e16846"
+LOGIN_DESIGN_SEED_SHA = "21e19d3efc6584e32ba482dc51a902f2f6e16846"
 RELEASE_BRANCH = "release/hub-login-only-20261015"
 
 
@@ -104,8 +104,9 @@ def main() -> int:
 
     result = {
         "task": "hub_login_only_readonly_runtime_inventory",
-        "candidate_source_sha": RELEASE_SRC,
+        "login_design_seed_sha": LOGIN_DESIGN_SEED_SHA,
         "candidate_branch": RELEASE_BRANCH,
+        "release_candidate_image_sha_must_be_verified_separately": True,
         "hostname": "v79sl",
         "service_fingerprints": services,
         "expected_pinned_override_sha256": safe_hash(EXPECTED_STACK[1]),
