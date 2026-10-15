@@ -16,6 +16,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const { createRoot } = await import("react-dom/client");
 const { OwnerCooWorkboardPanel } = await import("../src/components/OwnerCooWorkboardPanel.tsx");
+const { WorkforceActionPanel } = await import("../src/components/WorkforceActionPanel.tsx");
 
 const safe = {
   mode: "read-only", source: "github-issue-pr-register",
@@ -40,7 +41,7 @@ const safe = {
   caveat: "GitHub is not uptime or security evidence",
 };
 
-async function fixture(t, next) {
+async function fixture(t, next, props = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const calls = [];
@@ -50,7 +51,7 @@ async function fixture(t, next) {
     return { ok: true, json: async () => structuredClone(next) };
   };
   const root = createRoot(container);
-  await act(async () => root.render(React.createElement(OwnerCooWorkboardPanel)));
+  await act(async () => root.render(React.createElement(OwnerCooWorkboardPanel, props)));
   t.after(async () => {
     await act(async () => root.unmount());
     container.remove();
@@ -119,4 +120,53 @@ test("unknown private Sentinel status is never shown as operationally healthy", 
   assert.match(h.container.textContent, /UNKNOWN SOURCE/);
   assert.doesNotMatch(h.container.textContent, /7\/7 UP/);
   assert.doesNotMatch(h.container.textContent, /Sentinel verified protection: established/);
+});
+
+test("only confirmed, fixed GitHub tasks create local COO drafts; UNKNOWN cannot prefill", async t => {
+  const prepared = [];
+  const h = await fixture(t, safe, { onPrepareTask: draft => prepared.push(draft) });
+  await h.click("COO workboard");
+  const prepare = [...h.container.querySelectorAll("button")].filter(b =>
+    b.textContent.includes("Prepare COO work item"));
+  assert.equal(prepare.length, 1, "UNKNOWN Sentinel task must not offer prefill");
+  await act(async () => prepare[0].click());
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].system, "hub");
+  assert.equal(prepared[0].sourceId, "V79hub#152");
+  assert.match(prepared[0].detail, /No production change or customer action is authorized/);
+  assert.equal(h.calls.length, 1, "Only the initial GET is allowed");
+});
+
+test("preparing an exact COO draft opens G2 form without POST or approval", async t => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({url, opts});
+    assert.equal(opts?.method, undefined, "Draft prefill must not POST");
+    return { ok: true, json: async () => ({
+      mode: "owner-approved-actions", enabled: true, paused: false, jobs: [],
+    }) };
+  };
+  const preparedTask = {
+    sourceId: "V79hub#152", system: "hub", summary: "Review: COO delivery board",
+    detail: "Check evidence. No production changes allowed.",
+  };
+  await act(async () => root.render(React.createElement(WorkforceActionPanel, {
+    preparedTask, onPreparedTaskApplied: () => {},
+  })));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    delete globalThis.fetch;
+  });
+  assert.match(container.textContent, /Draft prepared only/);
+  assert.ok(container.textContent.includes("Queue for review"), "User must submit explicitly");
+  const inputs = [...container.querySelectorAll("input")];
+  assert.ok(inputs.some(x => x.value === preparedTask.summary));
+  const details = [...container.querySelectorAll("textarea")];
+  assert.ok(details.some(x => x.value === preparedTask.detail));
+  assert.ok(calls.length >= 1);
+  assert.ok(calls.every(call => call.url === "/api/agent/work-actions" && !call.opts?.method));
 });
