@@ -12,7 +12,8 @@ import socket
 import urllib.request
 
 BUILD = Path('/home/firelion/v79-g3-ui-build-36jqnxjq')
-WORK = Path('/home/firelion/v79-g3-ui-cutover-8d82b21a4def-v1')
+PREVIOUS_WORK = Path('/home/firelion/v79-g3-ui-cutover-8d82b21a4def-v1')
+WORK = Path('/home/firelion/v79-g3-ui-cutover-8d82b21a4def-v2')
 IMAGE = 'sha256:ac3f3262476deeba190a362a6782e02836fff2a7d701ab219a60be7f8caaba0e'
 OLD_IMAGE = 'sha256:4a2320ad18549adf42fa60d9a1d06d2c124dba0db2f80b85a1a9cf0fc27dabb1'
 COMMIT = '8d82b21a4defe47a3d377a57dcd648b3c9818fea'
@@ -130,12 +131,31 @@ def semantic_marketing():
     return helper['run'](['docker', 'exec', '-i', 'v79marketing-app', 'node', '--input-type=commonjs', '-'], data=MARKETING_STATE.encode()).decode().strip()
 
 
+def verify_previous_backup_failure():
+    require(PREVIOUS_WORK.is_dir() and not PREVIOUS_WORK.is_symlink() and PREVIOUS_WORK.stat().st_mode & 0o077 == 0,
+            'Previous private pre-switch failure directory differs')
+    require(not (PREVIOUS_WORK/'switch-attempted.json').exists() and not (PREVIOUS_WORK/'deployed.json').exists(),
+            'Previous live switch may have been attempted; inspect before proceeding')
+    hashes = {str(PREVIOUS_WORK/name): helper['file_hash'](PREVIOUS_WORK/name, True)
+              for name in ('failure.json', 'ui-image.yml', 'rollback-image.yml')}
+    failure = json.loads((PREVIOUS_WORK/'failure.json').read_text())
+    require(failure.get('stage') == 'capture-encrypted-hub-recovery-and-exact-rollback-stack' and
+            failure.get('liveSwitchAttempted') is False and failure.get('automaticRetryOrRollback') is False,
+            'Previous failure is not the reviewed pre-switch backup failure')
+    for filename, image in [('ui-image.yml', IMAGE), ('rollback-image.yml', OLD_IMAGE)]:
+        require(json.loads((PREVIOUS_WORK/filename).read_text()) == {'services': {'v79-hub': {'image': image}}},
+                'Previous image-only overlay differs')
+    return hashes
+
+
 def main():
     global helper, attempted
     os.umask(0o077)
     require(socket.gethostname().split('.')[0] == 'v79sl' and os.getuid() == 1000 and pwd.getpwuid(os.getuid()).pw_name == 'firelion', 'Run as firelion on v79sl')
     require(not WORK.exists(), 'Cutover directory exists; inspect its receipt/attempt marker before any retry')
     builder, helper = [load_helper(spec) for spec in HELPERS]
+    mark('verify-recorded-backup-failure-before-new-attempt')
+    previous_failure_hashes = verify_previous_backup_failure()
     mark('verify-tested-image-receipt-and-current-runtime')
     receipt_path = BUILD/'ui-build-receipt.json'
     receipt_sha = helper['file_hash'](receipt_path, True)
@@ -176,14 +196,20 @@ def main():
         helper['write_json'](WORK/'rollback-image.yml', {'services': {'v79-hub': {'image': OLD_IMAGE}}})
         candidate = resolve(FILES + [WORK/'ui-image.yml'])
         parity(original, candidate)
-        mark('capture-encrypted-hub-recovery-and-exact-rollback-stack')
+        mark('capture-hub-database-backup')
+        database_backup = helper['run'](['docker', 'exec', 'v79-hub-postgres', 'pg_dump', '-U', 'v79hub', '-d', 'v79hub', '-Fc'], timeout=120)
+        mark('capture-hub-files-through-running-container')
+        # Use the same read-only archive command as the successful restore rehearsal.
+        # Host-owned/root-owned modes remain intact; no chmod/chown is performed.
+        data_backup = helper['run'](['docker', 'exec', '--user', '0', 'v79-hub', 'tar', '-C', '/app', '-cf', '-', 'data'], timeout=120)
         blobs = {
-            'hub-pg.dump.gpg': helper['run'](['docker', 'exec', 'v79-hub-postgres', 'pg_dump', '-U', 'v79hub', '-d', 'v79hub', '-Fc'], timeout=120),
-            'hub-data.tar.gpg': helper['run'](['tar', '-C', '/opt/v79/hub', '-cf', '-', 'data'], timeout=120),
+            'hub-pg.dump.gpg': database_backup,
+            'hub-data.tar.gpg': data_backup,
             'hub-runtime-and-config.json.gpg': json.dumps({'runtime': runtime, 'resolved': original,
                 'composeFiles': {p: Path(p).read_text() for p in FILES}, 'originalStack': FILES,
                 'mountedSecretFiles': {p: Path(p).read_text() for p in secret_files}}, sort_keys=True).encode(),
         }
+        mark('encrypt-captured-hub-recovery')
         for name, data in blobs.items():
             helper['run'](['gpg', '--batch', '--yes', '--trust-model', 'always', '--encrypt', '--recipient', RECIPIENT,
                            '--output', str(WORK/name)], data=data, timeout=120)
@@ -191,7 +217,7 @@ def main():
         with (WORK/'encrypted-checksums.sha256').open('x') as output:
             output.write(''.join(digest+'  '+name+'\n' for name, digest in backup_hashes.items()))
         helper['write_json'](WORK/'manifest.json', {'at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'candidateImage': IMAGE, 'originalImage': OLD_IMAGE, 'buildReceiptSha256': receipt_sha, 'originalStack': FILES,
+            'candidateImage': IMAGE, 'originalImage': OLD_IMAGE, 'previousPreSwitchFailureHashes': previous_failure_hashes, 'buildReceiptSha256': receipt_sha, 'originalStack': FILES,
             'sourceFileHashes': file_hashes, 'mountedSecretFileHashes': secret_files, 'encryptedBackups': backup_hashes, 'hubProtectedStateSha256': hub_state,
             'marketingProtectedStateSha256': marketing['digest'], 'signedMarketingPackagesSha256': packages,
             'onlyServiceToRecreate': 'v79-hub', 'publicationEnabled': False, 'automaticRetryOrRollback': False})

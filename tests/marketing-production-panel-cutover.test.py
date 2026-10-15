@@ -76,10 +76,27 @@ state=structuredClone(original);tamper=true;assert.throws(run,/Ledger integrity/
         result=subprocess.run(['node','--input-type=commonjs','-'],input=program.encode(),capture_output=True)
         self.assertEqual(result.returncode,0,result.stderr.decode())
 
+    def test_previous_switch_marker_or_uncertain_failure_blocks_a_new_workspace(self):
+        m=self.m
+        with tempfile.TemporaryDirectory() as directory:
+            m.PREVIOUS_WORK=Path(directory);m.helper={'file_hash':lambda *args:'unchanged'}
+            for name,image in [('ui-image.yml',m.IMAGE),('rollback-image.yml',m.OLD_IMAGE)]:
+                (m.PREVIOUS_WORK/name).write_text(json.dumps({'services':{'v79-hub':{'image':image}}}))
+            failure={'stage':'capture-encrypted-hub-recovery-and-exact-rollback-stack','liveSwitchAttempted':False,'automaticRetryOrRollback':False}
+            (m.PREVIOUS_WORK/'failure.json').write_text(json.dumps(failure));self.assertEqual(len(m.verify_previous_backup_failure()),3)
+            (m.PREVIOUS_WORK/'switch-attempted.json').write_text('{}')
+            with self.assertRaises(RuntimeError):m.verify_previous_backup_failure()
+            (m.PREVIOUS_WORK/'switch-attempted.json').unlink();failure['liveSwitchAttempted']=True
+            (m.PREVIOUS_WORK/'failure.json').write_text(json.dumps(failure))
+            with self.assertRaises(RuntimeError):m.verify_previous_backup_failure()
+
     def test_success_and_failures_do_not_retry_or_rollback_or_recreate_other_services(self):
         for failure in (None,'config','restart','data'):
             with self.subTest(failure=failure),tempfile.TemporaryDirectory() as directory:
-                m=load();root=Path(directory);m.BUILD=root/'build';m.BUILD.mkdir();m.WORK=root/'cutover'
+                m=load();root=Path(directory);m.BUILD=root/'build';m.BUILD.mkdir();m.WORK=root/'cutover';m.PREVIOUS_WORK=root/'previous';m.PREVIOUS_WORK.mkdir(mode=0o700)
+                (m.PREVIOUS_WORK/'failure.json').write_text(json.dumps({'stage':'capture-encrypted-hub-recovery-and-exact-rollback-stack','liveSwitchAttempted':False,'automaticRetryOrRollback':False}))
+                for filename,image in [('ui-image.yml',m.IMAGE),('rollback-image.yml',m.OLD_IMAGE)]:
+                    (m.PREVIOUS_WORK/filename).write_text(json.dumps({'services':{'v79-hub':{'image':image}}}))
                 m.FILES=[str(root/'base.yml')];Path(m.FILES[0]).write_text('original compose')
                 m.HELPERS=['builder','support']
                 old,new=self.runtime();old['Config']['Labels']['com.docker.compose.project.config_files']=','.join(m.FILES)
@@ -110,7 +127,9 @@ state=structuredClone(original);tamper=true;assert.throws(run,/Ledger integrity/
                     if args[0]=='gpg':Path(args[args.index('--output')+1]).write_bytes(b'encrypted');return b''
                     if args[:2]==['docker','exec'] and data==m.MARKETING_STATE.encode():return b'signed-campaign-digest'
                     if args[:2]==['docker','exec'] and data and b'PINNED_UI_ASSET_SERVED_PASS' in data:return b'PINNED_UI_ASSET_SERVED_PASS'
-                    if args[0]=='tar' or 'pg_dump' in args:return b'captured backup'
+                    if args[:5]==['docker','exec','--user','0','v79-hub']:
+                        self.assertEqual(args[5:],['tar','-C','/app','-cf','-','data']);return b'captured files'
+                    if 'pg_dump' in args:return b'captured database'
                     raise AssertionError('Unexpected command: '+repr(args))
                 def write_json(path,value):
                     with Path(path).open('x') as f:json.dump(value,f)
@@ -130,6 +149,8 @@ state=structuredClone(original);tamper=true;assert.throws(run,/Ledger integrity/
                 if failure is None:
                     result=json.loads((m.WORK/'deployed.json').read_text());self.assertFalse(result['publicationEnabled']);self.assertTrue(result['campaignPackagesPreserved'])
                     self.assertEqual(len(list(m.WORK.glob('*.gpg'))),3)
+                    self.assertEqual(len([c for c in calls if c[:5]==['docker','exec','--user','0','v79-hub']]),1)
+                    self.assertFalse(any(c[0] in ('tar','chmod','chown','sudo') for c in calls))
 
 
 if __name__=='__main__':unittest.main()
