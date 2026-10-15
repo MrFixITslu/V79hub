@@ -16,10 +16,9 @@ import socket
 import subprocess
 import sys
 
-EXPECTED_STACK = (
-    "/opt/v79/hub/docker-compose.yml",
-    "/opt/v79/hub/releases/wipay-return-585f701.pinned.yml",
-)
+EXPECTED_MAIN = "/opt/v79/hub/docker-compose.yml"
+EXPECTED_WIPAY_PIN = "/opt/v79/hub/releases/wipay-return-585f701.pinned.yml"
+EXPECTED_WIPAY_SHA256 = "8aa57bba2c6955ab5affe5394ed7bec2b9b2693bc05556db3bef0420bcc04b74"
 SERVICES = ("v79-hub", "v79-hub-postgres", "v79-business-agent", "v79-tiquet-manager")
 LOGIN_DESIGN_SEED_SHA = "21e19d3efc6584e32ba482dc51a902f2f6e16846"
 RELEASE_BRANCH = "release/hub-login-only-20261015"
@@ -90,10 +89,21 @@ def main() -> int:
     tiquet = services["v79-tiquet-manager"]
     agent = services["v79-business-agent"]
     current_stack = hub.get("compose_files") or ""
+    stack_paths = current_stack.split(",") if current_stack else []
+    # Production G3 has accumulated multiple intentionally ordered overlays.
+    # Preserve the exact list in its existing order; do not reconstruct 2-file
+    # Compose stacks or assume a previous candidate list is still current.
+    stacked = (8 <= len(stack_paths) <= 12
+        and stack_paths[0] == EXPECTED_MAIN
+        and stack_paths[1] == EXPECTED_WIPAY_PIN
+        and len(set(stack_paths)) == len(stack_paths)
+        and any("g3-" in path.lower() for path in stack_paths[2:])
+        and all(Path(path).is_absolute() and Path(path).is_file()
+                and not Path(path).is_symlink() for path in stack_paths))
     checks["hub_running_healthy"] = hub.get("status") == "running" and hub.get("health") == "healthy"
     checks["hub_compose_project_preserved"] = hub.get("compose_project") == "v79-hub" and hub.get("compose_service") == "v79-hub"
-    checks["exact_known_pinned_stack"] = current_stack == ",".join(EXPECTED_STACK)
-    checks["pinned_override_present"] = bool(safe_hash(EXPECTED_STACK[1]))
+    checks["layered_g3_compose_order_and_files"] = stacked
+    checks["pinned_wipay_override_exact_sha"] = safe_hash(EXPECTED_WIPAY_PIN) == EXPECTED_WIPAY_SHA256
     checks["hub_data_mount_present"] = "/app/data" in hub.get("mount_destinations", [])
     checks["database_running_healthy"] = db.get("status") == "running" and db.get("health") == "healthy"
     checks["agent_running_healthy"] = agent.get("status") == "running" and agent.get("health") == "healthy"
@@ -109,7 +119,8 @@ def main() -> int:
         "release_candidate_image_sha_must_be_verified_separately": True,
         "hostname": "v79sl",
         "service_fingerprints": services,
-        "expected_pinned_override_sha256": safe_hash(EXPECTED_STACK[1]),
+        "running_hub_compose_stack_in_exact_order": stack_paths,
+        "actual_pinned_override_sha256": safe_hash(EXPECTED_WIPAY_PIN),
         "checks": checks,
         "all_inventory_checks_passed": all(checks.values()),
         "offhost_decryption_verified_here": False,
@@ -124,7 +135,7 @@ def main() -> int:
         for key, ok in checks.items():
             print(key + "=" + ("PASS" if ok else "NO_GO"))
         print("HUB_CURRENT_IMAGE_ID=" + str(hub.get("image_id") or "UNAVAILABLE"))
-        print("HUB_PINNED_COMPOSE_SHA256=" + str(result["expected_pinned_override_sha256"] or "UNAVAILABLE"))
+        print("HUB_PINNED_COMPOSE_SHA256=" + str(result["actual_pinned_override_sha256"] or "UNAVAILABLE"))
         print("RELEASE_GATE=" + result["release_gate"])
         print("NO PRODUCTION CHANGES PERFORMED")
     return 0 if all(checks.values()) else 3
