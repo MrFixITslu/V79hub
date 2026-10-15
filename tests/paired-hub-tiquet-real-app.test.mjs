@@ -176,4 +176,27 @@ test("real ephemeral G3 Hub and pinned Tiquet enforce paired SSO and two-tenant 
     account_id:a.accountId,hub_organization_id:b.organization.id,hub_managed:true,
   },jwtSecret,{expiresIn:"1h"});
   assert.equal((await req(tiquet,"/api/clients",{headers:{Authorization:"Bearer "+forged}})).status,403);
+  // Synthetic, disposable account suspension must block its own active session
+  // immediately, without denying the other organization's account.
+  try {
+    const changed=await pool.query("UPDATE accounts SET status='suspended' WHERE id=$1",[a.accountId]);
+    assert.equal(changed.rowCount,1);
+    const blocked=await req(tiquet,"/api/clients",{headers:{Cookie:aCookie}});
+    assert.equal(blocked.status,402,"suspended tenant denied");
+    assert.equal((await req(tiquet,"/api/clients",{headers:{Cookie:bCookie}})).status,200,
+      "unrelated tenant remains available");
+  } finally {
+    await pool.query("UPDATE accounts SET status='active' WHERE id=$1",[a.accountId]);
+  }
+  // Logout clears the browser cookie. Server-side invalidation of any copied
+  // JWT is a separate security acceptance gate, not established by this test.
+  const logout=await req(tiquet,"/api/auth/logout",{
+    method:"POST",headers:{Cookie:aCookie,Origin:tiquet}
+  });
+  assert.equal(logout.status,200);
+  assert.equal((await logout.json()).ok,true);
+  const cleared=logout.headers.get("set-cookie")||"";
+  assert.match(cleared,/tiquet_session=;/);
+  assert.match(cleared,/Max-Age=0/);
+  assert.equal((await req(tiquet,"/api/auth/me")).status,401);
 });
