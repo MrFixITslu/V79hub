@@ -1,0 +1,51 @@
+name: G3 tracking + MCP owner-read contract (nondeploying)
+on:
+  push:
+    branches: [feature/mcp-owner-readonly-g3-tracking-20261015]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prove-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Exact G3 tracking ancestry, allowlist and byte preservation
+        env:
+          V79_MCP_TRACKING_BASE: ffae1c104d6ded918a0028f92c76624bc0501d8b
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V79_MCP_TRACKING_BASE" HEAD
+          while IFS= read -r file; do
+            case "$file" in
+              server.ts|server/mcp-owner-readonly.mjs|tests/mcp-owner-readonly.test.mjs|.github/workflows/mcp-g3-tracking-readonly-contract.yml|docs/mcp-g3-tracking-readonly-candidate.md) ;;
+              *) printf 'UNREVIEWED_CHANGE=%s\n' "$file" >&2; exit 1 ;;
+            esac
+          done < <(git diff --name-only "$V79_MCP_TRACKING_BASE" HEAD)
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, subprocess
+          b=os.environ["V79_MCP_TRACKING_BASE"]
+          current=Path("server.ts").read_bytes()
+          baseline=subprocess.check_output(["git","show",b+":server.ts"])
+          imp=b'import { mcpReadAccessDecision } from "./server/mcp-owner-readonly.mjs";\n'
+          first=b'// Separate owner-only MCP downstream read. DISABLED unless explicitly enabled'
+          last=b'// Read-only, authenticated entitlement revalidation for existing product sessions.'
+          assert current.count(imp)==1 and current.count(first)==1 and current.count(last)==1
+          i=current.index(first); j=current.index(last,i+1)
+          restored=(current[:i]+current[j:]).replace(imp,b"",1)
+          assert restored==baseline,"UNREVIEWED_G3_SERVER_DRIFT"
+          print("G3_TRACKING_SERVER_BYTE_PRESERVATION=PASS")
+          PY
+      - name: MCP security negatives and preexisting authorization contracts
+        run: node --test tests/mcp-owner-readonly.test.mjs tests/organization-access.test.mjs tests/agent-access.test.mjs
+      - name: Install audited pinned dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Full Hub TypeScript and lint gate
+        run: npm run lint
+      - name: G3 panel and owner approval regression
+        run: node --test tests/marketing-production-panel.test.mjs tests/agent-approval-ledger.test.mjs
