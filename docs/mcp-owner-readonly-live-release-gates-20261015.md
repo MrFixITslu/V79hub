@@ -37,7 +37,7 @@ No sensitive values, tokens, keys or production database contents are included i
 ## CI and test evidence
 - Initial 26 new Hub tests plus 6 regression tests passed; subsequent MFA-hardening generated a verified run at commit cd80f006fe6ff1ffb63f5ff3f1ba8360435367e7 with 27/27 focused tests and 6/6 existing access tests.
 - Hub security CI URL: https://github.com/MrFixITslu/V79hub/actions/runs/38710047054
-- A later workflow adds npm ci and a full TypeScript no-emit lint/typecheck. Check actual GitHub run conclusion before treating this gate as cleared.
+- Verified the expanded workflow completed successfully (including npm ci --ignore-scripts, full no-emit TypeScript typecheck, 27 security tests and 6 access regression tests): https://github.com/MrFixITslu/V79hub/actions/runs/38710256905 at tested source commit 8ddab3675da47a146c01891d88a3652a5fa10636.
 - Failed intermediate runs are retained in CI history; they must not be presented as passing.
 
 ## Rollback and release rehearsal — required before enabling
