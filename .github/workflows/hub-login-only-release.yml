@@ -118,7 +118,7 @@ jobs:
           docker save "$image" | gzip -1 > "$archive"
           (cd "${RUNNER_TEMP}/immutable-login-image" && sha256sum "v79-hub-login-only-${SOURCE_SHA}.docker.tar.gz" > archive-sha256.txt)
           printf 'SOURCE_COMMIT=%s\nIMAGE_TAG=%s\nPRODUCTION_DEPLOYED=NO\nRUNTIME_RESTORED=NO\nOFFHOST_RECOVERY_VERIFIED=NO\n' \
-            "$GITHUB_SHA" "$image" > "${RUNNER_TEMP}/immutable-login-image/release-candidate.txt"
+            "$SOURCE_SHA" "$image" > "${RUNNER_TEMP}/immutable-login-image/release-candidate.txt"
           echo "Immutable image and offline archive created. This job cannot reach production."
       - name: Upload isolated image, hashes and candidate manifest
         uses: actions/upload-artifact@v4
