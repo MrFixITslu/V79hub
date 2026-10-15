@@ -39,6 +39,15 @@ Last owner-observed running identifiers (reconfirm privately before assessment):
 6. **Dependency/config boundary:** Tiquet local-vs-packaged `package-lock.json` dev-field drift, source-to-image provenance, port/network/mount minimum privileges, production cookies/TLS, rate limits, secret storage/rotation, scanner findings relevant to **deployed** Hub/Tiquet.
 7. **Payment boundary (only if contracted for Tier C):** WiPay callback signatures/idempotency/settlement and nonpaid trial logic; manual bank proof/MFA/DB multiwriter uniqueness, refund/audit. Payment GO remains a separate financial decision.
 
+## New source-inspection triage — 15 October 2026
+
+**Tiquet [issue #35](https://github.com/MrFixITslu/V79Tiquet/issues/35)** documents two narrow unverified customer-beta session safety gaps:
+
+- **JWT logout semantics:** `server/index.js:516–519` clears only the browser cookie, while `server/hubAwareAuthentication.js:6–19` continues to accept signed bearer/cookie JWTs. Server-side revocation of a copied, not-yet-expired JWT is **not demonstrated**. Independent review must select a durable revocation policy, appropriate bound and an isolated regression; do not assume a confirmed exploit against the owner's installed container.
+- **WebSocket local suspension:** `server/tiquetSocketAccess.js:41–47` previously revalidated JWT expiry and optional Hub entitlement after initial handshake but did not recheck Tiquet's local `accounts.status` on heartbeat. **[Draft PR #36](https://github.com/MrFixITslu/V79Tiquet/pull/36)** proposes a minimal live-DB heartbeat recheck plus targeted tests; **not merged/deployed**. The reviewer must check real socket behavior in isolated fixtures, operational query cost, and current running image parity.
+
+Neither finding reopens the seven-case exact installed-image SSO rehearsal. Do not claim PR #36 addresses copied JWT revocation; both issues retain separate sign-off. Confirm effective production `V79_ENTITLEMENT_RECHECK_ENABLED` privately (presence/boolean only, never log secret values).
+
 ## Acceptable test plan and constraints
 
 - Start with a **read-only document/source/deployed-image/config review**. Report which earlier evidence you accept rather than demanding full journey repetition.
