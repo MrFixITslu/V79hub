@@ -40,6 +40,15 @@ function api(path,auth){
   if(path==="/api/connections/status")return [200,{checkedAt:summary.generatedAt,apps:Object.fromEntries(["tiquet","ffpro","marketing","pos"].map(k=>[k,{status:"online",responseMs:18}]))}];
   if(path.includes("mfa")||path.includes("security"))return [200,{enabled:true,mandatory:true}];
   if(/^\/api\/apps\/[^/]+\/launch/.test(path))return [409,{error:"Preview launch disabled"}];
+  if(path==="/api/billing/summary")return [200,{
+    organization:"V79 Demo Workspace",planName:"Synthetic pilot plan",status:"trial",
+    accessStatus:"trial_active",trialStartedAt:"2026-10-15T12:00:00-04:00",
+    trialEndsAt:"2026-10-29T12:00:00-04:00",paidThroughAt:null,billingCycle:"monthly",
+    enabledApps:apps.slice(0,4).map(a=>({id:a.id,name:a.name})),
+    pricing:{currency:"XCD",monthly:49,annual:490,custom:null},
+    renewalDate:null,billingManagedBy:"V79 Digital",supportEmail:"preview@example.invalid",
+    selfServicePaymentsEnabled:false,sandboxTestPaymentsEnabled:false,manualPaymentAvailable:false
+  }];
   if(path.includes("subscriptions")||path.includes("billing"))return [200,{status:"trial",products:[],invoices:[],subscriptions:[]}];
   return [200,{}];
 }
