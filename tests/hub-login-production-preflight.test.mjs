@@ -16,3 +16,10 @@ test("preflight never emits env, binds, secret or volumes sources",()=>{
   assert.ok(!s.includes('meta.get("Config").get("Env")'));
   assert.match(s,/production_deployed_here": False/);
 });
+
+test("network gate requires exact Compose-scoped Hub and database network, never loosens safety",()=>{
+  assert.match(s,/v79-hub_hub_data_network/);
+  assert.match(s,/expected_internal_network in hub\.get\("network_names"/);
+  assert.match(s,/expected_internal_network in db\.get\("network_names"/);
+  assert.match(s,/"proxy_network" not in db\.get\("network_names"/);
+});
