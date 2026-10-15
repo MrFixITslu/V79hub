@@ -60,7 +60,7 @@ jobs:
 # Never connects to hub.v79sl.com; no production secrets, containers, database or remote requests.
 
   immutable-image-candidate:
-    name: Build isolated Hub-only image / immutable rollback artifact
+    name: Build isolated Hub-only immutable candidate artifact
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
     runs-on: ubuntu-latest
@@ -96,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           image="v79-hub-login-only:${SOURCE_SHA}"
-          docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine --tag "$image" .
+          docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine --label "org.opencontainers.image.revision=${SOURCE_SHA}" --tag "$image" .
           docker image inspect "$image" --format '{{.Id}}'
       - name: Isolated image regression in network-none non-root container
         shell: bash
