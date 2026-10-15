@@ -235,3 +235,147 @@ textarea.admin-input {
 @media (max-width: 639px) {
   .hub-page-hero::before { opacity: .3; }
 }
+
+
+/* Login-only V79 Digital visual reference (2026-10-15).
+   The auth forms and all authenticated dashboard styles remain separate. */
+.hub-login-reference {
+  background: radial-gradient(ellipse 54% 46% at 33% 102%, #082048 0%, transparent 78%), #020713;
+}
+.hub-login-reference .hub-login-story {
+  min-height: 660px;
+  height: min(690px, calc(100svh - 80px));
+  padding-top: 2px;
+}
+.hub-login-reference .hub-login-brand {
+  flex: 0 0 auto;
+}
+.hub-login-reference .hub-login-story-content {
+  margin-top: clamp(55px, 10vh, 90px);
+}
+.hub-login-reference .hub-login-welcome {
+  font-size: clamp(45px, 4.8vw, 69px);
+  line-height: 1.12;
+  text-wrap: balance;
+}
+.hub-login-reference .hub-login-pitch {
+  margin-top: 25px;
+  font-size: clamp(14px, 1.22vw, 18px);
+  line-height: 1.85;
+  font-weight: 520;
+}
+.hub-login-reference .hub-login-highlights {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1.35fr;
+  width: min(100%, 700px);
+  margin-top: 35px;
+}
+.hub-login-reference .hub-login-highlights > span {
+  display: block;
+  border-right: 1px solid rgba(79, 115, 160, .68);
+  padding: 0 16px;
+  color: #aab9cd;
+  font-size: clamp(11px, 1vw, 14px);
+  font-weight: 600;
+  line-height: 1.5;
+}
+.hub-login-reference .hub-login-highlights > span:first-child { padding-left: 4px; }
+.hub-login-reference .hub-login-highlights > span:last-child { border-right: 0; }
+.hub-login-reference .hub-login-network {
+  position: absolute;
+  z-index: 0;
+  bottom: -56px;
+  left: -52px;
+  width: min(920px, 127%);
+  opacity: .96;
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 100%);
+}
+.hub-login-reference .hub-login-network img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+}
+.hub-login-reference .hub-login-card {
+  align-self: center;
+}
+.hub-login-reference .hub-login-form {
+  min-height: 672px;
+  background: linear-gradient(135deg, rgba(9,24,37,.98), rgba(4,16,28,.98));
+  box-shadow: inset 0 0 0 2px rgba(10,134,255,.055), 0 20px 54px rgba(0,0,0,.38);
+}
+.hub-login-reference .hub-login-fields > div:first-child { margin-bottom: 32px; }
+.hub-login-reference .hub-login-fields label {
+  letter-spacing: 0;
+  text-transform: none;
+}
+.hub-login-reference .hub-login-fields input,
+.hub-login-reference .hub-login-fields select {
+  min-height: 55px;
+  background-color: #34445a;
+  border: 1px solid #587394;
+  border-radius: 7px;
+  color: #f6f9ff;
+  font-size: 15px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.3);
+}
+.hub-login-reference .hub-login-fields input::placeholder { color: #a8b6c9; }
+.hub-login-reference .hub-login-fields input:focus {
+  background-color: #304765;
+  border-color: #5db6ff;
+}
+.hub-login-reference .hub-login-fields input + button,
+.hub-login-reference .hub-login-fields input ~ button {
+  color: #c8d7ea;
+}
+.hub-login-reference .hub-login-fields .hub-login-submit { margin-top: 28px; }
+.hub-login-reference .hub-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 17px 0 19px;
+  color: #9aacc2;
+  font-size: 15px;
+}
+.hub-login-reference .hub-login-divider::before,
+.hub-login-reference .hub-login-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background-color: #3b526d;
+}
+.hub-login-reference .hub-login-google {
+  min-height: 56px;
+  opacity: .82;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.09);
+}
+.hub-login-reference .hub-login-google-icon {
+  font-size: 23px;
+  font-weight: 900;
+  line-height: 1;
+  background: conic-gradient(#4285f4 0 25%, #34a853 25% 48%, #fbbc05 48% 70%, #ea4335 70% 88%, #4285f4 88% 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hub-login-reference .hub-login-security {
+  margin-top: 37px;
+}
+@media (max-width: 1199px) and (min-width: 1024px) {
+  .hub-login-reference .hub-login-welcome { font-size: 47px; }
+  .hub-login-reference .hub-login-highlights > span { padding: 0 9px; }
+}
+@media (max-width: 1023px) {
+  .hub-login-reference .hub-login-main { max-width: 640px; }
+  .hub-login-reference .hub-login-form { min-height: auto; }
+  .hub-login-reference .hub-login-card { width: 100%; }
+}
+@media (max-width: 639px) {
+  .hub-login-reference .hub-login-form { padding: 28px 23px; }
+  .hub-login-reference .hub-login-fields > div:first-child { margin-bottom: 18px; }
+  .hub-login-reference .hub-login-fields input { min-height: 52px; }
+  .hub-login-reference .hub-login-security { margin-top: 27px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub-login-reference .hub-login-submit { transition-duration: 0.01ms; }
+}
