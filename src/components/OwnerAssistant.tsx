@@ -5,6 +5,7 @@ import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
 import { MarketingProductionPanel } from "./MarketingProductionPanel";
 import { WorkforceActionPanel } from "./WorkforceActionPanel";
+import { OwnerCooWorkboardPanel, type CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
 
 type EvidenceMetric = { key: string; value: number };
 type EvidenceRecord = {
@@ -45,6 +46,7 @@ export function OwnerAssistant() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [suggestedDraft, setSuggestedDraft] = useState<AgentDraftSuggestion | null>(null);
+  const [preparedCooWork, setPreparedCooWork] = useState<CooWorkItemDraft | null>(null);
 
   const send = async () => {
     const message = input.trim();
@@ -92,7 +94,8 @@ export function OwnerAssistant() {
         </div>
 
         <ExecutiveReviewPanel />
-        <WorkforceActionPanel />
+        <OwnerCooWorkboardPanel onPrepareTask={setPreparedCooWork} />
+        <WorkforceActionPanel preparedTask={preparedCooWork} onPreparedTaskApplied={() => setPreparedCooWork(null)} />
         <MarketingProductionPanel />
         <AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} />
         <SignedTiquetEvidencePanel />

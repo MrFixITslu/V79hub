@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
+import type { CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
 
 type Job = { id: string; operation: string; system: string; summary: string;
   payload: { detail?: string; commitSha?: string; manifestSha256?: string };
   digest: string; revision: number; status: string; approval: { expiresAt: string } | null;
   result: { taskId?: string; receiptSha256?: string } | null };
 const systems = ["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag"];
-export function WorkforceActionPanel() {
+export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied }: {
+  preparedTask?: CooWorkItemDraft | null;
+  onPreparedTaskApplied?: () => void;
+} = {}) {
   const [open, setOpen] = useState(false), [enabled, setEnabled] = useState(false), [paused, setPaused] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -25,6 +29,19 @@ export function WorkforceActionPanel() {
     setEnabled(data.enabled === true); setPaused(data.paused === true); setJobs(data.jobs);
   };
   useEffect(() => { if (open) refresh().catch(e => setError(e.message)); }, [open]);
+  useEffect(() => {
+    if (!preparedTask) return;
+    // UI prefill only. No create_work_item POST, approval or worker dispatch.
+    if (!systems.includes(preparedTask.system)) return;
+    setOpen(true);
+    setOperation("create_work_item");
+    setSystem(preparedTask.system);
+    setSummary(preparedTask.summary.slice(0, 180));
+    setDetail(preparedTask.detail.slice(0, 2000));
+    setCommitSha(""); setManifestSha256("");
+    setNotice("Draft prepared only. Review it and choose Queue for review; fresh owner MFA approval is still required.");
+    onPreparedTaskApplied?.();
+  }, [preparedTask, onPreparedTaskApplied]);
   const perform = async (fn: () => Promise<void>) => {
     if (busy) return;
     setBusy(true); setError(""); setNotice("");
