@@ -200,3 +200,38 @@ textarea.admin-input {
   .hub-nav-item, .hub-product-card, .hub-kpi { transition-duration: 0.01ms !important; transform: none !important; }
   .hub-dashboard .animate-spin { animation: none !important; }
 }
+
+/* Cohesive command-centre header across Team, My Apps, Security, Billing and Admin. */
+.hub-page-hero {
+  position: relative;
+  overflow: hidden;
+  background-image: linear-gradient(115deg, #0b1a32 0%, #0b2444 100%);
+  box-shadow: 0 14px 46px rgba(0,0,0,.14);
+}
+.hub-page-hero::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  width: 210px;
+  height: 210px;
+  right: -92px;
+  top: -95px;
+  border: 1px solid rgba(85,183,255,.22);
+  border-radius: 50%;
+  box-shadow: 0 0 0 30px rgba(10,134,255,.045), 0 0 0 65px rgba(10,134,255,.028);
+}
+.hub-page-hero > * { position: relative; }
+.hub-page-hero h1 { color: #f8fbff !important; letter-spacing: -.025em; font-weight: 800; }
+.hub-page-hero p { color: #a8bad0 !important; line-height: 1.65; }
+.hub-page-hero span[class*="uppercase"], .hub-page-hero div[class*="uppercase"] { color: #65c9ff; }
+.hub-theme-light .hub-page-hero {
+  background-image: linear-gradient(115deg, #eff6ff 0%, #dfeeff 100%);
+  border-color: #c5d8ef !important;
+}
+.hub-theme-light .hub-page-hero h1 { color: #0f2441 !important; }
+.hub-theme-light .hub-page-hero p { color: #445b73 !important; }
+.hub-theme-light .hub-page-hero span[class*="uppercase"],
+.hub-theme-light .hub-page-hero div[class*="uppercase"] { color: #075fbc; }
+@media (max-width: 639px) {
+  .hub-page-hero::before { opacity: .3; }
+}
