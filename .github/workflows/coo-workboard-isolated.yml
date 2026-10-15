@@ -26,8 +26,9 @@ jobs:
           node-version: "24"
       - name: Run exact-head, no-network COO authorization and GitHub response tests
         run: node --test tests/owner-coo-workboard.test.mjs
-      - name: Verify TypeScript and build without publishing
+      - name: Verify TypeScript, isolated browser-DOM acceptance and build without publishing
         run: |
           npm ci --no-audit --no-fund
+          node --test tests/owner-coo-workboard-ui.test.mjs
           npm run lint
           npm run build
