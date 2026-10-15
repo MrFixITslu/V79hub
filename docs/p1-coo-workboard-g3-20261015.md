@@ -21,6 +21,7 @@ REDTEAM residual risks: GitHub is not the system of record for runtime health; c
 ## Configuration — DOCUMENTATION ONLY, NOT APPLY TO PRODUCTION NOW
 - V79_COO_WORKBOARD_ENABLED=1: allow operator-initiated owner-only GitHub reads, default off.
 - V79_COO_GITHUB_TOKEN_FILE: future protected path for a separate fine-grained read-only token, only with approved staging and safe custody.
+- The token file must be a non-symlink regular file, 0400/0600 (not group/world-readable), 16–512 bytes, with a trimmed single-line token of 16–256 characters. Unreadable/malformed token fails closed.
 - Never use admin credentials or broad classic PAT; no browser tokens; no customer PII.
 - Flag off: DISABLED. Missing token: NOT_CONFIGURED. Denied private repo: UNKNOWN_SOURCE.
 - Review egress, secret custody, source staleness, request rate, API availability, and owner browser staging acceptance.
