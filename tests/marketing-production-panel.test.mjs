@@ -16,7 +16,7 @@ const plan={automaticDrafts:false,cadenceDays:7,channels:['youtube'],publishDela
 
 async function harness(t){
   let state={mode:'owner-approved-marketing-production',paused:false,configRevision:1,brand:structuredClone(brand),plan:structuredClone(plan),publishEnabled:false,jobs:[]};
-  const calls=[],timers=new Map(),reads=[];let nextTimer=0,failure=false,visibility='visible',slowList=null;
+  const calls=[],timers=new Map(),reads=[];let nextTimer=0,failure=false,visibility='visible',slowList=null,cancelFailure=null;
   Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>visibility});
   window.setTimeout=(fn,ms)=>{timers.set(++nextTimer,{fn,ms});return nextTimer;};window.clearTimeout=id=>timers.delete(id);
   window.confirm=()=>true;
@@ -31,6 +31,13 @@ async function harness(t){
     }
     if(body.action==='configure'){if(body.config.expectedRevision!==state.configRevision)return {ok:false,json:async()=>({error:'Configuration revision changed'})};state={...state,brand:body.config.brand,plan:body.config.plan,configRevision:state.configRevision+1};return {ok:true,json:async()=>({ok:true})};}
     if(body.action==='queue'){state.jobs=[{id:'campaign',status:'queued',factId:body.request.factId,angle:body.request.angle,deliveries:[]}];return {ok:true,json:async()=>({ok:true})};}
+    if(body.action==='cancel'){
+      if(body.jobId===cancelFailure)return {ok:false,json:async()=>({error:'Fresh founder MFA required'})};
+      const job=state.jobs.find(j=>j.id===body.jobId);
+      if(!job||job.status==='generating'||job.deliveries.some(d=>['running','succeeded','uncertain'].includes(d.status)))return {ok:false,json:async()=>({error:'Started effects require operator reconciliation'})};
+      job.status='cancelled';for(const d of job.deliveries)if(['awaiting_owner','approved','blocked'].includes(d.status))d.status='cancelled';
+      return {ok:true,json:async()=>({cancelled:true})};
+    }
     throw Error('Unexpected UI mutation: '+body.action);
   };
   const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
@@ -44,7 +51,7 @@ async function harness(t){
   const finishLogo=async(index=reads.length-1,value=png)=>{await act(async()=>{reads[index].result=value;reads[index].onload();});};
   const poll=async()=>{const entry=[...timers].find(([,v])=>v.ms===10000);assert.ok(entry,'an automatic update is scheduled');timers.delete(entry[0]);await act(async()=>entry[1].fn());};
   await click('V79 marketing · Production and approvals');
-  return {container,button,click,input,change,upload,finishLogo,reads,calls,timers,poll,get state(){return state;},set state(v){state=v;},set failure(v){failure=v;},set slowList(v){slowList=v;},async visible(v){visibility=v;await act(async()=>document.dispatchEvent(new window.Event('visibilitychange')));}};
+  return {container,button,click,input,change,upload,finishLogo,reads,calls,timers,poll,get state(){return state;},set state(v){state=v;},set failure(v){failure=v;},set slowList(v){slowList=v;},set cancelFailure(v){cancelFailure=v;},async visible(v){visibility=v;await act(async()=>document.dispatchEvent(new window.Event('visibilitychange')));}};
 }
 
 test('worker readiness appears automatically, reads alone never approve or publish, closed and hidden panels stop polling',async t=>{
@@ -101,4 +108,37 @@ test('an oversized image is rejected before approval',async t=>{
   globalThis.Image=class{naturalWidth=2049;naturalHeight=100;set src(_v){queueMicrotask(()=>this.onload());}};
   await h.upload({type:'image/png',size:100});await h.finishLogo();assert.match(h.container.textContent,/at most 2048 × 2048/);
   await act(async()=>h.input('I verified these facts').click());assert.equal(h.button('Approve brand and draft plan').disabled,true);
+});
+
+
+test('clear failed attempts cancels only failed unstarted packages and keeps recoverable history',async t=>{
+  const h=await harness(t);
+  h.state.jobs=[{id:'failed',status:'blocked',failure:'Generation failed',angle:'Failed local render',deliveries:[]},
+    {id:'pending',status:'awaiting_owner',angle:'Current campaign',deliveries:[]},
+    ...['approved','running','succeeded','uncertain'].map(status=>({id:status,status:'blocked',failure:'A failure',angle:'Protected '+status,deliveries:[{id:status,status,channel:'youtube'}]})),
+    {id:'receipt',status:'blocked',failure:'A failure',angle:'Has provider receipt',deliveries:[{status:'blocked',channel:'youtube',result:{providerPostId:'receipt'}}]},
+    {id:'prior-approval',status:'blocked',failure:'A failure',angle:'Has prior approval',deliveries:[{status:'blocked',channel:'youtube',approval:{digest:'prior'}}]},
+    {id:'channel-blocked',status:'awaiting_owner',angle:'Disconnected channel',deliveries:[{status:'blocked',channel:'youtube'}]}];
+  await h.poll();await h.click('Clear failed attempts (1)');
+  assert.deepEqual(h.calls.filter(c=>c.action==='cancel'),[{action:'cancel',jobId:'failed'}]);
+  assert.doesNotMatch(h.container.textContent,/Failed local render/);assert.match(h.container.textContent,/Current campaign/);
+  for(const text of ['Protected approved','Protected running','Protected succeeded','Protected uncertain','Has provider receipt','Has prior approval','Disconnected channel'])assert.match(h.container.textContent,new RegExp(text));
+  await h.click('Show canceled history (1)');assert.match(h.container.textContent,/Failed local render/);
+  await h.click('Hide canceled history');assert.doesNotMatch(h.container.textContent,/Failed local render/);
+  const mutations=h.calls.filter(c=>c.action!=='list');assert.deepEqual(mutations,[{action:'cancel',jobId:'failed'}]);
+});
+
+test('declining cleanup changes nothing; an MFA failure is shown without retrying the mutation',async t=>{
+  const h=await harness(t);h.state.jobs=[{id:'failed',status:'blocked',failure:'Generation failed',angle:'Failed render',deliveries:[]}];
+  await h.poll();window.confirm=()=>false;await h.click('Clear failed attempts (1)');assert.equal(h.calls.filter(c=>c.action==='cancel').length,0);
+  window.confirm=()=>true;h.cancelFailure='failed';await h.click('Clear failed attempts (1)');assert.match(h.container.textContent,/Fresh founder MFA required/);
+  await h.poll();assert.equal(h.calls.filter(c=>c.action==='cancel').length,1);assert.match(h.container.textContent,/Failed render/);
+});
+
+test('bulk cleanup stops at the first failure and polling reflects partial progress without replay',async t=>{
+  const h=await harness(t);h.state.jobs=['one','two','three'].map(id=>({id,status:'blocked',failure:'Generation failed',angle:'Failed '+id,deliveries:[]}));
+  await h.poll();h.cancelFailure='two';await h.click('Clear failed attempts (3)');
+  assert.deepEqual(h.calls.filter(c=>c.action==='cancel').map(c=>c.jobId),['one','two']);
+  await h.poll();assert.doesNotMatch(h.container.textContent,/Failed one/);assert.match(h.container.textContent,/Failed two/);assert.match(h.container.textContent,/Failed three/);
+  assert.equal(h.calls.filter(c=>c.action==='cancel').length,2);assert.ok(h.button('Show canceled history (1)'));
 });

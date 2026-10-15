@@ -5,11 +5,13 @@ type Brand={name:string;tagline:string;audience:string;tone:string;website:strin
 type Plan={automaticDrafts:boolean;cadenceDays:number;channels:string[];publishDelayHours:number;newsletterSegmentId:string|null;
   newsletterFrom:string|null;newsletterConsentConfirmed:boolean;tiktokPrivacy?:string|null;tiktokMusicConfirmed?:boolean;youtubePrivacy:'private'|'unlisted'|'public'};
 type Delivery={id:string;digest:string;channel:string;providerAccountId:string;scheduledAt:string;status:string;blocker?:string;
-  audienceCount?:number;payload?:{audiencePolicy?:string};result?:{providerPostId:string;at:string}};
+  approval?:unknown;audienceCount?:number;payload?:{audiencePolicy?:string};result?:{providerPostId:string;at:string}};
 type Job={id:string;status:string;factId:string;angle:string;failure?:string;deliveries:Delivery[];bundle?:{
   source:string;brand?:Brand;materials:{channel:string;title:string;caption:string;videoScript:string;altText:string}[];
   assets:{name:string;sha256:string;mime:string}[];review:{method:string;blockers:string[];warnings:string[]}}};
 type Status={mode:string;paused:boolean;configRevision:number;brand:Brand|null;plan:Plan|null;publishEnabled:boolean;jobs:Job[]};
+function failedUnstarted(job:Job){return job.status==='blocked'&&!!(job.failure||job.bundle?.review.blockers.length)&&
+  job.deliveries.every(d=>!['approved','running','succeeded','uncertain'].includes(d.status)&&!d.approval&&!d.result);}
 const initialBrand:Brand={name:'V79 Digital',tagline:'From Idea to Advantage.',audience:'Caribbean small and medium businesses',
   tone:'Clear, practical, professional and approachable',website:'https://v79sl.com',cta:'Visit our website to discuss your business needs',
   primaryColor:'#081827',accentColor:'#00D5C9',logoPng:null,mailingAddress:null,
@@ -21,6 +23,7 @@ export function MarketingProductionPanel(){
   const [editing,setEditing]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const [factId,setFactId]=useState('ict-support'),[angle,setAngle]=useState('One everyday business problem and a practical next step');
   const [confirmed,setConfirmed]=useState(false),[preview,setPreview]=useState<{url:string;mime:string;name:string}|null>(null);
+  const [showHistory,setShowHistory]=useState(false);
   const [logoLoading,setLogoLoading]=useState(false),[logoError,setLogoError]=useState(''),[syncError,setSyncError]=useState('');
   const busyRef=useRef(false),editingRef=useRef(false),dirtyRef=useRef(false),logoRead=useRef(0),statusVersion=useRef(0);
   const statusRequest=useRef<AbortController|null>(null),draftRevision=useRef(0);
@@ -87,6 +90,13 @@ export function MarketingProductionPanel(){
     if(decision==='approve'&&!window.confirm(`Approve this exact ${d.channel} publication?\n\nDestination: ${d.providerAccountId}${audience}\nWhen: ${new Date(d.scheduledAt).toLocaleString()}\n\n${material?.caption}\n\nReview the rendered assets before confirming. This approval covers only this package, account/segment and schedule. Image/video source files may be publicly reachable briefly for provider ingestion, including private YouTube uploads.`))return;
     await request({action:'decision',jobId:job.id,deliveryId:d.id,decision,digest:d.digest});setNotice(decision==='approve'?'Exact publication approved and waiting for its scheduled time.':'Publication rejected.');
   });
+  const failedJobs=status?.jobs.filter(failedUnstarted)||[];
+  const cancelledCount=status?.jobs.filter(job=>job.status==='cancelled').length||0;
+  const clearFailed=()=>perform(async()=>{
+    if(!failedJobs.length||!window.confirm(`Remove ${failedJobs.length} failed campaign attempt(s) from the active list? Their records and audit history will be retained.`))return;
+    for(const job of failedJobs)await request({action:'cancel',jobId:job.id});
+    setNotice('Failed attempts cleared from the active list. Their records remain in canceled history.');
+  });
   async function asset(job:Job,name:string,download=false){setError('');try{
     const a=await request({action:'asset',jobId:job.id,name});const bytes=Uint8Array.from(atob(a.base64),(c:string)=>c.charCodeAt(0));
     const url=URL.createObjectURL(new Blob([bytes],{type:a.mime}));
@@ -148,7 +158,11 @@ export function MarketingProductionPanel(){
         {dirtyRef.current&&<p className="text-xs text-amber-200">Approve your edited brand and plan before producing a package.</p>}
         <button disabled={busy||status.paused||logoLoading||dirtyRef.current} onClick={()=>perform(async()=>{await request({action:'queue',request:{factId,angle,idempotencyKey:'package_'+crypto.randomUUID().replaceAll('-','')}});setNotice('Queued for the production worker. This panel updates automatically when the materials are ready.');})} className="rounded bg-cyan-300 px-3 py-2 font-semibold text-slate-950">Produce a campaign package</button></div>}
       {preview&&<div className="rounded border border-slate-700 p-3"><button onClick={()=>setPreview(null)} className="mb-2 underline">Close preview</button>{preview.mime==='video/mp4'?<video controls src={preview.url} className="max-h-96 w-full"/>:<img src={preview.url} alt={preview.name} className="max-h-96 w-full object-contain"/>}</div>}
-      <div className="space-y-4">{status?.jobs.map(job=><article key={job.id} className="space-y-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
+      {(failedJobs.length>0||cancelledCount>0)&&<div className="flex flex-wrap items-center gap-2">
+        {failedJobs.length>0&&<button disabled={busy} onClick={clearFailed} className="rounded border border-slate-600 px-3 py-1">Clear failed attempts ({failedJobs.length})</button>}
+        {cancelledCount>0&&<button aria-expanded={showHistory} onClick={()=>setShowHistory(!showHistory)} className="rounded border border-slate-600 px-3 py-1">{showHistory?'Hide canceled history':`Show canceled history (${cancelledCount})`}</button>}
+      </div>}
+      <div className="space-y-4">{status?.jobs.filter(job=>showHistory||job.status!=='cancelled').map(job=><article key={job.id} className="space-y-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
         <div className="flex justify-between gap-3"><strong>{job.angle}</strong><span aria-live="polite">{job.status}</span></div>{job.failure&&<p className="text-red-300">{job.failure}</p>}
         {job.bundle&&<>{!job.bundle.brand?.logoPng&&job.bundle.review.warnings.some(w=>w.includes('original brand logo'))&&<p className="text-xs text-amber-200">This package was created without a saved logo. To include your logo, approve the updated brand and produce a new package; existing materials keep their original brand.</p>}<p className="text-xs text-slate-400">Copy source: {job.bundle.source} · Review: automated rule checks, followed by your review</p>
           {[...job.bundle.review.blockers,...job.bundle.review.warnings].map((v,i)=><p className="text-xs text-amber-200" key={i}>{v}</p>)}
@@ -158,7 +172,7 @@ export function MarketingProductionPanel(){
             {d.channel==='newsletter'&&<p className="text-xs text-slate-400">Audience: current opt-in members of the approved segment · {d.audienceCount||0} at preparation</p>}{d.blocker&&<p className="text-xs text-amber-200">{d.blocker}</p>}{d.result&&<p className="text-xs text-emerald-200">Provider accepted: {d.result.providerPostId}</p>}
             {d.status==='awaiting_owner'&&<div className="mt-2 flex gap-2"><button disabled={busy||status.paused||!status.publishEnabled} onClick={()=>decide(job,d,'approve')} className="rounded border border-emerald-600 px-3 py-1">Approve exact publication</button><button disabled={busy} onClick={()=>decide(job,d,'reject')} className="rounded border border-slate-600 px-3 py-1">Reject</button></div>}</div>)}
         </>}
-        <button disabled={busy} onClick={()=>perform(async()=>{await request({action:'cancel',jobId:job.id});})} className="rounded border border-slate-600 px-3 py-1">Cancel unstarted package</button>
+        {job.status!=='cancelled'&&<button disabled={busy} onClick={()=>perform(async()=>{await request({action:'cancel',jobId:job.id});})} className="rounded border border-slate-600 px-3 py-1">{failedUnstarted(job)?'Remove failed attempt':'Cancel unstarted package'}</button>}
       </article>)}</div>
     </div>}
   </section>;
