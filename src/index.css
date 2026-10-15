@@ -284,9 +284,9 @@ textarea.admin-input {
 .hub-login-reference .hub-login-network {
   position: absolute;
   z-index: 0;
-  bottom: -56px;
+  bottom: -125px;
   left: -52px;
-  width: min(920px, 127%);
+  width: min(820px, 116%);
   opacity: .96;
   mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 100%);
 }
