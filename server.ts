@@ -5162,12 +5162,16 @@ app.get("/api/agent/coo-workboard", createOwnerCooWorkboard({
   ownerMfaContext: ownerApprovalContext,
   enabled: () => process.env.V79_COO_WORKBOARD_ENABLED === "1",
   readToken: () => {
+    const file = process.env.V79_COO_GITHUB_TOKEN_FILE || "/run/secrets/v79-coo-github-token";
+    let fd: number | null = null;
     try {
-      return fs.readFileSync(
-        process.env.V79_COO_GITHUB_TOKEN_FILE || "/run/secrets/v79-coo-github-token",
-        "utf8"
-      ).trim();
+      // No links, no directories, no group/world-readable or oversized secrets.
+      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size < 16 || stat.size > 512 || (stat.mode & 0o077) !== 0) return "";
+      return fs.readFileSync(fd, { encoding: "utf8" }).trim();
     } catch { return ""; }
+    finally { if (fd !== null) fs.closeSync(fd); }
   },
 }));
 
