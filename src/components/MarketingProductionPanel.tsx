@@ -5,11 +5,26 @@ type Brand={name:string;tagline:string;audience:string;tone:string;website:strin
 type Plan={automaticDrafts:boolean;cadenceDays:number;channels:string[];publishDelayHours:number;newsletterSegmentId:string|null;
   newsletterFrom:string|null;newsletterConsentConfirmed:boolean;tiktokPrivacy?:string|null;tiktokMusicConfirmed?:boolean;youtubePrivacy:'private'|'unlisted'|'public'};
 type Delivery={id:string;digest:string;channel:string;providerAccountId:string;scheduledAt:string;status:string;blocker?:string;
-  approval?:unknown;audienceCount?:number;payload?:{audiencePolicy?:string};result?:{providerPostId:string;at:string}};
+  approval?:unknown;audienceCount?:number;payload?:{audiencePolicy?:string;youtube?:{privacyStatus?:string}};result?:{providerPostId:string;at:string;marketingPostId?:string}};
 type Job={id:string;status:string;factId:string;angle:string;failure?:string;deliveries:Delivery[];bundle?:{
   source:string;brand?:Brand;materials:{channel:string;title:string;caption:string;videoScript:string;altText:string}[];
   assets:{name:string;sha256:string;mime:string}[];review:{method:string;blockers:string[];warnings:string[]}}};
 type Status={mode:string;paused:boolean;configRevision:number;brand:Brand|null;plan:Plan|null;publishEnabled:boolean;jobs:Job[]};
+function packageStatus(job:Job){
+  if(job.status!=='awaiting_owner')return ({queued:'Queued for production',generating:'Creating materials',blocked:'Blocked',cancelled:'Canceled'} as Record<string,string>)[job.status]||job.status;
+  const states=job.deliveries.map(d=>d.status);
+  if(states.includes('uncertain'))return 'Outcome uncertain · verify provider';
+  if(states.includes('running'))return 'Publishing';
+  if(states.includes('awaiting_owner'))return states.includes('succeeded')?'Partly published · approval required':states.includes('approved')?'Partly approved · approval required':'Awaiting your approval';
+  if(states.includes('approved'))return states.includes('blocked')?'Approved · scheduled; other destinations blocked':'Approved · scheduled';
+  if(states.includes('succeeded'))return states.includes('blocked')?'Publication complete · other destinations blocked':'Publication complete';
+  if(states.length&&states.every(s=>s==='cancelled'||s==='rejected'))return 'Closed';
+  if(states.includes('blocked'))return 'Blocked';
+  return 'Awaiting your review';
+}
+function deliveryStatus(d:Delivery){return ({awaiting_owner:'Awaiting your approval',approved:'Approved · scheduled',running:d.channel==='youtube'?'Uploading':'Publishing',
+  succeeded:d.channel==='youtube'?'Upload confirmed':'Provider accepted',blocked:'Blocked',uncertain:'Outcome uncertain · verify provider',rejected:'Rejected',cancelled:'Canceled'} as Record<string,string>)[d.status]||d.status;}
+function receiptUrl(d:Delivery){return d.status==='succeeded'&&d.channel==='youtube'&&d.result&&/^[A-Za-z0-9_-]{11}$/.test(d.result.providerPostId)?'https://www.youtube.com/watch?v='+d.result.providerPostId:null;}
 function failedUnstarted(job:Job){return job.status==='blocked'&&!!(job.failure||job.bundle?.review.blockers.length)&&
   job.deliveries.every(d=>!['approved','running','succeeded','uncertain'].includes(d.status)&&!d.approval&&!d.result);}
 const initialBrand:Brand={name:'V79 Digital',tagline:'From Idea to Advantage.',audience:'Caribbean small and medium businesses',
@@ -163,16 +178,19 @@ export function MarketingProductionPanel(){
         {cancelledCount>0&&<button aria-expanded={showHistory} onClick={()=>setShowHistory(!showHistory)} className="rounded border border-slate-600 px-3 py-1">{showHistory?'Hide canceled history':`Show canceled history (${cancelledCount})`}</button>}
       </div>}
       <div className="space-y-4">{status?.jobs.filter(job=>showHistory||job.status!=='cancelled').map(job=><article key={job.id} className="space-y-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
-        <div className="flex justify-between gap-3"><strong>{job.angle}</strong><span aria-live="polite">{job.status}</span></div>{job.failure&&<p className="text-red-300">{job.failure}</p>}
+        <div className="flex justify-between gap-3"><strong>{job.angle}</strong><span aria-live="polite">{packageStatus(job)}</span></div>{job.failure&&<p className="text-red-300">{job.failure}</p>}
         {job.bundle&&<>{!job.bundle.brand?.logoPng&&job.bundle.review.warnings.some(w=>w.includes('original brand logo'))&&<p className="text-xs text-amber-200">This package was created without a saved logo. To include your logo, approve the updated brand and produce a new package; existing materials keep their original brand.</p>}<p className="text-xs text-slate-400">Copy source: {job.bundle.source} · Review: automated rule checks, followed by your review</p>
           {[...job.bundle.review.blockers,...job.bundle.review.warnings].map((v,i)=><p className="text-xs text-amber-200" key={i}>{v}</p>)}
           <div className="flex flex-wrap gap-2">{job.bundle.assets.map(a=><button key={a.name} onClick={()=>void asset(job,a.name,!['image/png','video/mp4'].includes(a.mime))} className="rounded border border-slate-600 px-2 py-1">{['image/png','video/mp4'].includes(a.mime)?'Preview':'Download'} {a.name}</button>)}</div>
           {job.bundle.materials.map(m=><details key={m.channel} className="rounded border border-slate-800 p-2"><summary>{m.channel}: {m.title}</summary><pre className="mt-2 whitespace-pre-wrap font-sans">{m.caption}</pre><p className="mt-2 text-xs text-slate-400">Alt text: {m.altText}</p></details>)}
-          {job.deliveries.map(d=><div key={d.id} className="rounded border border-slate-800 p-2"><p>{d.channel} · {d.status}</p><p className="text-xs text-slate-400">Destination: {d.providerAccountId} · {new Date(d.scheduledAt).toLocaleString()}</p>
-            {d.channel==='newsletter'&&<p className="text-xs text-slate-400">Audience: current opt-in members of the approved segment · {d.audienceCount||0} at preparation</p>}{d.blocker&&<p className="text-xs text-amber-200">{d.blocker}</p>}{d.result&&<p className="text-xs text-emerald-200">Provider accepted: {d.result.providerPostId}</p>}
+          {job.deliveries.map(d=><div key={d.id} className="rounded border border-slate-800 p-2"><p aria-live="polite">{d.channel} · {deliveryStatus(d)}</p><p className="text-xs text-slate-400">Destination: {d.providerAccountId} · Scheduled publication: {new Date(d.scheduledAt).toLocaleString()}</p>
+            {d.channel==='newsletter'&&<p className="text-xs text-slate-400">Audience: current opt-in members of the approved segment · {d.audienceCount||0} at preparation</p>}{d.blocker&&<p className="text-xs text-amber-200">{d.blocker}</p>}{d.payload?.youtube?.privacyStatus&&<p className="text-xs text-slate-400">YouTube visibility: {d.payload.youtube.privacyStatus}</p>}
+            {d.status==='succeeded'&&d.result&&<div className="space-y-1"><p className="text-xs text-emerald-200">Confirmed {new Date(d.result.at).toLocaleString()} · Provider receipt: {d.result.providerPostId}</p>
+              {receiptUrl(d)&&<a href={receiptUrl(d)!} target="_blank" rel="noopener noreferrer" className="block break-all text-cyan-300 underline">{receiptUrl(d)}</a>}
+              <p className="text-xs text-slate-400">{d.result.marketingPostId?'Recorded in V79 Marketing.':'Marketing record sync pending; the confirmed upload will not be repeated.'}</p></div>}
             {d.status==='awaiting_owner'&&<div className="mt-2 flex gap-2"><button disabled={busy||status.paused||!status.publishEnabled} onClick={()=>decide(job,d,'approve')} className="rounded border border-emerald-600 px-3 py-1">Approve exact publication</button><button disabled={busy} onClick={()=>decide(job,d,'reject')} className="rounded border border-slate-600 px-3 py-1">Reject</button></div>}</div>)}
         </>}
-        {job.status!=='cancelled'&&<button disabled={busy} onClick={()=>perform(async()=>{await request({action:'cancel',jobId:job.id});})} className="rounded border border-slate-600 px-3 py-1">{failedUnstarted(job)?'Remove failed attempt':'Cancel unstarted package'}</button>}
+        {!['cancelled','generating'].includes(job.status)&&!job.deliveries.some(d=>['running','succeeded','uncertain'].includes(d.status))&&<button disabled={busy} onClick={()=>perform(async()=>{await request({action:'cancel',jobId:job.id});})} className="rounded border border-slate-600 px-3 py-1">{failedUnstarted(job)?'Remove failed attempt':'Cancel unstarted package'}</button>}
       </article>)}</div>
     </div>}
   </section>;

@@ -58,7 +58,7 @@ test('worker readiness appears automatically, reads alone never approve or publi
   const h=await harness(t);await h.click('Produce a campaign package');
   assert.match(h.container.textContent,/updates automatically when the materials are ready/);
   h.state.jobs[0].status='awaiting_owner';h.state.jobs[0].bundle={source:'brand-template',brand,materials:[],assets:[],review:{warnings:['Text wordmark used; original brand logo has not been supplied'],blockers:[]}};
-  await h.poll();assert.match(h.container.textContent,/awaiting_owner/);assert.match(h.container.textContent,/This package was created without a saved logo/);
+  await h.poll();assert.match(h.container.textContent,/Awaiting your review/);assert.match(h.container.textContent,/This package was created without a saved logo/);
   assert.deepEqual(h.calls.map(c=>c.action),['list','queue','list','list']);
   await h.visible('hidden');assert.equal(h.timers.size,0);
   const count=h.calls.length;await h.visible('visible');assert.equal(h.calls.length,count+1);
@@ -141,4 +141,23 @@ test('bulk cleanup stops at the first failure and polling reflects partial progr
   assert.deepEqual(h.calls.filter(c=>c.action==='cancel').map(c=>c.jobId),['one','two']);
   await h.poll();assert.doesNotMatch(h.container.textContent,/Failed one/);assert.match(h.container.textContent,/Failed two/);assert.match(h.container.textContent,/Failed three/);
   assert.equal(h.calls.filter(c=>c.action==='cancel').length,2);assert.ok(h.button('Show canceled history (1)'));
+});
+
+test('approved deliveries show scheduled approval instead of awaiting owner; successful uploads show a full safe YouTube link and tracking receipt',async t=>{
+  const h=await harness(t);h.state.jobs=[{id:'campaign',status:'awaiting_owner',angle:'Current campaign',bundle:{source:'ollama',brand,assets:[],materials:[],review:{warnings:[],blockers:[]}},deliveries:[{id:'youtube',channel:'youtube',status:'approved',providerAccountId:'channel-id',scheduledAt:'2026-10-16T03:08:52Z',payload:{youtube:{privacyStatus:'private'}}}]}];
+  await h.poll();assert.match(h.container.textContent,/Approved · scheduled/);assert.doesNotMatch(h.container.textContent,/awaiting_owner|Awaiting your approval/);assert.match(h.container.textContent,/YouTube visibility: private/);assert.equal(h.container.querySelectorAll('a').length,0);
+  h.state.jobs[0].deliveries[0].status='running';await h.poll();assert.match(h.container.textContent,/Uploading/);assert.doesNotMatch(h.container.textContent,/Approved · scheduled/);
+  Object.assign(h.state.jobs[0].deliveries[0],{status:'succeeded',result:{providerPostId:'dQw4w9WgXcQ',at:'2026-10-16T03:09:01Z',marketingPostId:'production-youtube'}});
+  await h.poll();assert.match(h.container.textContent,/Publication complete/);assert.match(h.container.textContent,/Upload confirmed/);assert.match(h.container.textContent,/Recorded in V79 Marketing/);
+  const link=h.container.querySelector('a');assert.equal(link.textContent,'https://www.youtube.com/watch?v=dQw4w9WgXcQ');assert.equal(link.getAttribute('href'),link.textContent);assert.equal(link.getAttribute('rel'),'noopener noreferrer');
+  assert.ok(h.calls.every(c=>c.action==='list'));
+});
+
+test('partial campaign approvals remain explicit, and uncertain or forged receipts never become uploaded links',async t=>{
+  const h=await harness(t);h.state.jobs=[{id:'campaign',status:'awaiting_owner',angle:'Partial campaign',bundle:{source:'ollama',brand,assets:[],materials:[],review:{warnings:[],blockers:[]}},deliveries:[{id:'youtube',channel:'youtube',status:'approved',providerAccountId:'channel-id',scheduledAt:'2026-10-16T03:08:52Z'},{id:'facebook',channel:'facebook',status:'awaiting_owner',providerAccountId:'page-id',scheduledAt:'2026-10-16T03:08:52Z'}]}];
+  await h.poll();assert.match(h.container.textContent,/Partly approved · approval required/);
+  const d=h.state.jobs[0].deliveries[0];Object.assign(d,{status:'uncertain',result:{providerPostId:'dQw4w9WgXcQ',at:'2026-10-16T03:09:01Z'}});
+  await h.poll();assert.match(h.container.textContent,/Outcome uncertain · verify provider/);assert.equal(h.container.querySelectorAll('a').length,0);
+  Object.assign(d,{status:'succeeded',result:{providerPostId:'https://evil.test',providerUrl:'javascript:alert(1)',at:'2026-10-16T03:09:01Z'}});
+  await h.poll();assert.equal(h.container.querySelectorAll('a').length,0);assert.match(h.container.textContent,/Partly published · approval required/);assert.match(h.container.textContent,/Marketing record sync pending/);
 });
