@@ -5,7 +5,7 @@ const s=readFileSync(new URL("../scripts/hub-login-production-preflight.py",impo
 
 test("login-only server inspection is intentionally read-only",()=>{
   assert.match(s,/NO_GO_PENDING_INDEPENDENT_RECOVERY_AND_IMAGE_EVIDENCE/);
-  assert.match(s,/expected_known_pinned_stack|exact_known_pinned_stack/);
+  assert.match(s,/layered_g3_compose_order_and_files/);
   assert.match(s,/docker", "inspect"/);
   for(const banned of ["docker compose up", "docker rm", "docker restart", "docker build", "docker pull", "os.system(", "subprocess.Popen("]){
     assert.ok(!s.includes(banned), "unexpected destructive/side effect primitive: "+banned);
