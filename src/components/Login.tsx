@@ -205,83 +205,62 @@ export function Login({ onLoginSuccess }: LoginProps) {
   );
 
   return (
-    <div className="hub-login min-h-screen bg-[#06101d] flex items-center justify-center px-4 py-8 font-sans relative overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-15%] left-[-10%] w-[50%] h-[50%] bg-[#0A86FF]/15 rounded-full blur-[140px]" />
-        <div className="absolute bottom-[-15%] right-[-10%] w-[50%] h-[50%] bg-violet-600/15 rounded-full blur-[140px]" />
-      </div>
-
-      <div className="relative z-10 mx-auto grid w-full max-w-[1180px] grid-cols-1 items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(400px,460px)] xl:gap-16">
-        <aside className="hub-login-story relative hidden min-h-[570px] flex-col justify-between overflow-hidden rounded-[28px] border border-[#1b3753] bg-[#081628] p-10 text-white lg:flex xl:p-12" aria-label="About V79 Digital Hub">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_90%_18%,rgba(10,134,255,.28),transparent_38%),radial-gradient(circle_at_12%_100%,rgba(41,79,171,.18),transparent_40%)]" />
-          <div className="pointer-events-none absolute -right-24 top-28 h-80 w-80 rounded-full border border-[#0A86FF]/25 shadow-[0_0_0_24px_rgba(10,134,255,.03),0_0_0_70px_rgba(10,134,255,.025)]" />
-          <div className="relative">
-            <div className="text-2xl font-black tracking-tight">V79 <span className="text-[#49b4ff]">Digital</span></div>
-            <p className="mt-1 text-xs font-semibold tracking-wide text-sky-300">From Idea to Advantage.</p>
+    <div className="hub-login hub-login-reference relative isolate min-h-[100svh] overflow-x-hidden bg-[#020813] font-sans text-white">
+      <div className="hub-login-main relative mx-auto grid min-h-[100svh] w-full max-w-[1440px] grid-cols-1 items-center gap-8 px-5 py-8 lg:grid-cols-[minmax(0,1fr)_minmax(420px,560px)] lg:gap-10 lg:px-[52px] lg:py-10">
+        <aside className="hub-login-story relative hidden min-w-0 self-stretch flex-col lg:flex" aria-label="About V79 Digital Hub">
+          <div className="hub-login-network pointer-events-none" aria-hidden="true">
+            <img src="/assets/v79-login-earth.svg" alt="" loading="eager" decoding="async" />
           </div>
-          <div className="relative py-10">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#2b5275] bg-[#0A86FF]/10 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-sky-200">
-              <ShieldCheck className="h-4 w-4" />
-              YOUR BUSINESS COMMAND CENTRE
-            </div>
-            <h2 className="max-w-[490px] text-4xl font-black leading-[1.12] tracking-[-0.045em] xl:text-5xl">Welcome to <span className="text-[#55b7ff]">V79 Digital Hub.</span></h2>
-            <p className="mt-5 max-w-[430px] text-sm leading-7 text-slate-300">Access your tools, understand your operations, and move your business forward—all from one workspace.</p>
+          <div className="hub-login-brand relative z-10">
+            <div className="text-[33px] font-black leading-none tracking-[-0.05em] text-white">V79 <span className="text-[#0A86FF]">Digital</span></div>
+            <p className="mt-2 text-[14px] font-bold text-[#0A86FF]">From Idea to Advantage.</p>
           </div>
-          <div className="relative grid grid-cols-3 gap-3 border-t border-[#254463] pt-6">
-            <div>
-              <ShieldCheck className="mb-3 h-5 w-5 text-sky-400" />
-              <div className="text-xs font-bold">Secure access</div>
-              <p className="mt-1 text-[11px] leading-5 text-slate-400">Account and MFA protection</p>
-            </div>
-            <div>
-              <CheckCircle2 className="mb-3 h-5 w-5 text-sky-400" />
-              <div className="text-xs font-bold">Connected tools</div>
-              <p className="mt-1 text-[11px] leading-5 text-slate-400">Workspace app launcher</p>
-            </div>
-            <div>
-              <KeyRound className="mb-3 h-5 w-5 text-sky-400" />
-              <div className="text-xs font-bold">Team controls</div>
-              <p className="mt-1 text-[11px] leading-5 text-slate-400">Scoped permissions</p>
+          <div className="hub-login-story-content relative z-10">
+            <h2 className="hub-login-welcome font-black tracking-[-0.055em] text-[#f7f9ff]">
+              Welcome to<br /><span className="text-[#0A86FF]">V79 Digital Hub</span>
+            </h2>
+            <p className="hub-login-pitch text-slate-400">
+              Your command center for the V79 Digital ecosystem.<br />
+              Access insights. Drive performance.<br />
+              Build what’s next.
+            </p>
+            <div className="hub-login-highlights" aria-label="Platform benefits">
+              <span>Enterprise-grade<br />security</span>
+              <span>Your data.<br /><strong className="text-[#0A86FF]">Always protected.</strong></span>
+              <span>Built for teams<br />across the Caribbean</span>
             </div>
           </div>
         </aside>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-          className="w-full max-w-md relative z-10 mx-auto">
-        <div className="hub-login-form bg-[#091728]/95 backdrop-blur-xl border border-[#1a3854] rounded-3xl shadow-2xl overflow-hidden p-7 sm:p-8">
-          <div className="text-center mb-7">
-            <div className="mb-4 flex items-center justify-center gap-2 text-[10px] uppercase font-bold tracking-[0.15em] text-sky-400 lg:hidden">V79 Digital · From Idea to Advantage.</div>
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#0A86FF] to-violet-500 shadow-lg shadow-blue-500/20 mb-4 text-white">
-              <ShieldCheck className="w-7 h-7" />
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
+          className="hub-login-card relative z-10 mx-auto w-full max-w-[560px]">
+          <div className="hub-login-form rounded-[23px] border border-[#28527d] bg-[#071624]/95 px-6 py-8 shadow-[0_28px_80px_rgba(0,0,0,.48)] sm:px-9 sm:py-10 lg:px-10 lg:py-11">
+            <div className="hub-login-mobile-brand mb-8 lg:hidden">
+              <div className="text-3xl font-black tracking-tight">V79 <span className="text-[#0A86FF]">Digital</span></div>
+              <div className="mt-1 text-sm font-bold text-[#0A86FF]">From Idea to Advantage.</div>
             </div>
-            <div className="flex items-center justify-center gap-1.5 mb-1">
-              <span className="text-2xl font-black tracking-tight text-white">V79</span>
-              <span className="ml-1 text-xs font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-blue-500/15 text-[#65c9ff] border border-blue-500/25">HUB</span>
-            </div>
-            <p className="text-slate-500 text-xs">by V79 Digital · From Idea to Advantage.</p>
-          </div>
 
           {mode === "login" && (
-            <form onSubmit={handleLogin} className="space-y-5">
+            <form onSubmit={handleLogin} className="hub-login-fields space-y-5">
               <div>
-                <h1 className="text-xl font-bold text-white">Sign in to V79 Hub</h1>
-                <p className="mt-1 text-xs text-slate-500">Open your secure business workspace.</p>
+                <h1 className="text-[25px] font-bold tracking-tight text-white">Sign in to your account</h1>
+                <p className="mt-2 text-[15px] text-slate-400">Secure access to your V79 Digital Hub</p>
               </div>
               {renderMessage()}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Username or email</label>
+                <label className="mb-2 block text-[14px] font-semibold text-slate-200">Email address or username</label>
                 <div className="relative">
                   <UserIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                   <input type="text" required value={username}
                     onChange={e => { setUsername(e.target.value); setWorkspaces([]); setOrganizationId(""); }}
                     className="w-full bg-[#06101d] border border-[#1a3854] text-white pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#0A86FF] placeholder-slate-600"
-                    placeholder="you@example.com" autoComplete="username" />
+                    placeholder="you@company.com" autoComplete="username" aria-label="Email address or username" />
                 </div>
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1.5 ml-1">
-                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Password</label>
+                  <label className="block text-[14px] font-semibold text-slate-200">Password</label>
                   <button type="button" onClick={() => { clearMessages(); setRecoveryEmail(username.includes("@") ? username : ""); setMode("forgot"); }}
-                    className="text-[11px] font-semibold text-[#65c9ff] hover:text-white">Forgot password?</button>
+                    className="text-[12px] font-semibold text-[#65c9ff] hover:text-white">Forgot password?</button>
                 </div>
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -308,11 +287,30 @@ export function Login({ onLoginSuccess }: LoginProps) {
               )}
 
               <button type="submit" disabled={isLoading}
-                className="w-full bg-gradient-to-r from-[#0A86FF] to-blue-600 hover:from-[#2a9cff] hover:to-blue-500 text-white font-semibold py-3.5 rounded-xl transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-60 text-sm">
+                className="hub-login-submit flex w-full items-center justify-center gap-2 rounded-lg bg-[#0A86FF] py-4 text-[16px] font-semibold text-white shadow-[0_10px_25px_rgba(0,113,255,.24)] transition-colors hover:bg-[#167cff] disabled:opacity-60">
                 {isLoading ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> :
-                  <><ShieldCheck className="w-4 h-4" /><span>Sign in to V79 Hub</span></>}
+                  <>Sign in</>}
               </button>
             </form>
+          )}
+
+          {mode === "login" && (
+            <>
+              <div className="hub-login-divider" aria-label="Other sign-in methods">
+                <span>or</span>
+              </div>
+              <button type="button" disabled aria-disabled="true" title="Google sign-in is not yet configured"
+                className="hub-login-google flex w-full items-center justify-center gap-3 rounded-lg border border-[#46607c] bg-[#34445b] px-4 py-3.5 text-sm font-semibold text-slate-200 disabled:cursor-not-allowed">
+                <span aria-hidden="true" className="hub-login-google-icon">G</span>
+                <span>Continue with Google</span>
+                <span className="sr-only">Not yet available</span>
+              </button>
+              <p className="mt-2 text-center text-[11px] text-slate-400">Google sign-in is not yet available.</p>
+              <div className="hub-login-security mt-10 flex items-start gap-3 text-[13px] leading-5 text-slate-400">
+                <Lock className="mt-0.5 h-5 w-5 shrink-0 text-[#0A86FF]" aria-hidden="true" />
+                <p>Secure encryption. Multi-factor authentication.<br />We never share your information.</p>
+              </div>
+            </>
           )}
 
           {mode === "forgot" && (
