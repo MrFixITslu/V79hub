@@ -12,7 +12,7 @@ export class McpReadDenied extends Error {
 const deny = code => { throw new McpReadDenied(code); };
 const allowedKeys = (obj, keys) => obj && typeof obj === "object" &&
   !Array.isArray(obj) && Object.keys(obj).sort().join("|") === [...keys].sort().join("|");
-const CLAIM_KEYS = ["iss","aud","sub","tenant","client_id","agent_id","scope","iat","nbf","exp","jti"];
+const CLAIM_KEYS = ["iss","aud","sub","tenant","client_id","agent_id","scope","iat","nbf","exp","jti","acr","auth_time"];
 const HEADER_KEYS = ["alg","typ","kid"];
 const TEXT = /^[A-Za-z0-9._:@-]{3,128}$/;
 
@@ -46,13 +46,14 @@ export function verifyMcpDownstreamAssertion({
   if (claim.iss !== issuer || claim.aud !== "v79-hub-mcp-readonly" ||
       claim.client_id !== "v79-mcp-internal" ||
       !["v79-ceo","v79-coo"].includes(claim.agent_id) ||
-      claim.scope !== "hub.apps.read") deny("WRONG_AUDIENCE_SCOPE_OR_AGENT");
+      claim.scope !== "hub.apps.read" || claim.acr !== "urn:v79:mfa") deny("WRONG_AUDIENCE_SCOPE_OR_AGENT");
   for (const field of ["sub","tenant","jti"])
     if (typeof claim[field] !== "string" || !TEXT.test(claim[field])) deny("INVALID_IDENTITY");
-  for (const field of ["iat","nbf","exp"])
+  for (const field of ["iat","nbf","exp","auth_time"])
     if (!Number.isSafeInteger(claim[field])) deny("INVALID_LIFETIME");
   const clock = Math.floor(now / 1000);
-  if (claim.iat > clock + 10 || claim.nbf > clock || claim.exp <= clock ||
+  if (claim.auth_time > clock || clock - claim.auth_time > 900 ||
+      claim.iat > clock + 10 || claim.nbf > clock || claim.exp <= clock ||
       claim.exp - claim.iat > 120 || claim.exp <= claim.iat)
     deny("EXPIRED_OR_INVALID_LIFETIME");
   if (!/^[A-Za-z0-9_-]+$/.test(sig)) deny("MALFORMED_SIGNATURE");
@@ -86,6 +87,7 @@ export function ownerMcpAppProjection({
       identity.userId !== ownerUserId) deny("OWNER_BOUNDARY_DENIED");
   const user = (store.users || []).find(item => item.id === ownerUserId);
   const membership = activeMembership(store, ownerUserId, ownerOrganizationId);
+  if (user?.mfaEnabled !== true) deny("MFA_REQUIRED");
   if (!hasOwnerAssistantAccess({
     user, membership, organizationId: identity.organizationId,
     ownerOrganizationId, ownerUserId, ownerEmail,
@@ -114,7 +116,9 @@ export function mcpReadAccessDecision({ enabled, method, authorization, cookie, 
     return { status: 200, body: ownerMcpAppProjection({
       identity, store, ownerOrganizationId, ownerUserId, ownerEmail, now
     }) };
-  } catch {
-    return { status: 403, error: "MCP_ACCESS_DENIED" };
+  } catch (error) {
+    const isMembershipDenial = error instanceof McpReadDenied &&
+      ["OWNER_BOUNDARY_DENIED", "OWNER_MEMBERSHIP_DENIED", "MFA_REQUIRED"].includes(error.code);
+    return { status: isMembershipDenial ? 403 : 401, error: "MCP_ACCESS_DENIED" };
   }
 }
