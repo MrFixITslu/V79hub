@@ -1,0 +1,33 @@
+name: V79 Hub Design (Validation Only)
+
+on:
+  pull_request:
+    branches:
+      - feature/marketing-production-20261014
+    paths:
+      - "src/**"
+      - "tests/hub-design-contract.test.mjs"
+      - ".github/workflows/hub-design-validate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-design:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install from lockfile
+        run: npm ci --no-audit --no-fund
+      - name: Type-check
+        run: npm run lint
+      - name: Run isolated existing and UI contract tests
+        run: npm test
+      - name: Build production front-end assets
+        run: npm run build
+# No secrets, release bundles, Docker push, SSH, or production deployment.
