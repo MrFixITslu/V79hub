@@ -47,6 +47,7 @@ class UiCutoverTests(unittest.TestCase):
     def test_runtime_changes_are_limited_to_image_provenance_and_generated_hostname(self):
         m=self.m;m.helper={'healthy':lambda x:x['State']['Health']['Status']=='healthy','mounts':lambda x:x['Mounts']}
         old,new=self.runtime();m.runtime_parity(old,new,None)
+        new['Config']['Env'].reverse();m.runtime_parity(old,new,None)
         for field in ('Env','Cmd','User','Hostname'):
             bad=copy.deepcopy(new);bad['Config'][field]='changed'
             with self.assertRaises(RuntimeError):m.runtime_parity(old,bad,None)

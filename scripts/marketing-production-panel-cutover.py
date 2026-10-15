@@ -109,6 +109,7 @@ def runtime_parity(before, after, configured_hostname):
     old_labels, new_labels = a.pop('Labels'), b.pop('Labels')
     require(b.pop('Image') == IMAGE, 'Container image reference differs')
     a.pop('Image')
+    require(sorted(a.pop('Env')) == sorted(b.pop('Env')), 'Hub environment values changed')
     if configured_hostname is None:
         require(a.get('Hostname') == before['Id'][:12] and b.get('Hostname') == after['Id'][:12], 'Unexpected Docker-generated hostname')
         a.pop('Hostname'); b.pop('Hostname')
