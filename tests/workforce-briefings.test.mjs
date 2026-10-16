@@ -81,3 +81,48 @@ test('untrusted extra fields and reported timestamps never leave saved history',
     assert.equal(status.reports[0].report.findings[0].reportedAt, raw.source.collectedAt);
   } finally { await fs.rm(dir, {recursive:true,force:true}); }
 });
+test('missing source coverage and oversized evidence cannot produce a healthy briefing', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'v79-coverage-'));
+  try {
+    for (const [index, mutate] of [
+      r => { delete r.cooReport.unavailableSources; },
+      r => { r.cooReport.findings = Array(11).fill({id:'fault',system:'hub',severity:'watch',metric:'faults',value:1}); },
+      r => { r.cooReport.unavailableSources = Array(13).fill({system:'hub'}); },
+      r => { r.source.collectedAt = '2026-10-16T11:00:00Z'; },
+    ].entries()) {
+      const raw = report(); mutate(raw);
+      const w = createWorkforceBriefings({file:path.join(dir,`${index}.json`),enabled:()=>true,ownerReady:()=>true,now:at,
+        collect:async()=>raw,onError:()=>{throw Error('logger unavailable')}});
+      assert.equal((await w.run('startup')).state, 'failed');
+      assert.deepEqual((await w.status()).reports, []);
+    }
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});
+test('owner readiness revocation prevents both collection and report disclosure', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'v79-revoke-'));
+  try {
+    let ready = true, calls = 0;
+    const w = createWorkforceBriefings({file:path.join(dir,'r.json'), enabled:()=>true,ownerReady:()=>ready,now:at,
+      collect:async()=>{calls++;return report()}});
+    assert.equal((await w.run('startup')).state,'available');
+    ready = false;
+    assert.deepEqual((await w.status()).reports,[]);
+    assert.equal((await w.run()).state,'disabled_or_busy');
+    assert.equal(calls,1);
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});
+test('restart preserves scheduled deduplication and expired reports remain visibly stale', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'v79-restart-'));
+  try {
+    let clock = at(), calls = 0;
+    const options = {file:path.join(dir,'r.json'),enabled:()=>true,ownerReady:()=>true,now:()=>clock,
+      collect:async()=>{calls++;return report()}};
+    assert.equal((await createWorkforceBriefings(options).run()).state,'available');
+    const restarted = createWorkforceBriefings(options);
+    assert.equal((await restarted.run()).state,'already_complete');
+    assert.equal(calls,1);
+    clock = new Date('2026-10-18T12:00:00Z');
+    assert.equal((await restarted.status()).status,'stale_or_unavailable');
+    assert.equal((await restarted.status()).reports.length,1);
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});
