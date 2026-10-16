@@ -12,7 +12,9 @@ export function validatePythonBriefing(raw, nowMs = Date.now()) {
   const r = raw?.report;
   const priority = enumValue(r?.priority, ['attention','watch','routine']);
   const coverage = enumValue(r?.coverage, ['available','incomplete']);
-  const state = enumValue(raw?.state, ['available','incomplete']);
+  const storedState = enumValue(raw?.state, ['recorded','available','incomplete']);
+  // Python persistence state is separate from evidence coverage.
+  const state = storedState === 'recorded' ? coverage : storedState;
   if (raw?.schema !== 1 || !/^\d{4}-\d{2}-\d{2}-(?:morning|evening|manual-\d{6})$/.test(raw?.slot || '') ||
       !Number.isFinite(checked) || !Number.isFinite(evidence) || checked > nowMs + 120000 ||
       checked - evidence < -120000 || checked - evidence > 900000 ||
