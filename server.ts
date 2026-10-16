@@ -26,6 +26,8 @@ import { createAgentEvidenceAttestations } from "./server/agent-evidence-attesta
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
 import { createOwnerExecutiveProxy } from "./server/agent-executive-owner-proxy.mjs";
 import { createOwnerCooWorkboard } from "./server/owner-coo-workboard.mjs";
+import { createOwnerBriefingReader } from "./server/workforce-briefing-route.mjs";
+import { createPythonBriefingStatus } from "./server/workforce-python-report-reader.mjs";
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
@@ -5155,6 +5157,14 @@ app.post("/api/agent/executive-handoff",
   createOwnerExecutiveProxy("handoff", executiveProxyDeps));
 app.post("/api/agent/executive-preview",
   createOwnerExecutiveProxy("preview", executiveProxyDeps));
+
+// Read-only view of existing host-generated reports. No scheduler is started here.
+// Mount only the report directory read-only at this fixed container path.
+app.all("/api/agent/workforce-briefings", createOwnerBriefingReader({
+  ownerMfaContext: ownerApprovalContext,
+  enabled: () => process.env.V79_WORKFORCE_REPORTS_ENABLED === "1",
+  readStatus: createPythonBriefingStatus({ directory: "/run/v79-workforce-reports" }),
+}));
 
 // P1 internal COO development register: separate from verified app telemetry.
 // Fixed GitHub GET paths, owner-session MFA, disabled by default; no agent writes.
