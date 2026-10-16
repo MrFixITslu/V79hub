@@ -19,7 +19,10 @@ export function caribbeanSlot(now = new Date()) {
 function safeReport(raw, collectedAt) {
   if (!raw || raw.mode !== 'read-only' || raw.state !== 'ceo-review-only' ||
       raw.executionEnabled !== false || raw.ownerApprovalGranted !== false ||
-      !raw.cooReport || !Array.isArray(raw.cooReport.findings) || !raw.source) {
+      !raw.cooReport || !Array.isArray(raw.cooReport.findings) ||
+      raw.cooReport.findings.length > 10 ||
+      !Array.isArray(raw.cooReport.unavailableSources) ||
+      raw.cooReport.unavailableSources.length > 12 || !raw.source) {
     throw Error('Executive evidence contract unavailable');
   }
   const timestamp = raw.source.collectedAt;
@@ -124,12 +127,12 @@ export function createWorkforceBriefings({ file, enabled, ownerReady, collect, n
       return { state: entry.state };
     } catch {
       lastErrorAt = at.toISOString();
-      onError('WORKFORCE_BRIEFING_COLLECTION_FAILED');
+      try { onError('WORKFORCE_BRIEFING_COLLECTION_FAILED'); } catch { /* Reporting must not crash the scheduler. */ }
       return { state: 'failed' };
     } finally { busy = false; }
   }
   async function status() {
-    if (!enabled()) return { mode: 'read-only', enabled: false, status: 'disabled', reports: [] };
+    if (!enabled() || !ownerReady()) return { mode: 'read-only', enabled: false, status: 'disabled', reports: [] };
     try {
       const loaded = await load(), nowMs = now().getTime(), last = loaded.entries.at(-1);
       const age = last ? nowMs - Date.parse(last.ranAt) : NaN;
