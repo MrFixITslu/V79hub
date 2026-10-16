@@ -3,6 +3,7 @@ import { Bot, Send, ShieldCheck } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
 import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
+import { WorkforceBriefingHistory } from "./WorkforceBriefingHistory";
 import { MarketingProductionPanel } from "./MarketingProductionPanel";
 import { WorkforceActionPanel } from "./WorkforceActionPanel";
 import { OwnerCooWorkboardPanel, type CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
@@ -94,6 +95,7 @@ export function OwnerAssistant() {
         </div>
 
         <ExecutiveReviewPanel />
+        <WorkforceBriefingHistory />
         <OwnerCooWorkboardPanel onPrepareTask={setPreparedCooWork} />
         <WorkforceActionPanel preparedTask={preparedCooWork} onPreparedTaskApplied={() => setPreparedCooWork(null)} />
         <MarketingProductionPanel />
