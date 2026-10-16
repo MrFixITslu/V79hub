@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {validatePythonBriefing,createPythonBriefingStatus} from '../server/workforce-python-report-reader.mjs';
 const at = new Date('2026-10-16T23:00:22Z');
-const sample = () => ({schema:1,slot:'2026-10-16-evening',checkedAt:at.toISOString(),state:'AVAILABLE',report:{evidenceCollectedAt:at.toISOString(),priority:'ATTENTION',coverage:'AVAILABLE',verifiedFindings:[{system:'hub',metric:'faults',value:1.5,severity:'attention'}],missingSources:[],noActionsExecuted:true}});
+const sample = () => ({schema:1,slot:'2026-10-16-evening',checkedAt:at.toISOString(),state:'recorded',report:{evidenceCollectedAt:at.toISOString(),priority:'ATTENTION',coverage:'AVAILABLE',verifiedFindings:[{system:'hub',metric:'faults',value:1.5,severity:'attention'}],missingSources:[],noActionsExecuted:true}});
 test('Python report maps only numeric evidence and allowlisted fields',()=>{
  const raw=sample();raw.secret='private';raw.report.verifiedFindings[0].secret='private';
  const result=validatePythonBriefing(raw,at.getTime());
@@ -26,4 +26,11 @@ test('private files read without mutation; stale and unsafe files fail visibly',
   await fs.chmod(file,0o644);assert.equal((await read()).status,'unavailable');
   await fs.unlink(file);await fs.symlink('/etc/passwd',file);assert.equal((await read()).status,'unavailable');
  }finally{await fs.rm(dir,{recursive:true,force:true})}
+});
+
+test('recorded does not promote incomplete evidence to available',()=>{
+ const raw=sample();raw.report.coverage='INCOMPLETE';raw.report.missingSources=['sentinel'];
+ const result=validatePythonBriefing(raw,at.getTime());
+ assert.equal(result.state,'incomplete');assert.deepEqual(result.report.missingSources,['sentinel']);
+ raw.state='executed';assert.throws(()=>validatePythonBriefing(raw,at.getTime()));
 });
