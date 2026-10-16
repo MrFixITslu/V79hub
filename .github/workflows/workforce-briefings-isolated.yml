@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - "server/workforce-briefings.mjs"
+      - "server.ts"
+      - "src/components/OwnerAssistant.tsx"
+      - "tests/workforce-report-http.test.mjs"
+      - "deploy/workforce-reports.overlay.example.yml"
       - "src/components/WorkforceBriefingHistory.tsx"
       - "tests/workforce-briefing-history-ui.test.mjs"
       - "server/workforce-python-report-reader.mjs"
@@ -29,6 +33,6 @@ jobs:
       - name: Validate staged history UI and TypeScript
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
-          node --test tests/workforce-briefing-history-ui.test.mjs
+          node --test tests/workforce-briefing-history-ui.test.mjs tests/workforce-report-http.test.mjs
           npm run lint
           npm run build
