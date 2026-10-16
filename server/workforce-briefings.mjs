@@ -36,10 +36,11 @@ function safeReport(raw, collectedAt) {
       throw Error('Unexpected executive evidence field');
     }
     return { id: f.id, system: f.system, severity: f.severity,
-      metric: f.metric, value: f.value, reportedAt: f.reportedAt };
+      metric: f.metric, value: f.value, reportedAt: timestamp };
   });
   const missing = Array.isArray(raw.cooReport.unavailableSources) ?
-    raw.cooReport.unavailableSources.slice(0, 12).map(item => String(item?.system || 'unknown').slice(0, 30)) : [];
+    raw.cooReport.unavailableSources.slice(0, 12).map(item =>
+      /^[a-z0-9_-]{2,32}$/i.test(item?.system || '') ? item.system : 'unknown') : [];
   return { collectedAt: timestamp, coverage: raw.source.coverage === 'available' && !missing.length ? 'available' : 'incomplete',
     priority: ['attention', 'watch', 'routine'].includes(raw.ceoReview?.priority) ? raw.ceoReview.priority : 'unknown',
     findings, missingSources: missing };
@@ -62,7 +63,33 @@ export function createWorkforceBriefings({ file, enabled, ownerReady, collect, n
       if (obj?.schema !== 1 || !Array.isArray(obj.entries) || obj.entries.length > MAX_HISTORY) {
         throw Error('Briefing data validation failed');
       }
-      return obj;
+      const slots = new Set();
+      const entries = obj.entries.map(entry => {
+        if (!entry || typeof entry.slot !== 'string' ||
+            !/^\d{4}-\d{2}-\d{2}:(?:8|19|startup)$/.test(entry.slot) ||
+            slots.has(entry.slot) || typeof entry.ranAt !== 'string' ||
+            !Number.isFinite(Date.parse(entry.ranAt)) ||
+            Date.parse(entry.ranAt) > now().getTime() + 120000 ||
+            !['available', 'incomplete'].includes(entry.state)) {
+          throw Error('Invalid saved briefing');
+        }
+        slots.add(entry.slot);
+        const saved = entry.report;
+        const report = safeReport({
+          mode: 'read-only', state: 'ceo-review-only', executionEnabled: false,
+          ownerApprovalGranted: false,
+          source: { collectedAt: saved?.collectedAt, coverage: saved?.coverage },
+          ceoReview: { priority: saved?.priority },
+          cooReport: { findings: saved?.findings,
+            unavailableSources: Array.isArray(saved?.missingSources) ?
+              saved.missingSources.map(system => ({ system })) : [{ system: 'unknown' }] },
+        }, Date.parse(entry.ranAt));
+        if (entry.state !== (report.coverage === 'available' ? 'available' : 'incomplete')) {
+          throw Error('Contradictory saved briefing');
+        }
+        return { slot: entry.slot, ranAt: entry.ranAt, state: entry.state, report };
+      });
+      return { schema: 1, entries };
     } catch (e) {
       if (e?.code === 'ENOENT') return empty();
       throw e;
@@ -105,7 +132,8 @@ export function createWorkforceBriefings({ file, enabled, ownerReady, collect, n
     if (!enabled()) return { mode: 'read-only', enabled: false, status: 'disabled', reports: [] };
     try {
       const loaded = await load(), nowMs = now().getTime(), last = loaded.entries.at(-1);
-      const healthy = last && nowMs - Date.parse(last.ranAt) < MAX_AGE_MS && !lastErrorAt;
+      const age = last ? nowMs - Date.parse(last.ranAt) : NaN;
+      const healthy = Number.isFinite(age) && age >= -120000 && age < MAX_AGE_MS && !lastErrorAt;
       return { mode: 'read-only', enabled: true,
         status: healthy ? (last.state === 'available' ? 'report_available' : 'incomplete') : 'stale_or_unavailable',
         timezone: ZONE, slots: ['08:00', '19:00'],
