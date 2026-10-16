@@ -206,6 +206,13 @@ test("production platform admin enrolls mandatory MFA before a session is issued
 
   // Phase 3 approval inbox is accessible only after the owner completes MFA.
   const cookie = String(complete.headers.get("set-cookie") || "").split(";")[0];
+  // Integrated workforce route reuses the real MFA session guard and defaults OFF.
+  const anonymousBriefings = await request("/api/agent/workforce-briefings");
+  assert.ok([401, 403].includes(anonymousBriefings.status));
+  const ownerBriefings = await request("/api/agent/workforce-briefings", { headers: { cookie } });
+  assert.equal(ownerBriefings.status, 503);
+  assert.deepEqual(await ownerBriefings.json(), { error: "Workforce report access is disabled." });
+
   assert.equal((await request("/api/agent/proposals")).status, 401);
   assert.equal((await request("/api/agent/sources/tiquet/metrics")).status, 401);
   assert.equal((await request("/api/agent/approval-audit-checkpoint")).status, 401);
