@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - "server/workforce-briefings.mjs"
+      - "src/components/WorkforceBriefingHistory.tsx"
+      - "tests/workforce-briefing-history-ui.test.mjs"
       - "server/workforce-python-report-reader.mjs"
       - "tests/workforce-python-report-reader.test.mjs"
       - "server/workforce-briefing-route.mjs"
@@ -24,3 +26,9 @@ jobs:
         run: node --check server/workforce-briefings.mjs
       - name: Security regression tests
         run: node --test tests/workforce-briefings.test.mjs tests/workforce-briefing-route.test.mjs tests/workforce-python-report-reader.test.mjs
+      - name: Validate staged history UI and TypeScript
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node --test tests/workforce-briefing-history-ui.test.mjs
+          npm run lint
+          npm run build
