@@ -41,16 +41,19 @@ class PostgreSQL17EncryptedStream(unittest.TestCase):
              "-e", "POSTGRES_PASSWORD=ci_fixture_only", "-e",
              "POSTGRES_DB=ci_fixture", "postgres:17"])
         cls.container_started = True
-        for _ in range(50):
-            p = subprocess.run(["docker", "exec", NAME, "pg_isready", "-U",
-                                "postgres", "-d", "ci_fixture"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if p.returncode == 0:
+        # pg_isready can see Postgres' bootstrap server before initdb's
+        # requested POSTGRES_DB exists. Wait for a real SQL response from that
+        # database, not merely for an accepting socket.
+        for _ in range(80):
+            p = subprocess.run(["docker", "exec", NAME, "psql", "-U", "postgres",
+                                "-d", "ci_fixture", "-X", "-t", "-A", "-c", "SELECT 1"],
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            if p.returncode == 0 and p.stdout.strip() == b"1":
                 break
             import time
-            time.sleep(0.2)
+            time.sleep(0.25)
         else:
-            raise RuntimeError("CI_SYNTHETIC_PG17_NOT_READY")
+            raise RuntimeError("CI_SYNTHETIC_PG17_DATABASE_NOT_READY")
         run(["docker", "exec", NAME, "psql", "-U", "postgres", "-d", "ci_fixture",
              "-v", "ON_ERROR_STOP=1", "-c",
              "CREATE TABLE synth_archive_check (n integer PRIMARY KEY);"
