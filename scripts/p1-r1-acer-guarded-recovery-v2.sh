@@ -6,13 +6,13 @@ umask 077
 
 REPO="$HOME/v79-r1-src.PnZUGsH9/repo"
 BACKUP="$HOME/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_"
-COMMIT="557d9e1446ffaed51804cb80777dce87262fc98d"
+COMMIT="53c9f326b8e1e89b95a49777474193b46dbe1e37"
 BRANCH="feature/p1-r1-offhost-capture-20261016"
 WORK=""
 SWAP_ATTEMPTED=0
 
 declare -A EXPECTED=(
-  [p1-r1-acer-four-image-boot.py]="e703b947218278bf19f6210ed21f62af227b808b"
+  [p1-r1-acer-four-image-boot.py]="679e829a49cccbf24cc328f79d79d75ab47ba42a"
   [p1-r1-acer-disconnected-db-rehearsal.py]="deb45ce7bd627a7d59c5a611715a18e55da32904"
   [p1-r1-acer-oci-pin-proof.py]="4e530500395864a30060e94667ac602436f68972"
   [p1-r1-acer-app-mount-preflight.py]="cf7c5ad2a33be1caa4405e1017fd3b5a8a8c23a3"
