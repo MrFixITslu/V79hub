@@ -1,0 +1,34 @@
+import importlib.util,io,json,tempfile,unittest
+from unittest.mock import patch
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('worker',Path(__file__).parents[1]/'scripts/workforce-approved-task-worker.py')
+w=importlib.util.module_from_spec(spec);spec.loader.exec_module(w)
+class Response(io.BytesIO):status=200
+class Opener:
+ def __init__(self,body):self.body=body;self.calls=[]
+ def open(self,request,timeout):self.calls.append(request);return Response(json.dumps(self.body).encode())
+class WorkerTests(unittest.TestCase):
+ def case(self,body):
+  with tempfile.TemporaryDirectory() as directory:
+   token=Path(directory)/'token';token.write_text('synthetic-test-worker-token-'+'0'*32);token.chmod(0o600)
+   opener=Opener(body);result=w.run_once({'schema':1,'tokenFile':str(token)},opener)
+   self.assertEqual(len(opener.calls),1);request=opener.calls[0]
+   self.assertEqual(request.full_url,w.URL);self.assertEqual(request.data,b'{}');self.assertEqual(request.method,'POST')
+   self.assertFalse(request.has_header('Origin'));self.assertNotIn('synthetic-test-worker-token',str(result))
+   return result
+ def test_idle(self):self.assertEqual(self.case({'job':None})['state'],'idle')
+ def test_approved_work_item_result(self):self.assertEqual(self.case({'job':{'operation':'create_work_item','status':'succeeded','digest':'a'*64}})['state'],'succeeded')
+ def test_release_response_rejected(self):
+  with self.assertRaises(RuntimeError):self.case({'job':{'operation':'deploy_release','status':'succeeded','digest':'a'*64}})
+ def test_unapproved_response_rejected(self):
+  with self.assertRaises(RuntimeError):self.case({'job':{'operation':'create_work_item','status':'pending','digest':'a'*64}})
+ def test_uncertain_result_latches_and_blocks_next_poll(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);config=root/'config.json';config.write_text('{}');config.chmod(0o600)
+   with patch.object(w.sys,'argv',['worker',str(config)]),patch.object(w,'run_once',side_effect=RuntimeError('synthetic transport failure')) as execute,patch('sys.stdout',io.StringIO()):
+    with self.assertRaises(SystemExit):w.main()
+    self.assertTrue((root/'uncertain.json').exists())
+    w.main();self.assertEqual(execute.call_count,1)
+ def test_redirect_refused(self):
+  with self.assertRaises(RuntimeError):w.NoRedirect().redirect_request(None,None,None,None,None,None)
+if __name__=='__main__':unittest.main()
