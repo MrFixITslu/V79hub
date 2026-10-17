@@ -158,7 +158,7 @@ def local_image_exists(image):
                        stderr=subprocess.DEVNULL, timeout=30)
     return p.returncode == 0
 
-def prove_and_resolve_saved_images(root):
+def prove_and_resolve_saved_images(root, include_rollback=False):
     # Import no images and NEVER choose by mutable image tag/repository name.
     # Identity mapping must be independently rebuilt from the original 14-
     # stream encrypted archive, not a user-entered alternate image digest.
@@ -196,8 +196,11 @@ def prove_and_resolve_saved_images(root):
                "PODMAN_EXACT_CONFIG_ID_NOT_ADDRESSABLE")
     print("R1_ORIGINAL_OCI_PIN_TO_LOCAL_CONFIG_IDS=PASS_5_OF_5", flush=True)
     print("R1_IMAGE_IMPORT=NONE_ALREADY_CACHED", flush=True)
-    return {name: "sha256:" + result[pin.removeprefix("sha256:")]
-            for name, pin in IMAGES.items()}
+    resolved={name: "sha256:" + result[pin.removeprefix("sha256:")]
+              for name, pin in IMAGES.items()}
+    if include_rollback:
+        resolved["v79-hub-rollback"]="sha256:"+result[ROLLBACK.removeprefix("sha256:")]
+    return resolved
 
 def wait_for_sql(name, database):
     # Do not trust pg_isready during the image's transient initdb server.

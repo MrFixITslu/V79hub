@@ -83,7 +83,7 @@ def load_module(name,path):
     module=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-def preflight(root):
+def preflight(root, rollback=False):
     need(socket.gethostname()=="firelion-Aspire-A315-51","ACER_HOST_ONLY")
     need(os.geteuid()!=0 and os.getuid()!=0,"ROOT_REFUSED")
     need(not os.environ.get("CONTAINER_HOST") and not os.environ.get("DOCKER_HOST"),
@@ -113,8 +113,9 @@ def preflight(root):
     original, archives, configs=mount.validate_backup(root)
     db.preflight(root)
     print("R1_APP_PREFLIGHT=PASS_ACER_ROOTLESS_RAM_ONLY",flush=True)
-    resolved=db.prove_and_resolve_saved_images(root)
-    need(set(resolved)==set(db.IMAGES),"FOUR_IMAGE_MAP_INVALID")
+    resolved=db.prove_and_resolve_saved_images(root,include_rollback=rollback)
+    expected=set(db.IMAGES)|({"v79-hub-rollback"} if rollback else set())
+    need(set(resolved)==expected,"RECOVERY_IMAGE_MAP_INVALID")
     return original,archives,configs,db,mount,resolved
 def choose_archives(mounts, manifest):
     d=manifest["appMountDestinations"]
@@ -391,7 +392,12 @@ def application_environment(pass_h,pass_t,db_h,db_t):
     }
     return app_h_env,app_t_env
 
-def run(root,mounts,db,resolved,selected):
+def select_hub_image(resolved,rollback):
+    key="v79-hub-rollback" if rollback else "v79-hub"
+    need(key in resolved,"REQUIRED_RECOVERY_HUB_IMAGE_MISSING")
+    return resolved[key]
+def run(root,mounts,db,resolved,selected,rollback=False):
+    hub_image=select_hub_image(resolved,rollback)
     scratch=Path(tempfile.mkdtemp(prefix="v79-r1-",dir="/dev/shm"))
     os.chmod(scratch,0o700)
     uid=secrets.token_hex(5)
@@ -401,6 +407,8 @@ def run(root,mounts,db,resolved,selected):
     app_h="r1-hub-"+uid
     app_t="r1-tiquet-"+uid
     observers=[]
+    line("R1_IMAGE_SET","ROLLBACK_HUB_WITH_CURRENT_TIQUET_AND_DATABASES" if rollback
+         else "CURRENT_HUB_AND_TIQUET_WITH_DATABASES")
     try:
         line("R1_PHASE","CREATE_NETWORK_NONE_POD")
         # Hub has no declared data volumes; PostgreSQL infra images do.
@@ -447,7 +455,7 @@ def run(root,mounts,db,resolved,selected):
         # Private RAM-only logs mapped to the image's own user by :U.
         (scratch/"tiquet_logs").mkdir(mode=0o700)
         mounts_t.extend(["--volume",str(scratch/"tiquet_logs")+":/app/logs:rw,U"])
-        observers.append(start_app(pod_command(app_h,resolved["v79-hub"],pod,app_h_env,extra=mounts_h)))
+        observers.append(start_app(pod_command(app_h,hub_image,pod,app_h_env,extra=mounts_h)))
         observers.append(start_app(pod_command(app_t,resolved["v79-tiquet-manager"],pod,app_t_env,extra=mounts_t)))
         allowed={str(scratch/f) for f in ("hub_data","tiquet_data","tiquet_uploads","tiquet_logs")}
         inspect_no_net(app_h,allowed)
@@ -461,10 +469,14 @@ def run(root,mounts,db,resolved,selected):
         line("R1_HUB_API_HEALTH","PASS" if h else "FAIL")
         line("R1_TIQUET_HEALTH","PASS" if t else "FAIL")
         need(h and t,"ISOLATED_APP_HEALTH_NOT_PROVEN")
-        line("R1_FOUR_IMAGE_RECOVERED_DATA_HEALTH_SMOKE","PASS")
+        if rollback:
+            line("R1_ROLLBACK_BOOT","PASS")
+            line("R1_ROLLBACK_ACCEPTANCE_SCOPE","COLD_BOOT_AND_BOTH_APP_HEALTH_ONLY")
+        else:
+            line("R1_FOUR_IMAGE_RECOVERED_DATA_HEALTH_SMOKE","PASS")
+            line("R1_ROLLBACK_BOOT","NOT_TESTED")
         line("R1_OWNER_MFA_POSITIVE","NOT_TESTED")
         line("R1_SSO_TENANT_ISOLATION","NOT_TESTED")
-        line("R1_ROLLBACK_BOOT","NOT_TESTED")
     finally:
         line("R1_PHASE","TEARDOWN_PRIVATE_POD_AND_RAM_DATA")
         subprocess.run([*PD,"pod","rm","-f",pod],
@@ -492,9 +504,11 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--backup",type=Path,required=True)
     parser.add_argument("--execute",action="store_true")
+    parser.add_argument("--rollback-only",action="store_true",
+        help="Cold boot pinned rollback Hub with original backup; no current Hub app smoke")
     a=parser.parse_args()
     os.umask(0o077)
-    root,mounts,configs,db,mount,resolved=preflight(a.backup)
+    root,mounts,configs,db,mount,resolved=preflight(a.backup,rollback=a.rollback_only)
     manifest=json.loads((root/"ciphertext-manifest.json").read_text())
     selected=choose_archives(mounts,manifest)
     line("R1_SELECTED_APP_DATA_ARCHIVES",len(selected))
@@ -502,7 +516,7 @@ def main():
         line("R1_ACTION","READ_ONLY_PREFLIGHT")
         line("R1_FOUR_IMAGE_APP_BOOT","NOT_PERFORMED")
     else:
-        run(root,mounts,db,resolved,selected)
+        run(root,mounts,db,resolved,selected,rollback=a.rollback_only)
     line("R1_CUSTOMER_RELEASE","NO_GO")
 if __name__=="__main__":
     try:main()

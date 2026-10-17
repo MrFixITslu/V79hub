@@ -33,6 +33,13 @@ class SafetyContractTests(unittest.TestCase):
         other_hub,other_tiquet=m.application_environment("a","b","c","d")
         self.assertNotEqual(hub["V79_TIQUET_LAUNCH_SECRET"],other_hub["V79_TIQUET_LAUNCH_SECRET"])
 
+    def test_rollback_never_falls_back_to_current_hub_image(self):
+        images={"v79-hub":"sha256:current","v79-hub-rollback":"sha256:prior"}
+        self.assertEqual(m.select_hub_image(images,False),"sha256:current")
+        self.assertEqual(m.select_hub_image(images,True),"sha256:prior")
+        with self.assertRaises(m.Stop):
+            m.select_hub_image({"v79-hub":"sha256:current"},True)
+
     def test_db_image_is_forced_local_and_pod(self):
         args=m.pod_command("r1-synthetic", "sha256:"+"1"*64,
                            "r1-test-pod",{"SYNTHETIC":"1"})

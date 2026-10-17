@@ -39,6 +39,17 @@ exit 0
             r=subprocess.run(['bash','-c',program],capture_output=True,text=True)
             return r, scratch.exists(), (root/'swap').exists()
 
+    def test_modes_are_fixed_and_invalid_arguments_fail_before_host_access(self):
+        source=SRC.read_text().split('[[ "$(hostname)"')[0]
+        for args,expected in (([],"MODE="),(["--rollback-only"],"MODE=--rollback-only")):
+            result=subprocess.run(["bash","-c",source+'\nprintf "MODE=%s\\n" "${RUNNER_ARGS[*]}"',"fixture",*args],capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn(expected,result.stdout)
+        for args in (["--arbitrary"],["--rollback-only","--execute"]):
+            result=subprocess.run(["bash","-c",source,"fixture",*args],capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn("STOP=INVALID_RECOVERY_MODE",result.stdout)
+
     def test_all_three_queries_use_supported_all_state_listing(self):
         s=SRC.read_text()
         self.assertNotIn('pod ps -a',s)

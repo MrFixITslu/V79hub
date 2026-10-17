@@ -129,6 +129,10 @@ class R1SyntheticSafetyTests(unittest.TestCase):
              mock.patch.object(m,"silent_run",return_value=inventory), \
              mock.patch.object(m,"local_image_exists",return_value=True):
             resolved=m.prove_and_resolve_saved_images(self.root)
+            rollback=m.prove_and_resolve_saved_images(self.root,include_rollback=True)
+        self.assertEqual(rollback["v79-hub-rollback"],"sha256:"+configs[4])
+        self.assertEqual(set(rollback),set(resolved)|{"v79-hub-rollback"})
+        self.assertNotEqual(rollback["v79-hub-rollback"],m.ROLLBACK)
         self.assertEqual(resolved["v79-hub-postgres"],"sha256:"+configs[2])
         self.assertEqual(resolved["tiquet-postgres"],"sha256:"+configs[3])
         self.assertNotEqual(resolved["v79-hub-postgres"],m.IMAGES["v79-hub-postgres"])
