@@ -146,6 +146,33 @@ class OffhostTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
             mounts(tiquet, "v79-tiquet-manager")
 
+    def test_preflight_checks_token_file_and_report_directory_without_content(self):
+        probe = capture.REMOTE_PROBE
+        start = probe.index("def checked_mount_content(container,targets):")
+        stop = probe.index("\ntry:\n if os.uname()", start)
+        scope = {"subprocess": __import__("subprocess")}
+        exec(compile(probe[start:stop], "<synthetic-mount-filetype>", "exec"), scope)
+        check = scope["checked_mount_content"]
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)) as runner:
+            check("v79-hub", ["/app/data", *capture.HUB_REPORT_DESTINATIONS,
+                              *capture.HUB_SECRET_DESTINATIONS])
+            self.assertEqual(runner.call_count, 5)
+            commands = [c.args[0] for c in runner.call_args_list]
+            self.assertTrue(all(c[:6] == ["docker", "exec", "-u", "0", "v79-hub", "sh"]
+                                for c in commands))
+            report = next(c for c in commands if "/run/v79-workforce-reports" in c)
+            token = next(c for c in commands if "/run/secrets/v79-coo-github-token" in c)
+            self.assertIn('test -d "$1"', report[7])
+            self.assertIn('test -f "$1"', token[7])
+            self.assertIn('test ! -L "$1"', report[7])
+            self.assertIn('test ! -L "$1"', token[7])
+            self.assertNotIn("TOKEN_VALUE", str(commands))
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=1)):
+            with self.assertRaisesRegex(RuntimeError, "REVIEWED_TOKEN_FILE_UNAVAILABLE"):
+                check("v79-hub", [capture.HUB_SECRET_DESTINATIONS[-1]])
+            with self.assertRaisesRegex(RuntimeError, "REVIEWED_REPORT_DIRECTORY_UNAVAILABLE"):
+                check("v79-hub", [capture.HUB_REPORT_DESTINATIONS[0]])
+
     def test_missing_history_layer_six_requires_explicit_acknowledgment(self):
         self.assertIsNone(capture.HUB_COMPOSE_HASHES[5])
         plan = fixture()
