@@ -45,18 +45,39 @@ def normalize_id(raw):
     value = raw.removeprefix("sha256:").lower()
     return value if HEX.fullmatch(value) else ""
 
-def docker_manifest_config_ids(body):
-    require(isinstance(body, list) and 1 <= len(body) <= 50,
-            "DOCKER_ARCHIVE_MANIFEST_INVALID")
-    found = set()
+def _config_path_and_digest(raw):
+    """Allow exact Docker-save and OCI-layout config paths, no arbitrary paths.
+
+    The old parser only recognized '<digest>.json' and therefore reported
+    zero config bytes for archives using 'blobs/sha256/<digest>'.
+    """
+    require(isinstance(raw, str), "DOCKER_ARCHIVE_CONFIG_PATH_INVALID")
+    path = raw.removeprefix("./")
+    if re.fullmatch(r"[0-9a-f]{64}\.json", path):
+        digest = path[:-5]
+        return path, digest
+    if re.fullmatch(r"blobs/sha256/[0-9a-f]{64}", path):
+        digest = path.rsplit("/", 1)[1]
+        return path, digest
+    raise Stop("DOCKER_ARCHIVE_CONFIG_PATH_UNSUPPORTED")
+
+
+def docker_manifest_config_paths(body):
+    require(isinstance(body, list) and len(body) == 5,
+            "DOCKER_ARCHIVE_MANIFEST_IMAGE_COUNT_INVALID")
+    found = {}
     for entry in body:
-        require(isinstance(entry, dict) and isinstance(entry.get("Config"), str),
-                "DOCKER_ARCHIVE_CONFIG_ENTRY_INVALID")
-        config = PurePosixPath(entry["Config"]).name
-        digest = normalize_id(config.removesuffix(".json"))
-        require(digest, "DOCKER_ARCHIVE_CONFIG_DIGEST_INVALID")
-        found.add(digest)
+        require(isinstance(entry, dict), "DOCKER_ARCHIVE_CONFIG_ENTRY_INVALID")
+        path, digest = _config_path_and_digest(entry.get("Config"))
+        require(path not in found and digest not in found.values(),
+                "DOCKER_ARCHIVE_MANIFEST_DUPLICATE_IMAGE")
+        found[path] = digest
     return found
+
+
+def docker_manifest_config_ids(body):
+    # Backward-compatible function used by existing tests/callers.
+    return set(docker_manifest_config_paths(body).values())
 
 def podman_image_ids(items):
     require(isinstance(items, list), "PODMAN_IMAGES_FORMAT_INVALID")
@@ -70,67 +91,83 @@ def podman_image_ids(items):
     return found
 
 def read_archive_configs(archive):
-    """Verify actual Docker config JSON content against SHA filenames.
+    """Stream only recognized image configs, SHA256 their actual JSON bytes.
 
-    Do not trust manifest Config filenames alone. Hash the bytes of the exact
-    config members with bounded in-memory reads; do not output JSON or tags.
-    Full encrypted archive still streams to EOF, and GPG must finish cleanly.
+    Handles classic Docker-save '<sha>.json' and OCI-path
+    'blobs/sha256/<sha>' (no .json). Manifest may be before or after members.
+    Rejects missing, duplicate, unreferenced or byte-mismatched configs.
+    Never extracts files or prints config data, image tags or unknown IDs.
     """
     decrypt = subprocess.Popen(
         ["gpg", "--batch", "--quiet", "--decrypt", str(archive)],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL)
-    parsed = None
+    manifest = None
     members = {}
+    formats = {"docker_json": 0, "oci_blobs": 0}
     try:
         with tarfile.open(fileobj=decrypt.stdout, mode="r|") as tar:
             for member in tar:
-                clean_name = member.name.removeprefix("./")
-                basename = PurePosixPath(clean_name).name
-                digest = normalize_id(basename.removesuffix(".json"))
-                if clean_name == "manifest.json":
-                    require(parsed is None and member.isfile()
+                raw_path = member.name
+                path = raw_path.removeprefix("./")
+                if path == "manifest.json":
+                    require(manifest is None and member.isfile()
                             and 0 < member.size <= 2 * 1024 * 1024,
                             "DOCKER_ARCHIVE_MANIFEST_INVALID")
                     stream = tar.extractfile(member)
                     require(stream is not None, "DOCKER_ARCHIVE_MANIFEST_UNREADABLE")
-                    parsed = docker_manifest_config_ids(json.load(stream))
-                elif digest and basename.endswith(".json"):
-                    require(member.isfile() and 0 < member.size <= 8 * 1024 * 1024
-                            and len(members) < 100 and clean_name not in members,
-                            "DOCKER_ARCHIVE_CONFIG_MEMBER_INVALID")
-                    stream = tar.extractfile(member)
-                    require(stream is not None, "DOCKER_ARCHIVE_CONFIG_UNREADABLE")
-                    raw = stream.read(member.size + 1)
-                    require(len(raw) == member.size,
+                    manifest = docker_manifest_config_paths(json.load(stream))
+                    continue
+                try:
+                    config_path, digest = _config_path_and_digest(path)
+                except Stop:
+                    # Layer TARs, repositories and unrelated members are not
+                    # image configuration files. Do not extract them.
+                    continue
+                require(member.isfile() and 0 < member.size <= 8 * 1024 * 1024
+                        and len(members) < 50 and config_path not in members,
+                        "DOCKER_ARCHIVE_CONFIG_MEMBER_INVALID")
+                raw_file = tar.extractfile(member)
+                require(raw_file is not None, "DOCKER_ARCHIVE_CONFIG_UNREADABLE")
+                chunks = []
+                size = 0
+                while True:
+                    block = raw_file.read(131072)
+                    if not block:
+                        break
+                    size += len(block)
+                    require(size <= member.size and size <= 8 * 1024 * 1024,
                             "DOCKER_ARCHIVE_CONFIG_SIZE_INVALID")
-                    members[clean_name] = hashlib.sha256(raw).hexdigest() == digest
-            # TAR stream must be consumed entirely for the GPG integrity result.
+                    chunks.append(block)
+                require(size == member.size, "DOCKER_ARCHIVE_CONFIG_SIZE_INVALID")
+                members[config_path] = (
+                    digest, hashlib.sha256(b"".join(chunks)).hexdigest() == digest
+                )
+                formats["oci_blobs" if path.startswith("blobs/sha256/") else
+                        "docker_json"] += 1
+            # tarfile drains all encrypted input before GPG exit validation.
         decrypt.stdout.close()
         require(decrypt.wait(timeout=90) == 0, "ARCHIVE_GPG_DECRYPT_FAILED")
-        require(parsed is not None, "DOCKER_ARCHIVE_MANIFEST_NOT_FOUND")
-        require(len(parsed) == 5, "DOCKER_ARCHIVE_IMAGE_COUNT_NOT_FIVE")
-        observed = {PurePosixPath(p).name.removesuffix(".json"): valid
-                    for p, valid in members.items()}
-        seen = set(observed)
-        # Report ONLY aggregate cardinalities, never image hashes, private
-        # Docker config contents, image tags, mount sources or credentials.
+        require(manifest is not None, "DOCKER_ARCHIVE_MANIFEST_NOT_FOUND")
+        referenced = set(manifest)
+        seen = set(members)
+        valid = sum(members[p][1] for p in seen & referenced)
+        invalid = len(seen & referenced) - valid
         stats = {
             "members": len(members),
-            "referenced": len(parsed & seen),
-            "missing": len(parsed - seen),
-            "extra": len(seen - parsed),
-            "valid": sum(bool(valid) for valid in members.values()),
-            "invalid": sum(not valid for valid in members.values()),
+            "referenced": len(seen & referenced),
+            "missing": len(referenced - seen),
+            "extra": len(seen - referenced),
+            "valid": valid,
+            "invalid": invalid,
+            "docker_json": formats["docker_json"],
+            "oci_blobs": formats["oci_blobs"],
         }
-        intact = (
-            stats["members"] == 5
-            and stats["referenced"] == 5
-            and stats["missing"] == 0
-            and stats["extra"] == 0
-            and stats["valid"] == 5
-        )
-        return parsed, stats, intact
+        intact = (len(members) == len(manifest) == 5
+                  and stats["referenced"] == 5
+                  and stats["missing"] == stats["extra"] == 0
+                  and stats["valid"] == 5 and stats["invalid"] == 0)
+        return set(manifest.values()), stats, intact
     finally:
         if decrypt.stdout and not decrypt.stdout.closed:
             decrypt.stdout.close()
@@ -139,15 +176,20 @@ def read_archive_configs(archive):
         decrypt.wait()
 
 def saved_runtime_image_ids(body):
-    # Source backup writer captures docker inspect of the FOUR live
-    # image objects, not containers; rollback image is archive-only.
+    # Writer used 'docker inspect *IMAGE_IDS' where the dictionary iterates
+    # CONTAINER NAMES, not image references. Container .Id is the container
+    # identifier; .Image contains the pinned image config ID. Image-inspect
+    # objects instead carry image identity in .Id.
     require(isinstance(body, list) and len(body) == 4,
-            "SAVED_IMAGE_INSPECT_COUNT_INVALID")
+            "SAVED_INSPECT_RECORD_COUNT_INVALID")
     ids = set()
     for item in body:
-        require(isinstance(item, dict), "SAVED_IMAGE_INSPECT_ROW_INVALID")
-        digest = normalize_id(item.get("Id"))
-        require(bool(digest) and digest not in ids, "SAVED_IMAGE_INSPECT_ID_INVALID")
+        require(isinstance(item, dict), "SAVED_INSPECT_ROW_INVALID")
+        container = isinstance(item.get("HostConfig"), dict) and isinstance(item.get("State"), dict)
+        image = isinstance(item.get("RootFS"), dict) and isinstance(item.get("Architecture"), str)
+        require(container != image, "SAVED_INSPECT_RECORD_KIND_AMBIGUOUS")
+        digest = normalize_id(item.get("Image") if container else item.get("Id"))
+        require(bool(digest) and digest not in ids, "SAVED_INSPECT_IMAGE_ID_INVALID")
         ids.add(digest)
     return ids
 
@@ -270,6 +312,8 @@ def main():
     archive_ids, config_stats, archive_intact = read_archive_configs(source)
     runtime_ids, image_shapes, container_shapes = read_saved_image_inspect(saved_inspect)
     print("R1_ARCHIVE_CONFIG_MEMBERS=%d" % config_stats["members"])
+    print("R1_ARCHIVE_CLASSIC_JSON_MEMBERS=%d" % config_stats["docker_json"])
+    print("R1_ARCHIVE_OCI_BLOB_MEMBERS=%d" % config_stats["oci_blobs"])
     print("R1_ARCHIVE_MANIFEST_REFERENCES_PRESENT=%d/5" % config_stats["referenced"])
     print("R1_ARCHIVE_CONFIG_MEMBERS_MISSING=%d" % config_stats["missing"])
     print("R1_ARCHIVE_CONFIG_MEMBERS_UNREFERENCED=%d" % config_stats["extra"])
