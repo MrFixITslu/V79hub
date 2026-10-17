@@ -1,0 +1,25 @@
+name: Pinned portfolio rollout safety
+on:
+  pull_request:
+    paths:
+      - scripts/portfolio-pinned-rollout.py
+      - tests/portfolio-pinned-rollout.test.py
+      - .github/workflows/portfolio-pinned-rollout.yml
+  push:
+    paths:
+      - scripts/portfolio-pinned-rollout.py
+      - tests/portfolio-pinned-rollout.test.py
+      - .github/workflows/portfolio-pinned-rollout.yml
+permissions:
+  contents: read
+jobs:
+  synthetic-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m py_compile scripts/portfolio-pinned-rollout.py
+      - run: python3 tests/portfolio-pinned-rollout.test.py
