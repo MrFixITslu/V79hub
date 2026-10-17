@@ -219,3 +219,32 @@ New **read-only** `scripts/p1-r1-acer-oci-pin-proof.py` tests the hypothesis wit
 - No Podman image load, tag, pull, run or delete; no server SSH or Docker access; no database restore or application boot. The previously imported rootless Podman cache and all 14 original encrypted files remain preserved.
 
 Synthetic tests cover 5/5 manifest config links, classic config IDs not falsely accepted, configuration tamper, manifest tamper and no mutation. Even if proof passes, original Hub/Tiquet database restore, application boot, MFA/SSO, Tiquet session security, recovery rollback and customer Tier B/C acceptance remain **NO-GO** pending independent verification. The offline proof itself never changes existing recovery runner source.
+
+
+## 17 Oct — original OCI index image provenance PROVEN on founder Acer, database-only rehearsal next
+
+Founder **actually ran** the pinned and checksum-verified read-only OCI proof on Acer against the original encrypted 14-stream capture. The result:
+
+```
+SOURCE_INTEGRITY=PASS
+R1_DOCKER_CONFIG_SHA_VALID=5/5
+R1_OCI_SMALL_HASHED_BLOBS=70
+R1_OCI_LINKED_IMAGE_MANIFESTS=5
+R1_OCI_IMAGE_INDEX_OBJECTS=5
+R1_OCI_INDEX_REFERENCES_RESOLVED=5/5
+R1_PINNED_IDS_AS_MANIFEST_DIGESTS=0/5
+R1_PINNED_IDS_AS_INDEX_DIGESTS=5/5
+R1_PINNED_INDEX_UNIQUE_CONFIGS=5
+R1_OCI_CONFIG_RELATIONS_FULLY_VERIFIED=YES
+R1_PINNED_OCI_ID_TO_CONFIG_PROVENANCE=PASS_OFFLINE_ONLY
+R1_DATABASE_RESTORE=NOT_PERFORMED
+R1_CUSTOMER_RELEASE=NO_GO
+```
+
+**R1 exact saved-image provenance: PASS, offline at immutable-image/index mapping level.** Each of the 5 recorded production Docker image SHA pins is an OCI **index digest**, which is cryptographically linked through an image manifest digest to a SHA-verified image configuration digest. Local rootless Podman's five imported IDs were precisely those configuration digests. Do not misclassify index/config digest differences as image corruption, and **never** rewrite the pins/manifest to config IDs.
+
+**Current accepted database restore runner** `scripts/p1-r1-acer-disconnected-db-rehearsal.py` now imports the accompanying `scripts/p1-r1-acer-oci-pin-proof.py` from the same source checkout, recomputes the real pinned 5/5 encrypted OCI provenance each execution, checks the five mapped SHA configuration IDs are present and addressable in **local rootless** Podman, **does not import or pull any image**, and passes only the cryptographically resolved saved **Hub PG17** and **Tiquet PG16** configuration identities to isolated temporary database containers.
+
+Restore hard boundaries: Acer-only, non-root, local Podman context, no external connection, **network=none** and no published ports, no host bind mounts or real application secrets, ephemeral tmpfs PGDATA, synthetic PostgreSQL passwords, no unencrypted dump staging file, SQL restore through GPG-to-stdin. Synthetic tests verify mapping rejects missing/duplicate pins, absent local configs and unaddressable image IDs; container runtime inspect rejects ports/host volumes/egress network; cleanup checks disposable DB container actually absent before success. Local image cache remains, original ciphertext remains untouched. To use the runner, download **both** proof and runner from the **same immutable reviewed Git commit** and verify each Git blob SHA. Run its default read-only `--backup` preflight first and `--execute` only after those exact identity checks pass.
+
+The runner's PG restores have **NOT YET been executed** by the founder. Hence restored database table counts, application/image runtime startup, owner MFA/Tiquet SSO negative flows, application mount restoration and rollback remain open. Even after both PG databases pass, Tier B/C commercial NO-GO remains; independent reviewer and full-app boot/recovery gate are separate.
