@@ -124,25 +124,27 @@ def read_archive_configs(archive):
                     # Layer TARs, repositories and unrelated members are not
                     # image configuration files. Do not extract them.
                     continue
-                require(member.isfile() and 0 < member.size <= 8 * 1024 * 1024
-                        and len(members) < 50 and config_path not in members,
-                        "DOCKER_ARCHIVE_CONFIG_MEMBER_INVALID")
+                # OCI paths are shared by configs AND arbitrary layer
+                # blobs. Large layers are intentionally skipped; the manifest
+                # later determines exactly which small hashed objects are
+                # configuration members, even if manifest.json comes LAST.
+                if not member.isfile() or not (0 < member.size <= 8 * 1024 * 1024):
+                    continue
+                require(len(members) < 1000 and config_path not in members,
+                        "DOCKER_ARCHIVE_CONFIG_CANDIDATE_LIMIT_OR_DUPLICATE")
                 raw_file = tar.extractfile(member)
                 require(raw_file is not None, "DOCKER_ARCHIVE_CONFIG_UNREADABLE")
-                chunks = []
+                digest_stream = hashlib.sha256()
                 size = 0
                 while True:
                     block = raw_file.read(131072)
                     if not block:
                         break
                     size += len(block)
-                    require(size <= member.size and size <= 8 * 1024 * 1024,
-                            "DOCKER_ARCHIVE_CONFIG_SIZE_INVALID")
-                    chunks.append(block)
+                    require(size <= member.size, "DOCKER_ARCHIVE_CONFIG_SIZE_INVALID")
+                    digest_stream.update(block)
                 require(size == member.size, "DOCKER_ARCHIVE_CONFIG_SIZE_INVALID")
-                members[config_path] = (
-                    digest, hashlib.sha256(b"".join(chunks)).hexdigest() == digest
-                )
+                members[config_path] = (digest, digest_stream.hexdigest() == digest)
                 formats["oci_blobs" if path.startswith("blobs/sha256/") else
                         "docker_json"] += 1
             # tarfile drains all encrypted input before GPG exit validation.
@@ -151,21 +153,26 @@ def read_archive_configs(archive):
         require(manifest is not None, "DOCKER_ARCHIVE_MANIFEST_NOT_FOUND")
         referenced = set(manifest)
         seen = set(members)
-        valid = sum(members[p][1] for p in seen & referenced)
-        invalid = len(seen & referenced) - valid
+        actual_refs = seen & referenced
+        valid = sum(members[p][1] for p in actual_refs)
+        invalid = len(actual_refs) - valid
+        # Unreferenced OCI blobs may be layers, not configs. Never grant PASS
+        # from unrelated blobs; only the five exact manifest Config paths
+        # are counted for verification. The extra count is informational.
         stats = {
-            "members": len(members),
-            "referenced": len(seen & referenced),
+            "members": len(actual_refs),
+            "referenced": len(actual_refs),
             "missing": len(referenced - seen),
             "extra": len(seen - referenced),
             "valid": valid,
             "invalid": invalid,
-            "docker_json": formats["docker_json"],
-            "oci_blobs": formats["oci_blobs"],
+            "docker_json": sum(p.endswith(".json") for p in actual_refs),
+            "oci_blobs": sum(p.startswith("blobs/sha256/") for p in actual_refs),
+            "candidate_blobs": len(members),
         }
-        intact = (len(members) == len(manifest) == 5
+        intact = (len(manifest) == 5
                   and stats["referenced"] == 5
-                  and stats["missing"] == stats["extra"] == 0
+                  and stats["missing"] == 0
                   and stats["valid"] == 5 and stats["invalid"] == 0)
         return set(manifest.values()), stats, intact
     finally:
@@ -313,6 +320,7 @@ def main():
     runtime_ids, image_shapes, container_shapes = read_saved_image_inspect(saved_inspect)
     print("R1_ARCHIVE_CONFIG_MEMBERS=%d" % config_stats["members"])
     print("R1_ARCHIVE_CLASSIC_JSON_MEMBERS=%d" % config_stats["docker_json"])
+    print("R1_ARCHIVE_SMALL_BLOB_CANDIDATES=%d" % config_stats["candidate_blobs"])
     print("R1_ARCHIVE_OCI_BLOB_MEMBERS=%d" % config_stats["oci_blobs"])
     print("R1_ARCHIVE_MANIFEST_REFERENCES_PRESENT=%d/5" % config_stats["referenced"])
     print("R1_ARCHIVE_CONFIG_MEMBERS_MISSING=%d" % config_stats["missing"])
