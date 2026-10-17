@@ -92,6 +92,27 @@ def private_json(path, data):
 def compose(model, project, *args):
     return ['docker', 'compose', '--project-name', project, '-f', str(model), *args]
 
+def validate_storage_and_networks(model, service, row):
+    actual = {m['Destination']: m for m in row['Mounts']}
+    desired = service.get('volumes') or []
+    need(len(desired) == len(actual), 'RENDERED_MOUNT_COUNT_DIFFERS')
+    for mount in desired:
+        need(isinstance(mount, dict) and mount.get('target') in actual, 'RENDERED_MOUNT_TARGET_DIFFERS')
+        live = actual[mount['target']]
+        need(mount['type'] == live['Type'] and
+             bool(live['RW']) == (not mount.get('read_only', False)), 'RENDERED_MOUNT_ACCESS_DIFFERS')
+        if mount['type'] == 'bind':
+            need(mount['source'] == live['Source'], 'RENDERED_BIND_SOURCE_DIFFERS')
+        elif mount['type'] == 'volume':
+            definition = model.get('volumes', {}).get(mount['source'], {})
+            need(definition.get('name') == live.get('Name'), 'RENDERED_VOLUME_NAME_DIFFERS')
+        else:
+            raise Stop('UNREVIEWED_MOUNT_TYPE')
+    networks = service.get('networks') or {}
+    need(isinstance(networks, dict), 'RENDERED_NETWORK_FORMAT_UNEXPECTED')
+    expected = {model['networks'][alias]['name'] for alias in networks}
+    need(expected == set(row['NetworkSettings']['Networks']), 'RENDERED_NETWORKS_DIFFER')
+
 def original_model(row, pin):
     labels = row['Config']['Labels']
     paths = labels['com.docker.compose.project.config_files'].split(',')
@@ -108,6 +129,7 @@ def original_model(row, pin):
     service = model['services'][pin['compose_service']]
     need(service.get('container_name') == pin['container'], 'SERVICE_NAME_DRIFT')
     need(not service.get('ports') and not row['HostConfig'].get('PortBindings'), 'PUBLISHED_PORTS_UNEXPECTED')
+    validate_storage_and_networks(model, service, row)
     old = inspect(row['Image'], image=True)['Config']
     expected = envmap(old.get('Env'))
     expected.update({k: str(v) for k, v in service.get('environment', {}).items()})

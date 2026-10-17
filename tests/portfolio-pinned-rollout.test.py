@@ -77,13 +77,31 @@ class ContractTests(unittest.TestCase):
             original = row('v79-hub')
             original['Config']['Labels'].update({'com.docker.compose.project.config_files': str(p),
                                                  'com.docker.compose.project.working_dir': tmp})
-            model = {'services': {'v79-hub': {'container_name': 'v79-hub', 'environment': {'A': 'wrong'}}}}
+            model = {'networks': {'private': {'name': 'private'}}, 'services': {'v79-hub': {'container_name': 'v79-hub', 'environment': {'A': 'wrong'}, 'networks': {'private': {}}}}}
             with patch.object(r, 'call', return_value=json.dumps(model).encode()), patch.object(r, 'inspect', return_value={'Config': {'Env': []}}):
                 with self.assertRaisesRegex(r.Stop, 'RENDERED_ENV_DIFFERS'):
                     r.original_model(original, pin)
             p.write_text('changed')
             with self.assertRaisesRegex(r.Stop, 'COMPOSE_HASH_DRIFT'):
                 r.original_model(original, pin)
+
+    def test_storage_drift_cannot_enter_checkpoint_or_rollback(self):
+        original = row('v79-hub')
+        original['Mounts'] = [{'Type': 'volume', 'Name': 'original_data', 'Destination': '/app/data', 'RW': True}]
+        model = {'volumes': {'data': {'name': 'original_data'}}, 'networks': {'private': {'name': 'private'}}}
+        service = {'volumes': [{'type': 'volume', 'source': 'data', 'target': '/app/data'}], 'networks': {'private': {}}}
+        r.validate_storage_and_networks(model, service, original)
+        model['volumes']['data']['name'] = 'different_data'
+        with self.assertRaisesRegex(r.Stop, 'RENDERED_VOLUME_NAME_DIFFERS'):
+            r.validate_storage_and_networks(model, service, original)
+        model['volumes']['data']['name'] = 'original_data'
+        service['volumes'][0]['read_only'] = True
+        with self.assertRaisesRegex(r.Stop, 'RENDERED_MOUNT_ACCESS_DIFFERS'):
+            r.validate_storage_and_networks(model, service, original)
+        service['volumes'][0]['read_only'] = False
+        model['networks']['private']['name'] = 'other_network'
+        with self.assertRaisesRegex(r.Stop, 'RENDERED_NETWORKS_DIFFER'):
+            r.validate_storage_and_networks(model, service, original)
 
     def test_up_is_strictly_one_service_no_dependencies(self):
         with patch.object(r, 'call') as call:
