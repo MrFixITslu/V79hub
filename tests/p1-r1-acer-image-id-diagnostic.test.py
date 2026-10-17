@@ -30,7 +30,9 @@ class DiagnosticTests(unittest.TestCase):
              "Layers":["layer-private-name/layer.tar"]} for d in pins]
         self.assertEqual(m.docker_manifest_config_ids(manifest),set(pins))
         self.assertEqual(m.docker_manifest_config_ids(
-            [{"Config":f"blobs/sha256/{pins[0]}","RepoTags":None}]),{pins[0]})
+            [{"Config":f"blobs/sha256/{pin}","RepoTags":None}
+             for pin in pins]),set(pins))
+        self.assertEqual(len(m.docker_manifest_config_paths(manifest)), 5)
 
     def test_malformed_docker_archive_manifest_is_rejected(self):
         cases=[None, {}, [], [{}], [{"Config":"../../etc/passwd"}],
@@ -64,11 +66,17 @@ class DiagnosticTests(unittest.TestCase):
 
     def test_saved_runtime_inspect_id_only_requires_four_unique_records(self):
         ids=list(m.IMAGES.values())[:4]
-        full=[{"Id":"sha256:"+pin,"Env":["PRIVATE_SUPPRESSED"],
-               "Labels":{"secret":"PRIVATE_SUPPRESSED"}} for pin in ids]
+        full=[{"Id":"sha256:" + hashlib.sha256(pin.encode()).hexdigest(),
+               "Image":"sha256:"+pin,"HostConfig":{},"State":{},
+               "Config":{"Env":["PRIVATE_SUPPRESSED"]}}
+              for pin in ids]
+        image_inspects=[{"Id":"sha256:"+pin,"RootFS":{},
+                         "Architecture":"amd64"} for pin in ids]
         self.assertEqual(m.saved_runtime_image_ids(full),set(ids))
-        for bad in ([],full[:3],full+[full[0]],[{"Id":"x"}]*4,
-                    [{"Id":"sha256:"+ids[0]}]*4):
+        self.assertEqual(m.saved_runtime_image_ids(image_inspects),set(ids))
+        for bad in ([],full[:3],full+[full[0]],
+                    [{"Image":"x","HostConfig":{},"State":{}}]*4,
+                    [full[0]]*4):
             with self.assertRaises(m.Stop):
                 m.saved_runtime_image_ids(bad)
 
@@ -109,18 +117,30 @@ class DiagnosticTests(unittest.TestCase):
             configs.append((digest+".json",data))
         original_popen=m.subprocess.Popen
 
-        def make_tar(path, changed=False):
+        def make_tar(path, changed=False, oci=False, manifest_last=False,
+                     omit_index=None):
+            contents = [(("blobs/sha256/" + name[:-5]) if oci else name, data)
+                        for name, data in configs]
+            descriptions = [{"Config":name,"RepoTags":None,"Layers":[]}
+                            for name,_ in contents]
             with tarfile.open(path,mode="w") as tar:
-                obj=json.dumps(manifest).encode()
-                entry=tarfile.TarInfo("manifest.json")
-                entry.size=len(obj)
-                tar.addfile(entry,io.BytesIO(obj))
-                for i,(name,data) in enumerate(configs):
+                def add_manifest():
+                    obj=json.dumps(descriptions).encode()
+                    entry=tarfile.TarInfo("manifest.json")
+                    entry.size=len(obj)
+                    tar.addfile(entry,io.BytesIO(obj))
+                if not manifest_last:
+                    add_manifest()
+                for i,(name,data) in enumerate(contents):
+                    if i==omit_index:
+                        continue
                     if changed and i==2:
                         data=b"CI-TAMPERED-CONFIG"
                     entry=tarfile.TarInfo(name)
                     entry.size=len(data)
                     tar.addfile(entry,io.BytesIO(data))
+                if manifest_last:
+                    add_manifest()
 
         def cat_instead_of_gpg(args,**kwargs):
             self.assertEqual(args[0],"gpg")
@@ -136,7 +156,20 @@ class DiagnosticTests(unittest.TestCase):
                 self.assertEqual(stats, {
                     "members":5,"referenced":5,"missing":0,
                     "extra":0,"valid":5,"invalid":0,
+                    "docker_json":5,"oci_blobs":0,
                 })
+                make_tar(plain,oci=True,manifest_last=True)
+                ids, stats, intact = m.read_archive_configs(plain)
+                self.assertEqual(ids,set(expected))
+                self.assertTrue(intact)
+                self.assertEqual(stats["oci_blobs"],5)
+                self.assertEqual(stats["docker_json"],0)
+                self.assertEqual(stats["valid"],5)
+                make_tar(plain,oci=True,omit_index=0)
+                _, stats, intact = m.read_archive_configs(plain)
+                self.assertFalse(intact)
+                self.assertEqual(stats["missing"],1)
+                self.assertEqual(stats["valid"],4)
                 make_tar(plain,changed=True)
                 ids, stats, intact = m.read_archive_configs(plain)
                 self.assertEqual(ids, set(expected))
@@ -160,6 +193,8 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("R1_SAVED_INSPECT_CONTAINER_SHAPE_COUNT=",code)
         self.assertIn("R1_ARCHIVE_CONFIG_SHA256_VALID=",code)
         self.assertIn("R1_ARCHIVE_CONFIG_SHA256_INVALID=",code)
+        self.assertIn("R1_ARCHIVE_OCI_BLOB_MEMBERS=",code)
+        self.assertIn('item.get("Image") if container else item.get("Id")',code)
         self.assertIn("R1_ARCHIVE_CONFIG_BYTE_INTEGRITY=",code)
         self.assertIn('require(archive_intact, "DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH")',code)
         self.assertIn("CIPHERTEXT_COMPONENT_HASH_MISMATCH",code)
