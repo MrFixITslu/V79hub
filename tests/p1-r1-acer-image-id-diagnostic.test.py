@@ -2,6 +2,8 @@
 import importlib.util
 import hashlib
 import tempfile
+import tarfile
+import io
 import os
 import json
 from pathlib import Path
@@ -93,6 +95,46 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(len(alternative&runtime),0)
         # Archive and Podman agree with each other, but no exact runtime pins.
         # Such evidence must not grant an image provenance PASS.
+
+    def test_archive_config_file_content_must_hash_to_real_manifest_id(self):
+        expected=[]
+        manifest=[]
+        configs=[]
+        for n in range(5):
+            data=json.dumps({"synthetic":n,"labels":"TEST_ONLY"},
+                            sort_keys=True).encode()
+            digest=hashlib.sha256(data).hexdigest()
+            expected.append(digest)
+            manifest.append({"Config":digest+".json","RepoTags":None,"Layers":[]})
+            configs.append((digest+".json",data))
+        original_popen=m.subprocess.Popen
+
+        def make_tar(path, changed=False):
+            with tarfile.open(path,mode="w") as tar:
+                obj=json.dumps(manifest).encode()
+                entry=tarfile.TarInfo("manifest.json")
+                entry.size=len(obj)
+                tar.addfile(entry,io.BytesIO(obj))
+                for i,(name,data) in enumerate(configs):
+                    if changed and i==2:
+                        data=b"CI-TAMPERED-CONFIG"
+                    entry=tarfile.TarInfo(name)
+                    entry.size=len(data)
+                    tar.addfile(entry,io.BytesIO(data))
+
+        def cat_instead_of_gpg(args,**kwargs):
+            self.assertEqual(args[0],"gpg")
+            return original_popen(["cat",args[-1]],**kwargs)
+
+        with tempfile.TemporaryDirectory(prefix="r1-docker-config-ci-") as tmp:
+            plain=Path(tmp)/"synthetic-image.tar"
+            with mock.patch.object(m.subprocess,"Popen",side_effect=cat_instead_of_gpg):
+                make_tar(plain)
+                self.assertEqual(m.read_archive_configs(plain),set(expected))
+                make_tar(plain,changed=True)
+                with self.assertRaisesRegex(m.Stop,
+                        "DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH"):
+                    m.read_archive_configs(plain)
 
     def test_no_import_deletion_mutation_or_network_in_diagnostic(self):
         code=SRC.read_text()
