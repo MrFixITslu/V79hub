@@ -89,6 +89,41 @@ class OffhostTests(unittest.TestCase):
         self.assertNotIn("v79-agent-token", json.dumps([name for name, _, _ in streams]))
         self.assertNotIn("V79_WORKFORCE_TOKEN_FILE_HOST", json.dumps(streams))
 
+    def test_remote_mount_policy_rejects_unreviewed_and_writable_secrets(self):
+        # Execute only the function definition from the fixed embedded remote
+        # probe. Synthetic Docker inspect rows; never connect to the server.
+        probe = capture.REMOTE_PROBE
+        start = probe.index("def mounts(container,name):")
+        stop = probe.index("\\ntry:\\n if os.uname()", start) if False else probe.index("\ntry:\n if os.uname()", start)
+        scope = {"pathlib": __import__("pathlib")}
+        exec(compile(probe[start:stop], "<isolated-remote-mount-function>", "exec"), scope)
+        mounts = scope["mounts"]
+        def mount(destination, rw=False, kind="bind"):
+            return {"Destination": destination, "Type": kind, "RW": rw,
+                    "Source": "NEVER_PRINT_SYNTHETIC_SECRET_SOURCE"}
+        hub = {"Mounts": [mount("/app/data", rw=True),
+                          *[mount(p) for p in capture.HUB_SECRET_DESTINATIONS]]}
+        tiquet = {"Mounts": [mount("/app/data", rw=True),
+                             mount("/app/uploads", rw=True)]}
+        self.assertEqual(mounts(hub, "v79-hub"),
+                         ["/app/data", *capture.HUB_SECRET_DESTINATIONS])
+        self.assertEqual(mounts(tiquet, "v79-tiquet-manager"),
+                         ["/app/data", "/app/uploads"])
+        hub["Mounts"][1]["RW"] = True
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(hub, "v79-hub")
+        hub["Mounts"][1]["RW"] = False
+        hub["Mounts"].append(mount("/run/secrets/arbitrary"))
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(hub, "v79-hub")
+        hub["Mounts"].pop()
+        hub["Mounts"][1]["Type"] = "tmpfs"
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(hub, "v79-hub")
+        tiquet["Mounts"].append(mount("/run/secrets/v79-agent-token"))
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(tiquet, "v79-tiquet-manager")
+
     def test_missing_history_layer_six_requires_explicit_acknowledgment(self):
         self.assertIsNone(capture.HUB_COMPOSE_HASHES[5])
         plan = fixture()
