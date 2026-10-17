@@ -43,7 +43,7 @@ cleanup() {
       fi
     done
     local remaining=(/dev/shm/v79-r1-*)
-    (( \${#remaining[@]} == 0 )) || fail=1
+    (( ${#remaining[@]} == 0 )) || fail=1
     pods="$(podman --remote=false pod ps -a --format '{{.Name}}' 2>/dev/null)" || fail=1
     if grep -Eq '^r1-closed-[0-9a-f]{10}$' <<< "$pods"; then fail=1; fi
 
@@ -74,7 +74,7 @@ trap 'exit 143' TERM
 
 [[ "$(hostname)" == "firelion-Aspire-A315-51" ]] || stop WRONG_HOST
 [[ "$(id -u)" != 0 ]] || stop ROOT_USER_NOT_ALLOWED
-[[ -z "\${DOCKER_HOST:-}" && -z "\${CONTAINER_HOST:-}" ]] || stop REMOTE_CONTEXT_REFUSED
+[[ -z "${DOCKER_HOST:-}" && -z "${CONTAINER_HOST:-}" ]] || stop REMOTE_CONTEXT_REFUSED
 [[ -d "$REPO/.git" && -f "$BACKUP/ciphertext-manifest.json" ]] || stop SOURCE_OR_BACKUP_NOT_FOUND
 
 WORK="$(mktemp -d)"
@@ -83,9 +83,9 @@ git -C "$REPO" fetch --no-tags origin "$BRANCH"
 # This wrapper itself may be committed after the four immutable Python files;
 # check the exact ancestor commit, not moving branch HEAD.
 git -C "$REPO" merge-base --is-ancestor "$COMMIT" FETCH_HEAD || stop SOURCE_ANCESTOR_CHANGED
-for filename in "\${!EXPECTED[@]}"; do
+for filename in "${!EXPECTED[@]}"; do
   git -C "$REPO" show "$COMMIT:scripts/$filename" > "$WORK/$filename"
-  [[ "$(git hash-object "$WORK/$filename")" == "\${EXPECTED[$filename]}" ]] || stop SOURCE_FILE_HASH_MISMATCH
+  [[ "$(git hash-object "$WORK/$filename")" == "${EXPECTED[$filename]}" ]] || stop SOURCE_FILE_HASH_MISMATCH
 done
 echo "R1_ALL_FOUR_SOURCES_VERIFIED=PASS"
 
@@ -101,7 +101,7 @@ scratch_free="$(df -B1 --output=avail /dev/shm | tail -n 1 | tr -d '[:space:]')"
 [[ "$scratch_free" =~ ^[0-9]+$ && "$scratch_free" -ge 3221225472 ]] || stop RAM_SCRATCH_BELOW_3_GIB
 shopt -s nullglob
 prior=(/dev/shm/v79-r1-*)
-(( \${#prior[@]} == 0 )) || stop PREEXISTING_PRIVATE_RECOVERY_SCRATCH
+(( ${#prior[@]} == 0 )) || stop PREEXISTING_PRIVATE_RECOVERY_SCRATCH
 pods="$(podman --remote=false pod ps -a --format '{{.Name}}')" || stop PODMAN_POD_QUERY_FAILED
 if grep -Eq '^r1-closed-[0-9a-f]{10}$' <<< "$pods"; then stop PREEXISTING_RECOVERY_POD; fi
 [[ "$(podman --remote=false info --format '{{.Host.Security.Rootless}}')" == true ]] || stop LOCAL_ROOTLESS_PODMAN_NOT_VERIFIED
