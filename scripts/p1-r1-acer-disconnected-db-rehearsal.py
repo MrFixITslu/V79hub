@@ -67,7 +67,7 @@ def validate_manifest(root):
     ensure(not (root / "CAPTURE_INCOMPLETE").exists(), "INCOMPLETE_BACKUP_SET")
     data = json.loads(receipt.read_text())
     ensure(data.get("schema") == 1 and data.get("status") == "CAPTURED_NOT_RESTORED"
-           and data.get("images") == IMAGES and data.get("rollback") == ROLLBACK,
+           and data.get("images") == IMAGES and data.get("rollbackHub") == ROLLBACK,
            "BACKUP_PROVENANCE_NOT_PINNED")
     files = data.get("files")
     ensure(isinstance(files, list) and len(files) == 14, "NOT_THE_VERIFIED_14_STREAM_SET")
