@@ -215,7 +215,9 @@ def stream_proof(encrypted):
     # No PASS signal for provenance unless all five pins match one of the
     # genuinely verified descriptor types and map to five distinct configs.
     by_manifest = len(matched_by_manifest) == 5 and len(set(matched_by_manifest.values())) == 5
-    by_index = len(matched_by_index) == 5 and len(set.union(set(), *matched_by_index.values())) == 5
+    by_index = (len(matched_by_index) == 5
+                and all(len(configs) == 1 for configs in matched_by_index.values())
+                and len(set.union(set(), *matched_by_index.values())) == 5)
     need(len(verified_configs) == 5 and (by_manifest or by_index),
          "OCI_PIN_TO_CONFIG_PROVENANCE_NOT_PROVEN")
     print("R1_PINNED_OCI_ID_TO_CONFIG_PROVENANCE=PASS_OFFLINE_ONLY")
