@@ -251,9 +251,14 @@ def restore_one(root, prefix, image, dump, database):
         print("R1_" + prefix.upper() + "_RESTORE=PASS", flush=True)
         print("R1_" + prefix.upper() + "_USER_TABLES=" + rows, flush=True)
     finally:
-        # On success and failure: no live, dormant or persistent plaintext DB.
+        # Always request container teardown, then independently verify absence.
+        # The --rm flag alone cannot justify a cleanup PASS after a failure.
         subprocess.run([*PODMAN, "rm", "-f", name], stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=45, check=False)
+        present = subprocess.run(
+            [*PODMAN, "container", "exists", name],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        ensure(present.returncode != 0, "DISPOSABLE_DATABASE_CONTAINER_NOT_REMOVED")
 
 def main():
     parser = argparse.ArgumentParser()
