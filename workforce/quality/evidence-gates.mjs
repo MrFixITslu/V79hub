@@ -126,11 +126,18 @@ export function gateSpecialistOutput(draft, snapshot) {
 }
 
 /** Bounded local estimator; actual provider receipts must be independently validated. */
-export function checkModelBudget({receipts, estimateUsd, budgetUsd=20, nowMs=Date.now(), receiptsComplete=false, verifyReceipt}={}) {
+export function checkModelBudget({receipts, estimateUsd, budgetUsd=20, nowMs=Date.now(), receiptsComplete=false, verifyReceipt, verifyCompleteness}={}) {
   const block = reason=>({allowed:false,reason});
   if (!Array.isArray(receipts) || receipts.length>5000 || receiptsComplete!==true || typeof verifyReceipt!=='function' ||
+      typeof verifyCompleteness!=='function' ||
       !isMoney(estimateUsd) || !isMoney(budgetUsd) || budgetUsd>20 || !Number.isFinite(nowMs))
     return block('BUDGET_EVIDENCE_UNAVAILABLE');
+  // A claimed complete list is insufficient: the authoritative provider-side
+  // usage inventory must be independently checked, including an empty month.
+  let complete = false;
+  try { complete = verifyCompleteness({receipts, windowStartMs:nowMs-30*24*3600_000, windowEndMs:nowMs})===true; }
+  catch { complete = false; }
+  if (!complete) return block('UNVERIFIED_USAGE_COMPLETENESS');
   let used = 0;
   const ids = new Set();
   for (const r of receipts) {
