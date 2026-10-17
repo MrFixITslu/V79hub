@@ -53,6 +53,16 @@ try:
     m.inspect_no_net(app,{str(data),str(logs)})
     assert m.check_service(app,"http://127.0.0.1:3060/health")
     print("SYNTHETIC_NONROOT_PRIVATE_MOUNTS_AND_HEALTH=PASS",flush=True)
+    failed=m.start_app(m.pod_command(pod+"-fails",infra,pod,{},
+        commands=["node","-e",
+          "console.error('PRIVATE_SYNTHETIC_DATA EACCES');process.exit(1)"]))
+    try:
+        failed[0].wait(timeout=20)
+        failed[1].join(timeout=3)
+        assert "PERMISSION_DENIED" in failed[2], "EARLY_STDERR_CAPTURE_FAILED"
+        print("SYNTHETIC_EARLY_EXIT_STDERR_CLASSIFIED=PASS",flush=True)
+    finally:
+        failed[0].stdout.close()
 finally:
     subprocess.run([*m.PD,'pod','rm','-f',pod],check=True,stdout=subprocess.DEVNULL)
     result=subprocess.run([*m.PD,'pod','exists',pod])
