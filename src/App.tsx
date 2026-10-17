@@ -246,9 +246,9 @@ export default function App() {
           : Boolean(user.permissions?.includes(view)));
 
   const viewLabel: Record<string, string> = {
-    overview: "Dashboard",
+    overview: "Overview",
     dashboard: "Dashboard",
-    connections: "Apps",
+    connections: "My Apps",
     team: "Team",
     security: "Security",
     billing: "Plans & Billing",
@@ -267,7 +267,7 @@ export default function App() {
         organizationName={organizationName}
       />
       <main className="flex-1 min-w-0 overflow-y-auto relative flex flex-col bg-[#07111f] pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:pb-0">
-        <header className="h-[60px] px-4 sm:px-5 xl:px-7 border-b border-[#17324d]/80 bg-[#07111f]/95 backdrop-blur-xl flex items-center justify-between shrink-0 sticky top-0 z-30 text-slate-200">
+        <header className="hub-topbar h-[68px] px-4 sm:px-5 xl:px-7 border-b border-[#17324d]/80 bg-[#07111f]/95 backdrop-blur-xl flex items-center justify-between shrink-0 sticky top-0 z-30 text-slate-200">
           <div className="flex items-center gap-3 min-w-0">
             <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-[#1a3854] bg-[#091728] min-w-0 max-w-[260px]">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0A86FF] to-[#0057b7] flex items-center justify-center text-[11px] font-black text-white shrink-0">V</div>
@@ -309,15 +309,15 @@ export default function App() {
             <button
               type="button"
               disabled
-              title="No new notifications"
-              aria-label="No new notifications"
+              title="Notifications are not yet configured"
+              aria-label="Notifications are not yet configured"
               className="hidden sm:flex w-9 h-9 rounded-xl border border-[#1a3854] bg-[#091728] text-slate-600 items-center justify-center cursor-default"
             >
               <Bell className="w-4 h-4" />
             </button>
             <AppSwitcher
               apps={ecosystemApps}
-              onNavigateToEcosystem={() => setCurrentView("overview")}
+              onNavigateToEcosystem={() => setCurrentView("connections")}
               authToken={authToken}
             />
             <div className="relative hidden sm:block pl-2 border-l border-[#17324d]">

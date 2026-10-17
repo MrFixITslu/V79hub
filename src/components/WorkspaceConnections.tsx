@@ -50,18 +50,18 @@ export function WorkspaceConnections({ apps, onNavigate, authToken }: WorkspaceC
   useEffect(() => { void checkServices(); }, []);
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="hub-workspace-page w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="hub-page-hero flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[22px] border border-[#1a3854] bg-[#091728] p-5 sm:p-6">
         <div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
             WORKSPACE SETTINGS
           </span>
           <h1 className="text-2xl font-bold text-slate-900 mt-1">
-            Connected V79 Services
+            Ecosystem app launcher
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            See service availability and open your connected applications.
+            Launch accessible V79 products and review available service checks for your workspace.
           </p>
         </div>
         <button

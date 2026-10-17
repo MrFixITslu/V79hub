@@ -178,7 +178,7 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
           <ArrowLeft className="w-3.5 h-3.5" /> Back to dashboard
         </button>
 
-        <section className="rounded-3xl border border-[#1a3854] bg-[#091728] p-6 sm:p-7">
+        <section className="hub-page-hero rounded-3xl border border-[#1a3854] bg-[#091728] p-6 sm:p-7">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
             <div>
               <div className="text-[10px] uppercase tracking-[0.18em] font-black text-[#65c9ff]">Workspace plan</div>

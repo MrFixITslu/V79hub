@@ -397,8 +397,8 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
   const customerAppCount = ecosystemApps.filter((app) => ["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing", "app-academy"].includes(app.id)).length;
 
   return (
-    <div className="w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <section className="bg-[#0B1528] border border-slate-800 rounded-2xl p-6 text-white">
+    <div className="hub-admin-page w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <section className="hub-page-hero bg-[#0B1528] border border-slate-800 rounded-[22px] p-6 text-white">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div>
             <div className="text-cyan-400 text-[11px] font-bold uppercase tracking-wider">Platform administration</div>

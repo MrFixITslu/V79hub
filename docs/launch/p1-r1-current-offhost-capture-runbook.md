@@ -1,0 +1,250 @@
+# P1-R1 encrypted Hub + Tiquet capture — owner runbook
+
+Status: DRAFT SOURCE. Not executed against the server. No customer GO or production deployment permission.
+
+## Boundaries
+* Live server: read-only Docker inspect, PostgreSQL pg_dump, read-only tar of current files, Docker image save. Never restart, mutate database, remove images, copy unencrypted files to disk or expose secrets in output.
+* Acer: each captured stream encrypted immediately under GPG recipient fingerprint 484CF39CE37A02884497AD9C41A17102D2842ECE, in a unique 0700 private folder with 0600 files. All prior backups left untouched.
+* Current pinned image identities: Hub d0dfba26..., Tiquet 5e69de60..., Hub PostgreSQL b0f9560a..., Tiquet PostgreSQL cf78e766..., and prior Hub 4a9f5868.... Full IDs are embedded.
+* Latest live Acer check: old revision bc1d5908 SELF_TEST=PASS, but --plan failed with REMOTE_UNREVIEWED_APP_MOUNT. Hub base Compose declares token-file mounts outside /app under /run/secrets. The updated allowlist covers only explicitly reviewed Hub token and workforce-report mount destinations, with bind type and RW=false. No wildcard /run/secrets access, no unknown mounts, and no Tiquet secret allowlisting.
+* A reviewed secret mount is captured through Docker exec only if it is a regular non-symlink file; a /dev/null placeholder or unreadable token is a controlled STOP, not ignored. The resulting stream is encrypted on Acer, with no plaintext token logged or stored.
+* If the updated --plan still reports REMOTE_UNREVIEWED_APP_MOUNT, inspect only each container's Docker mount destination, kind, and RW status; never print the mount Source, container Env, Docker inspect JSON or token contents. Do not change the script allowlist until the actual destination is reviewed.
+* Latest Acer diagnostic confirmed exactly six Hub mounts and two Tiquet mounts, with no host source paths or secret values exposed. Hub data: /app/data (bind, RW=true). Hub workforce reports: /run/v79-workforce-reports (bind, RW=false). Hub secret files: /run/secrets/v79-agent-token, /run/secrets/v79-coo-github-token, /run/secrets/v79-readonly-platform-token and /run/secrets/v79-workforce-token (all bind, RW=false). Tiquet data: /app/data and /app/uploads (both volumes, RW=true).
+* The second strict allowlist update now permits only those exact four read-only Hub secret-file destinations plus the exact read-only Hub workforce reports directory. The report destination is checked as a real non-symlink directory; tokens are checked as regular non-symlink files. Files and reports are encrypted directly through GPG as separate archive streams, with no token contents printed. Extra/changed mounts still block the preflight.
+* Current corrected preflight now runs read-only `docker exec` file-type checks on Hub before authorizing a capture: four allowed /run/secrets token destinations must be regular, readable non-symlink files, and /run/v79-workforce-reports must be a readable non-symlink directory. Failures report only REVIEWED_TOKEN_FILE_UNAVAILABLE or REVIEWED_REPORT_DIRECTORY_UNAVAILABLE; no contents, Source paths or environment values are emitted.
+* Source-only test evidence for the exact allowlist and file-type checks: CI run 39000143463 (PASS). It does not prove that the Acer's next live --plan succeeds.
+* Hub Compose currently has thirteen layers. The old audit printed only **63 hex characters** for the sixth layer (g3-hub-disabled.yml): not a valid SHA-256. The other twelve are pinned. The operator must obtain a new full 64-character sixth-layer hash via --plan, then explicitly accept exactly that hash when authorizing capture.
+
+## Read-only smoke and exact pin
+1. Retrieve the immutable reviewed branch via GitHub draft PR #158: https://github.com/MrFixITslu/V79hub/pull/158
+2. Confirm the exact reviewed commit with git rev-parse HEAD. Do not execute a moving branch head without reviewing it.
+3. Run syntax/self-test:
+   python3 -B scripts/p1-r1-offhost-capture.py --self-test
+   python3 -B tests/p1-r1-offhost-capture.test.py -v
+4. From Acer run:
+   python3 -B scripts/p1-r1-offhost-capture.py --plan
+5. The plan performs no database dumps, container changes or archive writes; it uses metadata-only checks inside the existing Hub container for the five scoped read-only mounts. Expect LIVE_PIN_AND_SECURITY=PASS, HUB_COMPOSE_LAYERS=12_PINNED_1_NEEDS_REPIN, a newly computed full HUB_COMPOSE_LAYER_6_SHA256, app mount count, stream count, MODE=READ_ONLY_PLAN_NO_BACKUPS_CREATED. This does not create backups.
+
+STOP for any drift, missing .env, unreviewed mount, missing image, unhealthy service or config error. Do not bypass the checks. Inspect the new SHA-256 (64 hex characters).
+
+## Owner-approved capture on Acer
+Once the new layer-six hash is reviewed, use the exact value in:
+
+    python3 -B scripts/p1-r1-offhost-capture.py \
+      --capture --approve-live-reads \
+      --accept-layer-6-sha FULL_64_HEX_FROM_PLAN
+
+This streams both PostgreSQL logical dumps, both Compose/environment config sets, each /app-mounted data destination, four strictly recognized Hub token files and its read-only workforce reports directory, credential-bearing Docker inspect metadata encrypted, and a Docker image archive of four current images plus the previous Hub rollback image. It does not touch customer APIs or change production.
+
+On success the operator sees:
+- ACER_RECOVERY_SET=/home/firelion/V79-P1-R1-Offhost/p1-r1-current-release-...
+- ENCRYPTED_OFFHOST_CAPTURE=PASS_STREAMS_ONLY
+- DECRYPT_STRUCTURE_VALIDATION=NOT_YET_RUN
+- ISOLATED_RESTORE=NOT_PERFORMED
+- RELEASE_GATE=NO_GO
+
+If anything fails, CAPTURE_INCOMPLETE remains in the newly created off-host directory; all ciphertext is preserved but the set is NOT accepted.
+
+## Offline ciphertext checksum and decrypt-structure validation
+Once complete, provide the exact recovery directory:
+
+    python3 -B scripts/p1-r1-offhost-capture.py --verify \
+      /home/firelion/V79-P1-R1-Offhost/p1-r1-current-release-EXACT_ID
+
+The --verify action compares encrypted SHA256 and byte sizes against the manifest, and streams GPG-decrypted bytes only through validators (pg_restore --list / tar list / JSON parser), not to disk. This is NOT a full restore, not an OCI image graph verification and not an app-boot verification.
+
+## Verification repair after successful 14-stream capture (2026-10-16)
+
+Founder Acer capture completed all 14 encrypted streams under `/home/firelion/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_`, reporting `ENCRYPTED_OFFHOST_CAPTURE=PASS_STREAMS_ONLY` with the post-capture image/Compose recheck PASS. The initial `--verify` returned `STOP=ENCRYPTED_ARCHIVE_VALIDATION_FAILED`, without naming the archive. **Preserve the directory; do not recapture, overwrite, reset keys or alter the manifest.**
+
+The previous verifier piped GPG output directly into `pg_restore --list`. Because a table-of-contents inspection can stop reading early, GPG can receive SIGPIPE; it also called whichever `pg_restore` was in PATH, even though Hub now uses PostgreSQL **17** and the last known Acer binary was **16**. These are plausible verifier failures, not demonstrated archive corruption. The corrected `--verify` (source-only, same draft branch) now:
+
+- Verifies the SHA-256, file size and manifest component identity of all 14 existing ciphertext files before reporting each known safe component name.
+- Drains every byte of GPG output even when a metadata validator exits early, without writing decrypted data to disk.
+- Requires a local PostgreSQL client **17 or later** to structurally inspect the Hub database archive, and **16 or later** for Tiquet. It checks `/usr/lib/postgresql/17/bin/pg_restore`, `/usr/lib/postgresql/18/bin/pg_restore`, and `pg_restore` from PATH. No packages are installed and no server connection is made.
+- If the needed client is missing, **still fully decrypts and verifies GPG integrity** for that archive but reports `PG_STRUCTURE=DEFERRED_CLIENT_17`. It continues verifying the remaining encrypted files, then deliberately returns nonzero with `POSTGRES_CLIENT_REQUIRED=hub-pg.dump.gpg` and `RELEASE_GATE=NO_GO`.
+- On full successful structural validation prints `OFFHOST_CIPHERTEXT_SHA_AND_DECRYPT_STRUCTURE=PASS` and `VERIFIED_STREAMS=14`, but **not** full app restoration or production GO.
+
+To rerun after pinning the corrected Git commit, use `python3 -B scripts/p1-r1-offhost-capture.py --verify /home/firelion/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_`. **Never** rerun `--capture` just because `--verify` failed.
+
+## Known limitations and next gate
+- Data copied from actively written application-mounted files is not an atomic filesystem snapshot. Actual logical DB dumps are individually consistent, but Hub/Tiquet are not a cross-database atomic point-in-time backup. Isolated restore plus targeted application smoke remains mandatory.
+- Capture assumes project .env and Compose files plus all /app mounts cover the app config; independently review unusual bind secrets, supplemental env_file sources and external token files before declaring completeness.
+- Historical Tiquet rollback image identity is not verified; the saved current Tiquet image is not a Tiquet downgrade/rollback rehearsal.
+- Actual isolated full restore, Hub MFA, Hub-to-Tiquet SSO, synthetic tenant separation and rollback boot require separately scoped tests without production networking or mounts.
+- Independent security assessment and founder customer GO are separate hard gates.
+- Do not run the old workforce-offhost-backup.sh or workforce-recovery-rehearsal.py: they pin obsolete Hub image 33a357... and nine Compose layers.
+- Capturing large images can impose live CPU, disk, and LAN load. Use an operationally appropriate supervised window.
+
+All instructions refer to source-only draft PR #158 and carry NO automatic merge/deploy authorization.
+
+
+## 17 October 2026 — independent synthetic PostgreSQL 17 + GPG streaming rehearsal
+
+A new **nondeploying GitHub-hosted** test checks the actual unchanged `drain_and_validate` function against a real disposable PostgreSQL **17** `pg_dump -Fc` archive symmetrically encrypted with a **synthetic CI-only GPG key phrase**. Its test DB contains only one synthetic integer row. A PostgreSQL 17 `pg_restore --list` reads and validates the decrypted TOC over stdin. It additionally verifies that a validator which reads only the first five bytes cannot SIGPIPE-short-circuit the GPG stream, and detects tampered/truncated ciphertext.
+
+**[GitHub CI run #39024998586](https://github.com/MrFixITslu/V79hub/actions/runs/39024998586) — PASS, all 4 tests.** Existing independent [offhost-capture synthetic CI #39024998593](https://github.com/MrFixITslu/V79hub/actions/runs/39024998593) also PASS. Code is on draft PR #158 only, with no server/Acer access, production restore, GPG owner key or captured archive read.
+
+The initial CI-only test run failed because `pg_isready` saw PostgreSQL's bootstrap process before its named synthetic database existed. It was fixed to wait for a successful `SELECT 1` against the exact fixture DB; the recovery capture/verifier implementation itself **was not changed**. This is a **CI fixture timing correction**, not evidence of backup integrity failure.
+
+**Unchanged blocked live gate:** the 14 original encrypted Acer streams under `/home/firelion/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_` still require an actual `--verify` with a compatible **local PostgreSQL 17+ pg_restore**, followed by independent isolated full-app restore/boot and rollback. Existing captures must not be overwritten or re-created based solely on the former verification failure. Synthetic CI validation cannot certify those bytes or any customer-launch recovery promise.
+
+
+## 17 October — Acer rootless disconnected database restore rehearsal (next gate)
+
+**Preflight result supplied by founder on the Acer:** rootless Podman **4.9.3**, Docker absent (not needed), 14 encrypted artifacts, **0.61 GiB** ciphertext, **673.47 GiB** available disk, no production connection or restore action. Founder also supplied direct `OFFHOST_CIPHERTEXT_SHA_AND_DECRYPT_STRUCTURE=PASS` and `VERIFIED_STREAMS=14`, after installing PG17 client v17.11. Keep the original `p1-r1-current-release-rmtdrog_` ciphertext set unchanged.
+
+The next narrowly scoped source-only file is `scripts/p1-r1-acer-disconnected-db-rehearsal.py`; it is *not* part of the encrypted backup verifier and must not be substituted for it. It provides:
+
+1. **No-action preflight:** exact Acer hostname, non-root process, strict `podman --remote=false` rootless, refuses `CONTAINER_HOST` and `DOCKER_HOST`, original 14-stream manifest and four current image IDs plus prior Hub image, checks SHA256/byte size of the three blobs needed for this stage. Read-only except normal local process logging.
+2. **Explicit `--execute` mode:** decrypt only the **verified original** saved image TAR directly into the Acer *local rootless Podman image store* (no decrypted TAR on disk) if the five immutable images are not yet locally loaded; require all five exact IDs after import, no network pulls. Create two *temporary* PostgreSQL containers for the saved original Hub PG17 and Tiquet PG16 images with **`--network=none`, no published ports, no host volume bind, per-container tmpfs DB storage and synthetic local database passwords**. Restore the encrypted original PG dumps directly through GPG-to-stdin into PostgreSQL, check at least one restored user table per DB and report only counts.
+3. **Cleanup regardless of success/failure:** `podman rm -f` of both uniquely named temporary DB containers on each stage exit; no intentionally persistent plaintext DB files or named volumes. Imported image layers **do** remain in the Acer rootless Podman image cache for later isolated application boot work. The original ciphertext set is never rewritten. Do not confuse cleared temporary DB containers with app/SSO rollback PASS.
+
+Safety limitations: restoring SQL can execute functions within a disconnected rootless database; `--network=none` and no host files or production token mounts are compulsory. The one-GiB tmpfs per database is a safe default; for unexpectedly large logical databases, stop and design a separately reviewed encrypted scratch-volume approach rather than switching to host binds, networked Docker or modifying production. Podman may still use system swap and write image layers to its local cache. No Hub/Tiquet application processes, production integration keys or network endpoints are started in this stage.
+
+The source-only policy tests are `tests/p1-r1-acer-disconnected-db-rehearsal.test.py` and `.github/workflows/p1-r1-acer-disconnected-db-restore-safety.yml`. The first draft fixture incorrectly used a non-production `rollback` field; before any owner execution, code and tests were corrected to check the actual captured manifest's **`rollbackHub`**. Exact source ID must be pinned by Git commit and `git hash-object` before operation.
+
+**Next acceptance:** two real, restored offline DBs with synthetic local database names and nonzero tables; then a *separately reviewed* isolated Hub+Tiquet boot/network-contract test with genuine no-egress policy, placeholder secrets and no provider callbacks. Customer Beta and commercial launch remain NO-GO until full app boot and rollback plus independent review.
+
+
+## 17 October — rootless Podman image-ID import diagnostic
+
+Founder executed the exact pinned Acer Podman offline restore candidate at head `68fbba1484ee0ed6323e548cc82f8637c13a1f02` and source blob `bbcf4db981327fd03e70f057272b77f93033de3f`, using the original 14 archived streams. The preflight/source identity passed. The GPG→Podman load pipeline returned normally, but checking all five expected exact Docker image IDs by `podman image exists sha256:...` failed:
+
+```
+SOURCE_INTEGRITY=PASS
+R1_ACER_ROOTLESS_ISOLATION_PREFLIGHT=PASS
+R1_LOCAL_IMAGE_LOAD=START_VERIFIED_ENCRYPTED_ARCHIVE
+STOP=PINNED_SAVED_IMAGE_ID_MISMATCH
+R1_CUSTOMER_RELEASE=NO_GO
+```
+
+No database container was created, no SQL restored and no application booted. Do **not** repeat the GPG image import, change backup manifest, pull substitute images, guess tags, weaken exact ID enforcement or override the stop. The original offhost backup still passed 14/14 actual GPG/structure checks.
+
+The bounded next task is to use the **new read-only** `scripts/p1-r1-acer-image-id-diagnostic.py` on the Acer. It runs only `podman --remote=false images --all --no-trunc --format json` and `podman image exists` for the five fixed image IDs; then streams only the bounded `manifest.json` from the encrypted Docker image archive to compare the Docker config hashes with those pins. Other archive content is skipped safely in memory, and GPG is drained to EOF. Output shows only known component-role names and YES/NO statuses, no image tags, raw secret-bearing archive members, exported image config, decrypted tar files or credentials. No rootful mode, SSH, network, containers, image/tag mutations, imports, cleanup or PostgreSQL restoration.
+
+Decision matrix:
+- Archive config YES, Podman local config YES, pin lookup NO → exact image bits present but CLI lookup cannot resolve `sha256:` reference; fix lookup semantics with independently verified config ID before retry.
+- Archive config YES, Podman local config NO → image import did not retain the pinned config ID; inspect Podman archive selection/remapping offline before a new import strategy. Do **not** alias a different image by tag.
+- Archive config NO → structural archive verification was not sufficient to demonstrate all five pinned image configs are included; stop and independently investigate archive provenance (no recapture solely from this finding).
+
+Source-only [CI #39027544892](https://github.com/MrFixITslu/V79hub/actions/runs/39027544892) PASS for both restore policy and new ID diagnostic tests. Existing [capture CI #39027544762](https://github.com/MrFixITslu/V79hub/actions/runs/39027544762) and [synthetic PG17 stream CI #39027544859](https://github.com/MrFixITslu/V79hub/actions/runs/39027544859) PASS. This is not a real Acer diagnostic result or release GO.
+
+
+## 17 October — first read-only image-ID diagnosis: all five pinned IDs disagree
+
+Founder ran exact pinned source blob `fa893ccb4487ec9f8545d81fda1730c0d1f95637` at reviewed Git head `6b7647d272460349ec6901e9dd5aa8e5d5a82ec8` against existing original Acer backup, **no restore**. Actual result:
+
+```
+SOURCE_INTEGRITY=PASS
+R1_HUB_APP|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_TIQUET_APP|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_HUB_POSTGRES|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_TIQUET_POSTGRES|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_HUB_ROLLBACK|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_ARCHIVE_CONFIG_IDS_MATCH=0/5
+R1_LOCAL_CONFIG_IDS_MATCH=0/5
+R1_SHA_PIN_LOOKUPS=0/5
+R1_LOCAL_IMAGE_RECORDS=5
+R1_DATABASE_RESTORE=NOT_RUN
+R1_PRODUCTION_CONNECTION=NONE
+R1_RELEASE_GATE=NO_GO
+```
+
+The result **rules out merely one failed Podman SHA lookup**. Docker image identities come from hashed image config JSON, and neither archive manifest `Config` names nor local rootless Podman inventory reported the five recorded production image IDs. At present neither successful image restoration nor a corrupt/tampered backup can be inferred. Keep **R1 image provenance BLOCKED** and the previously verified 14 ciphertext integrity/format receipts preserved; image-tar structural validity alone does not prove the five intended images are in it.
+
+The *second read-only diagnostic*, updating `scripts/p1-r1-acer-image-id-diagnostic.py`, compares: (a) pinned manifest `images` and `rollbackHub`, (b) four original GPG-encrypted `runtime-inspect.json.gpg` image IDs captured by Docker, (c) Docker archive `manifest.json` config image IDs, (d) Podman's local image `Id` fields. All sensitive saved inspect JSON stays in bounded process memory; archive ciphertext hash/size independently checked; never prints raw inspect, tags, labels, environment, secrets or unknown hashes. It emits only per-role known-ID YES/NO plus three-way intersection counts. No `podman load`, tag/import/pull, container startup, production access or new backup capture. Stop for any source drift or mismatch. Final restore runner `--execute` must **not** be retried before provenance reconciliation and independent review.
+
+
+## 17 October follow-up — config-content diagnosis stopped safely (original set preserved)
+
+Founder ran source-integrity-verified Acer diagnostic (prior source head b476dc04fd70ae37a13d563f53d52847200617b1); it returned:
+```
+SOURCE_INTEGRITY=PASS
+R1_DIAGNOSTIC=READ_ONLY_ACER_LOCAL
+STOP=DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH
+R1_RELEASE_GATE=NO_GO
+```
+The previous implementation collapsed **three distinct findings** into this single stop: (a) fewer or more than five candidate image JSON members, (b) a candidate image member SHA256 not matching its filename, or (c) manifest configuration paths not matching actual archived config members. It is **incorrect** to conclude the data is corrupted solely from this stop, and equally incorrect to claim all five image configurations are verified. Prior checks showed five manifest IDs and five local Podman image IDs, with five shared IDs between those two sources, but 0/5 alignment to expected immutable production image pins; none of those findings are overridden here.
+
+The revised read-only `scripts/p1-r1-acer-image-id-diagnostic.py` reports numeric-only counters `R1_ARCHIVE_CONFIG_MEMBERS`, `R1_ARCHIVE_MANIFEST_REFERENCES_PRESENT`, `R1_ARCHIVE_CONFIG_MEMBERS_MISSING`, `R1_ARCHIVE_CONFIG_MEMBERS_UNREFERENCED`, `R1_ARCHIVE_CONFIG_SHA256_VALID`, `R1_ARCHIVE_CONFIG_SHA256_INVALID`, and `R1_ARCHIVE_CONFIG_BYTE_INTEGRITY`. It **continues** inspecting the encrypted original runtime metadata for cross-source comparison, but still returns a **nonzero status and explicit STOP** if config byte integrity is not 5/5. All counters are private metadata summaries: unknown hashes, private tags, Docker env, credentials, and raw inspect records are never printed or written. The original ciphertext is not overwritten; no image imports, containers or database restores occur.
+
+Even if candidate image JSON members hash cleanly, **exact production-image provenance remains a separate hard NO-GO** while archived/local IDs disagree with immutable runtime pins and saved inspect records. A new capture, image retag, forced Podman run or relaxed restoration guard is NOT an authorized fix.
+
+Latest test-only code and safety workflows passed at commit 338ae2d3fea89d6ed452a32040bf2804c74eee70: [offline diagnostic safety CI](https://github.com/MrFixITslu/V79hub/actions/runs/39037763229), [original capture static checks](https://github.com/MrFixITslu/V79hub/actions/runs/39037763147), [synthetic PG17/GPG stream validation](https://github.com/MrFixITslu/V79hub/actions/runs/39037763285). The actual Acer diagnosis needs the next pinned manual run to distinguish config-reference errors from true content hash mismatches.
+
+
+## 17 October — actual R1 diagnostic revealed OCI path and container-ID parser bugs
+
+Founder supplied on Acer:
+```
+SOURCE_INTEGRITY=PASS
+R1_ARCHIVE_CONFIG_MEMBERS=0
+R1_ARCHIVE_MANIFEST_REFERENCES_PRESENT=0/5
+R1_ARCHIVE_CONFIG_MEMBERS_MISSING=5
+R1_ARCHIVE_CONFIG_SHA256_VALID=0
+R1_ARCHIVE_CONFIG_SHA256_INVALID=0
+R1_ARCHIVE_CONFIG_BYTE_INTEGRITY=FAIL
+R1_ARCHIVE_UNIQUE_CONFIG_IDS=5
+R1_ARCHIVE_VS_LOCAL_SHARED_CONFIG_IDS=5
+R1_SAVED_INSPECT_IMAGE_SHAPE_COUNT=0/4
+R1_SAVED_INSPECT_CONTAINER_SHAPE_COUNT=4/4
+STOP=DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH
+```
+
+**Precise corrected interpretation:** zero candidates were checked; there is **NO actual invalid-hash evidence** from this run. The diagnostic had restricted byte verification to legacy `<digest>.json` TAR config entries, despite accepting OCI-style `blobs/sha256/<digest>` references from the saved `manifest.json`. It also used `docker inspect` object `Id` for source runtime comparisons; the capture's command used `docker inspect` with **four container names**, so this field was a **container ID**, not an image config ID. Correct comparison is container `Image`. Prior archive-vs-container comparison (0 shared) was therefore a diagnostic artefact, not evidence that the four live image IDs failed.
+
+The amended `scripts/p1-r1-acer-image-id-diagnostic.py`:
+- Accepts exactly five manifest config paths in either canonical legacy Docker archive `<digest>.json` or Docker/OCI `blobs/sha256/<digest>` format.
+- Hashes actual bytes of referenced config objects with SHA256, retaining no decrypted archive member on disk.
+- Recognizes that OCI blobs also contain **image layer data**; ignores objects larger than an 8 MiB config cap and does not count unrelated small unreferenced layer blobs as configs. Handles archive manifests that appear before or after configs. Missing or wrong-byte config still fails closed.
+- For the captured four Docker *container* inspect rows, reads `Image` (not `Id`) as the original image identity, and prints object-kind indicators.
+- Maintains the original Acer-only, rootless-local, GPG full-stream and original manifest SHA/size guards, no raw tags, unknown hashes, credentials or image inspect objects printed. No import, image tag/pull/remove, SSH, DB restore or production write.
+- Does not relax the five immutable image provenance gate or authorize a real DB/app restore.
+
+**Source tests at commit `d9ebb3ed90b9fb81d0fe7afdd701683f11decf02`:** [OCI + classic archive and container-kind safety suite PASS](https://github.com/MrFixITslu/V79hub/actions/runs/39038462185), [original capture source tests PASS](https://github.com/MrFixITslu/V79hub/actions/runs/39038462254), [actual PostgreSQL17 synthetic encrypted stream CI PASS](https://github.com/MrFixITslu/V79hub/actions/runs/39038462196). All changes still only in draft PR #158.
+
+**Next:** one updated **read-only** Acer diagnostic, strictly pinned by commit + Git blob, before any image import or database execution. Expected decisive data: `R1_ARCHIVE_CONFIG_BYTE_INTEGRITY`, `R1_ARCHIVE_CONFIG_IDS_MATCH`, `R1_SAVED_RUNTIME_INSPECT_IDS_MATCH`, `R1_ARCHIVE_VS_RUNTIME_INSPECT_SHARED`, and `R1_ARCHIVE_VS_LOCAL_SHARED_CONFIG_IDS`. Do not recapture already-verified ciphertext to resolve a diagnostic parsing bug.
+
+
+## 17 October — Docker 29 OCI manifest-vs-config digest hypothesis, evidence gate
+
+The actual Acer diagnostic finally established **five independently SHA-valid image config blobs** in the OCI archive and **five identical config digests imported in local Podman**, while the saved Docker **container** inspect rows' `Image` SHA pins matched the original four live containers but disagreed with all five config digests. This is a format/identity distinction worth investigating, not evidence of corruption. Docker Engine 29's containerd-backed image store can expose *manifest-derived* image identifiers, whereas image config blobs have independent immutable SHA256 identities (see Docker Engine containerd image storage documentation and OCI image spec). Do not conflate a manifest digest, index digest, config digest or container `Id`.
+
+New **read-only** `scripts/p1-r1-acer-oci-pin-proof.py` tests the hypothesis without substituting images or changing pins:
+- Requires exact Acer non-root host and exact 14-stream original pinned manifest; SHA-checks the encrypted image archive before full GPG decryption.
+- Streams OCI TAR once, validates the SHA256 of each small candidate blob, identifies OCI platform image manifests by `schemaVersion:2` + `config.digest` + `layers[]`, and links image manifest digest SHA → existing verified image-config digest SHA. It optionally checks OCI index→image manifest→config relation.
+- Counts how many of the **five originally pinned Docker IDs** can be found as hashed OCI manifests (or verified index objects), then requires all five to resolve to **five distinct** SHA-verified configs before emitting `R1_PINNED_OCI_ID_TO_CONFIG_PROVENANCE=PASS_OFFLINE_ONLY`. Any ambiguity or absence returns nonzero `STOP=OCI_PIN_TO_CONFIG_PROVENANCE_NOT_PROVEN`.
+- Prints only known field names and numeric status; no arbitrary digest, OCI config, image tags, secret-bearing metadata, account values, GPG decrypted bytes, Docker env, or raw manifest output.
+- No Podman image load, tag, pull, run or delete; no server SSH or Docker access; no database restore or application boot. The previously imported rootless Podman cache and all 14 original encrypted files remain preserved.
+
+Synthetic tests cover 5/5 manifest config links, classic config IDs not falsely accepted, configuration tamper, manifest tamper and no mutation. Even if proof passes, original Hub/Tiquet database restore, application boot, MFA/SSO, Tiquet session security, recovery rollback and customer Tier B/C acceptance remain **NO-GO** pending independent verification. The offline proof itself never changes existing recovery runner source.
+
+
+## 17 Oct — original OCI index image provenance PROVEN on founder Acer, database-only rehearsal next
+
+Founder **actually ran** the pinned and checksum-verified read-only OCI proof on Acer against the original encrypted 14-stream capture. The result:
+
+```
+SOURCE_INTEGRITY=PASS
+R1_DOCKER_CONFIG_SHA_VALID=5/5
+R1_OCI_SMALL_HASHED_BLOBS=70
+R1_OCI_LINKED_IMAGE_MANIFESTS=5
+R1_OCI_IMAGE_INDEX_OBJECTS=5
+R1_OCI_INDEX_REFERENCES_RESOLVED=5/5
+R1_PINNED_IDS_AS_MANIFEST_DIGESTS=0/5
+R1_PINNED_IDS_AS_INDEX_DIGESTS=5/5
+R1_PINNED_INDEX_UNIQUE_CONFIGS=5
+R1_OCI_CONFIG_RELATIONS_FULLY_VERIFIED=YES
+R1_PINNED_OCI_ID_TO_CONFIG_PROVENANCE=PASS_OFFLINE_ONLY
+R1_DATABASE_RESTORE=NOT_PERFORMED
+R1_CUSTOMER_RELEASE=NO_GO
+```
+
+**R1 exact saved-image provenance: PASS, offline at immutable-image/index mapping level.** Each of the 5 recorded production Docker image SHA pins is an OCI **index digest**, which is cryptographically linked through an image manifest digest to a SHA-verified image configuration digest. Local rootless Podman's five imported IDs were precisely those configuration digests. Do not misclassify index/config digest differences as image corruption, and **never** rewrite the pins/manifest to config IDs.
+
+**Current accepted database restore runner** `scripts/p1-r1-acer-disconnected-db-rehearsal.py` now imports the accompanying `scripts/p1-r1-acer-oci-pin-proof.py` from the same source checkout, recomputes the real pinned 5/5 encrypted OCI provenance each execution, checks the five mapped SHA configuration IDs are present and addressable in **local rootless** Podman, **does not import or pull any image**, and passes only the cryptographically resolved saved **Hub PG17** and **Tiquet PG16** configuration identities to isolated temporary database containers.
+
+Restore hard boundaries: Acer-only, non-root, local Podman context, no external connection, **network=none** and no published ports, no host bind mounts or real application secrets, ephemeral tmpfs PGDATA, synthetic PostgreSQL passwords, no unencrypted dump staging file, SQL restore through GPG-to-stdin. Synthetic tests verify mapping rejects missing/duplicate pins, absent local configs and unaddressable image IDs; container runtime inspect rejects ports/host volumes/egress network; cleanup checks disposable DB container actually absent before success. Local image cache remains, original ciphertext remains untouched. To use the runner, download **both** proof and runner from the **same immutable reviewed Git commit** and verify each Git blob SHA. Run its default read-only `--backup` preflight first and `--execute` only after those exact identity checks pass.
+
+The runner's PG restores have **NOT YET been executed** by the founder. Hence restored database table counts, application/image runtime startup, owner MFA/Tiquet SSO negative flows, application mount restoration and rollback remain open. Even after both PG databases pass, Tier B/C commercial NO-GO remains; independent reviewer and full-app boot/recovery gate are separate.

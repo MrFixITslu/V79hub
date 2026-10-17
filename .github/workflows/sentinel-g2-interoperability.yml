@@ -1,0 +1,58 @@
+name: Sentinel G2 Python-Node Protocol Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "integrations/sentinel/**"
+      - "agent-service/src/sentinel-**"
+      - ".github/workflows/sentinel-g2-interoperability.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentinel-g2-protocol-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  isolated-signer-verification:
+    name: Isolated Python Ed25519 producer to Node verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install pinned Python test crypto provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check "cryptography==46.0.4"
+      - name: Install isolated Node verifier dependencies
+        working-directory: agent-service
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+      - name: Validate Python source-side signature contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s integrations/sentinel -p "test_*.py" -v
+      - name: Python to Node cross-language tamper and leak tests
+        working-directory: agent-service
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx --test ../integrations/sentinel/test_cross_language.mjs ../integrations/sentinel/test_authenticated_flow.mjs ../integrations/sentinel/test_loopback_http.mjs
+      - name: Isolation proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Synthetic keys only; no Sentinel host connection or deployment."

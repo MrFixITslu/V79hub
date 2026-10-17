@@ -4,7 +4,7 @@ on:
   pull_request:
     # Temporary validation-only target for the unmerged CEO/COO G1 draft.
     # Production publication/deploy remain gated to approved main workflow_dispatch.
-    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010, feature/g12-reconciled-sentinel-preservation-20261012, feature/workforce-approved-actions-20261014]
+    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010, feature/g12-reconciled-sentinel-preservation-20261012, feature/workforce-approved-actions-20261014, fix/g1-executive-evidence-future-timestamp-20261011, feature/g1-development-worker-review-proposals-20261012, feature/g1-development-source-attestation-20261012]
   push:
     branches: [main]
   workflow_dispatch:
@@ -91,7 +91,7 @@ jobs:
           if [ -f backend/package.json ]; then run_project backend; fi
       - name: Verify Docker image can build
         if: ${{ hashFiles('Dockerfile') != '' }}
-        run: docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine --tag v79-ci-image .
+        run: docker build --build-arg NODE_BASE=docker.io/library/node:22-alpine --tag v79-ci-image .
       - name: Verify exact approval and marketing routes as isolated non-root user
         run: >-
           docker run --rm --network none --read-only --user node --cap-drop ALL
@@ -166,7 +166,7 @@ jobs:
         run: |
           IMAGE="${{ steps.docker.outputs.image }}"
           SHORT_SHA="${GITHUB_SHA::12}"
-          docker build --build-arg NODE_BASE=public.ecr.aws/docker/library/node:22-alpine -t "$IMAGE:latest" -t "$IMAGE:$SHORT_SHA" .
+          docker build --build-arg NODE_BASE=docker.io/library/node:22-alpine -t "$IMAGE:latest" -t "$IMAGE:$SHORT_SHA" .
           docker push "$IMAGE:latest"
           docker push "$IMAGE:$SHORT_SHA"
       - name: Delivery note

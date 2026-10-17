@@ -1,0 +1,28 @@
+name: P1 R1 read-only contract synthetic tests
+
+on:
+  pull_request:
+    paths:
+      - scripts/p1-r1-current-release-contract.py
+      - tests/p1-r1-current-release-contract.test.py
+      - .github/workflows/p1-r1-readonly-contract.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check
+        run: python -m py_compile scripts/p1-r1-current-release-contract.py tests/p1-r1-current-release-contract.test.py
+      - name: Synthetic runtime contract negative checks (no server access)
+        run: python tests/p1-r1-current-release-contract.test.py -v
