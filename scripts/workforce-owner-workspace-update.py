@@ -33,6 +33,18 @@ def image_only(before,after,service,image):
     if normalized['services'][service]['image']!=image:raise RuntimeError('Candidate image missing')
     normalized['services'][service]['image']=before['services'][service]['image']
     if normalized!=before:raise RuntimeError('Update would change more than the Hub image')
+def process_same(service,image_config,runtime_config):
+    for field,key in [('command','Cmd'),('entrypoint','Entrypoint'),('user','User'),('working_dir','WorkingDir')]:
+        expected=service.get(field)
+        if expected is None:expected=image_config.get(key)
+        actual=runtime_config.get(key)
+        # Docker represents an unspecified image User as an empty runtime string.
+        # Normalize only that absence; explicit names/UIDs and launch arguments stay exact.
+        if key=='User':
+            if expected is None:expected=''
+            if actual is None:actual=''
+        if expected!=actual:raise RuntimeError('Compose process configuration differs from running Hub: '+field)
+
 def runtime_same(before,after):
     for key in ['Env','Cmd','Entrypoint','User','WorkingDir']:
         a,b=before['Config'].get(key),after['Config'].get(key)
@@ -75,10 +87,7 @@ def main():
     img=json.loads(run(['docker','image','inspect',BASE]))[0]
     effective={**env(img['Config'].get('Env')),**{k:str(v) for k,v in svc.get('environment',{}).items() if v is not None}}
     if effective!=env(hub['Config'].get('Env')):raise RuntimeError('Compose environment differs from running Hub')
-    for field,key in [('command','Cmd'),('entrypoint','Entrypoint'),('user','User'),('working_dir','WorkingDir')]:
-        expected=svc.get(field)
-        if expected is None:expected=img['Config'].get(key)
-        if expected!=hub['Config'].get(key):raise RuntimeError('Compose process configuration differs from running Hub')
+    process_same(svc,img['Config'],hub['Config'])
     ports={}
     for p in svc.get('ports',[]):ports.setdefault(str(p['target'])+'/'+p.get('protocol','tcp'),[]).append(p)
     actual=hub['HostConfig'].get('PortBindings') or {}
