@@ -2,8 +2,9 @@
 """Read-only diagnosis of Docker-saved image IDs vs Acer rootless Podman cache.
 
 No containers, image imports/tags/pulls, network, archive writes or plaintext
-files. Streams the encrypted saved-image TAR through memory, reads ONLY its
-bounded manifest.json, drains GPG to EOF, then compares config IDs with the
+files. Streams the encrypted saved-image TAR through memory, reads its bounded
+manifest and candidate config JSON strictly in memory, drains GPG to EOF,
+then compares config IDs with the
 local rootless image inventory. Prints only known image role/status, never
 image tags, archived configs, secret metadata or credentials.
 """
@@ -109,12 +110,27 @@ def read_archive_configs(archive):
         require(decrypt.wait(timeout=90) == 0, "ARCHIVE_GPG_DECRYPT_FAILED")
         require(parsed is not None, "DOCKER_ARCHIVE_MANIFEST_NOT_FOUND")
         require(len(parsed) == 5, "DOCKER_ARCHIVE_IMAGE_COUNT_NOT_FIVE")
-        require(len(members) == 5 and all(members.values()),
-                "DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH")
-        require(set(PurePosixPath(p).name.removesuffix(".json")
-                    for p in members) == parsed,
-                "DOCKER_ARCHIVE_MANIFEST_CONFIG_CONTENT_DISAGREES")
-        return parsed
+        observed = {PurePosixPath(p).name.removesuffix(".json"): valid
+                    for p, valid in members.items()}
+        seen = set(observed)
+        # Report ONLY aggregate cardinalities, never image hashes, private
+        # Docker config contents, image tags, mount sources or credentials.
+        stats = {
+            "members": len(members),
+            "referenced": len(parsed & seen),
+            "missing": len(parsed - seen),
+            "extra": len(seen - parsed),
+            "valid": sum(bool(valid) for valid in members.values()),
+            "invalid": sum(not valid for valid in members.values()),
+        }
+        intact = (
+            stats["members"] == 5
+            and stats["referenced"] == 5
+            and stats["missing"] == 0
+            and stats["extra"] == 0
+            and stats["valid"] == 5
+        )
+        return parsed, stats, intact
     finally:
         if decrypt.stdout and not decrypt.stdout.closed:
             decrypt.stdout.close()
@@ -251,8 +267,16 @@ def main():
     saved_inspect = verify_ciphertext(root, INSPECT_FILE)
     print("R1_DIAGNOSTIC=READ_ONLY_ACER_LOCAL", flush=True)
     local_ids = run_inventory()
-    archive_ids = read_archive_configs(source)
+    archive_ids, config_stats, archive_intact = read_archive_configs(source)
     runtime_ids, image_shapes, container_shapes = read_saved_image_inspect(saved_inspect)
+    print("R1_ARCHIVE_CONFIG_MEMBERS=%d" % config_stats["members"])
+    print("R1_ARCHIVE_MANIFEST_REFERENCES_PRESENT=%d/5" % config_stats["referenced"])
+    print("R1_ARCHIVE_CONFIG_MEMBERS_MISSING=%d" % config_stats["missing"])
+    print("R1_ARCHIVE_CONFIG_MEMBERS_UNREFERENCED=%d" % config_stats["extra"])
+    print("R1_ARCHIVE_CONFIG_SHA256_VALID=%d" % config_stats["valid"])
+    print("R1_ARCHIVE_CONFIG_SHA256_INVALID=%d" % config_stats["invalid"])
+    print("R1_ARCHIVE_CONFIG_BYTE_INTEGRITY=" +
+          ("PASS" if archive_intact else "FAIL"))
     matched_archive = 0
     matched_local = 0
     matched_lookup = 0
@@ -268,7 +292,7 @@ def main():
               "|PIN_LOOKUP=" + ("YES" if addressable else "NO"), flush=True)
     print("R1_ARCHIVE_CONFIG_IDS_MATCH=%d/5" % matched_archive)
     print("R1_ARCHIVE_UNIQUE_CONFIG_IDS=%d" % len(archive_ids))
-    print("R1_ARCHIVE_CONFIG_CONTENT_HASHED=5_OF_5_PASS")
+
     print("R1_SAVED_INSPECT_IMAGE_SHAPE_COUNT=%d/4" % image_shapes)
     print("R1_SAVED_INSPECT_CONTAINER_SHAPE_COUNT=%d/4" % container_shapes)
     print("R1_SAVED_RUNTIME_INSPECT_IDS_MATCH=%d/4" %
@@ -284,6 +308,7 @@ def main():
     print("R1_IMAGES_IMPORTED=NO_NEW_IMPORT")
     print("R1_PRODUCTION_CONNECTION=NONE")
     print("R1_RELEASE_GATE=NO_GO")
+    require(archive_intact, "DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH")
 
 if __name__ == "__main__":
     try:
