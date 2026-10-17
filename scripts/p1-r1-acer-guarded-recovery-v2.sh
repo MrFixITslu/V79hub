@@ -111,6 +111,11 @@ prior=(/dev/shm/v79-r1-*)
 pods="$(podman --remote=false pod ps --format '{{.Name}}')" || stop PODMAN_POD_QUERY_FAILED
 if grep -Eq '^r1-closed-[0-9a-f]{10}$' <<< "$pods"; then stop PREEXISTING_RECOVERY_POD; fi
 [[ "$(podman --remote=false info --format '{{.Host.Security.Rootless}}')" == true ]] || stop LOCAL_ROOTLESS_PODMAN_NOT_VERIFIED
+# Probe new infra options before sudo/swapoff; never guess CLI support.
+pod_help="$(podman --remote=false pod create --help)" || stop PODMAN_POD_HELP_FAILED
+for option in --infra-image --infra-command; do
+  grep -Fq -- "$option" <<< "$pod_help" || stop PODMAN_INFRA_OPTION_UNSUPPORTED
+done
 echo "R1_MEMORY_AND_SWAP_PREFLIGHT=PASS"
 
 sudo -v
