@@ -26,7 +26,7 @@ Evidence ladder:
 
 1. **Pending:** proposed draft; no approval or execution.
 2. **Approved:** exact owner-MFA approval recorded; still not executed.
-3. **Work item created:** fixed worker operation succeeded, signed queue result has a task ID + exact receipt digest. Engineering still unverified.
+3. **Work item created:** the authentic G2 ledger shows the approved job as `succeeded`, with `job.result = {taskId, at}`, **and** an independently authenticated matching `state.tasks[]` row (same job, task ID, organization, app, COO assignee and creation timestamp). G2 does **not** generate `receiptSha256` for `create_work_item`. Engineering remains unverified.
 4. **Delivery verified:** independent owner acceptance bound to the same job, organization, task ID and digest, with pinned source commit and independent test provenance. Missing or unverifiable evidence remains `delivery_unverified`.
 5. **Uncertain:** operator reconciliation required before retry; no assumption of either failure or success.
 
@@ -39,3 +39,7 @@ CI `39000783586` passed **44 tests** (22 previous + 11 A04 + 11 A05), including 
 Before any live integration: independently review the cumulative #156→#159 changes, map effective Hub UID/private report permissions and current signed ledger, test owner-MFA cross-tenant denials and read-only request boundaries, prove exact running mixed-image and pinned WiPay parity, preserve every ordered Compose input plus backup/rollback, and obtain a separate founder release decision.
 
 **Explicitly out of scope:** changing the existing systemd timers, worker credentials, token mounts, agent/Hub/Tiquet containers, WiPay, customer invites, Sentinel collector coverage, phone/WhatsApp/email outbound actions, automatic deployments and autonomous privileged actions.
+
+## Live G2 data-shape reconciliation — 17 October 2026
+
+**Confirmed from actual Hub source**: `server/workforce-actions.mjs` writes `job.result = { taskId, at }` for successful `create_work_item`, and separately appends `state.tasks[]` with `{id,jobId,organizationId,system,title,detail,status:'open',assignedTo:'coo',createdAt}`. The previous offline A05 gate erroneously required `job.result.receiptSha256` (a field used for release receipts), which could never pass a real created task. PR #159 fixes the mismatch, requires trusted queue **and** task-row verifiers, and adds a regression that calls the real `proposeWork`, `decideWork` and `createApprovedWorkItem` functions on synthetic data without network access. Latest source CI: [#39001286288](https://github.com/MrFixITslu/V79hub/actions/runs/39001286288), **53/53 tests PASS**. This does not install the adapter into Hub or independently accept live worker behavior. Owner receipt acceptance remains separate from task creation.
