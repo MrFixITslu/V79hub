@@ -130,11 +130,21 @@ class DiagnosticTests(unittest.TestCase):
             plain=Path(tmp)/"synthetic-image.tar"
             with mock.patch.object(m.subprocess,"Popen",side_effect=cat_instead_of_gpg):
                 make_tar(plain)
-                self.assertEqual(m.read_archive_configs(plain),set(expected))
+                ids, stats, intact = m.read_archive_configs(plain)
+                self.assertEqual(ids, set(expected))
+                self.assertTrue(intact)
+                self.assertEqual(stats, {
+                    "members":5,"referenced":5,"missing":0,
+                    "extra":0,"valid":5,"invalid":0,
+                })
                 make_tar(plain,changed=True)
-                with self.assertRaisesRegex(m.Stop,
-                        "DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH"):
-                    m.read_archive_configs(plain)
+                ids, stats, intact = m.read_archive_configs(plain)
+                self.assertEqual(ids, set(expected))
+                self.assertFalse(intact)
+                self.assertEqual(stats["members"],5)
+                self.assertEqual(stats["referenced"],5)
+                self.assertEqual(stats["valid"],4)
+                self.assertEqual(stats["invalid"],1)
 
     def test_no_import_deletion_mutation_or_network_in_diagnostic(self):
         code=SRC.read_text()
@@ -148,7 +158,10 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("R1_SAVED_RUNTIME_INSPECT_IDS_MATCH=",code)
         self.assertIn("R1_SAVED_INSPECT_IMAGE_SHAPE_COUNT=",code)
         self.assertIn("R1_SAVED_INSPECT_CONTAINER_SHAPE_COUNT=",code)
-        self.assertIn("R1_ARCHIVE_CONFIG_CONTENT_HASHED=",code)
+        self.assertIn("R1_ARCHIVE_CONFIG_SHA256_VALID=",code)
+        self.assertIn("R1_ARCHIVE_CONFIG_SHA256_INVALID=",code)
+        self.assertIn("R1_ARCHIVE_CONFIG_BYTE_INTEGRITY=",code)
+        self.assertIn('require(archive_intact, "DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH")',code)
         self.assertIn("CIPHERTEXT_COMPONENT_HASH_MISMATCH",code)
         self.assertIn("ORIGINAL_BACKUP_SET_PROVENANCE_NOT_MATCHED",code)
         self.assertIn('data.get("rollbackHub")',code)
