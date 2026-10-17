@@ -48,6 +48,7 @@ const workspaceViews = [
 
 export function OwnerAssistant() {
   const [view, setView] = useState<WorkspaceView>("agents");
+  const [taskOpenAttempt, setTaskOpenAttempt] = useState(0);
   const [visited, setVisited] = useState<Set<WorkspaceView>>(new Set(["agents"]));
   const composer = useRef<HTMLTextAreaElement>(null);
   const conversation = useRef<HTMLDivElement>(null);
@@ -55,6 +56,14 @@ export function OwnerAssistant() {
     setView(next);
     setVisited(current => new Set([...current, next]));
   };
+  // The header action must provide a visible destination even when the
+  // private queue GET is unavailable. No proposal, approval or execution here.
+  const openTaskEditor = () => { setTaskOpenAttempt(current => current + 1); navigate("tasks"); };
+  useEffect(() => {
+    if (taskOpenAttempt > 0 && view === "tasks") {
+      document.getElementById("workspace-tasks")?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    }
+  }, [taskOpenAttempt, view]);
   const prepareTask = (draft: CooWorkItemDraft) => {
     setPreparedCooWork(draft);
     navigate("tasks");
@@ -117,7 +126,7 @@ export function OwnerAssistant() {
           </div>
           <div className="flex flex-wrap items-center gap-4">
             <span className="flex items-center gap-2 text-xs text-slate-300"><ShieldCheck className="h-4 w-4 text-cyan-300" aria-hidden="true" /> Owner access · MFA required</span>
-            <button type="button" onClick={() => navigate("tasks")}
+            <button type="button" onClick={openTaskEditor} aria-controls="workspace-tasks" aria-expanded={view === "tasks"}
               className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-white">
               <Plus className="h-4 w-4" aria-hidden="true" /> New task
             </button>
