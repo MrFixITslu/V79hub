@@ -7,6 +7,8 @@ on:
       - 'tests/workforce-skill-packages.test.mjs'
       - 'tests/workforce-evidence-gates.test.mjs'
       - 'tests/workforce-task-delivery-gates.test.mjs'
+      - 'tests/workforce-g2-real-contract.test.mjs'
+      - 'server/workforce-actions.mjs'
       - 'tests/workforce-briefing-reliability.test.mjs'
       - '.github/workflows/workforce-specialist-gates-isolated.yml'
   workflow_dispatch:
@@ -26,4 +28,4 @@ jobs:
           node --check workforce/quality/task-delivery-gates.mjs
           node --check workforce/quality/briefing-reliability.mjs
       - name: Safety and package contract regressions
-        run: node --test tests/workforce-evidence-gates.test.mjs tests/workforce-skill-packages.test.mjs tests/workforce-task-delivery-gates.test.mjs tests/workforce-briefing-reliability.test.mjs
+        run: node --test tests/workforce-evidence-gates.test.mjs tests/workforce-skill-packages.test.mjs tests/workforce-task-delivery-gates.test.mjs tests/workforce-briefing-reliability.test.mjs tests/workforce-g2-real-contract.test.mjs
