@@ -47,7 +47,7 @@ Before any live integration: independently review the cumulative #156→#159 cha
 
 ## One-pass operator evidence (no secrets; 17 October 2026)
 
-The morning slot of **17 October 2026 08:00 AST** is now due, but its actual host result has **not** been observed through this ChatGPT session. The remote-terminal connector is usage-limited, not evidence that the timer failed. Run the following **read-only** command locally on `v79sl` and share only its terminal output. It does not call any live application API, dump tokens, write files, or change a timer:
+At the founder's **17 October 2026 00:42 AST** host check, the **08:00 AST** slot was still future; its actual result has not been observed. Recheck after 08:30 AST. The remote-terminal connector is usage-limited, not evidence that the timer failed. Run the following **read-only** command locally on `v79sl` and share only its terminal output. It does not call any live application API, dump tokens, write files, or change a timer:
 
 ```bash
 (
@@ -87,3 +87,33 @@ The morning slot of **17 October 2026 08:00 AST** is now due, but its actual hos
 ```
 
 This is a **triage snapshot, not final acceptance**: a timer being active does not prove successful execution, status `AVAILABLE` alone does not prove complete authentic app evidence, and absence of an uncertainty latch does not demonstrate approval/denial/audit pass. After reading results, use independent source-timestamp, G2 ledger, task-row, and supervisor MFA verification before any owner GO.
+
+
+## A07 live control evidence and source verification — 17 October 2026
+
+- The running Hub authenticated G2 ledger for the **approved** internal test reports `G2_JOB_STATUS=succeeded`, `G2_TASK_COUNT=1`, `G2_TASK_VERIFIED=true`, audit sequence `proposed,approved,work_item_created`, and actor `coo-worker` with founder approval.
+- The independently **rejected** internal proposal reports `REJECTION_STATUS=rejected`, `TASKS_CREATED=0`, audit `proposed,rejected`, and `G2_REJECTION_PASS=true`.
+- Installed G2 `workforce-actions.mjs` in-memory source-runtime replay test passed duplicate execution denial, idempotency and one task. It did not touch the production ledger.
+- `tests/workforce-a07-tenant-boundary.test.mjs` exercises the actual HTTP routes with two synthetic organizations, owner-MFA stale/valid, origin/cookie/token denials, rejected job and once-only worker polling against a **temporary HMAC ledger**, not live user credentials.
+- Full acceptance still requires independent production identity/MFA and tenant-scope review, uncertain-operation recovery protocol, and release sign-off. Task creation does **not** mean engineering delivery.
+
+## A04 one-pass 17 October morning audit — read-only operator command
+
+Run only **after 08:30 Saint Lucia time (12:30 UTC)**, not before the 08:00 morning timer. It prints no report payload, secret, recipient, or credentials and changes no timer or service.
+
+```bash
+echo '=== UTC TIME ==='
+date -u '+UTC=%Y-%m-%dT%H:%M:%SZ'
+echo '=== SELECTED REPORT METADATA ==='
+python3 -B "$HOME/.local/share/v79-workforce-operations/bin/v79_workforce_briefing.py" status |
+  grep -E '^(WORKFORCE_BRIEFINGS_COUNT=|REPORT=2026-10-17-morning\||REPORT=2026-10-16-evening\||WORKFORCE_STATUS=)' || true
+echo '=== MORNING UNIT ==='
+systemctl --user show v79-workforce-briefing@morning.service \
+  -p LoadState -p ActiveState -p Result -p ExecMainStatus \
+  -p ExecMainStartTimestamp -p InactiveExitTimestamp --no-pager
+echo '=== TIMERS ==='
+systemctl --user list-timers --all --no-pager |
+  grep -E 'v79-workforce-(morning|evening)' || true
+```
+
+An observed morning `AVAILABLE` status plus a successful unit result proves an individual stored run, **not three-day unattended reliability or authentic source completeness**. The Python host's coverage labels are uppercase (`AVAILABLE`/`INCOMPLETE`), which the updated **draft** A04 source auditor now recognizes only when independent report provenance and complete inventory verifiers pass. No deployment has occurred.
