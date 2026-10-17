@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { Bot, Send, ShieldCheck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, Bot, ClipboardCheck, FileText, LayoutList, MessageSquare, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
 import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
+import { WorkforceBriefingHistory } from "./WorkforceBriefingHistory";
 import { MarketingProductionPanel } from "./MarketingProductionPanel";
 import { WorkforceActionPanel } from "./WorkforceActionPanel";
+import { OwnerCooWorkboardPanel, type CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
 
 type EvidenceMetric = { key: string; value: number };
 type EvidenceRecord = {
@@ -35,16 +37,48 @@ const specialistPrompts = [
   { label: "CombatZone", prompt: "Review CombatZone laser tag bookings and event readiness." },
 ];
 
+type WorkspaceView = "agents" | "tasks" | "delivery" | "briefings" | "tools";
+const workspaceViews = [
+  { id: "agents", label: "Agents", icon: MessageSquare },
+  { id: "tasks", label: "Tasks & approvals", icon: ClipboardCheck },
+  { id: "delivery", label: "Delivery board", icon: LayoutList },
+  { id: "briefings", label: "Briefings", icon: FileText },
+  { id: "tools", label: "More tools", icon: Wrench },
+] as const;
+
 export function OwnerAssistant() {
+  const [view, setView] = useState<WorkspaceView>("agents");
+  const [visited, setVisited] = useState<Set<WorkspaceView>>(new Set(["agents"]));
+  const composer = useRef<HTMLTextAreaElement>(null);
+  const conversation = useRef<HTMLDivElement>(null);
+  const navigate = (next: WorkspaceView) => {
+    setView(next);
+    setVisited(current => new Set([...current, next]));
+  };
+  const prepareTask = (draft: CooWorkItemDraft) => {
+    setPreparedCooWork(draft);
+    navigate("tasks");
+  };
+  const preparePrompt = (prompt: string) => {
+    setInput(prompt);
+    composer.current?.focus();
+  };
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      text: "Vision79 Owner Assistant is ready in read-only mode. Ask about Hub Admin, app health, operations, customers, finance, growth, or CombatZone.",
+      text: "What would you like to get done? Ask for a review or recommendation here. Use Tasks & approvals to assign work to COO after your review.",
     },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [suggestedDraft, setSuggestedDraft] = useState<AgentDraftSuggestion | null>(null);
+  const [preparedCooWork, setPreparedCooWork] = useState<CooWorkItemDraft | null>(null);
+
+  useEffect(() => {
+    if (view === "agents" && conversation.current) {
+      conversation.current.scrollTop = conversation.current.scrollHeight;
+    }
+  }, [messages, busy, view]);
 
   const send = async () => {
     const message = input.trim();
@@ -73,29 +107,52 @@ export function OwnerAssistant() {
     }
   };
   return (
-    <div className="p-6 max-w-5xl w-full mx-auto">
-      <div className="rounded-3xl bg-slate-950 text-white border border-slate-800 overflow-hidden shadow-xl">
-        <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/15 flex items-center justify-center">
-              <Bot className="w-5 h-5 text-cyan-300" />
-            </div>
-            <div>
-              <h1 className="font-bold">Vision79 Owner Assistant</h1>
-              <p className="text-xs text-slate-400">Private business operations assistant</p>
-            </div>
+    <div className="mx-auto w-full max-w-7xl p-3 sm:p-6 text-slate-100">
+      <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 shadow-xl">
+        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 bg-gradient-to-r from-cyan-950/60 to-slate-950 px-5 py-6 sm:px-7">
+          <div>
+            <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-cyan-300"><Bot className="h-4 w-4" aria-hidden="true" /> V79 Owner Assistant</p>
+            <h1 className="text-2xl font-bold sm:text-3xl">Your owner workspace</h1>
+            <p className="mt-2 text-sm text-slate-300">Plan with agents. Review decisions. Keep work moving.</p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-emerald-300">
-            <ShieldCheck className="w-4 h-4" />
-            Owner only · Approval controlled
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="flex items-center gap-2 text-xs text-slate-300"><ShieldCheck className="h-4 w-4 text-cyan-300" aria-hidden="true" /> Owner access · MFA required</span>
+            <button type="button" onClick={() => navigate("tasks")}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-white">
+              <Plus className="h-4 w-4" aria-hidden="true" /> New task
+            </button>
           </div>
-        </div>
+        </header>
+        <nav aria-label="Owner workspace" className="flex gap-1 overflow-x-auto border-b border-slate-800 bg-slate-900/70 p-2 sm:px-5">
+          {workspaceViews.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={view === id ? "page" : undefined}
+            onClick={() => navigate(id)} aria-controls={"workspace-" + id}
+            className={"inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-cyan-300 sm:px-4 " +
+              (view === id ? "bg-cyan-300/10 text-cyan-200 ring-1 ring-inset ring-cyan-500/30" : "text-slate-300 hover:bg-slate-800 hover:text-white")}>
+            <Icon className="h-4 w-4" aria-hidden="true" />{label}
+          </button>)}
+        </nav>
 
-        <ExecutiveReviewPanel />
-        <WorkforceActionPanel />
-        <MarketingProductionPanel />
-        <AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} />
-        <SignedTiquetEvidencePanel />
+        <section id="workspace-agents" aria-label="Agents" hidden={view !== "agents"}>
+          <div className="grid lg:grid-cols-[250px_minmax(0,1fr)]">
+            <aside className="border-b border-slate-800 bg-slate-900/40 p-4 lg:border-b-0 lg:border-r lg:p-5">
+              <h2 className="font-semibold">Work with your team</h2>
+              <p className="mt-2 hidden text-xs leading-5 text-slate-400 lg:block">Choose a starting point. Review the prompt, then send it to the assistant.</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 lg:mt-4 lg:grid-cols-1">
+                {[
+                  { name: "CEO · Direction", detail: "Priorities, tradeoffs and decisions", prompt: "Prepare a CEO review of the most important V79 priorities and decisions. Separate verified evidence from unknowns. Recommend what I should focus on next." },
+                  { name: "COO · Delivery", detail: "Next steps and operational blockers", prompt: "Prepare a COO review of delivery blockers and operational next steps from available evidence. Suggest clear work items for my review; do not execute them." },
+                ].map(agent => <button key={agent.name} type="button" disabled={busy} onClick={() => preparePrompt(agent.prompt)}
+                  className="rounded-xl border border-slate-700 bg-slate-950 p-3 text-left hover:border-cyan-600 focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-50">
+                  <span className="block text-sm font-semibold text-cyan-200">{agent.name}</span><span className="mt-1 block text-xs text-slate-400">{agent.detail}</span>
+                </button>)}
+              </div>
+              <div className="mt-5 hidden rounded-xl border border-slate-800 p-3 text-xs leading-5 text-slate-400 lg:block">
+                <p className="font-medium text-slate-200">Ready to assign work?</p>
+                <p className="mt-1">Create a task, review its exact scope, then approve it with MFA.</p>
+                <button type="button" onClick={() => navigate("tasks")} className="mt-3 inline-flex min-h-10 items-center gap-2 text-cyan-200 hover:underline">Open tasks & approvals <ArrowRight className="h-3 w-3" aria-hidden="true" /></button>
+              </div>
+            </aside>
+            <div className="min-w-0">
         <div className="px-5 py-3 border-b border-slate-800 bg-slate-900/50">
           <p className="text-xs text-slate-400 mb-2">Ask a specialist · drafts and recommendations only</p>
           <div className="flex flex-wrap gap-2">
@@ -104,19 +161,19 @@ export function OwnerAssistant() {
                 type="button"
                 key={specialist.label}
                 disabled={busy}
-                onClick={() => setInput(specialist.prompt)}
-                className="rounded-full border border-slate-700 px-3 py-1 text-xs text-cyan-200 hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-40"
+                onClick={() => preparePrompt(specialist.prompt)}
+                className="min-h-10 rounded-full border border-slate-700 px-3 py-1 text-xs text-cyan-200 hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-40"
               >
                 {specialist.label}
               </button>
             ))}
           </div>
         </div>
-        <div className="h-[56vh] overflow-y-auto p-6 space-y-4 bg-slate-950">
+        <div ref={conversation} role="log" aria-label="Agent conversation" aria-live="polite" aria-relevant="additions text" className="h-[48vh] min-h-72 overflow-y-auto p-4 space-y-4 bg-slate-950 sm:p-6">
           {messages.map((message, index) => (
             <div
               key={index}
-              className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "user"
+              className={`max-w-[94%] sm:max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "user"
                 ? "ml-auto bg-cyan-600 text-white"
                 : "bg-slate-900 border border-slate-800 text-slate-200"}`}
             >
@@ -124,6 +181,8 @@ export function OwnerAssistant() {
                 <div className="text-xs text-cyan-300 mb-1 font-semibold">{message.specialist} · Read-only</div>
               )}
               <span className="whitespace-pre-wrap">{message.text}</span>
+              {message.role === "user" && <button type="button" onClick={() => prepareTask({ sourceId: "chat", system: "hub", summary: message.text.trim().slice(0, 180), detail: message.text.trim().slice(0, 2000) })}
+                className="mt-3 block min-h-10 rounded-lg border border-cyan-200/40 px-3 py-2 text-xs font-medium hover:bg-cyan-700 focus-visible:ring-2 focus-visible:ring-white">Prepare as task</button>}
               {message.role === "assistant" && message.investigation && (
                 <details className="mt-3 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2">
                   <summary className="cursor-pointer text-xs text-cyan-200">
@@ -160,6 +219,7 @@ export function OwnerAssistant() {
                               evidenceAttestation: finding.evidenceAttestation && finding.id.startsWith(targetSystem + ":") ? finding.evidenceAttestation : undefined,
                               idempotencyKey: crypto.randomUUID(),
                             });
+                            navigate("tools");
                           }}>Propose a review draft</button>
                       </div>
                     ))}
@@ -202,26 +262,47 @@ export function OwnerAssistant() {
         </div>
         <div className="p-4 border-t border-slate-800 bg-slate-900/70 flex gap-3">
           <textarea
+            ref={composer}
+            aria-label="Message to your agents"
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 send();
               }
             }}
-            placeholder="Ask your Vision79 assistant..."
-            className="flex-1 resize-none rounded-xl bg-slate-950 border border-slate-700 px-4 py-3 text-sm outline-none focus:border-cyan-500"
+            placeholder="Describe what you need help with…"
+            className="min-w-0 flex-1 resize-none rounded-xl bg-slate-950 border border-slate-700 px-4 py-3 text-sm outline-none focus:border-cyan-500"
             rows={2}
           />
           <button
+            type="button"
+            aria-label="Send message"
             onClick={send}
             disabled={busy || !input.trim()}
             className="self-end rounded-xl bg-cyan-500 text-slate-950 p-3 disabled:opacity-40"
           >
-            <Send className="w-5 h-5" />
+            <Send className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
+        <p className="px-4 pb-3 text-xs text-slate-400">Chat provides reviews and recommendations. Actions go through Tasks & approvals.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="workspace-tasks" aria-label="Tasks and approvals" hidden={view !== "tasks"}>
+          {visited.has("tasks") && <WorkforceActionPanel embedded active={view === "tasks"} preparedTask={preparedCooWork} onPreparedTaskApplied={() => setPreparedCooWork(null)} />}
+        </section>
+        <section id="workspace-delivery" aria-label="Delivery board" hidden={view !== "delivery"}>
+          {visited.has("delivery") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Engineering delivery board</h2><p className="mt-1 text-sm text-slate-400">Review GitHub work and prepare a task for COO. Preparing a task opens a draft for you to review.</p></div><OwnerCooWorkboardPanel embedded active={view === "delivery"} onPrepareTask={prepareTask} /></>}
+        </section>
+        <section id="workspace-briefings" aria-label="Briefings" hidden={view !== "briefings"}>
+          {visited.has("briefings") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Reports & executive review</h2><p className="mt-1 text-sm text-slate-400">Read scheduled briefings or request an executive review of available evidence.</p></div><WorkforceBriefingHistory /><ExecutiveReviewPanel /></>}
+        </section>
+        <section id="workspace-tools" aria-label="More tools" hidden={view !== "tools"}>
+          {visited.has("tools") && <><div className="px-5 py-5"><h2 className="text-lg font-semibold">Specialist tools</h2><p className="mt-1 text-sm text-slate-400">Planning proposals, Marketing production, and signed Tiquet evidence each keep their own review requirements.</p></div><AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} /><MarketingProductionPanel /><SignedTiquetEvidencePanel /></>}
+        </section>
       </div>
     </div>
   );

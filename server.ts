@@ -25,6 +25,9 @@ import { prepareSupervisedMarketingDraft } from "./server/agent-supervised-marke
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
 import { createOwnerExecutiveProxy } from "./server/agent-executive-owner-proxy.mjs";
+import { createOwnerCooWorkboard } from "./server/owner-coo-workboard.mjs";
+import { createOwnerBriefingReader } from "./server/workforce-briefing-route.mjs";
+import { createPythonBriefingStatus } from "./server/workforce-python-report-reader.mjs";
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
@@ -5154,6 +5157,34 @@ app.post("/api/agent/executive-handoff",
   createOwnerExecutiveProxy("handoff", executiveProxyDeps));
 app.post("/api/agent/executive-preview",
   createOwnerExecutiveProxy("preview", executiveProxyDeps));
+
+// Read-only view of existing host-generated reports. No scheduler is started here.
+// Mount only the report directory read-only at this fixed container path.
+app.all("/api/agent/workforce-briefings", createOwnerBriefingReader({
+  ownerMfaContext: ownerApprovalContext,
+  enabled: () => process.env.V79_WORKFORCE_REPORTS_ENABLED === "1",
+  readStatus: createPythonBriefingStatus({ directory: "/run/v79-workforce-reports" }),
+}));
+
+// P1 internal COO development register: separate from verified app telemetry.
+// Fixed GitHub GET paths, owner-session MFA, disabled by default; no agent writes.
+app.get("/api/agent/coo-workboard", createOwnerCooWorkboard({
+  ownerMfaContext: ownerApprovalContext,
+  enabled: () => process.env.V79_COO_WORKBOARD_ENABLED === "1",
+  readToken: () => {
+    const file = process.env.V79_COO_GITHUB_TOKEN_FILE || "/run/secrets/v79-coo-github-token";
+    let fd: number | null = null;
+    try {
+      // No links, no directories, no group/world-readable or oversized secrets.
+      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size < 16 || stat.size > 512 || (stat.mode & 0o077) !== 0) return "";
+      return fs.readFileSync(fd, { encoding: "utf8" }).trim();
+    } catch { return ""; }
+    finally { if (fd !== null) fs.closeSync(fd); }
+  },
+}));
+
 
 app.use("/api/users", (req, res, next) => {
   if (req.method === "GET") return requirePermission("team")(req, res, next);

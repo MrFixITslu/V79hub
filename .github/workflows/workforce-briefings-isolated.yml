@@ -1,0 +1,38 @@
+name: Workforce scheduled briefings isolated tests
+on:
+  pull_request:
+    paths:
+      - "server/workforce-briefings.mjs"
+      - "server.ts"
+      - "src/components/OwnerAssistant.tsx"
+      - "tests/workforce-report-http.test.mjs"
+      - "deploy/workforce-reports.overlay.example.yml"
+      - "src/components/WorkforceBriefingHistory.tsx"
+      - "tests/workforce-briefing-history-ui.test.mjs"
+      - "server/workforce-python-report-reader.mjs"
+      - "tests/workforce-python-report-reader.test.mjs"
+      - "server/workforce-briefing-route.mjs"
+      - "tests/workforce-briefing-route.test.mjs"
+      - "tests/workforce-briefings.test.mjs"
+      - ".github/workflows/workforce-briefings-isolated.yml"
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax checks
+        run: node --check server/workforce-briefings.mjs
+      - name: Security regression tests
+        run: node --test tests/workforce-briefings.test.mjs tests/workforce-briefing-route.test.mjs tests/workforce-python-report-reader.test.mjs
+      - name: Validate staged history UI and TypeScript
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node --test tests/workforce-briefing-history-ui.test.mjs tests/workforce-report-http.test.mjs
+          npm run lint
+          npm run build

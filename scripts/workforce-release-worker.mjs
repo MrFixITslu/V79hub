@@ -21,7 +21,7 @@ export function validateReleaseManifest(m, job) {
   if (!m || m.version !== 1 || m.system !== job.system || m.commitSha !== job.payload.commitSha ||
       !WORK_SYSTEMS.includes(m.system) || !/^[a-zA-Z0-9_-]{1,80}$/.test(m.project) ||
       !IMAGE.test(m.validationImage) || !Array.isArray(m.services) || m.services.length < 1 || m.services.length > 2 ||
-      !Array.isArray(m.compose) || !m.compose.length || m.compose.length > 5 ||
+      !Array.isArray(m.compose) || !m.compose.length || m.compose.length > 16 ||
       !Array.isArray(m.validationScripts) || !m.validationScripts.length ||
       !m.validationScripts.includes("test") || !m.validationScripts.every(s => ["lint", "test", "build"].includes(s))) throw new Error("Invalid release manifest");
   const names = new Set(), services = new Set();

@@ -1,0 +1,14 @@
+# Candidate overlay only: preserve every existing Compose input in its original order.
+# Do not apply until exact source parity, recovery and isolated acceptance pass.
+services:
+  v79-hub:
+    image: ${V79_WORKFORCE_CANDIDATE_IMAGE:?Set the tested immutable candidate image}
+    environment:
+      V79_WORKFORCE_REPORTS_ENABLED: ${V79_WORKFORCE_REPORTS_ENABLED:-0}
+    volumes:
+      - type: bind
+        source: ${V79_WORKFORCE_REPORTS_HOST_DIR:?Set the existing private reports directory}
+        target: /run/v79-workforce-reports
+        read_only: true
+        bind:
+          create_host_path: false
