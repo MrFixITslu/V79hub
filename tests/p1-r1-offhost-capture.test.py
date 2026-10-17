@@ -30,7 +30,7 @@ def fixture():
             "tiquet": {"files": ["/opt/tiquet/docker-compose.yml", "/opt/tiquet/.env"],
                        "digests": ["b" * 64, "c" * 64], "composeCount": 1}
         },
-        "mounts": {"v79-hub": ["/app/data", *capture.HUB_SECRET_DESTINATIONS],
+        "mounts": {"v79-hub": ["/app/data", *capture.HUB_REPORT_DESTINATIONS, *capture.HUB_SECRET_DESTINATIONS],
                    "v79-tiquet-manager": ["/app/data", "/app/uploads"]}
     }
 
@@ -44,7 +44,7 @@ class OffhostTests(unittest.TestCase):
         plan = fixture()
         capture.validate_plan(plan)
         streams = capture.streams_for(plan)
-        self.assertEqual(len(streams), 12)
+        self.assertEqual(len(streams), 14)
         self.assertEqual([a for a, _, _ in streams][:4],
                          ["hub-pg.dump.gpg", "tiquet-pg.dump.gpg",
                           "hub-config.tar.gpg", "tiquet-config.tar.gpg"])
@@ -61,6 +61,8 @@ class OffhostTests(unittest.TestCase):
             lambda p: p["configs"]["hub"].update({"composeCount": 9}),
             lambda p: p["mounts"]["v79-hub"].append("/app/../../etc"),
             lambda p: p["mounts"]["v79-hub"].append("/run/secrets/unreviewed-token"),
+            lambda p: p["mounts"]["v79-hub"].append("/run/v79-unreviewed-reports"),
+            lambda p: p["mounts"]["v79-tiquet-manager"].append("/run/v79-workforce-reports"),
             lambda p: p["mounts"]["v79-tiquet-manager"].append("/run/secrets/v79-agent-token"),
             lambda p: p["mounts"]["v79-tiquet-manager"].remove("/app/uploads"),
             lambda p: p["mounts"]["v79-hub"].append("/app/data"),
@@ -80,7 +82,7 @@ class OffhostTests(unittest.TestCase):
             args for name, args, kind in streams
             if kind == "tgz" and any(secret in args for secret in capture.HUB_SECRET_DESTINATIONS)
         ]
-        self.assertEqual(len(secret_reader_commands), 3)
+        self.assertEqual(len(secret_reader_commands), 4)
         for args in secret_reader_commands:
             self.assertEqual(args[:6], ["docker", "exec", "-u", "0", "v79-hub", "sh"])
             self.assertIn('test -f "$1"', args[7])
@@ -88,6 +90,21 @@ class OffhostTests(unittest.TestCase):
             self.assertIn('exec tar', args[7])
         self.assertNotIn("v79-agent-token", json.dumps([name for name, _, _ in streams]))
         self.assertNotIn("V79_WORKFORCE_TOKEN_FILE_HOST", json.dumps(streams))
+
+    def test_workforce_reports_directory_has_distinct_read_only_archive_guard(self):
+        plan = fixture()
+        streams = capture.streams_for(plan)
+        readers = [args for name, args, kind in streams
+                   if capture.HUB_REPORT_DESTINATIONS[0] in args]
+        self.assertEqual(len(readers), 1)
+        self.assertEqual(readers[0][:6],
+                         ["docker", "exec", "-u", "0", "v79-hub", "sh"])
+        self.assertIn('test -d "$1"', readers[0][7])
+        self.assertIn('test ! -L "$1"', readers[0][7])
+        self.assertNotIn('test -f "$1"', readers[0][7])
+        self.assertIn('exec tar', readers[0][7])
+        self.assertNotIn("v79-workforce-reports",
+                         json.dumps([name for name, _, _ in streams]))
 
     def test_remote_mount_policy_rejects_unreviewed_and_writable_secrets(self):
         # Execute only the function definition from the fixed embedded remote
@@ -102,17 +119,22 @@ class OffhostTests(unittest.TestCase):
             return {"Destination": destination, "Type": kind, "RW": rw,
                     "Source": "NEVER_PRINT_SYNTHETIC_SECRET_SOURCE"}
         hub = {"Mounts": [mount("/app/data", rw=True),
+                          *[mount(p) for p in capture.HUB_REPORT_DESTINATIONS],
                           *[mount(p) for p in capture.HUB_SECRET_DESTINATIONS]]}
         tiquet = {"Mounts": [mount("/app/data", rw=True),
                              mount("/app/uploads", rw=True)]}
         self.assertEqual(mounts(hub, "v79-hub"),
-                         ["/app/data", *capture.HUB_SECRET_DESTINATIONS])
+                         ["/app/data", *capture.HUB_REPORT_DESTINATIONS, *capture.HUB_SECRET_DESTINATIONS])
         self.assertEqual(mounts(tiquet, "v79-tiquet-manager"),
                          ["/app/data", "/app/uploads"])
         hub["Mounts"][1]["RW"] = True
         with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
             mounts(hub, "v79-hub")
         hub["Mounts"][1]["RW"] = False
+        hub["Mounts"][1]["Type"] = "volume"
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(hub, "v79-hub")
+        hub["Mounts"][1]["Type"] = "bind"
         hub["Mounts"].append(mount("/run/secrets/arbitrary"))
         with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
             mounts(hub, "v79-hub")
@@ -161,7 +183,7 @@ class OffhostTests(unittest.TestCase):
             self.assertEqual(data["status"], "CAPTURED_NOT_RESTORED")
             self.assertFalse(data["fullAppRestoreVerified"])
             self.assertFalse(data["customerBetaAuthorized"])
-            self.assertEqual(len(data["files"]), 12)
+            self.assertEqual(len(data["files"]), 14)
             for entry in data["files"]:
                 f = root / entry["name"]
                 self.assertEqual(f.stat().st_mode & 0o077, 0)
@@ -169,7 +191,7 @@ class OffhostTests(unittest.TestCase):
             with mock.patch.object(capture, "verify_one") as checker, \
                  contextlib.redirect_stdout(io.StringIO()):
                 capture.verify_set(root)
-            self.assertEqual(checker.call_count, 12)
+            self.assertEqual(checker.call_count, 14)
             original_manifest = receipt.read_text()
             incomplete = json.loads(original_manifest)
             incomplete["files"] = [x for x in incomplete["files"]
