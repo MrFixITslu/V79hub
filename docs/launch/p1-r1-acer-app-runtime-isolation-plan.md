@@ -31,3 +31,16 @@ D. Synthetic credentials and tenant SSO negative/positive acceptance, isolated r
 E. Independent security signoff, owner beta release decision and external provider sandbox separate from any recovery rehearsal.
 
 **Release gate:** NO-GO until C/D/E are accepted. Previous passes do **not** justify calling the whole app restored, production recovery complete or beta ready. No merge/deploy by this runbook.
+
+
+## 17 Oct prepared isolated four-image recovered-data health runner (owner execution PENDING)
+
+Source-only draft runner `scripts/p1-r1-acer-four-image-boot.py` is available on unmerged Hub PR #158 with its reviewed companion OCI proof, isolated database and app-archive policy modules. It is NOT a full SSO/MFA/rollback proof and MUST NOT be reported as one.
+
+Command modes:
+- `--backup ORIGINAL_PATH`: read-only validation of exact original 14-member source and SHA hashes, rooted on Acer; confirms rootless local Podman, verifies OCI index-to-config image mapping and selected three app-data archives. Does **not** start services.
+- `--backup ORIGINAL_PATH --execute`: Acer-only isolated **four-image health smoke**. Uses rootless Podman `pod create --network=none` with no host port, same pod-local loopback for PG17 5432 / PG16 5433 and Hub 3040 / Tiquet 3050. GPG encrypted logical PG dumps streamed through `pg_restore`; restores exact `/app/data` and `/app/uploads` TAR content to a unique private `/dev/shm` RAM-backed scratch tree with strict name/size/member/link controls (no production config or original secret mounts). **Fails closed if swap is active**, scratch is not tmpfs or available scratch RAM too small. Saved original encrypted archives never overwritten, tagged or replaced. Application variables carry ONLY synthetic local secrets; payment/email/agent actions disabled and outside-network connectivity absent. No app/DB response body is output or retained. Health check only: Hub `/api/health`, Tiquet `/health` from inside pod. Teardown of the whole run-specific pod plus RAM scratch is verified before completion. Exact OCI index pin mapping recomputed for original saved images; local Podman cache contains only images previously proven and already imported; no image import or pull.
+
+Even on PASS, the script explicitly prints `R1_OWNER_MFA_POSITIVE=NOT_TESTED`, `R1_SSO_TENANT_ISOLATION=NOT_TESTED`, `R1_ROLLBACK_BOOT=NOT_TESTED`, and `R1_CUSTOMER_RELEASE=NO_GO`. The app may fail due to synthetic secrets or incompatible recovered file ownership; this is an isolated acceptance failure to diagnose, **not** permission to introduce live credentials, enable network or relax safety checks. No user should paste `docker-compose`/original `.env` into the offline environment.
+
+This runner has **synthetic policy/mount parsing tests and Python compile CI only**, not a tested real Podman run. Do not advertise full restored service or security PASS until actual Acer output confirms it.
