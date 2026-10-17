@@ -43,3 +43,47 @@ Before any live integration: independently review the cumulative #156→#159 cha
 ## Live G2 data-shape reconciliation — 17 October 2026
 
 **Confirmed from actual Hub source**: `server/workforce-actions.mjs` writes `job.result = { taskId, at }` for successful `create_work_item`, and separately appends `state.tasks[]` with `{id,jobId,organizationId,system,title,detail,status:'open',assignedTo:'coo',createdAt}`. The previous offline A05 gate erroneously required `job.result.receiptSha256` (a field used for release receipts), which could never pass a real created task. PR #159 fixes the mismatch, requires trusted queue **and** task-row verifiers, and adds a regression that calls the real `proposeWork`, `decideWork` and `createApprovedWorkItem` functions on synthetic data without network access. Latest source CI: [#39001286288](https://github.com/MrFixITslu/V79hub/actions/runs/39001286288), **53/53 tests PASS**. This does not install the adapter into Hub or independently accept live worker behavior. Owner receipt acceptance remains separate from task creation.
+
+
+## One-pass operator evidence (no secrets; 17 October 2026)
+
+The morning slot of **17 October 2026 08:00 AST** is now due, but its actual host result has **not** been observed through this ChatGPT session. The remote-terminal connector is usage-limited, not evidence that the timer failed. Run the following **read-only** command locally on \`v79sl\` and share only its terminal output. It does not call any live application API, dump tokens, write files, or change a timer:
+
+\`\`\`bash
+(
+  set -u
+  echo '=== HOST_AND_TIME ==='
+  hostname
+  date -Is
+
+  echo '=== ALLOWLISTED_REPORT_STATUS ==='
+  REPORTER="$HOME/.local/share/v79-workforce-operations/bin/v79_workforce_briefing.py"
+  if test -f "$REPORTER"; then
+    python3 -B "$REPORTER" status |
+      grep -E '^(WORKFORCE_BRIEFINGS_COUNT=|REPORT=|WORKFORCE_STATUS=)' || true
+  else
+    echo 'REPORTER=UNAVAILABLE'
+  fi
+
+  echo '=== SCHEDULED_TIMERS ==='
+  systemctl --user list-timers --all --no-pager |
+    grep -E 'v79-workforce|v79-g2-approved-task' || true
+
+  echo '=== G2_TASK_WORKER_STATE ==='
+  for unit in v79-g2-approved-task-worker.timer v79-g2-approved-task-worker.service; do
+    printf 'UNIT=%s\n' "$unit"
+    systemctl --user show "$unit" \
+      -p LoadState -p ActiveState -p Result -p ExecMainStatus \
+      --no-pager 2>/dev/null || echo 'UNIT_UNAVAILABLE'
+  done
+
+  echo '=== G2_UNCERTAINTY_LATCH ==='
+  if test -e "$HOME/.local/share/v79-approved-task-worker/uncertain.json"; then
+    echo 'TASK_WORKER_UNCERTAIN=YES_RECONCILE_NO_RETRY'
+  else
+    echo 'TASK_WORKER_UNCERTAIN=NOT_OBSERVED'
+  fi
+)
+\`\`\`
+
+This is a **triage snapshot, not final acceptance**: a timer being active does not prove successful execution, status \`AVAILABLE\` alone does not prove complete authentic app evidence, and absence of an uncertainty latch does not demonstrate approval/denial/audit pass. After reading results, use independent source-timestamp, G2 ledger, task-row, and supervisor MFA verification before any owner GO.
