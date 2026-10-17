@@ -1,5 +1,8 @@
 """R1 safe offline unit tests for read-only Podman/Docker ID diagnostics."""
 import importlib.util
+import hashlib
+import tempfile
+import os
 import json
 from pathlib import Path
 import unittest
@@ -57,6 +60,40 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(argv,list(m.PODMAN)+["image","exists","sha256:"+target])
             self.assertNotIn("pull",argv)
 
+    def test_saved_runtime_inspect_id_only_requires_four_unique_records(self):
+        ids=list(m.IMAGES.values())[:4]
+        full=[{"Id":"sha256:"+pin,"Env":["PRIVATE_SUPPRESSED"],
+               "Labels":{"secret":"PRIVATE_SUPPRESSED"}} for pin in ids]
+        self.assertEqual(m.saved_runtime_image_ids(full),set(ids))
+        for bad in ([],full[:3],full+[full[0]],[{"Id":"x"}]*4,
+                    [{"Id":"sha256:"+ids[0]}]*4):
+            with self.assertRaises(m.Stop):
+                m.saved_runtime_image_ids(bad)
+
+    def test_ciphertext_provenance_against_manifest_without_decrypting(self):
+        with tempfile.TemporaryDirectory(prefix="r1-image-provenance-") as temp:
+            root=Path(temp)
+            p=root/m.FILE
+            p.write_bytes(b"CI-SYNTHETIC-ENCRYPTED-IMAGE-BYTES")
+            os.chmod(p,0o600)
+            row={"name":m.FILE,"bytes":p.stat().st_size,
+                 "sha256":hashlib.sha256(p.read_bytes()).hexdigest()}
+            (root/"ciphertext-manifest.json").write_text(json.dumps({"files":[row]}))
+            self.assertEqual(m.verify_ciphertext(root,m.FILE),p)
+            p.write_bytes(b"CORRUPTED")
+            with self.assertRaises(m.Stop):
+                m.verify_ciphertext(root,m.FILE)
+
+    def test_three_way_comparisons_detect_consistent_but_wrong_images(self):
+        known=set(m.IMAGES.values())
+        runtime=set(list(m.IMAGES.values())[:4])
+        alternative={"a"*64,"b"*64,"c"*64,"d"*64,"e"*64}
+        self.assertEqual(len(alternative&known),0)
+        self.assertEqual(len(alternative&alternative),5)
+        self.assertEqual(len(alternative&runtime),0)
+        # Archive and Podman agree with each other, but no exact runtime pins.
+        # Such evidence must not grant an image provenance PASS.
+
     def test_no_import_deletion_mutation_or_network_in_diagnostic(self):
         code=SRC.read_text()
         self.assertIn('PODMAN = ("podman", "--remote=false")',code)
@@ -65,6 +102,9 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("REMOTE_CONTAINER_CONTEXT_REFUSED",code)
         self.assertIn('tarfile.open(fileobj=decrypt.stdout, mode="r|")',code)
         self.assertIn("R1_DATABASE_RESTORE=NOT_RUN",code)
+        self.assertIn("R1_ARCHIVE_VS_LOCAL_SHARED_CONFIG_IDS=",code)
+        self.assertIn("R1_SAVED_RUNTIME_INSPECT_IDS_MATCH=",code)
+        self.assertIn("CIPHERTEXT_COMPONENT_HASH_MISMATCH",code)
         self.assertNotIn("podman load",code)
         self.assertNotIn('"load"',code)
         self.assertNotIn('"pull"',code)
