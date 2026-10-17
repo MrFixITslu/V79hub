@@ -15,10 +15,12 @@ for version in ('17','16'):
     ref='docker.io/library/postgres:'+version+'-alpine'
     subprocess.run([*m.PD,'pull',ref],check=True,stdout=subprocess.DEVNULL)
     images.append(m.quiet([*m.PD,'image','inspect',ref,'--format','{{.Id}}']))
+ref='docker.io/library/node:22-alpine'
+subprocess.run([*m.PD,'pull',ref],check=True,stdout=subprocess.DEVNULL)
+infra=m.quiet([*m.PD,'image','inspect',ref,'--format','{{.Id}}'])
 pod='r1-ci-'+secrets.token_hex(5)
 try:
-    m.quiet([*m.PD,'pod','create','--name',pod,'--network=none',
-             '--infra-image',images[0],'--infra-command','/bin/sleep infinity'])
+    m.create_closed_pod(pod,infra)
     for version,image,port in zip(('17','16'),images,(5432,5433)):
         name=pod+'-pg'+version
         args=m.pod_command(name,image,pod,{

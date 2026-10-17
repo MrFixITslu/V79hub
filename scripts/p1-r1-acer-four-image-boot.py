@@ -189,6 +189,13 @@ def extract_verified(root, selected, scratch):
             gp.wait()
         line("R1_"+folder.upper()+"_FILESYSTEM_RESTORE","PASS")
     line("R1_REAL_APP_DATA_COPIED_TO_RAM_TMPFS","PASS")
+def create_closed_pod(pod,image):
+    # Infra image VOLUME declarations can propagate mounts to pod members.
+    volumes=json.loads(quiet([*PD,"image","inspect",image,
+                              "--format","{{json .Config.Volumes}} "]))
+    need(volumes in (None,{}),"INFRA_IMAGE_DECLARED_VOLUMES_REFUSED")
+    quiet([*PD,"pod","create","--name",pod,"--network=none",
+           "--infra-image",image,"--infra-command","/bin/sleep infinity"],timeout=60)
 def database_tmpfs():
     # /tmp is supplied exactly once by pod_command for every container.
     return ["--tmpfs=/var/lib/postgresql/data:rw,size=1073741824,mode=0700",
@@ -277,10 +284,8 @@ def run(root,mounts,db,resolved,selected):
     app_t="r1-tiquet-"+uid
     try:
         line("R1_PHASE","CREATE_NETWORK_NONE_POD")
-        # Reuse an exact already-local image for infra; never resolve/pull pause.
-        quiet([*PD,"pod","create","--name",pod,"--network=none",
-               "--infra-image",resolved["v79-hub-postgres"],
-               "--infra-command","/bin/sleep infinity"],timeout=60)
+        # Hub has no declared data volumes; PostgreSQL infra images do.
+        create_closed_pod(pod,resolved["v79-hub"])
         infra=quiet([*PD,"pod","inspect",pod,"--format","{{.InfraContainerID}}"])
         need(infra!="","POD_INFRA_NOT_CREATED")
         mode=quiet([*PD,"inspect","--format","{{.HostConfig.NetworkMode}}",infra])

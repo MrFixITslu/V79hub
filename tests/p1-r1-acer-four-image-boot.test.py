@@ -123,8 +123,16 @@ class SafetyContractTests(unittest.TestCase):
         self.assertIn('need(left.returncode==1,',src)
         self.assertLess(src.index('need(left.returncode==1,'),
                         src.index('shutil.rmtree(scratch)'))
-        self.assertIn('"--infra-image",resolved["v79-hub-postgres"]',src)
+        self.assertIn('create_closed_pod(pod,resolved["v79-hub"])',src)
         self.assertIn('"--infra-command","/bin/sleep infinity"',src)
+
+    def test_infra_image_declared_volumes_rejected(self):
+        with mock.patch.object(m,"quiet",return_value='{"/var/lib/postgresql/data":{}}') as q:
+            with self.assertRaises(m.Stop): m.create_closed_pod("r1-test","sha256:dummy")
+            self.assertEqual(q.call_count,1)
+        with mock.patch.object(m,"quiet",side_effect=['null','podid']) as q:
+            m.create_closed_pod("r1-test","sha256:dummy")
+            self.assertIn("--network=none",q.call_args.args[0])
 
     def test_app_data_not_decrypted_until_both_databases_start(self):
         src=SRC.read_text()
