@@ -18,8 +18,8 @@ test('specialist and CEO/COO skills are versioned, distinct and draft-only', asy
   assert.equal(catalog.ownerFinalAuthority,true);
   for(const id of catalog.allSkills){
     const text=await load(id+'/SKILL.md');
-    assert.match(text,new RegExp('Skill ID:\\s*'+id+'\\b','i'),id);
-    assert.match(text,/Version:\s*1\.0\.0/i,id);
+    assert.ok(text.includes('**Skill ID:** '+id),id);
+    assert.ok(text.includes('**Version:** 1.0.0'),id);
     assert.match(text,/(unknown|unavailable|stale)/i,id);
     assert.match(text,/(owner approval|founder approve|owner controls|owner-approved|founder retains|owner final)/i,id);
     assert.match(text,/(never|no auto-|no privileged|non-negotiable)/i,id);
