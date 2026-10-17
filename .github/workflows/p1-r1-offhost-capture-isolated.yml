@@ -1,0 +1,33 @@
+name: P1 R1 exact-image offhost recovery capture (synthetic only)
+
+on:
+  pull_request:
+    branches:
+      - feature/p1-r1-runtime-contract-audit-20261016
+    paths:
+      - scripts/p1-r1-offhost-capture.py
+      - tests/p1-r1-offhost-capture.test.py
+      - .github/workflows/p1-r1-offhost-capture-isolated.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fail-closed-simulation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Static syntax (no live SSH or Docker)
+        run: |
+          python -m py_compile scripts/p1-r1-offhost-capture.py tests/p1-r1-offhost-capture.test.py
+      - name: Synthetic stream, checksum, source-drift, mount and failure tests
+        run: python tests/p1-r1-offhost-capture.test.py -v
+      - name: Existing pinned runtime contract tests
+        run: python tests/p1-r1-current-release-contract.test.py -v
