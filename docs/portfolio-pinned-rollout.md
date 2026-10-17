@@ -169,3 +169,34 @@ rollback. Both original app images remain available; rollback restores images
 and runtime settings only, not database or application data changes. After a
 successful rollout, full new portfolio backup and recovery/security acceptance
 are still required. Customer release remains NO_GO.
+
+## Hub/Tiquet deployed; remaining portfolio preflight
+
+Owner execution of `--continue-repaired-tiquet` succeeded in
+`/home/firelion/v79-portfolio-rollout.6kvFDd5e`: both applications deployed healthy
+with full normalized runtime preserved; originally active timers resumed. Retained
+checkpoint is explicitly pre-first-attempt, not a fresh backup of these releases.
+
+`scripts/portfolio-remaining-preflight.py` prepares the next Academy/POS/Games
+release using the existing owner-supplied 17 October inventory rather than asking
+for another metadata dump. It verifies the already accepted rollout module's Git
+blob before import, serializes with the same host lock, rechecks Hub/Tiquet images
+and health, checks the four remaining app/worker image pins and existing Compose
+input hashes, and validates rendered effective environment/storage/network parity.
+It saves private original frozen models for review. No build, pull, migration,
+container switch, timer change, application data write or backup occurs.
+
+The POS API and worker have distinct original images and their DB/Redis Compose
+file differs from the app file. Do not replace the stack with base Compose or
+implicitly start dependency/migration services. Read only PostgreSQL migration
+metadata with enforced transaction read-only mode. Compare the public migration
+name/checksum against pinned source; expose only fixed expected pending names,
+counts and status, never unknown migration names or runtime credentials. An absent,
+unfinished, changed or unknown migration requires reconciliation before rollout.
+
+The worker has no Docker healthcheck; RUNNING is not worker readiness acceptance.
+A passing preflight means private plans prepared only, not deployment or security
+acceptance. Later deployment must checkpoint the remaining applications/data,
+verify candidate execution compatibility and any required migrations, preserve
+runtime and all unrelated services, and verify rollback. Full post-deployment
+portfolio backup/recovery and owner MFA/SSO/tenant/security acceptance remain due.
