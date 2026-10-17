@@ -129,7 +129,7 @@ class SafetyContractTests(unittest.TestCase):
     def test_startup_observer_never_prints_raw_app_output(self):
         from contextlib import redirect_stdout
         process=mock.Mock()
-        process.stdout=io.BytesIO(b"SECRET_CUSTOMER_DATA EACCES private-path")
+        process.stdout=io.BytesIO(b"SECRET_CUSTOMER_DATA EACCES private-path at /app/server.ts:321:5")
         process.poll.return_value=1
         args=m.pod_command("r1-app","sha256:dummy","r1-pod",{})
         output=io.StringIO()
@@ -139,6 +139,8 @@ class SafetyContractTests(unittest.TestCase):
                     observer=m.start_app(args)
                     observer[1].join(timeout=2)
         self.assertEqual(observer[2],{"PERMISSION_DENIED"})
+        self.assertGreater(observer[0].r1_meta["bytes"],0)
+        self.assertEqual(observer[0].r1_meta["locations"],{"server.ts:321:5"})
         self.assertEqual(output.getvalue(),"")
         self.assertIn("create",q.call_args.args[0])
         self.assertNotIn("--detach",q.call_args.args[0])

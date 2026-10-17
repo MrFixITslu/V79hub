@@ -55,11 +55,13 @@ try:
     print("SYNTHETIC_NONROOT_PRIVATE_MOUNTS_AND_HEALTH=PASS",flush=True)
     failed=m.start_app(m.pod_command(pod+"-fails",infra,pod,{},
         commands=["node","-e",
-          "console.error('PRIVATE_SYNTHETIC_DATA EACCES');process.exit(1)"]))
+          "console.error('PRIVATE_SYNTHETIC_DATA EACCES at /app/server.ts:321:5');process.exit(1)"]))
     try:
         failed[0].wait(timeout=20)
         failed[1].join(timeout=3)
         assert "PERMISSION_DENIED" in failed[2], "EARLY_STDERR_CAPTURE_FAILED"
+        assert failed[0].r1_meta["bytes"]>0
+        assert "server.ts:321:5" in failed[0].r1_meta["locations"]
         print("SYNTHETIC_EARLY_EXIT_STDERR_CLASSIFIED=PASS",flush=True)
     finally:
         failed[0].stdout.close()

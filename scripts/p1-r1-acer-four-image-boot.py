@@ -239,6 +239,15 @@ def inspect_no_net(container,allowed=None):
         else:
             need(m.get("Type")=="tmpfs","PERSISTENT_CONTAINER_VOLUME_REFUSED")
 ERROR_SIGNATURES={
+    "SYNTAX_ERROR": ("syntaxerror",),
+    "TYPE_ERROR": ("typeerror",),
+    "REFERENCE_ERROR": ("referenceerror",),
+    "JSON_PARSE_ERROR": ("unexpected token", "unexpected end of json"),
+    "FILE_NOT_FOUND": ("enoent", "no such file or directory"),
+    "NATIVE_BINARY_LOAD_FAILED": ("err_dlopen_failed", "exec format error", "error loading shared library"),
+    "DATABASE_SCHEMA_MISSING": ("42p01", "42703", "does not exist"),
+    "HUB_ADMIN_CONFIG_INVALID": ("set v79_hub_admin_password", "v79_hub_admin_email must remain"),
+    "HUB_ORGANIZATION_MALFORMED": ("organization records are malformed",),
     "PERMISSION_DENIED": ("eacces", "permission denied"),
     "READ_ONLY_FILESYSTEM": ("erofs", "read-only file system"),
     "OWNER_IDENTITY_MISSING": ("the hub owner identity is missing",),
@@ -260,12 +269,21 @@ def start_app(cmd):
     process=subprocess.Popen([*PD,"start","--attach",name],
           stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     categories=set()
+    process.r1_meta={"bytes":0,"locations":set()}
     def drain():
         window=""
         while True:
             block=process.stdout.read(512)
             if not block: break
+            process.r1_meta["bytes"]+=len(block)
             window=(window+block.decode(errors="replace").lower())[-8192:]
+            # Output only fixed source names and numeric line/column locations.
+            # Never copy arbitrary stack paths, messages or customer values.
+            for source in ("server.ts", "server/index.js", "server/db.js",
+                           "server/logger.js", "server/runtime-store.mjs",
+                           "server/postgres-store.mjs", "server/platform.js"):
+                for match in re.finditer(re.escape("/app/"+source)+r":([0-9]{1,7}):([0-9]{1,7})(?![0-9])",window):
+                    process.r1_meta["locations"].add(source+":"+match[1]+":"+match[2])
             for category,signatures in ERROR_SIGNATURES.items():
                 if any(signature in window for signature in signatures):
                     categories.add(category)
@@ -283,6 +301,10 @@ def app_diagnostic(name,role,observer):
     if isinstance(code,int): line("R1_"+role+"_PROCESS_EXIT_CODE",code)
     if observer:
         if observer[0].poll() is not None: observer[1].join(timeout=2)
+        line("R1_"+role+"_CAPTURED_OUTPUT_BYTES",observer[0].r1_meta["bytes"])
+        line("R1_"+role+"_SOURCE_LOCATIONS",
+             ",".join(sorted(observer[0].r1_meta["locations"].copy())) or "UNAVAILABLE")
+        line("R1_"+role+"_ATTACH_EXIT_CODE",observer[0].poll() if observer[0].poll() is not None else "RUNNING")
         line("R1_"+role+"_STARTUP_CATEGORIES",
              ",".join(sorted(observer[2].copy())) or "UNCLASSIFIED")
 
@@ -320,6 +342,9 @@ def check_service(name,url):
         p=subprocess.run([*PD,"exec",name,"node","-e",node,url],
                          stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
         if p.returncode==0:return True
+        if p.returncode in (125,126,127):
+            status=quiet([*PD,"inspect","--format","{{.State.Status}}",name])
+            if status in ("exited","stopped","dead"): return False
         time.sleep(.6)
     return False
 def run(root,mounts,db,resolved,selected):
