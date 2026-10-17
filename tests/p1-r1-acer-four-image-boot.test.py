@@ -21,6 +21,18 @@ class SafetyContractTests(unittest.TestCase):
             ("v79-tiquet-manager","/app/uploads")})
         self.assertEqual(len(set(m.TARGETS.values())),3)
 
+    def test_required_app_startup_settings_and_security_remain_enabled(self):
+        hub,tiquet=m.application_environment("dummy-h","dummy-t","hub-test","tiquet-test")
+        self.assertEqual(hub["V79_HUB_ADMIN_EMAIL"],"vision79slu@gmail.com")
+        self.assertEqual(hub["V79_TIQUET_LAUNCH_SECRET"],tiquet["V79_TIQUET_LAUNCH_SECRET"])
+        self.assertGreaterEqual(len(tiquet["V79_TIQUET_LAUNCH_SECRET"]),32)
+        self.assertEqual(hub["V79_REQUIRE_ADMIN_MFA"],"1")
+        self.assertEqual(tiquet["V79_ENTITLEMENT_RECHECK_ENABLED"],"1")
+        self.assertEqual(tiquet["V79_ALLOW_LEGACY_AUTH"],"0")
+        self.assertEqual(tiquet["V79_ALLOW_EMAIL_ACCOUNT_LINK"],"0")
+        other_hub,other_tiquet=m.application_environment("a","b","c","d")
+        self.assertNotEqual(hub["V79_TIQUET_LAUNCH_SECRET"],other_hub["V79_TIQUET_LAUNCH_SECRET"])
+
     def test_db_image_is_forced_local_and_pod(self):
         args=m.pod_command("r1-synthetic", "sha256:"+"1"*64,
                            "r1-test-pod",{"SYNTHETIC":"1"})

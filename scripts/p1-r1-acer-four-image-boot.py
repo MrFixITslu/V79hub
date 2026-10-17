@@ -257,6 +257,7 @@ ERROR_SIGNATURES={
     "DATABASE_AUTH_FAILED": ("password authentication failed",),
     "MODULE_LOAD_FAILED": ("err_module_not_found", "cannot find module"),
     "ADDRESS_IN_USE": ("eaddrinuse",),
+    "ENTITLEMENT_CONFIG_INVALID": ("hub entitlement validation is not securely configured",),
     "JWT_SECRET_PERSIST_FAILED": ("could not persist a generated one",),
 }
 def start_app(cmd):
@@ -347,6 +348,49 @@ def check_service(name,url):
             if status in ("exited","stopped","dead"): return False
         time.sleep(.6)
     return False
+def application_environment(pass_h,pass_t,db_h,db_t):
+    shared=secrets.token_hex(32)
+    secret_key=secrets.token_hex(32)
+    admin_pw=secrets.token_hex(24)
+    app_h_env={
+        "NODE_ENV":"production","PORT":"3040","DATA_DIR":"/app/data",
+        "V79_HUB_STORE_BACKEND":"json",
+        "DATABASE_URL":f"postgresql://postgres:{pass_h}@127.0.0.1:5432/{db_h}",
+        "V79_HUB_ADMIN_USERNAME":"r1-isolated",
+        "V79_HUB_ADMIN_EMAIL":"vision79slu@gmail.com",
+        "V79_HUB_ADMIN_PASSWORD":admin_pw,
+        "V79_REQUIRE_ADMIN_MFA":"1",
+        "V79_HUB_SECURITY_KEY":secret_key,
+        "V79_PLATFORM_SHARED_SECRET":shared,
+        "V79_TIQUET_LAUNCH_SECRET":shared,
+        "WIPAY_ENABLED":"0","RESEND_API_KEY":"",
+        "V79_WORKFORCE_ACTIONS_ENABLED":"0",
+        "V79_MARKETING_PRODUCTION_ENABLED":"0",
+        "V79_AGENT_INTERNAL_URL":"http://127.0.0.1:9",
+        "APP_URL":"http://127.0.0.1:3040",
+        "TIQUET_PUBLIC_URL":"http://127.0.0.1:3050",
+    }
+    app_t_env={
+        "NODE_ENV":"production","PORT":"3050",
+        "DB_HOST":"127.0.0.1","DB_PORT":"5433",
+        "DB_NAME":db_t,"DB_USER":"postgres","DB_PASSWORD":pass_t,
+        "DATABASE_PATH":"/app/data/tiquet.db",
+        "APP_BASE_URL":"http://127.0.0.1:3050",
+        "V79_HUB_INTERNAL_URL":"http://127.0.0.1:3040",
+        "V79_HUB_BILLING_URL":"http://127.0.0.1:3040",
+        "V79_HUB_PUBLIC_URL":"http://127.0.0.1:3040",
+        "V79_PLATFORM_SHARED_SECRET":shared,
+        "V79_TIQUET_LAUNCH_SECRET":shared,
+        "V79_HUB_MANAGED_BILLING":"1",
+        "V79_ALLOW_LEGACY_AUTH":"0",
+        "V79_ALLOW_EMAIL_ACCOUNT_LINK":"0",
+        "JWT_SECRET":secrets.token_hex(48),
+        "SUPER_ADMIN_JWT_SECRET":secrets.token_hex(48),
+        "V79_ENTITLEMENT_RECHECK_ENABLED":"1",
+        "GOOGLE_CLIENT_ID":"",
+    }
+    return app_h_env,app_t_env
+
 def run(root,mounts,db,resolved,selected):
     scratch=Path(tempfile.mkdtemp(prefix="v79-r1-",dir="/dev/shm"))
     os.chmod(scratch,0o700)
@@ -395,43 +439,7 @@ def run(root,mounts,db,resolved,selected):
         line("R1_HUB_RESTORED_USER_TABLES",hub_count)
         line("R1_TIQUET_RESTORED_USER_TABLES",tiquet_count)
         line("R1_TWO_DISCONNECTED_DATABASES","PASS")
-        shared=secrets.token_hex(32)
-        secret_key=secrets.token_hex(32)
-        admin_pw=secrets.token_hex(24)
-        app_h_env={
-            "NODE_ENV":"production","PORT":"3040","DATA_DIR":"/app/data",
-            "V79_HUB_STORE_BACKEND":"json",
-            "DATABASE_URL":f"postgresql://postgres:{pass_h}@127.0.0.1:5432/{db_h}",
-            "V79_HUB_ADMIN_USERNAME":"r1-isolated",
-            "V79_HUB_ADMIN_PASSWORD":admin_pw,
-            "V79_REQUIRE_ADMIN_MFA":"1",
-            "V79_HUB_SECURITY_KEY":secret_key,
-            "V79_PLATFORM_SHARED_SECRET":shared,
-            "WIPAY_ENABLED":"0","RESEND_API_KEY":"",
-            "V79_WORKFORCE_ACTIONS_ENABLED":"0",
-            "V79_MARKETING_PRODUCTION_ENABLED":"0",
-            "V79_AGENT_INTERNAL_URL":"http://127.0.0.1:9",
-            "APP_URL":"http://127.0.0.1:3040",
-            "TIQUET_PUBLIC_URL":"http://127.0.0.1:3050",
-        }
-        app_t_env={
-            "NODE_ENV":"production","PORT":"3050",
-            "DB_HOST":"127.0.0.1","DB_PORT":"5433",
-            "DB_NAME":db_t,"DB_USER":"postgres","DB_PASSWORD":pass_t,
-            "DATABASE_PATH":"/app/data/tiquet.db",
-            "APP_BASE_URL":"http://127.0.0.1:3050",
-            "V79_HUB_INTERNAL_URL":"http://127.0.0.1:3040",
-            "V79_HUB_BILLING_URL":"http://127.0.0.1:3040",
-            "V79_HUB_PUBLIC_URL":"http://127.0.0.1:3040",
-            "V79_PLATFORM_SHARED_SECRET":shared,
-            "V79_HUB_MANAGED_BILLING":"1",
-            "V79_ALLOW_LEGACY_AUTH":"0",
-            "V79_ALLOW_EMAIL_ACCOUNT_LINK":"0",
-            "JWT_SECRET":secrets.token_hex(48),
-            "SUPER_ADMIN_JWT_SECRET":secrets.token_hex(48),
-            "V79_ENTITLEMENT_RECHECK_ENABLED":"1",
-            "GOOGLE_CLIENT_ID":"",
-        }
+        app_h_env,app_t_env=application_environment(pass_h,pass_t,db_h,db_t)
         mounts_h=["--volume",str(scratch/"hub_data")+":/app/data:rw"]
         mounts_t=["--volume",str(scratch/"tiquet_data")+":/app/data:rw,U",
                   "--volume",str(scratch/"tiquet_uploads")+":/app/uploads:rw,U"]

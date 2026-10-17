@@ -34,6 +34,28 @@ try:
         m.inspect_no_net(name)
         m.wait_sql(name,port,'synthetic')
         print('SYNTHETIC_PODMAN_PG'+version+'_STARTUP=PASS',flush=True)
+    # Execute the real Tiquet constructor fixture (original Git blob
+    # ce2ecdaa69784d9c8ab67e2ab6b7953a5a394ce4), never a bypass stub.
+    hub_env,tiquet_env=m.application_environment("h","t","synthetic_h","synthetic_t")
+    checker=(Path(__file__).parent/"fixtures/p1-r1-tiquet-entitlement-checker.mjs").read_text()
+    probe=checker+"\n"+(
+        "const assert=(await import('node:assert/strict')).default;"
+        "assert.equal(process.env.V79_HUB_ADMIN_EMAIL,'vision79slu@gmail.com');"
+        "assert.equal(process.env.V79_REQUIRE_ADMIN_MFA,'1');"
+        "assert.equal(process.env.V79_ENTITLEMENT_RECHECK_ENABLED,'1');"
+        "const config={product:'tiquet',hubUrl:process.env.V79_HUB_INTERNAL_URL,"
+        "secret:process.env.V79_TIQUET_LAUNCH_SECRET};"
+        "assert.equal(typeof createHubEntitlementChecker(config),'function');"
+        "assert.throws(()=>createHubEntitlementChecker({...config,secret:''}));")
+    m.quiet([*m.PD,"run","--rm","--pull=never","--pod",pod,
+        "--read-only","--image-volume=ignore","--log-driver=none",
+        "--env","V79_HUB_ADMIN_EMAIL="+hub_env["V79_HUB_ADMIN_EMAIL"],
+        "--env","V79_REQUIRE_ADMIN_MFA="+hub_env["V79_REQUIRE_ADMIN_MFA"],
+        "--env","V79_ENTITLEMENT_RECHECK_ENABLED="+tiquet_env["V79_ENTITLEMENT_RECHECK_ENABLED"],
+        "--env","V79_HUB_INTERNAL_URL="+tiquet_env["V79_HUB_INTERNAL_URL"],
+        "--env","V79_TIQUET_LAUNCH_SECRET="+tiquet_env["V79_TIQUET_LAUNCH_SECRET"],
+        "--entrypoint=node",infra,"--input-type=module","-e",probe])
+    print("SYNTHETIC_REAL_ENTITLEMENT_STARTUP_CONFIG=PASS",flush=True)
     # Verify rootless :U on private synthetic RAM copies as a non-root Node user.
     scratch=Path(tempfile.mkdtemp(prefix="r1-ci-",dir="/dev/shm"))
     data=scratch/"data"; data.mkdir(mode=0o700)
