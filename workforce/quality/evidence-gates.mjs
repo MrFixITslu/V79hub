@@ -16,6 +16,7 @@ export const METRICS = Object.freeze({
 const ID = /^[a-z0-9][a-z0-9._:-]{0,95}$/i;
 const OBSERVED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 const MAX_AGE_MS = 15 * 60 * 1000;
+const verifiedSnapshots = new WeakSet();
 const VALID_SKILLS = new Set(['finance', 'strategy', 'marketing', 'customer-service', 'technical-security', 'sales', 'ceo', 'coo']);
 const owns = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const safeId = v => typeof v === 'string' && ID.test(v);
@@ -70,15 +71,18 @@ export function acceptWorkforceMetrics(records, { allowedSystems = ['hub', 'tiqu
   const accepted = [...keyed.values()].sort((a,b)=>a.id.localeCompare(b.id));
   const systems = new Set(accepted.map(r=>r.system));
   const unknownSystems = allowedSystems.filter(s=>!systems.has(s));
-  return {
+  const snapshot = Object.freeze({
     status: accepted.length === 0 ? 'unavailable' : unknownSystems.length || rejected ? 'partial' : 'available',
-    records: accepted, unknownSystems, rejected,
-  };
+    records: Object.freeze(accepted.map(r=>Object.freeze(r))),
+    unknownSystems: Object.freeze(unknownSystems), rejected,
+  });
+  verifiedSnapshots.add(snapshot);
+  return snapshot;
 }
 
 /** Draft owner alerts only: no network, delivery, ticket creation or queue mutation. */
 export function proposeOwnerExceptions(snapshot) {
-  if (!snapshot || !['available','partial'].includes(snapshot.status) || !Array.isArray(snapshot.records)) return [];
+  if (!snapshot || !verifiedSnapshots.has(snapshot) || !['available','partial'].includes(snapshot.status) || !Array.isArray(snapshot.records)) return [];
   const alerts = [];
   for (const r of snapshot.records) {
     const isDown = r.metric === 'health_pass' && r.value === 0;
@@ -110,7 +114,7 @@ export function gateSpecialistOutput(draft, snapshot) {
       !Array.isArray(draft.claims) || draft.claims.length > 20 ||
       !Array.isArray(draft.proposals) || draft.proposals.length > 5 ||
       !draft.proposals.every(p=>p && p.state === 'owner_review_only' && safeId(p.id))) return fail('UNSAFE_OUTPUT');
-  if (!snapshot || !Array.isArray(snapshot.records)) return fail('UNVERIFIED_EVIDENCE');
+  if (!snapshot || !verifiedSnapshots.has(snapshot) || !Array.isArray(snapshot.records)) return fail('UNVERIFIED_EVIDENCE');
   const byId = new Map(snapshot.records.map(r=>[r.id,r]));
   for (const c of draft.claims) {
     const r = byId.get(c?.evidenceId);
@@ -122,9 +126,9 @@ export function gateSpecialistOutput(draft, snapshot) {
 }
 
 /** Bounded local estimator; actual provider receipts must be independently validated. */
-export function checkModelBudget({receipts, estimateUsd, budgetUsd=20, nowMs=Date.now(), receiptsComplete=false}={}) {
+export function checkModelBudget({receipts, estimateUsd, budgetUsd=20, nowMs=Date.now(), receiptsComplete=false, verifyReceipt}={}) {
   const block = reason=>({allowed:false,reason});
-  if (!Array.isArray(receipts) || receipts.length>5000 || receiptsComplete!==true ||
+  if (!Array.isArray(receipts) || receipts.length>5000 || receiptsComplete!==true || typeof verifyReceipt!=='function' ||
       !isMoney(estimateUsd) || !isMoney(budgetUsd) || budgetUsd>20 || !Number.isFinite(nowMs))
     return block('BUDGET_EVIDENCE_UNAVAILABLE');
   let used = 0;
@@ -132,6 +136,9 @@ export function checkModelBudget({receipts, estimateUsd, budgetUsd=20, nowMs=Dat
   for (const r of receipts) {
     if (!r || !safeId(r.id) || ids.has(r.id) || !isMoney(r.usd) ||
         !Number.isFinite(when(r.recordedAt))) return block('INVALID_RECEIPT');
+    let authentic = false;
+    try { authentic = verifyReceipt(r) === true; } catch { authentic = false; }
+    if (!authentic) return block('UNVERIFIED_RECEIPT');
     ids.add(r.id);
     const age = nowMs - when(r.recordedAt);
     if (age < -60000) return block('FUTURE_RECEIPT');
