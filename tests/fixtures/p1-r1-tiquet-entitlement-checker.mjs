@@ -42,4 +42,3 @@ export function createHubEntitlementChecker({ product, hubUrl, secret, now = Dat
     }
   };
 }
-
