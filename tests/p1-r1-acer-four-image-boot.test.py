@@ -1,5 +1,10 @@
 """Policy tests for disconnected recovered-data smoke runner (synthetic only)."""
 import importlib.util
+import tempfile
+import io
+import tarfile
+import subprocess
+from unittest import mock
 from pathlib import Path
 import unittest
 
@@ -25,6 +30,39 @@ class SafetyContractTests(unittest.TestCase):
         self.assertNotIn("-p",args)
         self.assertNotIn("--publish",args)
         self.assertEqual(args[-1],"sha256:"+"1"*64)
+
+    def test_safe_tar_mount_copy_and_no_config_secret_extraction(self):
+        # This is entirely synthetic; no actual GPG key/customer backup.
+        actual_popen=subprocess.Popen
+        def decrypt_with_cat(args,**kw):
+            self.assertEqual(args[0],"gpg")
+            return actual_popen(["cat",args[-1]],**kw)
+        with tempfile.TemporaryDirectory() as temp:
+            original=Path(temp)
+            raw=original/"hub-mount-01.tar.gpg"
+            with tarfile.open(raw,"w:gz") as t:
+                directory=tarfile.TarInfo("app/data")
+                directory.type=tarfile.DIRTYPE
+                t.addfile(directory)
+                payload=b"CI_ONLY_DUMMY_DATA"
+                file=tarfile.TarInfo("app/data/state.json")
+                file.size=len(payload)
+                t.addfile(file,io.BytesIO(payload))
+            scratch=original/"scratch"
+            scratch.mkdir()
+            with mock.patch.object(m.subprocess,"Popen",side_effect=decrypt_with_cat):
+                m.extract_verified(original,
+                    {"hub-mount-01.tar.gpg":("app/data","hub_data")},scratch)
+            self.assertEqual((scratch/"hub_data"/"state.json").read_bytes(),
+                             b"CI_ONLY_DUMMY_DATA")
+            self.assertFalse((scratch/"hub_data"/"state.json").is_symlink())
+
+    def test_missing_or_wrong_mount_archive_fails_closed(self):
+        manifest={"appMountDestinations":{
+            "v79-hub":["/app/data","/run/secrets/mock-one"],
+            "v79-tiquet-manager":["/app/data","/app/uploads"]}}
+        with self.assertRaises(m.Stop):
+            m.choose_archives({},manifest)
 
     def test_proof_and_ram_scratch_only(self):
         src=SRC.read_text()
