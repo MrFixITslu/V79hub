@@ -216,9 +216,23 @@ class OffhostTests(unittest.TestCase):
                 self.assertEqual(f.stat().st_mode & 0o077, 0)
                 self.assertEqual(entry["sha256"], capture.sha_file(f))
             with mock.patch.object(capture, "verify_one") as checker, \
+                 mock.patch.object(capture, "compatible_pg_restore", return_value="/fake/pg_restore"), \
                  contextlib.redirect_stdout(io.StringIO()):
                 capture.verify_set(root)
             self.assertEqual(checker.call_count, 14)
+            with mock.patch.object(capture, "verify_one") as check_partial, \
+                 mock.patch.object(capture, "verify_gpg_full_stream") as gpg_full, \
+                 mock.patch.object(capture, "compatible_pg_restore",
+                                   side_effect=lambda version: None if version == 17 else "/fake/pg_restore"), \
+                 contextlib.redirect_stdout(io.StringIO()) as captured:
+                with self.assertRaisesRegex(
+                    capture.Abort, "COMPATIBLE_PG_RESTORE_CLIENT_REQUIRED_FOR_FULL_VERIFICATION"
+                ):
+                    capture.verify_set(root)
+            self.assertEqual(gpg_full.call_count, 1)
+            self.assertEqual(check_partial.call_count, 13)
+            self.assertIn("OFFHOST_CIPHERTEXT_SHA_AND_GPG=PASS_14", captured.getvalue())
+            self.assertIn("POSTGRES_CLIENT_REQUIRED=hub-pg.dump.gpg", captured.getvalue())
             original_manifest = receipt.read_text()
             incomplete = json.loads(original_manifest)
             incomplete["files"] = [x for x in incomplete["files"]
@@ -268,6 +282,60 @@ class OffhostTests(unittest.TestCase):
                     capture.run_capture(plan, base)
             root = next(base.glob("p1-r1-current-release-*"))
             self.assertTrue((root / "CAPTURE_INCOMPLETE").exists())
+
+    def test_pg_list_validator_exits_early_but_decrypt_drains_to_eof(self):
+        import sys
+        with tempfile.TemporaryDirectory() as tmp:
+            finish = Path(tmp) / "producer-reached-end.txt"
+            decrypt_cmd = [
+                sys.executable, "-c",
+                "import sys,pathlib;"
+                "sys.stdout.buffer.write(b'PGDMP'+b'X'*5000000);"
+                "sys.stdout.buffer.flush();"
+                "pathlib.Path(sys.argv[1]).write_text('fully_written')",
+                str(finish),
+            ]
+            early_validator = [
+                sys.executable, "-c",
+                "import sys; assert sys.stdin.buffer.read(5)==b'PGDMP'",
+            ]
+            capture.drain_and_validate(decrypt_cmd, early_validator)
+            self.assertEqual(finish.read_text(), "fully_written")
+
+    def test_failed_validator_or_failed_decrypt_never_pass(self):
+        import sys
+        source = [sys.executable, "-c",
+                  "import sys; sys.stdout.buffer.write(b'PGDMP'+b'X'*200000)"]
+        bad_validator = [sys.executable, "-c", "import sys;sys.exit(3)"]
+        with self.assertRaisesRegex(capture.Abort, "ENCRYPTED_ARCHIVE_VALIDATION_FAILED"):
+            capture.drain_and_validate(source, bad_validator)
+        failed_source = [sys.executable, "-c",
+                         "import sys;sys.stdout.buffer.write(b'PGDMP');sys.exit(3)"]
+        valid_reader = [sys.executable, "-c",
+                        "import sys;sys.stdin.buffer.read()"]
+        with self.assertRaisesRegex(capture.Abort, "ENCRYPTED_ARCHIVE_VALIDATION_FAILED"):
+            capture.drain_and_validate(failed_source, valid_reader)
+
+    def test_postgres_major_version_gate(self):
+        with mock.patch.object(capture.shutil, "which", return_value="/fake/pg_restore"), \
+             mock.patch.object(capture.os, "access",
+                               side_effect=lambda p, mode: p == "/fake/pg_restore"), \
+             mock.patch.object(capture.subprocess, "run",
+                               return_value=mock.Mock(
+                                   returncode=0,
+                                   stdout=b"pg_restore (PostgreSQL) 16.15 (Ubuntu)")):
+            self.assertIsNone(capture.compatible_pg_restore(17))
+            self.assertEqual(capture.compatible_pg_restore(16), "/fake/pg_restore")
+        with mock.patch.object(capture.shutil, "which", return_value="/fake/pg_restore"), \
+             mock.patch.object(capture.os, "access",
+                               side_effect=lambda p, mode: p == "/fake/pg_restore"), \
+             mock.patch.object(capture.subprocess, "run",
+                               return_value=mock.Mock(
+                                   returncode=0,
+                                   stdout=b"pg_restore (PostgreSQL) 17.8")):
+            self.assertEqual(capture.compatible_pg_restore(17), "/fake/pg_restore")
+        with self.assertRaisesRegex(capture.Abort, "COMPATIBLE_PG_RESTORE_REQUIRED"):
+            capture.verify_one(Path("/never-access-this-file.gpg"), "pg")
 
     def test_no_acceptance_claim_without_decrypt_or_restore(self):
         text = SCRIPT.read_text()
