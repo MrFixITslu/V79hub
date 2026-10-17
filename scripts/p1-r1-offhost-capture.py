@@ -357,35 +357,104 @@ def encrypt_stream(command, output):
             remote.wait()
 
 
-def verify_one(path, kind):
-    decrypt = subprocess.Popen(["gpg", "--batch", "--quiet", "--decrypt", str(path)],
-                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+def compatible_pg_restore(required_major):
+    # Acer-only local binaries. Do not use the live PostgreSQL containers,
+    # upload any plaintext back to v79sl, or install packages automatically.
+    candidates = ["/usr/lib/postgresql/17/bin/pg_restore",
+                  "/usr/lib/postgresql/18/bin/pg_restore",
+                  shutil.which("pg_restore")]
+    for executable in candidates:
+        if not executable or not os.access(executable, os.X_OK):
+            continue
+        try:
+            p = subprocess.run([executable, "--version"], stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, timeout=10, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        match = re.search(rb"pg_restore \(PostgreSQL\) (\d+)", p.stdout)
+        if p.returncode == 0 and match and int(match.group(1)) >= required_major:
+            return executable
+    return None
+
+
+def verify_gpg_full_stream(path):
+    # No plaintext file or stdout; GPG must authenticate/decrypt to EOF.
+    p = subprocess.run(["gpg", "--batch", "--quiet", "--decrypt", str(path)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=1800, check=False)
+    require(p.returncode == 0, "ENCRYPTED_FULL_STREAM_DECRYPT_FAILED")
+
+
+def drain_and_validate(decrypt_command, validator_command):
+    """Run a validator while draining every decrypted byte even if it exits early.
+
+    Some archive validators (notably pg_restore --list) stop after the TOC.
+    If the downstream read end closes first, a direct GPG pipe gets SIGPIPE
+    and the old verifier incorrectly flags an otherwise valid archive.
+    This bounded-memory relay keeps GPG's stdout open until EOF.
+    """
+    decrypt = subprocess.Popen(decrypt_command, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL)
+    check = None
+    sink = None
+    total = 0
+    try:
+        check = subprocess.Popen(validator_command, stdin=subprocess.PIPE,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        sink = check.stdin
+        while True:
+            chunk = decrypt.stdout.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if sink is not None:
+                try:
+                    sink.write(chunk)
+                except BrokenPipeError:
+                    # The validator exited after reading enough metadata.
+                    # Continue draining the full GPG output to verify EOF.
+                    try:
+                        sink.close()
+                    except BrokenPipeError:
+                        pass
+                    sink = None
+        if sink is not None:
+            try:
+                sink.close()
+            except BrokenPipeError:
+                pass
+            sink = None
+        decrypt.stdout.close()
+        validator_rc = check.wait(timeout=60)
+        decrypt_rc = decrypt.wait(timeout=60)
+        require(total > 0 and validator_rc == 0 and decrypt_rc == 0,
+                "ENCRYPTED_ARCHIVE_VALIDATION_FAILED")
+    finally:
+        if sink is not None:
+            try:
+                sink.close()
+            except (BrokenPipeError, OSError):
+                pass
+        if check is not None:
+            if check.poll() is None:
+                check.kill()
+            check.wait()
+        if decrypt.poll() is None:
+            decrypt.kill()
+        decrypt.wait()
+
+
+def verify_one(path, kind, pg_restore_executable=None):
     validator = {
-        "pg": ["pg_restore", "--list"],
+        "pg": [pg_restore_executable, "--list"] if pg_restore_executable else None,
         "tgz": ["tar", "-tzf", "-"],
         "tar": ["tar", "-tf", "-"],
         "json": ["python3", "-c",
                  "import json,sys; d=json.load(sys.stdin); assert isinstance(d,list) and len(d)==4"]
     }[kind]
-    try:
-        check = subprocess.Popen(validator, stdin=decrypt.stdout, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
-        decrypt.stdout.close()
-        try:
-            result = check.wait(timeout=1800)
-            decrypted = decrypt.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            check.kill()
-            decrypt.kill()
-            check.wait()
-            decrypt.wait()
-            raise Abort("DECRYPT_OR_VALIDATOR_TIMEOUT") from None
-        require(result == 0 and decrypted == 0, "ENCRYPTED_ARCHIVE_VALIDATION_FAILED")
-    finally:
-        if decrypt.poll() is None:
-            decrypt.kill()
-            decrypt.wait()
-
+    require(validator is not None, "COMPATIBLE_PG_RESTORE_REQUIRED")
+    drain_and_validate(["gpg", "--batch", "--quiet", "--decrypt", str(path)],
+                       validator)
 
 def verify_set(root):
     root = Path(root).expanduser().absolute()
@@ -401,6 +470,7 @@ def verify_set(root):
             isinstance(data.get("files"), list) and len(data["files"]) >= 6,
             "MANIFEST_INVALID")
     names = set()
+    deferred_pg = []
     expected_names = {
         "hub-pg.dump.gpg": "pg",
         "tiquet-pg.dump.gpg": "pg",
@@ -428,7 +498,7 @@ def verify_set(root):
         for index, _ in enumerate(destinations, 1):
             expected_names[prefix + "-mount-%02d.tar.gpg" % index] = "tgz"
     require(len(data["files"]) == len(expected_names), "MANIFEST_COMPONENT_COUNT_MISMATCH")
-    for entry in data["files"]:
+    for index, entry in enumerate(data["files"], 1):
         name, kind = entry.get("name"), entry.get("type")
         require(isinstance(name, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]*\.(?:dump|tar|json)\.gpg", name)
                 and name not in names and kind in ("pg", "tgz", "tar", "json"),
@@ -439,8 +509,29 @@ def verify_set(root):
         require(path.is_file() and not path.is_symlink() and path.stat().st_mode & 0o077 == 0
                 and path.stat().st_size == entry.get("bytes") and sha_file(path) == entry.get("sha256"),
                 "ENCRYPTED_CIPHERTEXT_HASH_MISMATCH")
-        verify_one(path, kind)
+        print("VERIFY_COMPONENT=%d/%d|%s" % (index, len(data["files"]), name), flush=True)
+        if kind == "pg":
+            required_major = 17 if name == "hub-pg.dump.gpg" else 16
+            executable = compatible_pg_restore(required_major)
+            if executable is None:
+                # Preserve evidence that full-stream GPG integrity passed, but
+                # never claim structural validation using an older pg_restore.
+                verify_gpg_full_stream(path)
+                deferred_pg.append(name)
+                print("COMPONENT_GPG=PASS|PG_STRUCTURE=DEFERRED_CLIENT_%d" %
+                      required_major, flush=True)
+                continue
+            verify_one(path, kind, executable)
+        else:
+            verify_one(path, kind)
+        print("COMPONENT_GPG_AND_STRUCTURE=PASS", flush=True)
     require(names == set(expected_names), "MANIFEST_REQUIRED_COMPONENT_MISSING")
+    if deferred_pg:
+        print("OFFHOST_CIPHERTEXT_SHA_AND_GPG=PASS_%d" % len(names))
+        print("POSTGRES_CLIENT_REQUIRED=" + ",".join(sorted(deferred_pg)))
+        print("CURRENT_FULL_APP_RESTORE=NOT_PERFORMED")
+        print("RELEASE_GATE=NO_GO")
+        raise Abort("COMPATIBLE_PG_RESTORE_CLIENT_REQUIRED_FOR_FULL_VERIFICATION")
     print("OFFHOST_CIPHERTEXT_SHA_AND_DECRYPT_STRUCTURE=PASS")
     print("VERIFIED_STREAMS=" + str(len(names)))
     print("CURRENT_FULL_APP_RESTORE=NOT_PERFORMED")
