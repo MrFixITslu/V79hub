@@ -8,6 +8,7 @@ local rootless image inventory. Prints only known image role/status, never
 image tags, archived configs, secret metadata or credentials.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -26,6 +27,7 @@ IMAGES = {
     "HUB_ROLLBACK": "4a9f5868b8c5b7df818225478fc56836e9e6acf9e19c2a8c6faeebe58cec1698",
 }
 FILE = "exact-images-and-rollback.tar.gpg"
+INSPECT_FILE = "runtime-inspect.json.gpg"
 PODMAN = ("podman", "--remote=false")
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -96,6 +98,71 @@ def read_archive_configs(archive):
             decrypt.kill()
         decrypt.wait()
 
+def saved_runtime_image_ids(body):
+    # Source backup writer captures docker inspect of the FOUR live
+    # image objects, not containers; rollback image is archive-only.
+    require(isinstance(body, list) and len(body) == 4,
+            "SAVED_IMAGE_INSPECT_COUNT_INVALID")
+    ids = set()
+    for item in body:
+        require(isinstance(item, dict), "SAVED_IMAGE_INSPECT_ROW_INVALID")
+        digest = normalize_id(item.get("Id"))
+        require(bool(digest) and digest not in ids, "SAVED_IMAGE_INSPECT_ID_INVALID")
+        ids.add(digest)
+    return ids
+
+def verify_ciphertext(root, filename):
+    manifest_path = root / "ciphertext-manifest.json"
+    require(manifest_path.is_file() and not manifest_path.is_symlink(),
+            "CIPHERTEXT_MANIFEST_MISSING")
+    doc = json.loads(manifest_path.read_text())
+    entries = doc.get("files")
+    require(isinstance(entries, list), "CIPHERTEXT_MANIFEST_INVALID")
+    matches = [e for e in entries if isinstance(e, dict) and e.get("name") == filename]
+    require(len(matches) == 1, "CIPHERTEXT_MANIFEST_ENTRY_INVALID")
+    entry = matches[0]
+    path = root / filename
+    require(path.is_file() and not path.is_symlink(),
+            "CIPHERTEXT_COMPONENT_MISSING")
+    require(path.stat().st_size == entry.get("bytes")
+            and (path.stat().st_mode & 0o077) == 0,
+            "CIPHERTEXT_COMPONENT_SIZE_OR_PERMISSIONS_INVALID")
+    h = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    require(h.hexdigest() == entry.get("sha256"),
+            "CIPHERTEXT_COMPONENT_HASH_MISMATCH")
+    return path
+
+def read_saved_image_inspect(path):
+    # GPG stdout carries sensitive original Docker metadata! Keep it
+    # strictly in memory; never print or write its content.
+    proc = subprocess.Popen(
+        ["gpg", "--batch", "--quiet", "--decrypt", str(path)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL)
+    chunks = []
+    total = 0
+    try:
+        while True:
+            block = proc.stdout.read(131072)
+            if not block:
+                break
+            total += len(block)
+            require(total <= 8 * 1024 * 1024,
+                    "SAVED_INSPECT_JSON_EXCEEDS_PRIVATE_MEMORY_LIMIT")
+            chunks.append(block)
+        proc.stdout.close()
+        require(proc.wait(timeout=60) == 0, "SAVED_INSPECT_DECRYPT_FAILED")
+        return saved_runtime_image_ids(json.loads(b"".join(chunks)))
+    finally:
+        if proc.stdout and not proc.stdout.closed:
+            proc.stdout.close()
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
 def check_rootless_local_machine():
     require(socket.gethostname() == "firelion-Aspire-A315-51", "RUN_ONLY_ON_ACER")
     require(os.geteuid() != 0, "NO_ROOT_PODMAN")
@@ -130,12 +197,14 @@ def main():
     root = args.backup.expanduser().absolute()
     require(root.is_dir() and not root.is_symlink(),
             "VERIFIED_BACKUP_DIRECTORY_MISSING")
-    source = root / FILE
-    require(source.is_file() and not source.is_symlink(),
-            "SAVED_IMAGE_CIPHERTEXT_MISSING")
+    require((root.stat().st_mode & 0o077) == 0,
+            "BACKUP_DIRECTORY_PERMISSIONS_INVALID")
+    source = verify_ciphertext(root, FILE)
+    saved_inspect = verify_ciphertext(root, INSPECT_FILE)
     print("R1_DIAGNOSTIC=READ_ONLY_ACER_LOCAL", flush=True)
     local_ids = run_inventory()
     archive_ids = read_archive_configs(source)
+    runtime_ids = read_saved_image_inspect(saved_inspect)
     matched_archive = 0
     matched_local = 0
     matched_lookup = 0
@@ -150,6 +219,13 @@ def main():
               "|PODMAN_CONFIG=" + ("YES" if in_local else "NO") +
               "|PIN_LOOKUP=" + ("YES" if addressable else "NO"), flush=True)
     print("R1_ARCHIVE_CONFIG_IDS_MATCH=%d/5" % matched_archive)
+    print("R1_ARCHIVE_UNIQUE_CONFIG_IDS=%d" % len(archive_ids))
+    print("R1_SAVED_RUNTIME_INSPECT_IDS_MATCH=%d/4" %
+          len(set(list(IMAGES.values())[:4]) & runtime_ids))
+    print("R1_ARCHIVE_VS_RUNTIME_INSPECT_SHARED=%d" %
+          len(archive_ids & runtime_ids))
+    print("R1_ARCHIVE_VS_LOCAL_SHARED_CONFIG_IDS=%d" %
+          len(archive_ids & local_ids))
     print("R1_LOCAL_CONFIG_IDS_MATCH=%d/5" % matched_local)
     print("R1_SHA_PIN_LOOKUPS=%d/5" % matched_lookup)
     print("R1_LOCAL_IMAGE_RECORDS=%d" % len(local_ids))
