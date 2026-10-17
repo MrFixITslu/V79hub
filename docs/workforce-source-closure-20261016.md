@@ -11,8 +11,8 @@ PR #155 head f8e8cc14438c6357274f662c37a10925252d6c62 is an ancestor of PR #156 
 | A01 | Founder-only COO draft Workboard recorded as accepted | Preserve existing owner-MFA enforcement |
 | A02 | PR #155 is exact ancestor of #156; single canonical stack determined | Independent review of cumulative diff and final image/source parity |
 | A03 | Owner-confirmed Hub private report history and latest owner workspace deployed in earlier operator session | Fresh live desktop/mobile acceptance and stale-report negative checks |
-| A04 | Evening 19:00 AST report generated; 08:00 AST first unattended run unproven | Inspect several morning/evening runs, missed-slot behavior, uptime, reporting email if desired |
-| A05 | Approved G2 queue and owner-only task UI exist; draft-to-approved path preserved | Real execution receipt, assignment follow-through and live task worker acceptance |
+| A04 | Evening 19:00 AST run evidenced; offline three-day reliability auditor and 11 tests now pass | First unattended 17 Oct 08:00 AST run, complete signed inventory and sustained live acceptance remain unproven |
+| A05 | Existing G2 queue + owner-only task UI; offline created-vs-delivered gate and 11 tests now pass | Trusted owner-MFA queue adapter, independent signed delivery evidence, actual safe worker acceptance and UI integration |
 | A06 | Six v1 specialist skill packages, CEO/COO orchestration and adversarial test cases committed in this branch | Independently score *actual model responses*; bind trusted evidence only after review |
 | A07 | Supervised create_work_item worker code exists, uncertainty latch documented | Independently inspect idle timer and one safe founder-approved action, exact audit and denial |
 | A08 | Strict read-only metric schema, separate attestation gate, stale/tenant/synthetic rejection and tests in this branch | Implement independent *real* approved adapters per app; attest end-to-end source, collector, scope and freshness |
@@ -23,3 +23,7 @@ PR #155 head f8e8cc14438c6357274f662c37a10925252d6c62 is an ancestor of PR #156 
 
 ## Hard controls
 No production images, settings, worker schedules, tokens, customer data, payments, probes or agent autonomy change through this branch. Failing or missing attestation yields UNKNOWN. Alert proposals do not notify anyone. Passing offline tests prove only source policy behavior, not deployed telemetry or AI expertise. Hub/Tiquet commercial release and Sentinel scanner/security gates remain independent NO-GO decisions.
+
+## Source-only A04/A05 follow-up
+
+At code head `3adf8d7a590cfa5bda9ce631cae392cbdf54bb7c`, isolated [CI #39000783586](https://github.com/MrFixITslu/V79hub/actions/runs/39000783586) passed **44/44** offline source tests. `workforce/quality/briefing-reliability.mjs` and `workforce/quality/task-delivery-gates.mjs` are not wired into production. Owner runbook: [workforce-a04-a05-readonly-acceptance-20261016.md](workforce-a04-a05-readonly-acceptance-20261016.md). A04's 17 October morning observation remains a future run as of this checkpoint, and A05's actual independent worker/delivery acceptance remains outstanding. Neither source code nor test success overrides the live production or Sentinel gates.
