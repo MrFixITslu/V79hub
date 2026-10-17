@@ -1,0 +1,350 @@
+"""Offline negative tests: never contact SSH, Docker, production or GPG keys."""
+import contextlib
+import copy
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "p1-r1-offhost-capture.py"
+spec = importlib.util.spec_from_file_location("p1_r1_offhost", SCRIPT)
+capture = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(capture)
+
+
+def fixture():
+    return {
+        "images": copy.deepcopy(capture.IMAGE_IDS),
+        "rollback": capture.ROLLBACK_HUB,
+        "sourceRevision": capture.SOURCE_REVISION,
+        "configs": {
+            "hub": {"files": ["/opt/v79/hub/file-%d.yml" % i for i in range(13)] +
+                    ["/opt/v79/hub/.env"],
+                    "digests": [x if x is not None else "e" * 64 for x in capture.HUB_COMPOSE_HASHES] + ["a" * 64],
+                    "composeCount": 13},
+            "tiquet": {"files": ["/opt/tiquet/docker-compose.yml", "/opt/tiquet/.env"],
+                       "digests": ["b" * 64, "c" * 64], "composeCount": 1}
+        },
+        "mounts": {"v79-hub": ["/app/data", *capture.HUB_REPORT_DESTINATIONS, *capture.HUB_SECRET_DESTINATIONS],
+                   "v79-tiquet-manager": ["/app/data", "/app/uploads"]}
+    }
+
+
+class OffhostTests(unittest.TestCase):
+    def test_remote_probe_compiles(self):
+        compile(capture.REMOTE_PROBE, "remote-stdin-probe", "exec")
+        capture.self_test()
+
+    def test_current_plan_and_all_streams(self):
+        plan = fixture()
+        capture.validate_plan(plan)
+        streams = capture.streams_for(plan)
+        self.assertEqual(len(streams), 14)
+        self.assertEqual([a for a, _, _ in streams][:4],
+                         ["hub-pg.dump.gpg", "tiquet-pg.dump.gpg",
+                          "hub-config.tar.gpg", "tiquet-config.tar.gpg"])
+        self.assertEqual(streams[-1][0], "exact-images-and-rollback.tar.gpg")
+        self.assertIn(capture.ROLLBACK_HUB, streams[-1][1])
+        self.assertTrue(all(str(s).startswith("/") for s in plan["mounts"]["v79-hub"]))
+        self.assertNotIn("WIPAY_", json.dumps(streams))
+
+    def test_invalid_plans_fail_closed(self):
+        changes = (
+            lambda p: p["images"].update({"v79-hub": capture.ROLLBACK_HUB}),
+            lambda p: p["configs"]["hub"]["digests"].pop(),
+            lambda p: p["configs"]["hub"]["digests"].__setitem__(0, "f" * 64),
+            lambda p: p["configs"]["hub"].update({"composeCount": 9}),
+            lambda p: p["mounts"]["v79-hub"].append("/app/../../etc"),
+            lambda p: p["mounts"]["v79-hub"].append("/run/secrets/unreviewed-token"),
+            lambda p: p["mounts"]["v79-hub"].append("/run/v79-unreviewed-reports"),
+            lambda p: p["mounts"]["v79-tiquet-manager"].append("/run/v79-workforce-reports"),
+            lambda p: p["mounts"]["v79-tiquet-manager"].append("/run/secrets/v79-agent-token"),
+            lambda p: p["mounts"]["v79-tiquet-manager"].remove("/app/uploads"),
+            lambda p: p["mounts"]["v79-hub"].append("/app/data"),
+            lambda p: p["configs"]["tiquet"]["digests"].pop(),
+        )
+        for change in changes:
+            with self.subTest(change=str(change)):
+                sample = fixture()
+                change(sample)
+                with self.assertRaises(capture.Abort):
+                    capture.validate_plan(sample)
+
+    def test_secret_file_mounts_are_explicit_and_regular_file_gated(self):
+        plan = fixture()
+        streams = capture.streams_for(plan)
+        secret_reader_commands = [
+            args for name, args, kind in streams
+            if kind == "tgz" and any(secret in args for secret in capture.HUB_SECRET_DESTINATIONS)
+        ]
+        self.assertEqual(len(secret_reader_commands), 4)
+        for args in secret_reader_commands:
+            self.assertEqual(args[:6], ["docker", "exec", "-u", "0", "v79-hub", "sh"])
+            self.assertIn('test -f "$1"', args[7])
+            self.assertIn('test ! -L "$1"', args[7])
+            self.assertIn('exec tar', args[7])
+        self.assertNotIn("v79-agent-token", json.dumps([name for name, _, _ in streams]))
+        self.assertNotIn("V79_WORKFORCE_TOKEN_FILE_HOST", json.dumps(streams))
+
+    def test_workforce_reports_directory_has_distinct_read_only_archive_guard(self):
+        plan = fixture()
+        streams = capture.streams_for(plan)
+        readers = [args for name, args, kind in streams
+                   if capture.HUB_REPORT_DESTINATIONS[0] in args]
+        self.assertEqual(len(readers), 1)
+        self.assertEqual(readers[0][:6],
+                         ["docker", "exec", "-u", "0", "v79-hub", "sh"])
+        self.assertIn('test -d "$1"', readers[0][7])
+        self.assertIn('test ! -L "$1"', readers[0][7])
+        self.assertNotIn('test -f "$1"', readers[0][7])
+        self.assertIn('exec tar', readers[0][7])
+        self.assertNotIn("v79-workforce-reports",
+                         json.dumps([name for name, _, _ in streams]))
+
+    def test_remote_mount_policy_rejects_unreviewed_and_writable_secrets(self):
+        # Execute only the function definition from the fixed embedded remote
+        # probe. Synthetic Docker inspect rows; never connect to the server.
+        probe = capture.REMOTE_PROBE
+        start = probe.index("def mounts(container,name):")
+        stop = probe.index("\ntry:\n if os.uname()", start)
+        scope = {"pathlib": __import__("pathlib")}
+        exec(compile(probe[start:stop], "<isolated-remote-mount-function>", "exec"), scope)
+        mounts = scope["mounts"]
+        def mount(destination, rw=False, kind="bind"):
+            return {"Destination": destination, "Type": kind, "RW": rw,
+                    "Source": "NEVER_PRINT_SYNTHETIC_SECRET_SOURCE"}
+        hub = {"Mounts": [mount("/app/data", rw=True),
+                          *[mount(p) for p in capture.HUB_REPORT_DESTINATIONS],
+                          *[mount(p) for p in capture.HUB_SECRET_DESTINATIONS]]}
+        tiquet = {"Mounts": [mount("/app/data", rw=True),
+                             mount("/app/uploads", rw=True)]}
+        self.assertEqual(mounts(hub, "v79-hub"),
+                         ["/app/data", *capture.HUB_REPORT_DESTINATIONS, *capture.HUB_SECRET_DESTINATIONS])
+        self.assertEqual(mounts(tiquet, "v79-tiquet-manager"),
+                         ["/app/data", "/app/uploads"])
+        hub["Mounts"][1]["RW"] = True
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(hub, "v79-hub")
+        hub["Mounts"][1]["RW"] = False
+        hub["Mounts"][1]["Type"] = "volume"
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(hub, "v79-hub")
+        hub["Mounts"][1]["Type"] = "bind"
+        hub["Mounts"].append(mount("/run/secrets/arbitrary"))
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(hub, "v79-hub")
+        hub["Mounts"].pop()
+        hub["Mounts"][1]["Type"] = "tmpfs"
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(hub, "v79-hub")
+        tiquet["Mounts"].append(mount("/run/secrets/v79-agent-token"))
+        with self.assertRaisesRegex(RuntimeError, "UNREVIEWED_APP_MOUNT"):
+            mounts(tiquet, "v79-tiquet-manager")
+
+    def test_preflight_checks_token_file_and_report_directory_without_content(self):
+        probe = capture.REMOTE_PROBE
+        start = probe.index("def checked_mount_content(container,targets):")
+        stop = probe.index("\ntry:\n if os.uname()", start)
+        scope = {"subprocess": __import__("subprocess")}
+        exec(compile(probe[start:stop], "<synthetic-mount-filetype>", "exec"), scope)
+        check = scope["checked_mount_content"]
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)) as runner:
+            check("v79-hub", ["/app/data", *capture.HUB_REPORT_DESTINATIONS,
+                              *capture.HUB_SECRET_DESTINATIONS])
+            self.assertEqual(runner.call_count, 5)
+            commands = [c.args[0] for c in runner.call_args_list]
+            self.assertTrue(all(c[:6] == ["docker", "exec", "-u", "0", "v79-hub", "sh"]
+                                for c in commands))
+            report = next(c for c in commands if "/run/v79-workforce-reports" in c)
+            token = next(c for c in commands if "/run/secrets/v79-coo-github-token" in c)
+            self.assertIn('test -d "$1"', report[7])
+            self.assertIn('test -f "$1"', token[7])
+            self.assertIn('test ! -L "$1"', report[7])
+            self.assertIn('test ! -L "$1"', token[7])
+            self.assertNotIn("TOKEN_VALUE", str(commands))
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=1)):
+            with self.assertRaisesRegex(RuntimeError, "REVIEWED_TOKEN_FILE_UNAVAILABLE"):
+                check("v79-hub", [capture.HUB_SECRET_DESTINATIONS[-1]])
+            with self.assertRaisesRegex(RuntimeError, "REVIEWED_REPORT_DIRECTORY_UNAVAILABLE"):
+                check("v79-hub", [capture.HUB_REPORT_DESTINATIONS[0]])
+
+    def test_missing_history_layer_six_requires_explicit_acknowledgment(self):
+        self.assertIsNone(capture.HUB_COMPOSE_HASHES[5])
+        plan = fixture()
+        capture.validate_plan(plan)
+        self.assertRegex(plan["configs"]["hub"]["digests"][5], r"^[0-9a-f]{64}$")
+        self.assertNotEqual(plan["configs"]["hub"]["digests"][5], plan["configs"]["hub"]["digests"][4])
+
+    def test_command_quotes_remote_script_args(self):
+        command = capture.ssh_command(["python3", "-B", "-", "a'$(echo danger)"])
+        self.assertIn("StrictHostKeyChecking=yes", command)
+        self.assertIn("BatchMode=yes", command)
+        self.assertIn("'\"'\"'", command[-1])
+
+    def test_capture_creates_encrypted_acer_only_set_and_private_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            os.chmod(base, 0o700)
+            plan = fixture()
+            def fake_encrypt(_command, outfile):
+                outfile.write_bytes(b"FAKE ENCRYPTED CIPHERTEXT, NOT REAL USER DATA")
+                os.chmod(outfile, 0o600)
+            with mock.patch.object(capture, "key_ready"), \
+                 mock.patch.object(capture, "safe_base", return_value=base), \
+                 mock.patch.object(capture, "encrypt_stream", side_effect=fake_encrypt), \
+                 mock.patch.object(capture, "probe", return_value=plan):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    capture.run_capture(plan, base)
+            dirs = list(base.glob("p1-r1-current-release-*"))
+            self.assertEqual(len(dirs), 1)
+            root = dirs[0]
+            self.assertFalse((root / "CAPTURE_INCOMPLETE").exists())
+            receipt = root / "ciphertext-manifest.json"
+            self.assertEqual(receipt.stat().st_mode & 0o077, 0)
+            data = json.loads(receipt.read_text())
+            self.assertEqual(data["status"], "CAPTURED_NOT_RESTORED")
+            self.assertFalse(data["fullAppRestoreVerified"])
+            self.assertFalse(data["customerBetaAuthorized"])
+            self.assertEqual(len(data["files"]), 14)
+            for entry in data["files"]:
+                f = root / entry["name"]
+                self.assertEqual(f.stat().st_mode & 0o077, 0)
+                self.assertEqual(entry["sha256"], capture.sha_file(f))
+            with mock.patch.object(capture, "verify_one") as checker, \
+                 mock.patch.object(capture, "compatible_pg_restore", return_value="/fake/pg_restore"), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                capture.verify_set(root)
+            self.assertEqual(checker.call_count, 14)
+            with mock.patch.object(capture, "verify_one") as check_partial, \
+                 mock.patch.object(capture, "verify_gpg_full_stream") as gpg_full, \
+                 mock.patch.object(capture, "compatible_pg_restore",
+                                   side_effect=lambda version: None if version == 17 else "/fake/pg_restore"), \
+                 contextlib.redirect_stdout(io.StringIO()) as captured:
+                with self.assertRaisesRegex(
+                    capture.Abort, "COMPATIBLE_PG_RESTORE_CLIENT_REQUIRED_FOR_FULL_VERIFICATION"
+                ):
+                    capture.verify_set(root)
+            self.assertEqual(gpg_full.call_count, 1)
+            self.assertEqual(check_partial.call_count, 13)
+            self.assertIn("OFFHOST_CIPHERTEXT_SHA_AND_GPG=PASS_14", captured.getvalue())
+            self.assertIn("POSTGRES_CLIENT_REQUIRED=hub-pg.dump.gpg", captured.getvalue())
+            original_manifest = receipt.read_text()
+            incomplete = json.loads(original_manifest)
+            incomplete["files"] = [x for x in incomplete["files"]
+                                   if x["name"] != "tiquet-pg.dump.gpg"]
+            receipt.write_text(json.dumps(incomplete))
+            with self.assertRaisesRegex(capture.Abort, "MANIFEST_COMPONENT_COUNT_MISMATCH"):
+                capture.verify_set(root)
+            receipt.write_text(original_manifest)
+            # Tamper and confirm the archive hash gate prevents any further processing.
+            (root / data["files"][0]["name"]).write_bytes(b"CORRUPTED")
+            with self.assertRaisesRegex(capture.Abort, "CIPHERTEXT_HASH"):
+                capture.verify_set(root)
+
+    def test_failed_stream_preserves_incomplete_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            os.chmod(base, 0o700)
+            with mock.patch.object(capture, "key_ready"), \
+                 mock.patch.object(capture, "safe_base", return_value=base), \
+                 mock.patch.object(capture, "encrypt_stream",
+                                   side_effect=capture.Abort("SIMULATED_SSH_FAIL")), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(capture.Abort):
+                    capture.run_capture(fixture(), base)
+            root = next(base.glob("p1-r1-current-release-*"))
+            self.assertTrue((root / "CAPTURE_INCOMPLETE").exists())
+            self.assertFalse((root / "ciphertext-manifest.json").exists())
+            with self.assertRaisesRegex(capture.Abort, "CAPTURE_MARKED_INCOMPLETE"):
+                capture.verify_set(root)
+
+    def test_source_drift_during_capture_preserves_incomplete_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            os.chmod(base, 0o700)
+            plan = fixture()
+            changed = fixture()
+            changed["configs"]["tiquet"]["digests"][0] = "f" * 64
+            def fake_encrypt(_command, outfile):
+                outfile.write_bytes(b"ENCRYPTED MOCK CIPHERTEXT")
+                os.chmod(outfile, 0o600)
+            with mock.patch.object(capture, "key_ready"), \
+                 mock.patch.object(capture, "safe_base", return_value=base), \
+                 mock.patch.object(capture, "encrypt_stream", side_effect=fake_encrypt), \
+                 mock.patch.object(capture, "probe", return_value=changed), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(capture.Abort, "CHANGED_DURING_BACKUP"):
+                    capture.run_capture(plan, base)
+            root = next(base.glob("p1-r1-current-release-*"))
+            self.assertTrue((root / "CAPTURE_INCOMPLETE").exists())
+
+    def test_pg_list_validator_exits_early_but_decrypt_drains_to_eof(self):
+        import sys
+        with tempfile.TemporaryDirectory() as tmp:
+            finish = Path(tmp) / "producer-reached-end.txt"
+            decrypt_cmd = [
+                sys.executable, "-c",
+                "import sys,pathlib;"
+                "sys.stdout.buffer.write(b'PGDMP'+b'X'*5000000);"
+                "sys.stdout.buffer.flush();"
+                "pathlib.Path(sys.argv[1]).write_text('fully_written')",
+                str(finish),
+            ]
+            early_validator = [
+                sys.executable, "-c",
+                "import sys; assert sys.stdin.buffer.read(5)==b'PGDMP'",
+            ]
+            capture.drain_and_validate(decrypt_cmd, early_validator)
+            self.assertEqual(finish.read_text(), "fully_written")
+
+    def test_failed_validator_or_failed_decrypt_never_pass(self):
+        import sys
+        source = [sys.executable, "-c",
+                  "import sys; sys.stdout.buffer.write(b'PGDMP'+b'X'*200000)"]
+        bad_validator = [sys.executable, "-c", "import sys;sys.exit(3)"]
+        with self.assertRaisesRegex(capture.Abort, "ENCRYPTED_ARCHIVE_VALIDATION_FAILED"):
+            capture.drain_and_validate(source, bad_validator)
+        failed_source = [sys.executable, "-c",
+                         "import sys;sys.stdout.buffer.write(b'PGDMP');sys.exit(3)"]
+        valid_reader = [sys.executable, "-c",
+                        "import sys;sys.stdin.buffer.read()"]
+        with self.assertRaisesRegex(capture.Abort, "ENCRYPTED_ARCHIVE_VALIDATION_FAILED"):
+            capture.drain_and_validate(failed_source, valid_reader)
+
+    def test_postgres_major_version_gate(self):
+        with mock.patch.object(capture.shutil, "which", return_value="/fake/pg_restore"), \
+             mock.patch.object(capture.os, "access",
+                               side_effect=lambda p, mode: p == "/fake/pg_restore"), \
+             mock.patch.object(capture.subprocess, "run",
+                               return_value=mock.Mock(
+                                   returncode=0,
+                                   stdout=b"pg_restore (PostgreSQL) 16.15 (Ubuntu)")):
+            self.assertIsNone(capture.compatible_pg_restore(17))
+            self.assertEqual(capture.compatible_pg_restore(16), "/fake/pg_restore")
+        with mock.patch.object(capture.shutil, "which", return_value="/fake/pg_restore"), \
+             mock.patch.object(capture.os, "access",
+                               side_effect=lambda p, mode: p == "/fake/pg_restore"), \
+             mock.patch.object(capture.subprocess, "run",
+                               return_value=mock.Mock(
+                                   returncode=0,
+                                   stdout=b"pg_restore (PostgreSQL) 17.8")):
+            self.assertEqual(capture.compatible_pg_restore(17), "/fake/pg_restore")
+        with self.assertRaisesRegex(capture.Abort, "COMPATIBLE_PG_RESTORE_REQUIRED"):
+            capture.verify_one(Path("/never-access-this-file.gpg"), "pg")
+
+    def test_no_acceptance_claim_without_decrypt_or_restore(self):
+        text = SCRIPT.read_text()
+        self.assertIn("CAPTURED_NOT_RESTORED", text)
+        self.assertIn("RELEASE_GATE=NO_GO", text)
+        self.assertNotIn("docker compose up", text)
+        self.assertNotIn("docker rm", text)
+        self.assertNotIn("docker load", text)
+
+
+if __name__ == "__main__":
+    unittest.main()

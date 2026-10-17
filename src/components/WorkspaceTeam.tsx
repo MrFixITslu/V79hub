@@ -266,15 +266,15 @@ export function WorkspaceTeam({
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="hub-workspace-page w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="hub-page-hero flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[22px] border border-[#1a3854] bg-[#091728] p-5 sm:p-6">
         <div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
             WORKSPACE SETTINGS
           </span>
           <h1 className="text-2xl font-bold text-slate-900 mt-1">
-            Workspace Team & Members
+            Workspace & team
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             Manage who has access to the V79 Digital organisation, roles, and connected apps.
@@ -290,7 +290,7 @@ export function WorkspaceTeam({
           {currentUser?.workspaceOwner && (
             <button
               onClick={openInvite}
-              className="inline-flex items-center gap-2 px-3.5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer"
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-[#0A86FF] hover:bg-[#2a9cff] text-white rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer"
             >
               <UserPlus className="w-4 h-4 text-cyan-200" />
               <span>Invite Team Member</span>

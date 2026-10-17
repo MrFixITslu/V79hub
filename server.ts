@@ -1,3 +1,4 @@
+import { marketingProductionRouter, marketingWorkerAuthorization } from "./server/marketing-production-routes.mjs";
 import express, { Request, Response } from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -6,6 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import crypto from "crypto";
+import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
@@ -16,12 +18,18 @@ import { retainSentinelAuditMarkers } from "./server/sentinel-audit-retention.mj
 import { acceptTeamInvitationState, teamInvitationStatus } from "./server/team-invitation-store.mjs";
 import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.mjs";
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
+import { createWorkActionStore } from "./server/workforce-action-store.mjs";
+import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
 import { prepareReviewedHandoff } from "./server/agent-reviewed-handoff.mjs";
 import { prepareSupervisedMarketingDraft } from "./server/agent-supervised-marketing.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
 import { createAgentApprovalAuditChain, verifyAgentApprovalAuditLinkage } from "./server/agent-approval-audit-chain.mjs";
 import { createOwnerExecutiveProxy } from "./server/agent-executive-owner-proxy.mjs";
+import { createOwnerCooWorkboard } from "./server/owner-coo-workboard.mjs";
+import { createOwnerBriefingReader } from "./server/workforce-briefing-route.mjs";
+import { createPythonBriefingStatus } from "./server/workforce-python-report-reader.mjs";
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
+import { mcpReadAccessDecision } from "./server/mcp-owner-readonly.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
@@ -30,10 +38,14 @@ import { createHubStorePersistence } from "./server/runtime-store.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
+import { manualInvoiceEligibility, manualReceiptDecision, recentManualPaymentMfa } from "./server/manual-payment-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
 import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
 import { createResendTransactionalSender } from "./server/resend-transactional.mjs";
 import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
+import { SERVICE_PATH as SENTINEL_SERVICE_PATH, sentinelServiceRouter } from "./server/sentinel-service-entitlement.mjs";
+import { registerSentinelGrant, revokeSentinelGrant, validateSentinelGrantCollection } from "./server/sentinel-service-grants.mjs";
+import { validateSentinelOwnerGrantRequest, validateSentinelOwnerRevocation } from "./server/sentinel-grant-operator.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -143,7 +155,10 @@ interface BillingOrder {
   description: string;
   amount: number;
   currency: string;
-  provider: "wipay";
+  provider: "wipay" | "manual";
+  billingCycleAtOrder?: "monthly" | "annual";
+  manualVerifiedByUserId?: string;
+  manualEvidenceNote?: string;
   providerEnvironment: "sandbox" | "live";
   status: "pending" | "paid" | "failed" | "cancelled";
   createdByUserId?: string;
@@ -156,7 +171,8 @@ interface BillingOrder {
 
 interface BillingPaymentEvent {
   id: string;
-  provider: "wipay";
+  provider: "wipay" | "manual";
+  verifiedByUserId?: string;
   orderId?: string;
   transactionId?: string;
   status: string;
@@ -280,7 +296,15 @@ interface AgentActionProposal {
   decisionNote: string | null; executionStatus: "disabled";
 }
 
+interface SentinelServiceGrant {
+  id: string; serviceId: "v79-sentinel"; sentinelCustomerId: string;
+  organizationId: string; tiquetAccountId: string; tiquetClientId: string;
+  actions: string[]; expiresAt: string; status: "active" | "revoked";
+  enabled: boolean; revokedAt: string | null; createdAt: string; approvedBy: string;
+  revokedBy?: string;
+}
 interface AppStore {
+  sentinelServiceGrants: SentinelServiceGrant[];
   users: StoredUser[];
   workspace: WorkspaceProfile;
   ecosystemApps: EcosystemApp[];
@@ -652,6 +676,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
       (parsed.ownerInvitations !== undefined && !Array.isArray(parsed.ownerInvitations)) ||
       (parsed.teamInvitations !== undefined && !Array.isArray(parsed.teamInvitations)) ||
       (parsed.appTenantMappings !== undefined && !Array.isArray(parsed.appTenantMappings)) ||
+      (parsed.sentinelServiceGrants !== undefined && !Array.isArray(parsed.sentinelServiceGrants)) ||
       (parsed.passwordResetRequests !== undefined && !Array.isArray(parsed.passwordResetRequests)) ||
       (parsed.auditEvents !== undefined && !Array.isArray(parsed.auditEvents)) ||
       (parsed.agentActionProposals !== undefined && !Array.isArray(parsed.agentActionProposals)) ||
@@ -672,6 +697,7 @@ function normalizeLoadedStore(parsed: any): AppStore {
     ownerInvitations: Array.isArray(parsed.ownerInvitations) ? parsed.ownerInvitations : [],
     teamInvitations: Array.isArray(parsed.teamInvitations) ? parsed.teamInvitations : [],
     appTenantMappings: Array.isArray(parsed.appTenantMappings) ? parsed.appTenantMappings : [],
+    sentinelServiceGrants: validateSentinelGrantCollection(parsed.sentinelServiceGrants ?? []),
     passwordResetRequests: Array.isArray(parsed.passwordResetRequests) ? parsed.passwordResetRequests : [],
     auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
     agentActionProposals: Array.isArray(parsed.agentActionProposals) ? parsed.agentActionProposals : [],
@@ -685,7 +711,7 @@ function initialStore(): AppStore {
     workspace: { ...defaultWorkspace },
     ecosystemApps: defaultEcosystemApps.map(app => ({ ...app })),
     organizations: [], memberships: [], appEntitlements: [], organizationPlans: [], trialReminderEvents: [], billingOrders: [], billingPaymentEvents: [], ownerInvitations: [],
-    teamInvitations: [], appTenantMappings: [], passwordResetRequests: [], auditEvents: [],
+    teamInvitations: [], appTenantMappings: [], sentinelServiceGrants: [], passwordResetRequests: [], auditEvents: [],
     agentActionProposals: [], agentProposalAuditTrail: [],
   };
 }
@@ -776,6 +802,8 @@ type HubSession = {
   expiresAt: number;
   // True only after this specific session completes a Hub MFA challenge.
   mfaVerified: boolean;
+  /** Timestamp of the original successful challenge, never extended by use. */
+  mfaVerifiedAt?: number;
 };
 
 function sessionKey(token: string) {
@@ -807,6 +835,8 @@ function loadPersistedSessions() {
         expiresAt: row.expiresAt,
         // Old persisted sessions remain valid for ordinary Hub use but cannot approve plans.
         mfaVerified: row.mfaVerified === true,
+        mfaVerifiedAt: row.mfaVerified === true && Number.isFinite(row.mfaVerifiedAt)
+          ? row.mfaVerifiedAt : undefined,
       });
     }
   } catch (error) {
@@ -1559,9 +1589,46 @@ app.get("/.well-known/jwks.json", (_req, res) => {
   res.json({ keys: [{ ...posPublicKey.export({ format: "jwk" }), kid: posKeyId, alg: "EdDSA", use: "sig" }] });
 });
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+// Separate owner-only MCP downstream read. DISABLED unless explicitly enabled
+// after source/runtime matching, independent review, audit and rollback rehearsal.
+// It does not use Hub browser cookies, login tickets or platform service secrets.
+// Its audience-bound downstream assertion must NOT be an inbound MCP client token.
+app.all("/api/integrations/mcp/v1/apps", (req, res) => {
+  const decision = mcpReadAccessDecision({
+    enabled: process.env.V79_MCP_READONLY_ENABLE === "1",
+    method: req.method,
+    authorization: req.get("authorization") || "",
+    cookie: req.get("cookie") || "",
+    tokenOptions: {
+      publicKeyPem: (process.env.V79_MCP_DOWNSTREAM_PUBLIC_KEY_PEM || "").replace(/\\n/g, "\n"),
+      issuer: process.env.V79_MCP_DOWNSTREAM_ISSUER || "",
+      kid: process.env.V79_MCP_DOWNSTREAM_KEY_ID || "",
+    },
+    store,
+    ownerOrganizationId: posIdentity.organizationId,
+    ownerUserId: posIdentity.ownerUserId,
+    ownerEmail: "vision79slu@gmail.com",
+    now: Date.now(),
+  });
+  res.setHeader("Cache-Control", "no-store");
+  if (decision.status !== 200) return res.status(decision.status).json({ error: decision.error });
+  return res.json(decision.body);
+});
+
 // Read-only, authenticated entitlement revalidation for existing product sessions.
 // The downstream app MUST fail closed if this check fails or becomes unreachable.
 // HMAC service IDs are bound to the product so one app cannot query another.
+// Standalone MACHINE entitlement: never borrow a Hub human session or user grant.
+// OFF without explicit service enablement; no persisted Sentinel grant yet exists.
+app.use(SENTINEL_SERVICE_PATH, sentinelServiceRouter({
+  enabled: process.env.V79_SENTINEL_HUB_SERVICE_ENABLED === "1",
+  secret: process.env.V79_SENTINEL_HUB_SHARED_SECRET || "",
+  getStore: () => store,
+  getOwnerOrganizationId: () => posIdentity.organizationId,
+  tenantReady: (state: any, organizationId: string, ownerOrganizationId: string) =>
+    tiquetTenantLaunchReady(state, organizationId, ownerOrganizationId),
+}));
+
 app.post("/api/platform/entitlement/check", (req, res) => {
   const pathname = "/api/platform/entitlement/check";
   const source = req.get("x-v79-service-id") || "";
@@ -1812,7 +1879,12 @@ function hasHubPermission(userId: string, organizationId: string, permission: st
   const membership = activeMembership(store, userId, organizationId);
   if (!user || !membership) return false;
   const role = sessionRole(membership) as StoredUser["role"];
-  return normalizePermissions(membership.permissions ?? user.permissions, role).includes(permission);
+  const assigned = normalizePermissions(membership.permissions ?? user.permissions, role).includes(permission);
+  // Only the independently verified platform owner, in the exact owner
+  // workspace, may recover a legacy missing billing permission.
+  return platformOwnerBillingAllowed({
+    permission, assigned, verifiedPlatformOwner: isPlatformOperatorIdentity(userId, organizationId),
+  });
 }
 function requirePermission(permission: string) {
   return (req: Request, res: Response, next: () => void) => {
@@ -1995,6 +2067,7 @@ function createHubSession(userId: string, organizationId: string, { mfaVerified 
     role: sessionRole(membership)!,
     expiresAt: Date.now() + 12 * 60 * 60 * 1000,
     mfaVerified,
+    mfaVerifiedAt: mfaVerified ? Date.now() : undefined,
   });
   return token;
 }
@@ -2571,7 +2644,273 @@ app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req,
     selfServicePaymentsEnabled: provider.ready && provider.environment === "live" && provider.currency === "XCD" && ["monthly", "annual"].includes(plan.billingCycle) && Number(plan.priceXcd) > 0,
     sandboxTestPaymentsEnabled: provider.ready && provider.environment === "sandbox",
     paymentProvider: provider,
+    manualPaymentAvailable: manualInvoiceEligibility(plan, session.organizationId === posIdentity.organizationId).ok,
   });
+});
+
+// Scoped V79 Sentinel pilot grant administration. OFF by default even if
+// ordinary Hub admin routes are available. This is NEVER an MFA substitute.
+const SENTINEL_GRANT_ADMIN="/api/admin/sentinel/service-grants";
+let sentinelGrantMutationBusy=false;
+const sentinelAdminEnabled=()=>process.env.V79_SENTINEL_GRANT_ADMIN_ENABLED==="1";
+const verifiedSentinelPilot=()=>process.env.V79_SENTINEL_OWNER_MAPPING_ATTESTED==="1";
+function expectedOwnerSentinelMapping(){
+  return {
+    sentinelCustomerId:process.env.V79_SENTINEL_OWNER_CUSTOMER_ID || "",
+    tiquetAccountId:process.env.V79_SENTINEL_OWNER_TIQUET_ACCOUNT_ID || "",
+    tiquetClientId:process.env.V79_SENTINEL_OWNER_TIQUET_CLIENT_ID || ""
+  };
+}
+app.get(SENTINEL_GRANT_ADMIN,requireAuth,requirePlatformOperator,(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  const ownerId=posIdentity.organizationId;
+  return res.json({grants:(store.sentinelServiceGrants||[])
+    .filter(g=>g.organizationId===ownerId)
+    .map(g=>({id:g.id,organizationId:g.organizationId,
+      sentinelCustomerId:g.sentinelCustomerId,tiquetClientId:g.tiquetClientId,
+      actions:g.actions,status:g.status,enabled:g.enabled,
+      createdAt:g.createdAt,expiresAt:g.expiresAt,revokedAt:g.revokedAt}))});
+});
+app.post(SENTINEL_GRANT_ADMIN,requireAuth,requirePlatformOperator,async(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  if(!sameOriginMutation(req)) return res.status(403).json({error:"Same-origin admin request required"});
+  if(sentinelGrantMutationBusy) return res.status(409).json({error:"Grant review already in progress"});
+  if(!verifiedSentinelPilot()) return res.status(409).json({error:"Independent owner pilot mapping preflight required"});
+  sentinelGrantMutationBusy=true;
+  try{
+    const session=(req as any).user;
+    const user=store.users.find(item=>item.id===session.userId);
+    const now=Date.now();
+    const intent=validateSentinelOwnerGrantRequest({
+      body:req.body,session,user,ownerOrganizationId:posIdentity.organizationId,
+      expected:expectedOwnerSentinelMapping(),now
+    } as any);
+    const next=registerSentinelGrant(store,{
+      ...intent,ownerOrganizationId:posIdentity.organizationId,now,
+      verifyMapping:(proposal: any)=>Boolean(
+        store.organizations.some(org=>org.id===proposal.organizationId && org.status==="active") &&
+        store.appEntitlements.some(e=>e.organizationId===proposal.organizationId &&
+          e.appId==="app-tiquet" && e.enabled===true) &&
+        tiquetTenantLaunchReady(store,proposal.organizationId,posIdentity.organizationId) &&
+        proposal.organizationId===posIdentity.organizationId &&
+        proposal.sentinelCustomerId===expectedOwnerSentinelMapping().sentinelCustomerId &&
+        proposal.tiquetAccountId===expectedOwnerSentinelMapping().tiquetAccountId &&
+        proposal.tiquetClientId===expectedOwnerSentinelMapping().tiquetClientId)
+    } as any);
+    onboardingAudit(next.store,"sentinel_owner_machine_grant_issued",{
+      grantId:next.grant.id,serviceId:"v79-sentinel",
+      sentinelCustomerId:next.grant.sentinelCustomerId,
+      tiquetClientId:next.grant.tiquetClientId,
+      expiresAt:next.grant.expiresAt
+    },session.userId,posIdentity.organizationId);
+    await commitStore(next.store);
+    return res.status(201).json({grantId:next.grant.id,status:"active",
+      expiresAt:next.grant.expiresAt,actions:next.grant.actions});
+  }catch{
+    return res.status(403).json({error:"Exact owner mapping and fresh MFA approval required"});
+  }finally{sentinelGrantMutationBusy=false;}
+});
+app.post(SENTINEL_GRANT_ADMIN+"/revoke",requireAuth,requirePlatformOperator,async(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  if(!sentinelAdminEnabled()) return res.status(404).json({error:"Not found"});
+  if(!sameOriginMutation(req)) return res.status(403).json({error:"Same-origin admin request required"});
+  if(sentinelGrantMutationBusy) return res.status(409).json({error:"Grant review already in progress"});
+  sentinelGrantMutationBusy=true;
+  try{
+    const session=(req as any).user;
+    const user=store.users.find(item=>item.id===session.userId);
+    if(!req.body || typeof req.body!=="object" || Array.isArray(req.body) ||
+       Object.keys(req.body).sort().join("|")!=="confirmation|grantId")
+      return res.status(400).json({error:"Exact grant revocation required"});
+    const decision=validateSentinelOwnerRevocation({
+      grantId:req.body.grantId,confirmation:req.body.confirmation,
+      session,user,ownerOrganizationId:posIdentity.organizationId
+    } as any);
+    const item=(store.sentinelServiceGrants||[]).find(g=>g.id===decision.grantId);
+    if(!item || item.organizationId!==posIdentity.organizationId)
+      return res.status(403).json({error:"Grant is not owned by this organization"});
+    const next=revokeSentinelGrant(store,decision);
+    onboardingAudit(next,"sentinel_owner_machine_grant_revoked",{
+      grantId:decision.grantId,serviceId:"v79-sentinel"
+    },session.userId,posIdentity.organizationId);
+    await commitStore(next);
+    return res.json({grantId:decision.grantId,status:"revoked"});
+  }catch{
+    return res.status(403).json({error:"Active owner grant and fresh MFA required"});
+  }finally{sentinelGrantMutationBusy=false;}
+});
+
+
+const manualOrderApprovalLocks = new Set<string>();
+// Single-node release lock: prevent concurrent manual invoice/receipt writes
+// from approving the same bank reference against two pending orders.
+let manualBillingMutationBusy = false;
+
+function requireManualBillingMfa(req: Request, res: Response, next: () => void) {
+  const session = (req as any).user;
+  const user = store.users.find(entry => entry.id === session.userId);
+  // Financial confirmation always needs a verified MFA session even if the
+  // general administrator MFA environment toggle is later disabled.
+  if (user?.mfaEnabled !== true || !recentManualPaymentMfa(session)) {
+    return res.status(403).json({
+      error: "Manual billing requires an MFA login from the last 15 minutes. Sign out and sign in again, then retry.",
+    });
+  }
+  next();
+}
+
+// A customer can request payment instructions but can never mark the order paid.
+// Bank details are provided by V79 Digital outside the app, not copied into code.
+app.post("/api/billing/manual/request", requireAuth, requirePermission("billing"), async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin." });
+  if (manualBillingMutationBusy) return res.status(409).json({ error: "Manual billing is busy. Retry shortly." });
+  manualBillingMutationBusy = true;
+  try {
+  const session = (req as any).user;
+  const organization = store.organizations.find(item => item.id === session.organizationId);
+  if (!organization || organization.status !== "active" || session.organizationId === posIdentity.organizationId) {
+    return res.status(403).json({ error: "Manual billing is unavailable for this workspace." });
+  }
+  const plan = organizationPlanFor(store, session.organizationId);
+  const eligible = manualInvoiceEligibility(plan);
+  if (!eligible.ok) return res.status(409).json({ error: "Set a valid monthly or annual plan price before requesting a manual invoice.", code: eligible.code });
+  const pending = store.billingOrders.find(order =>
+    order.organizationId === session.organizationId && order.provider === "manual" &&
+    order.kind === "subscription" && order.status === "pending");
+  if (pending) {
+    // A stale pending order is NOT regenerated into a new payable quote.
+    if (pending.amount !== eligible.amount || pending.billingCycleAtOrder !== eligible.billingCycle) {
+      return res.status(409).json({ error: "An existing manual invoice requires administrator review following a plan change." });
+    }
+    return res.status(200).json({ order: { id: pending.id, amount: pending.amount, currency: pending.currency, status: pending.status }, pendingVerification: true });
+  }
+  const now = new Date().toISOString();
+  const order: BillingOrder = {
+    id: `v79_${Date.now().toString(36)}_${crypto.randomBytes(8).toString("hex")}`,
+    organizationId: session.organizationId, sourceApp: "hub", kind: "subscription",
+    description: `${plan.planName} ${plan.billingCycle} bank-transfer invoice`,
+    amount: eligible.amount!, currency: "XCD", provider: "manual", providerEnvironment: "live",
+    billingCycleAtOrder: eligible.billingCycle!, status: "pending",
+    createdByUserId: session.userId, createdAt: now, updatedAt: now,
+  };
+  const nextStore = cloneStore();
+  nextStore.billingOrders.push(order);
+  onboardingAudit(nextStore, "manual_invoice_requested", { orderId: order.id, amount: order.amount, currency: order.currency, billingCycle: order.billingCycleAtOrder }, session.userId, session.organizationId);
+  await commitStore(nextStore);
+  return res.status(201).json({ order: { id: order.id, amount: order.amount, currency: order.currency, status: order.status }, pendingVerification: true });
+  } catch {
+    // Express 4 does not automatically forward a rejected async route Promise.
+    // A persistence error must not crash the Hub or claim a saved invoice.
+    if (res.headersSent) return;
+    return res.status(503).json({ error: "Unable to verify the invoice request. Refresh billing orders before retrying." });
+  } finally {
+    manualBillingMutationBusy = false;
+  }
+});
+
+// All manual settlements require the authenticated, MFA-verified platform operator.
+app.get("/api/admin/billing/manual/orders", requireAuth, requirePlatformOperator, requireManualBillingMfa, (req, res) => {
+  const orders = (store.billingOrders || []).filter(order => order.provider === "manual" && order.sourceApp === "hub")
+    .slice(-100).reverse().map(order => ({
+      id: order.id, organizationId: order.organizationId,
+      organization: store.organizations.find(org => org.id === order.organizationId)?.name || "Unknown workspace",
+      amount: order.amount, currency: order.currency, description: order.description, status: order.status,
+      billingCycleAtOrder: order.billingCycleAtOrder, createdAt: order.createdAt,
+      paidAt: order.paidAt || null, bankReference: order.status === "paid" ? order.providerTransactionId || null : null,
+      verifiedByUserId: order.manualVerifiedByUserId || null,
+    }));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ orders });
+});
+
+app.post("/api/admin/billing/manual/orders/:orderId/confirm", requireAuth, requirePlatformOperator, requireManualBillingMfa, async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin." });
+  const orderId = String(req.params.orderId || "");
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return res.status(400).json({ error: "Invalid order identifier." });
+  if (manualBillingMutationBusy || manualOrderApprovalLocks.has(orderId)) {
+    return res.status(409).json({ error: "A manual payment is already being reconciled. Retry shortly." });
+  }
+  manualBillingMutationBusy = true;
+  manualOrderApprovalLocks.add(orderId);
+  try {
+    const nextStore = cloneStore();
+    const order = nextStore.billingOrders.find(item => item.id === orderId);
+    const organization = nextStore.organizations.find(item => item.id === order?.organizationId && item.id !== posIdentity.organizationId);
+    const plan = nextStore.organizationPlans.find(item => item.organizationId === order?.organizationId);
+    const result = manualReceiptDecision({
+      order, organization, plan, orders: nextStore.billingOrders,
+      bankReference: req.body?.bankReference, evidenceNote: req.body?.evidenceNote,
+      receivedAmount: req.body?.receivedAmount, bankStatementVerified: req.body?.bankStatementVerified === true, confirmation: req.body?.confirmation,
+    });
+    if (!result.ok) return res.status(409).json({ error: "Manual payment verification rejected.", code: result.code });
+    const actorUserId = (req as any).user.userId as string;
+    order!.status = "paid";
+    order!.providerTransactionId = result.paidReference!;
+    order!.manualVerifiedByUserId = actorUserId;
+    order!.manualEvidenceNote = result.evidenceNote!;
+    order!.providerMessage = "Verified by V79 administrator against received bank funds";
+    order!.paidAt = result.paidAt!;
+    order!.updatedAt = result.paidAt!;
+    plan!.status = "active";
+    plan!.accessPolicyType = "paid";
+    plan!.paidThroughAt = result.paidThroughAt!;
+    plan!.renewalDate = result.renewalDate!;
+    plan!.updatedAt = result.paidAt!;
+    nextStore.billingPaymentEvents.push({
+      id: crypto.randomUUID(), provider: "manual", orderId, transactionId: result.paidReference!,
+      status: "paid", verified: true, reason: "administrator_verified_received_funds",
+      amount: order!.amount, currency: order!.currency, verifiedByUserId: actorUserId,
+      createdAt: result.paidAt!,
+    });
+    if (nextStore.billingPaymentEvents.length > 5000) nextStore.billingPaymentEvents = nextStore.billingPaymentEvents.slice(-5000);
+    onboardingAudit(nextStore, "manual_payment_verified", {
+      orderId, reference: result.bankReference, evidenceNote: result.evidenceNote,
+      amount: order!.amount, currency: order!.currency, paidThroughAt: result.paidThroughAt,
+    }, actorUserId, order!.organizationId);
+    await commitStore(nextStore);
+    return res.status(200).json({ verified: true, orderId, paidThroughAt: result.paidThroughAt });
+  } catch {
+    // An interrupted write can have an ambiguous commit outcome. Never tell
+    // the operator to confirm a bank receipt again without checking the ledger.
+    if (res.headersSent) return;
+    return res.status(503).json({ error: "Payment confirmation outcome is uncertain. Refresh the invoice and payment ledger before taking another action." });
+  } finally {
+    manualOrderApprovalLocks.delete(orderId);
+    manualBillingMutationBusy = false;
+  }
+});
+
+// Invoices can become stale after a plan edit or a failed transfer. Rejection
+// creates a new auditable state without fabricating a receipt or granting access.
+app.post("/api/admin/billing/manual/orders/:orderId/reject", requireAuth, requirePlatformOperator, requireManualBillingMfa, async (req, res) => {
+  if (!sameOriginMutation(req)) return res.status(403).json({ error: "Invalid request origin." });
+  const orderId = String(req.params.orderId || "");
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64 ||
+      reason.length < 10 || reason.length > 500) {
+    return res.status(400).json({ error: "Valid order ID and reconciliation reason are required." });
+  }
+  if (manualBillingMutationBusy) return res.status(409).json({ error: "Manual billing is busy. Retry shortly." });
+  manualBillingMutationBusy = true;
+  try {
+    const nextStore = cloneStore();
+    const order = nextStore.billingOrders.find(item => item.id === orderId && item.provider === "manual" &&
+      item.kind === "subscription" && item.sourceApp === "hub");
+    if (!order || order.status !== "pending") return res.status(409).json({ error: "Only pending bank-transfer invoices can be rejected." });
+    order.status = "failed";
+    order.updatedAt = new Date().toISOString();
+    const actorUserId = (req as any).user.userId as string;
+    onboardingAudit(nextStore, "manual_invoice_rejected", { orderId, reason }, actorUserId, order.organizationId);
+    await commitStore(nextStore);
+    return res.json({ rejected: true, orderId });
+  } catch {
+    if (res.headersSent) return;
+    return res.status(503).json({ error: "Invoice rejection outcome is uncertain. Refresh order status before retrying." });
+  } finally {
+    manualBillingMutationBusy = false;
+  }
 });
 
 function billingServiceFromRequest(req: Request) {
@@ -2902,6 +3241,7 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   const nextStore = cloneStore();
   const order = nextStore.billingOrders.find(item => item.id === orderId);
   if (!order) return redirect("error", "order_not_found");
+  if (order.provider !== "wipay") return redirect("error", "wrong_payment_provider", order);
 
   const query = req.query as Record<string, unknown>;
   const verification = verifyWipayReturn({ query, expectedOrder: order, config });
@@ -4420,6 +4760,78 @@ function ownerApprovalContext(req: Request) {
   return ownerAssistantContext(req);
 }
 
+// G2: separate durable execution ledger. Existing G1 evidence endpoints and
+// planning approvals cannot authorize any action in this queue.
+const workforceLedgerKey = String(process.env.V79_WORKFORCE_AUDIT_KEY || "");
+const workforceLedger = workforceLedgerKey.length >= 32 ? createWorkActionStore({
+  file: path.join(DATA_DIR, "workforce-actions.json"),
+  secret: workforceLedgerKey,
+  backend: process.env.V79_HUB_STORE_BACKEND || "json",
+  databaseUrl: process.env.DATABASE_URL || "",
+}) : null;
+function readWorkforceToken() {
+  try { return fs.readFileSync(process.env.V79_WORKFORCE_TOKEN_FILE || "/run/secrets/v79-workforce-token", "utf8").trim(); }
+  catch { return ""; }
+}
+const workforceRouters = workforceActionRouters({
+  ledger: workforceLedger,
+  enabled: () => process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
+  ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
+  workerToken: readWorkforceToken,
+  ownerOrganizationId: () => posIdentity.organizationId,
+  ownerReady: () => {
+    const user = store.users.find(u => u.id === posIdentity.ownerUserId);
+    const membership = activeMembership(store, posIdentity.ownerUserId, posIdentity.organizationId);
+    return Boolean(user?.mfaEnabled && hasOwnerAssistantAccess({ user, membership,
+      organizationId: posIdentity.organizationId, ownerOrganizationId: posIdentity.organizationId,
+      ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL }));
+  },
+});
+app.use("/api/agent/work-actions", workforceRouters.owner);
+app.use("/internal/workforce", workforceRouters.worker);
+app.use("/api/agent/marketing-production", marketingProductionRouter({
+  ownerContext: (req: Request) => {
+    const context = ownerApprovalContext(req);
+    return context ? { ...context, userId: posUserId(context.userId, context.organizationId) } : null;
+  },
+  sameOrigin: sameOriginMutation,
+  enabled: () => process.env.V79_MARKETING_PRODUCTION_ENABLED === "1",
+  forward: async (envelope: unknown) => {
+    const secret = String(process.env.V79_MARKETING_PRODUCTION_SHARED_SECRET || "");
+    if (secret.length < 32) throw Error("Dedicated Marketing production signing key required");
+    const pathname = "/api/platform/marketing-production";
+    const body = JSON.stringify(envelope), timestamp = String(Date.now());
+    const response = await fetch(new URL(pathname, process.env.MARKETING_INTERNAL_URL || "http://v79marketing-app:3070"), {
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(15000),
+      headers: { "content-type": "application/json", "x-v79-service-id": "v79-hub", "x-v79-timestamp": timestamp,
+        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret }) }, body,
+    });
+    // No automatic retry: a response loss can follow a committed approval.
+    return { status: response.status, body: await response.json() };
+  },
+}));
+
+
+app.post("/internal/marketing-production/authorization", marketingWorkerAuthorization({
+  enabled: () => process.env.V79_MARKETING_PRODUCTION_ENABLED === "1",
+  verifySignature: (req: Request) => verifyPlatformRequest({
+    method: "POST", pathname: "/internal/marketing-production/authorization",
+    timestamp: req.get("x-v79-timestamp") || "", signature: req.get("x-v79-signature") || "",
+    body: (req as any).rawBody?.toString("utf8") || "",
+    secret: process.env.V79_MARKETING_PRODUCTION_SHARED_SECRET || "",
+  }),
+  allowed: (identity: { organizationId: string; actorHubUserId: string }) => {
+    const user = store.users.find(u => u.id === posIdentity.ownerUserId);
+    const membership = activeMembership(store, posIdentity.ownerUserId, posIdentity.organizationId);
+    return Boolean(identity.organizationId === posIdentity.organizationId &&
+      identity.actorHubUserId === posUserId(posIdentity.ownerUserId, posIdentity.organizationId) &&
+      user?.mfaEnabled && hasOwnerAssistantAccess({ user, membership,
+        organizationId: posIdentity.organizationId, ownerOrganizationId: posIdentity.organizationId,
+        ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL }) &&
+      membershipCanAccessApp(membership, "app-marketing"));
+  },
+}));
+
 // Stage 2C source-signature pilot: strict read-only GET, no downstream writes.
 // Disabled unless an operator separately configures the Tiquet signer/public key
 // and deliberately enables the staging flag. This does not grant execution.
@@ -4772,6 +5184,34 @@ app.post("/api/agent/executive-handoff",
   createOwnerExecutiveProxy("handoff", executiveProxyDeps));
 app.post("/api/agent/executive-preview",
   createOwnerExecutiveProxy("preview", executiveProxyDeps));
+
+// Read-only view of existing host-generated reports. No scheduler is started here.
+// Mount only the report directory read-only at this fixed container path.
+app.all("/api/agent/workforce-briefings", createOwnerBriefingReader({
+  ownerMfaContext: ownerApprovalContext,
+  enabled: () => process.env.V79_WORKFORCE_REPORTS_ENABLED === "1",
+  readStatus: createPythonBriefingStatus({ directory: "/run/v79-workforce-reports" }),
+}));
+
+// P1 internal COO development register: separate from verified app telemetry.
+// Fixed GitHub GET paths, owner-session MFA, disabled by default; no agent writes.
+app.get("/api/agent/coo-workboard", createOwnerCooWorkboard({
+  ownerMfaContext: ownerApprovalContext,
+  enabled: () => process.env.V79_COO_WORKBOARD_ENABLED === "1",
+  readToken: () => {
+    const file = process.env.V79_COO_GITHUB_TOKEN_FILE || "/run/secrets/v79-coo-github-token";
+    let fd: number | null = null;
+    try {
+      // No links, no directories, no group/world-readable or oversized secrets.
+      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size < 16 || stat.size > 512 || (stat.mode & 0o077) !== 0) return "";
+      return fs.readFileSync(fd, { encoding: "utf8" }).trim();
+    } catch { return ""; }
+    finally { if (fd !== null) fs.closeSync(fd); }
+  },
+}));
+
 
 app.use("/api/users", (req, res, next) => {
   if (req.method === "GET") return requirePermission("team")(req, res, next);

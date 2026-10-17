@@ -1,0 +1,53 @@
+name: V79 Hub Isolated Browser Preview
+
+on:
+  pull_request:
+    branches: [feature/marketing-production-20261014]
+    paths:
+      - "src/**"
+      - "scripts/hub-isolated-browser-preview.mjs"
+      - ".github/workflows/hub-isolated-browser-preview.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-preview:
+    name: Browser screenshots - synthetic data only
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Build static front-end only
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run build
+      - name: Install disposable browser dependency
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Serve static app on CI loopback only
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4178 --bind 127.0.0.1 --directory dist > "${RUNNER_TEMP}/hub-preview-http.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4178/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "Static preview failed to start"; exit 1
+      - name: Capture real screens with mock APIs
+        run: node scripts/hub-isolated-browser-preview.mjs
+      - name: Upload offline screenshot gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V79-Hub-Isolated-Browser-Preview
+          path: preview-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+# No secrets, prod containers, prod applications, node server.ts or deploy.

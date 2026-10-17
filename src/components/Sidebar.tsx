@@ -44,11 +44,11 @@ export function Sidebar({
     permissions.has(view);
 
   const primary: NavItem[] = [
-    { view: "overview", label: "Dashboard", icon: Home, visible: true },
-    { view: "connections", label: "Apps", icon: Grid3X3, visible: can("connections") },
-    { view: "team", label: "Team", icon: Users, visible: can("team") },
+    { view: "overview", label: "Overview", icon: Home, visible: true },
+    { view: "connections", label: "My Apps", icon: Grid3X3, visible: can("connections") },
+    { view: "team", label: "Team & Access", icon: Users, visible: can("team") },
     { view: "security", label: "Security", icon: ShieldCheck, visible: can("security") },
-    { view: "billing", label: "Plans & Billing", icon: CreditCard, visible: can("billing") },
+    { view: "billing", label: "Billing", icon: CreditCard, visible: can("billing") },
   ];
 
   const active = (view: ViewState) =>
@@ -57,7 +57,7 @@ export function Sidebar({
       : currentView === view;
 
   const buttonClass = (view: ViewState) =>
-    `group w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+    `hub-nav-item group w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-semibold transition-all border ${
       active(view)
         ? "text-white bg-gradient-to-r from-[#0A86FF]/30 to-[#075fbc]/20 border-[#0A86FF]/60 shadow-[0_0_24px_rgba(10,134,255,0.16)]"
         : "text-slate-400 border-transparent hover:text-white hover:bg-white/[0.045]"
@@ -65,7 +65,7 @@ export function Sidebar({
 
   return (
     <>
-      <aside className="hidden lg:flex w-[250px] h-screen shrink-0 flex-col bg-[#06101d] border-r border-[#17324d]/70 text-slate-300 select-none relative overflow-hidden">
+      <aside aria-label="Primary workspace navigation" className="hub-sidebar hidden lg:flex w-[252px] h-screen shrink-0 flex-col bg-[#06101d] border-r border-[#17324d]/70 text-slate-300 select-none relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-56 bg-[radial-gradient(circle_at_30%_0%,rgba(10,134,255,0.16),transparent_62%)] pointer-events-none" />
         <div className="relative px-5 pt-5 pb-6">
           <div className="flex items-center gap-3">
@@ -76,15 +76,15 @@ export function Sidebar({
               </div>
             </div>
             <div>
-              <div className="text-[13px] font-black tracking-[0.18em] text-white">V79 HUB</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">by V79 Digital</div>
+              <div className="text-[14px] font-black tracking-tight text-white">V79 <span className="text-[#55c7ff]">Digital</span></div>
+              <div className="text-[10px] text-slate-400 mt-0.5">From Idea to Advantage.</div>
             </div>
           </div>
         </div>
 
         <nav className="relative flex-1 px-3.5 pb-5 overflow-y-auto">
           <div className="px-3 mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">
-            Workspace
+            Command centre
           </div>
           <div className="space-y-1">
             {primary.filter((item) => item.visible).map((item) => {
@@ -126,7 +126,7 @@ export function Sidebar({
 
         <div className="relative p-3.5 border-t border-[#17324d]/70 bg-[#050d17]">
           <div className="mb-2 px-1 text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">
-            Active workspace
+            Current workspace
           </div>
           <div className="rounded-2xl border border-[#1b3956] bg-[#091727] p-3 flex items-center gap-2.5">
             <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-[#0A86FF] to-[#0057b7] flex items-center justify-center text-white font-black text-sm shadow-[0_0_18px_rgba(10,134,255,.2)]">
@@ -136,9 +136,9 @@ export function Sidebar({
               <div className="text-[11px] font-bold text-white truncate" title={organizationName}>
                 {organizationName}
               </div>
-              <div className="flex items-center gap-1.5 text-[9px] text-emerald-400 mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                Connected
+              <div className="flex items-center gap-1.5 text-[10px] text-sky-300 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                Workspace selected
               </div>
             </div>
             <button

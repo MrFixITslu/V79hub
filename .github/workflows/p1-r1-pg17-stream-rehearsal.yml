@@ -1,0 +1,42 @@
+name: P1 R1 real PG17 encrypted stream rehearsal (disposable CI only)
+
+on:
+  pull_request:
+    branches:
+      - feature/p1-r1-runtime-contract-audit-20261016
+    paths:
+      - 'tests/p1-r1-pg17-stream-ci.py'
+      - 'scripts/p1-r1-offhost-capture.py'
+      - '.github/workflows/p1-r1-pg17-stream-rehearsal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pg17-gpg-structure-no-real-backups:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      V79_PG17_STREAM_TEST: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate test source before accessing Docker
+        run: |
+          python3 -m py_compile tests/p1-r1-pg17-stream-ci.py scripts/p1-r1-offhost-capture.py
+          command -v gpg
+          command -v docker
+      - name: Run only synthetic disposable PG17 and GPG stream checks
+        run: python3 -B tests/p1-r1-pg17-stream-ci.py
+      - name: Ensure test database container gone
+        if: always()
+        run: docker rm -f v79-r1-ci-pg17 >/dev/null 2>&1 || true
+
+# This workflow DOES NOT read owner backups, connect to Acer/v79sl, use
+# production GPG keys, restore any live data, create a release image,
+# publish credentials, dispatch Docker services or grant customer GO.

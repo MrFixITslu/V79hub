@@ -32,6 +32,7 @@ interface BillingSummary {
   supportEmail: string;
   selfServicePaymentsEnabled: boolean;
   sandboxTestPaymentsEnabled?: boolean;
+  manualPaymentAvailable?: boolean;
   paymentProvider?: PaymentProviderSummary;
 }
 
@@ -74,7 +75,11 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [error, setError] = useState("");
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [manualBusy, setManualBusy] = useState(false);
+  const [manualMessage, setManualMessage] = useState("");
+  const [manualError, setManualError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
+  const [verifiedReturn, setVerifiedReturn] = useState<"checking" | "live" | "sandbox" | "unverified">("checking");
 
   const paymentResult = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -86,6 +91,37 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
       orderId: params.get("order") || "",
     };
   }, []);
+
+  // Browser query parameters are untrusted, even when a checkout redirect
+  // normally sets them. Verify a paid order against this authenticated
+  // workspace's Hub ledger before displaying any success claim.
+  useEffect(() => {
+    if (paymentResult?.status !== "success") return;
+    const orderId = paymentResult.orderId;
+    if (!/^v79_[A-Za-z0-9_]{1,60}$/.test(orderId) || orderId.length > 64) {
+      setVerifiedReturn("unverified");
+      return;
+    }
+    let active = true;
+    fetch("/api/billing/orders", { cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) throw new Error("Billing verification unavailable");
+        const data = await response.json();
+        const order = Array.isArray(data.orders)
+          ? data.orders.find((row: any) =>
+              row?.id === orderId && row?.provider === "wipay" &&
+              row?.sourceApp === "hub" && row?.status === "paid" &&
+              typeof row?.providerTransactionId === "string" &&
+              row.providerTransactionId.length > 0 &&
+              typeof row?.paidAt === "string" && row.paidAt.length > 0)
+          : undefined;
+        if (active) setVerifiedReturn(order?.providerEnvironment === "live"
+          ? "live" : order?.providerEnvironment === "sandbox"
+            ? "sandbox" : "unverified");
+      })
+      .catch(() => { if (active) setVerifiedReturn("unverified"); });
+    return () => { active = false; };
+  }, [paymentResult]);
 
   useEffect(() => {
     fetch("/api/billing/summary", { cache: "no-store" })
@@ -116,6 +152,22 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
     }
   }
 
+  async function requestManualInvoice() {
+    setManualBusy(true);
+    setManualError("");
+    try {
+      const response = await fetch("/api/billing/manual/request", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not request invoice.");
+      setManualMessage(`Manual invoice ${data.order.id} requested for EC$ ${Number(data.order.amount).toFixed(2)}. Contact V79 Digital for verified bank instructions. Paid access begins only after funds are independently confirmed.`);
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : "Could not request invoice.");
+    } finally {
+      setManualBusy(false);
+    }
+  }
   const provider = summary?.paymentProvider;
   const isSandbox = provider?.environment === "sandbox";
 
@@ -126,7 +178,7 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
           <ArrowLeft className="w-3.5 h-3.5" /> Back to dashboard
         </button>
 
-        <section className="rounded-3xl border border-[#1a3854] bg-[#091728] p-6 sm:p-7">
+        <section className="hub-page-hero rounded-3xl border border-[#1a3854] bg-[#091728] p-6 sm:p-7">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
             <div>
               <div className="text-[10px] uppercase tracking-[0.18em] font-black text-[#65c9ff]">Workspace plan</div>
@@ -145,13 +197,23 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
         </section>
 
         {paymentResult?.status === "success" && (
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
-            <strong>Payment verified.</strong> Your V79 billing record has been updated{paymentResult.orderId ? ` for order ${paymentResult.orderId}` : ""}.
+          <div role="status" className={`rounded-xl border px-4 py-3 text-xs ${verifiedReturn === "live"
+            ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-100"
+            : "border-amber-500/25 bg-amber-500/10 text-amber-100"}`}>
+            {verifiedReturn === "live" ? (
+              <><strong>Payment verified in Hub.</strong> Your authenticated billing ledger confirms a paid live WiPay order{paymentResult.orderId ? ` ${paymentResult.orderId}` : ""}.</>
+            ) : verifiedReturn === "sandbox" ? (
+              <><strong>Sandbox test recorded.</strong> The authenticated ledger shows a completed test transaction. No paid subscription access was granted by the sandbox test.</>
+            ) : verifiedReturn === "checking" ? (
+              <><strong>Checking payment status.</strong> Confirming the checkout return against the Hub billing ledger.</>
+            ) : (
+              <><strong>Payment not verified.</strong> The checkout URL alone is not proof of payment. Check your billing orders or contact V79 Digital before relying on this result.</>
+            )}
           </div>
         )}
         {paymentResult && paymentResult.status !== "success" && (
-          <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
-            <strong>Payment was not applied.</strong> No access was granted from this return. {paymentResult.reason ? `Reference: ${paymentResult.reason}.` : "Please try again or contact V79 Digital."}
+          <div role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+            <strong>Checkout returned an unsuccessful status.</strong> This URL is not an authoritative billing record; review your authenticated billing orders before retrying or contact V79 Digital. {paymentResult.reason ? `Checkout reference: ${paymentResult.reason}.` : ""}
           </div>
         )}
         {error && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">{error}</div>}
@@ -229,8 +291,21 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
               </div>
             </section>
 
+            {summary.manualPaymentAvailable && (
+              <section className="rounded-xl border border-[#1a3854] bg-[#091728] px-5 py-4 space-y-3">
+                <h2 className="text-sm font-bold text-white">Pay by verified bank transfer</h2>
+                <p className="text-xs text-slate-400">Request an invoice with your plan amount and reference. Obtain official payment instructions directly from V79 Digital. Uploading a receipt or claiming a transfer does not activate a subscription.</p>
+                {manualError && <p role="alert" className="text-xs text-rose-300">{manualError}</p>}
+                {manualMessage && <p role="status" className="text-xs text-emerald-200">{manualMessage}</p>}
+                <button disabled={manualBusy} type="button" onClick={() => void requestManualInvoice()}
+                  className="rounded-lg border border-sky-500 px-4 py-2 text-xs font-bold text-sky-200 disabled:opacity-50">
+                  {manualBusy ? "Requesting…" : "Request bank-transfer invoice"}
+                </button>
+                <a href={`mailto:${summary.supportEmail}?subject=V79%20Manual%20Payment%20Invoice`} className="ml-3 text-xs text-sky-300 underline">Contact V79 Digital</a>
+              </section>
+            )}
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.07] px-4 py-3 text-xs leading-5 text-amber-100">
-              WiPay is a payment provider only. V79 Hub remains the source of truth for plans, billing orders and app entitlements. A browser redirect alone never activates or extends access.
+              V79 Hub remains the source of truth for plans, billing orders and app entitlements. Neither a WiPay browser redirect nor a customer's bank-transfer claim activates access. Only verified payment records can extend a paid plan.
             </div>
           </>
         )}

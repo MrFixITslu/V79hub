@@ -1,0 +1,52 @@
+name: Workforce specialist safety gates (source only)
+on:
+  pull_request:
+    paths:
+      - 'workforce/skills/**'
+      - 'workforce/quality/**'
+      - 'tests/workforce-skill-packages.test.mjs'
+      - 'tests/workforce-evidence-gates.test.mjs'
+      - 'tests/workforce-task-delivery-gates.test.mjs'
+      - 'tests/workforce-g2-real-contract.test.mjs'
+      - 'tests/workforce-a07-tenant-boundary.test.mjs'
+      - 'src/components/OwnerAssistant.tsx'
+      - 'src/components/WorkforceActionPanel.tsx'
+      - 'tests/owner-workspace-ui.test.mjs'
+      - 'server/workforce-actions.mjs'
+      - 'tests/workforce-briefing-reliability.test.mjs'
+      - '.github/workflows/workforce-specialist-gates-isolated.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-contract-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Source syntax gate
+        run: |
+          node --check workforce/quality/evidence-gates.mjs
+          node --check workforce/quality/task-delivery-gates.mjs
+          node --check workforce/quality/briefing-reliability.mjs
+      - name: Safety and package contract regressions
+        run: node --test tests/workforce-evidence-gates.test.mjs tests/workforce-skill-packages.test.mjs tests/workforce-task-delivery-gates.test.mjs tests/workforce-briefing-reliability.test.mjs tests/workforce-g2-real-contract.test.mjs
+
+  reconciled-owner-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Offline dependency installation
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Existing G2 owner security and G3 UI/report regression
+        run: |
+          node --test tests/workforce-actions.test.mjs tests/workforce-action-routes.test.mjs tests/workforce-report-http.test.mjs tests/owner-coo-workboard.test.mjs tests/owner-workspace-ui.test.mjs tests/workforce-a07-tenant-boundary.test.mjs
+      - name: TypeScript and production build only, no deploy
+        run: |
+          npm run lint
+          npm run build

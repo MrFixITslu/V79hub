@@ -72,7 +72,10 @@ test('private data, retired embedded APIs and one-time app launch', {timeout:300
   });
   const ffproOrigin=await listen(ffpro);
   const probe=createServer();const origin=await listen(probe);await new Promise(resolve=>probe.close(resolve));
-  const server=spawn(process.execPath,['--import','tsx','server.ts'],{cwd:process.cwd(),env:{...process.env,NODE_ENV:'production',DATA_DIR:dir,PORT:new URL(origin).port,APP_URL:origin,V79_HUB_ADMIN_PASSWORD:'a-unique-admin-password-1234',V79_HUB_ADMIN_EMAIL:'vision79slu@gmail.com',V79_PLATFORM_SHARED_SECRET:secret,V79_FFPRO_LAUNCH_SECRET:secret,V79_TIQUET_LAUNCH_SECRET:secret,V79_MARKETING_LAUNCH_SECRET:secret,POS_BASE_URL:posOrigin,POS_PUBLIC_URL:'https://pos.example.test',ACADEMY_INTERNAL_URL:academyOrigin,TIQUET_INTERNAL_URL:tiquetOrigin,FFPRO_INTERNAL_URL:ffproOrigin},stdio:['ignore','pipe','pipe']});
+  // Every non-mocked service is explicitly disconnected. Never inherit live
+  // application URLs or let Docker-name defaults reach an external service.
+  const dead='http://127.0.0.1:9';
+  const server=spawn(process.execPath,['--import','tsx','server.ts'],{cwd:process.cwd(),env:{...process.env,NODE_ENV:'production',DATA_DIR:dir,PORT:new URL(origin).port,APP_URL:origin,V79_HUB_ADMIN_PASSWORD:'a-unique-admin-password-1234',V79_HUB_ADMIN_EMAIL:'vision79slu@gmail.com',V79_PLATFORM_SHARED_SECRET:secret,V79_FFPRO_LAUNCH_SECRET:secret,V79_TIQUET_LAUNCH_SECRET:secret,V79_MARKETING_LAUNCH_SECRET:secret,POS_BASE_URL:posOrigin,POS_PUBLIC_URL:'https://pos.example.test',ACADEMY_INTERNAL_URL:academyOrigin,TIQUET_INTERNAL_URL:tiquetOrigin,FFPRO_INTERNAL_URL:ffproOrigin,MARKETING_INTERNAL_URL:dead,LASERTAG_INTERNAL_URL:dead,WEBSITE_INTERNAL_URL:dead,GAMES_INTERNAL_URL:dead,V79_AGENT_INTERNAL_URL:dead,WIPAY_ENABLED:'0',RESEND_API_KEY:'',V79_TRIAL_REMINDERS_ENABLED:'0'},stdio:['ignore','pipe','pipe']});
   let errors='';server.stderr.on('data',c=>errors+=c);
   server.stdout.on('data',c=>errors+=c);
   t.after(async()=>{

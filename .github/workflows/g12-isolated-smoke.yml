@@ -2,7 +2,7 @@ name: G1.2 isolated non-root smoke
 
 on:
   pull_request:
-    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010]
+    branches: [main, feature/ai-workforce-ceo-coo-g1-20261010, feature/g12-reconciled-sentinel-preservation-20261012, feature/workforce-approved-actions-20261014]
     paths:
       - 'agent-service/**'
       - 'scripts/g12-isolated-container-smoke.sh'

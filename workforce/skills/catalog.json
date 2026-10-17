@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "version": "1.0.0",
+  "mode": "analysis-and-draft",
+  "ownerFinalAuthority": true,
+  "commercialScope": [
+    "hub",
+    "tiquet"
+  ],
+  "specialists": [
+    "finance",
+    "strategy",
+    "marketing",
+    "customer-service",
+    "technical-security",
+    "sales"
+  ],
+  "orchestrators": [
+    "ceo",
+    "coo"
+  ],
+  "allSkills": [
+    "finance",
+    "strategy",
+    "marketing",
+    "customer-service",
+    "technical-security",
+    "sales",
+    "ceo",
+    "coo"
+  ],
+  "modelBudgetUsd30d": 20,
+  "allowedEffects": [],
+  "requiresIndependentRuntimeAcceptance": true
+}
