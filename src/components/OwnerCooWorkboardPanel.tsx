@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ClipboardList, RefreshCcw, ShieldCheck } from "lucide-react";
 
 type CooTask = {
@@ -36,10 +36,12 @@ const issueSystem: Record<string, string> = {
   V79hub: "hub", V79Tiquet: "tiquet", "V79-Sentinel": "sentinel",
   V79Marketing: "marketing", V79acaedmy: "academy", V79POS: "pos",
 };
-export function OwnerCooWorkboardPanel({ onPrepareTask }: {
+export function OwnerCooWorkboardPanel({ onPrepareTask, embedded = false, active = true }: {
   onPrepareTask?: (draft: CooWorkItemDraft) => void;
+  embedded?: boolean;
+  active?: boolean;
 } = {}) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<CooReport | null>(null);
   const [error, setError] = useState("");
@@ -67,6 +69,10 @@ export function OwnerCooWorkboardPanel({ onPrepareTask }: {
     }
   }
 
+  useEffect(() => {
+    if (embedded && active) void refresh();
+  }, [embedded, active]);
+
   function toggle() {
     if (!open && !report && !busy) void refresh();
     setOpen(!open);
@@ -74,11 +80,11 @@ export function OwnerCooWorkboardPanel({ onPrepareTask }: {
 
   return (
     <section aria-label="COO GitHub delivery workboard" className="border-b border-slate-800 bg-slate-950 px-5 py-4 text-sm">
-      <button type="button" aria-expanded={open} onClick={toggle}
+      {!embedded && <button type="button" aria-expanded={open} onClick={toggle}
         className="flex items-center gap-2 text-left font-semibold text-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-400">
         <ClipboardList className="w-4 h-4" aria-hidden="true" />
         COO workboard · P1/P2 engineering
-      </button>
+      </button>}
       {open && <div className="mt-3 space-y-3">
         <p className="text-xs text-slate-400">
           Founder-only, read-only GitHub task register. Issue status is not app uptime, protection, security clearance, revenue or permission to deploy.
