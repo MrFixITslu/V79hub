@@ -6,19 +6,27 @@ umask 077
 
 REPO="$HOME/v79-r1-src.PnZUGsH9/repo"
 BACKUP="$HOME/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_"
-COMMIT="ee69a083b9664e7fc1c5fe4e0cc7b72533c23ab2"
+COMMIT="4b37a45342354a3d876dda3dc6e925fd26e1d0dc"
 BRANCH="feature/p1-r1-offhost-capture-20261016"
 WORK=""
 SWAP_ATTEMPTED=0
 
 declare -A EXPECTED=(
-  [p1-r1-acer-four-image-boot.py]="b4c6affb85f19213b4f033aa80aec748e3485ac0"
-  [p1-r1-acer-disconnected-db-rehearsal.py]="deb45ce7bd627a7d59c5a611715a18e55da32904"
+  [p1-r1-acer-four-image-boot.py]="126fe9a0a24a75b99573c2d8f5834bf719496169"
+  [p1-r1-acer-disconnected-db-rehearsal.py]="1871c1c179f206681a99cc33d0d862cf0384f455"
   [p1-r1-acer-oci-pin-proof.py]="4e530500395864a30060e94667ac602436f68972"
   [p1-r1-acer-app-mount-preflight.py]="cf7c5ad2a33be1caa4405e1017fd3b5a8a8c23a3"
 )
 
 stop() { echo "STOP=$1"; exit 1; }
+# Only fixed reviewed modes, never arbitrary arguments to the runner.
+RUNNER_ARGS=()
+(( $# <= 1 )) || stop INVALID_RECOVERY_MODE
+case "${1:-}" in
+  "") ;;
+  --rollback-only) RUNNER_ARGS=(--rollback-only) ;;
+  *) stop INVALID_RECOVERY_MODE ;;
+esac
 swap_names() { swapon --show=NAME --noheadings --raw; }
 available_ram_kib() { awk '/^MemAvailable:/ {print $2}' /proc/meminfo; }
 
@@ -135,5 +143,5 @@ RUNNER="$WORK/p1-r1-acer-four-image-boot.py"
 # --execute performs the same mandatory preflight before any extraction.
 # Do not run that expensive read-only proof twice in the same invocation.
 echo "=== VERIFIED PREFLIGHT AND FOUR-IMAGE DISCONNECTED SMOKE ==="
-python3 -B "$RUNNER" --backup "$BACKUP" --execute
-echo "R1_FOUR_IMAGE_SMOKE_COMMAND=COMPLETE"
+python3 -B "$RUNNER" --backup "$BACKUP" --execute "${RUNNER_ARGS[@]}"
+echo "R1_ISOLATED_RECOVERY_COMMAND=COMPLETE"
