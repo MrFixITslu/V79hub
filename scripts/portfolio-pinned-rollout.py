@@ -65,6 +65,23 @@ def envmap(values):
         result[k] = v
     return result
 
+def normalized_host(host):
+    result = copy.deepcopy(host)
+    targets = []
+    binds = result.get('Binds')
+    if isinstance(binds, list):
+        parsed = [value.split(':') for value in binds if isinstance(value, str)]
+        if len(parsed) == len(binds) and all(len(v) in (2, 3) and v[1].startswith('/') for v in parsed):
+            targets.extend(v[1] for v in parsed)
+            result['Binds'] = sorted(binds)
+    mounts = result.get('Mounts')
+    if isinstance(mounts, list) and all(isinstance(m, dict) and isinstance(m.get('Target'), str)
+                                        and m['Target'].startswith('/') for m in mounts):
+        targets.extend(m['Target'] for m in mounts)
+        result['Mounts'] = sorted(mounts, key=lambda m: json.dumps(m, sort_keys=True))
+    need(len(targets) == len(set(targets)), 'AMBIGUOUS_MOUNT_DESTINATIONS')
+    return result
+
 def fingerprint(row):
     config = row['Config']
     # Deliberately ignore image/Compose labels, creation time and assigned IPs only.
@@ -72,7 +89,7 @@ def fingerprint(row):
               'StopSignal', 'StopTimeout', 'Tty', 'OpenStdin', 'StdinOnce', 'Volumes')
     return {'config': {k: config.get(k) for k in fields},
             'env': envmap(config.get('Env')),
-            'host': row['HostConfig'],
+            'host': normalized_host(row['HostConfig']),
             'mounts': sorted([{k: m.get(k) for k in ('Type', 'Source', 'Destination', 'RW', 'Propagation')}
                               for m in row['Mounts']], key=lambda m: m['Destination']),
             'networks': sorted(row['NetworkSettings']['Networks'])}
@@ -228,7 +245,7 @@ def up(path, pin):
     call(compose(path, pin['compose_project'], 'up', '-d', '--no-deps', '--no-build',
                  '--pull', 'never', pin['compose_service']), timeout=240)
 
-def server(run, key):
+def server(run, key, continuation=None):
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(Stop('TERMINATION_REQUESTED')))
     need(socket.gethostname() == 'v79sl' and os.getuid() != 0, 'WRONG_SERVER_OR_ROOT')
     os.umask(0o077)
@@ -237,6 +254,8 @@ def server(run, key):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise Stop('ANOTHER_ROLLOUT_RUNNING')
+        if continuation is not None:
+            return continued_server_locked(run, *continuation)
         return server_locked(run, key)
 
 def server_locked(run, key):
@@ -401,7 +420,7 @@ def acer():
     emit('CHECKPOINT', directory)
     return monitor(directory)
 
-def monitor(directory):
+def monitor(directory, copy_checkpoint=True):
     seen = 0
     deadline = time.monotonic() + 10800
     heartbeat = time.monotonic()
@@ -418,6 +437,10 @@ def monitor(directory):
         code = remote(['sh', '-c', 'if test -f "$1/exit-code"; then cat "$1/exit-code"; fi', 'poll', directory]).decode().strip()
         if code:
             need(code in ('0', '1'), 'REMOTE_STATUS_INVALID')
+            if not copy_checkpoint:
+                emit('OFFHOST_CHECKPOINT', 'PREVIOUSLY_VERIFIED_SET_RETAINED')
+                need(code == '0', 'REMOTE_ROLLOUT_FAILED_SEE_SAFE_STATUS')
+                return
             # Early preflight/build failure has no checkpoint and never stopped apps.
             complete = remote(['sh', '-c', 'test -f "$1/checkpoint/manifest.json" && echo yes || echo no', 'check', directory]).decode().strip()
             if complete != 'yes':
@@ -446,21 +469,170 @@ def monitor(directory):
             heartbeat = time.monotonic()
         time.sleep(5)
 
+# Continuation is deliberately limited to the failed run diagnosed by the founder.
+FAILED_RUN = Path('/home/firelion/v79-portfolio-rollout.W8DQrYJI')
+VERIFIED_CHECKPOINT = Path.home() / 'V79-Portfolio-Checkpoints/v79-portfolio-rollout.W8DQrYJI-6_p2qopr/checkpoint'
+
+def continuation_proof(checkpoint):
+    import io
+    import tarfile
+    manifest = json.loads((checkpoint / 'manifest.json').read_text())
+    artifact = checkpoint / 'runtime-and-config.tar.gpg'
+    entry = next(x for x in manifest['files'] if x['name'] == artifact.name)
+    need(sha_file(artifact) == entry['sha256'], 'OFFHOST_CONFIG_CIPHERTEXT_CHANGED')
+    plaintext = call(['gpg', '--batch', '--quiet', '--decrypt', str(artifact)], timeout=90)
+    need(len(plaintext) <= 8 * 1024**2, 'CONFIG_ARCHIVE_TOO_LARGE')
+    expected = {'runtime-before.json', *[n + '-original.compose.json' for n in PINNED]}
+    hashes = {}
+    with tarfile.open(fileobj=io.BytesIO(plaintext), mode='r:') as archive:
+        for member in archive:
+            need(member.isfile() and member.name in expected and member.name not in hashes
+                 and member.size <= 4 * 1024**2, 'CONFIG_ARCHIVE_UNEXPECTED_MEMBER')
+            hashes[member.name] = hashlib.sha256(archive.extractfile(member).read()).hexdigest()
+    need(set(hashes) == expected, 'CONFIG_ARCHIVE_INCOMPLETE')
+    need(manifest['source_images'] == {n: p['image_id'] for n, p in PINNED.items()}, 'CHECKPOINT_SOURCE_IMAGES_CHANGED')
+    need(set(manifest['candidates']) == set(PINNED)
+         and all(IMAGE.fullmatch(x) for x in manifest['candidates'].values()), 'CHECKPOINT_CANDIDATES_INVALID')
+    return {'files': hashes, 'manifest_sha256': sha_file(checkpoint / 'manifest.json'),
+            'candidates': manifest['candidates']}
+
+def check_original_inputs():
+    for pin in PINNED.values():
+        for entry in pin['compose_inputs']:
+            path = Path(entry['path'])
+            need(path.is_file() and not path.is_symlink() and sha_file(path) == entry['sha256'],
+                 'ORIGINAL_COMPOSE_INPUT_CHANGED')
+
+def continued_server_locked(run, old, proof):
+    need(old == FAILED_RUN and old.is_dir() and not old.is_symlink(), 'CONTINUATION_RUN_INVALID')
+    need((old / 'exit-code').read_text().strip() == '1', 'PREVIOUS_RUN_NOT_FAILED_COMPLETE')
+    expected_files = {'runtime-before.json', *[n + '-original.compose.json' for n in PINNED]}
+    need(set(proof['files']) == expected_files, 'CHECKPOINT_PROOF_INCOMPLETE')
+    for name, digest in proof['files'].items():
+        path = old / name
+        need(path.is_file() and not path.is_symlink() and sha_file(path) == digest, 'SAVED_CONFIG_INTEGRITY_CHANGED')
+    manifest_path = old / 'checkpoint/manifest.json'
+    need(sha_file(manifest_path) == proof['manifest_sha256'], 'SAVED_MANIFEST_CHANGED')
+    manifest = json.loads(manifest_path.read_text())
+    need(manifest['candidates'] == proof['candidates'] and set(proof['candidates']) == set(PINNED),
+         'CANDIDATE_PROOF_CHANGED')
+    need(manifest['source_images'] == {n: p['image_id'] for n, p in PINNED.items()}, 'SOURCE_IMAGES_CHANGED')
+    baseline = json.loads((old / 'runtime-before.json').read_text())
+    check_original_inputs()
+    emit('PHASE', 'VERIFY_RESTORED_ORIGINALS_AND_CACHED_CANDIDATES')
+    before = {n: inspect(n) for n in baseline}
+    plans = {}
+    for name, pin in PINNED.items():
+        row = before[name]
+        need(row['Image'] == pin['image_id'] and row['State'].get('Health', {}).get('Status') == 'healthy',
+             'ORIGINAL_APP_NOT_HEALTHY')
+        need(fingerprint(row) == fingerprint(baseline[name]), 'ORIGINAL_RUNTIME_DRIFT')
+        candidate_id = proof['candidates'][name]
+        need(IMAGE.fullmatch(candidate_id), 'CANDIDATE_ID_INVALID')
+        image = inspect(candidate_id, image=True)
+        need(image['Id'] == candidate_id and
+             image['Config'].get('Labels', {}).get('org.opencontainers.image.revision') == SOURCES[name][1],
+             'CACHED_CANDIDATE_SOURCE_MISMATCH')
+        model = json.loads((old / (name + '-original.compose.json')).read_text())
+        service = model['services'][pin['compose_service']]
+        need(service['image'] == pin['image_id'], 'ORIGINAL_MODEL_IMAGE_CHANGED')
+        original_path = run / (name + '-original.compose.json')
+        private_json(original_path, model)
+        service['image'] = candidate_id
+        candidate_path = run / (name + '-candidate.compose.json')
+        private_json(candidate_path, model)
+        rendered = json.loads(call(compose(candidate_path, pin['compose_project'], 'config', '--format', 'json')))
+        selected = rendered['services'][pin['compose_service']]
+        need(compose_runtime(selected.get('environment', {})) == envmap(row['Config'].get('Env')),
+             'FROZEN_ENVIRONMENT_INTERPOLATION_DRIFT')
+        validate_storage_and_networks(rendered, selected, row)
+        plans[name] = (original_path, candidate_path)
+    same_others(baseline, set(PINNED))
+    private_json(run / 'runtime-before.json', before)
+    private_json(run / 'checkpoint-reference.json', {'prior_run': str(old), 'scope': 'PRE_FIRST_ATTEMPT_NOT_NEW_SNAPSHOT',
+                                                  'manifest_sha256': proof['manifest_sha256']})
+    emit('CHECKPOINT', 'REUSE_VERIFIED_PRE_FIRST_ATTEMPT_SET_NO_NEW_SNAPSHOT')
+    changed = []
+    timers = active_timers()
+    success = False
+    try:
+        if timers:
+            call(['systemctl', '--user', 'stop', *timers])
+            timers_idle(timers)
+        for name, pin in PINNED.items():
+            # Arm rollback before up. No builds, captures, imports or data restores.
+            emit('PHASE', 'SWITCH_' + name.replace('-', '_').upper())
+            changed.append(name)
+            up(plans[name][1], pin)
+            current = health(name, proof['candidates'][name])
+            need(fingerprint(current) == fingerprint(before[name]), 'RUNTIME_CONFIGURATION_CHANGED')
+            emit('DEPLOYED', name + '_HEALTHY_CONFIGURATION_PRESERVED')
+        same_others(before, set(PINNED))
+        private_json(run / 'release-receipt.json', {'images': proof['candidates'], 'sources': SOURCES,
+                     'checkpoint': 'PRE_FIRST_ATTEMPT_REUSED', 'health': 'PASS_BOTH',
+                     'security_acceptance': 'NOT_PERFORMED'})
+        success = True
+        emit('RESULT', 'BOTH_APPS_DEPLOYED_HEALTHY')
+    finally:
+        if not success:
+            failed = False
+            for name in reversed(changed):
+                try:
+                    up(plans[name][0], PINNED[name])
+                    current = health(name, before[name]['Image'])
+                    need(fingerprint(current) == fingerprint(before[name]), 'ROLLBACK_CONFIG_CHANGED')
+                    emit('ROLLBACK', name + '_ORIGINAL_HEALTHY_CONFIGURATION_PRESERVED')
+                except Exception:
+                    failed = True
+                    emit('ROLLBACK', name + '_NOT_PROVEN_MANUAL_REVIEW_REQUIRED')
+            emit('ROLLBACK', 'FAILED_MANUAL_RECOVERY_REQUIRED' if failed else 'ORIGINAL_IMAGES_HEALTHY')
+            emit('DATA_RESTORE', 'NOT_AUTOMATIC_IMAGE_ROLLBACK_ONLY')
+        emit('CUSTOMER_RELEASE', 'NO_GO')
+        if timers:
+            call(['systemctl', '--user', 'start', *timers])
+            emit('PRESERVED', 'ORIGINALLY_ACTIVE_USER_TIMERS_RESUMED')
+
+def acer_continue():
+    need(socket.gethostname() != 'v79sl' and os.getuid() != 0, 'RUN_ON_NON_ROOT_ACER')
+    proof = continuation_proof(VERIFIED_CHECKPOINT)
+    encoded = base64.b64encode(json.dumps(proof).encode()).decode()
+    directory = remote(['mktemp', '-d', '/home/firelion/v79-portfolio-rollout.XXXXXXXX']).decode().strip()
+    need(re.fullmatch(r'/home/firelion/v79-portfolio-rollout\.[A-Za-z0-9]{8}', directory), 'REMOTE_DIRECTORY_INVALID')
+    script = Path(directory) / 'rollout.py'
+    call([*SSH, 'umask 077; cat > ' + shlex.quote(str(script))], data=Path(__file__).read_bytes())
+    launch = shlex.join(['python3', '-u', str(script), '--server-continue', directory, str(FAILED_RUN), encoded])
+    call([*SSH, 'nohup ' + launch + ' > ' + shlex.quote(directory + '/progress.log') + ' 2>&1 < /dev/null &'])
+    emit('CHECKPOINT', directory)
+    monitor(directory, copy_checkpoint=False)
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', nargs=2, metavar=('DIRECTORY', 'PUBLIC_KEY_BASE64'))
+    parser.add_argument('--continue-run', action='store_true', help='Continue the specifically diagnosed failed run with cached candidates and its existing verified checkpoint')
+    parser.add_argument('--server-continue', nargs=3, metavar=('DIRECTORY', 'OLD_DIRECTORY', 'PROOF_BASE64'))
     parser.add_argument('--resume', help='Monitor an existing remote run; never start another deployment')
     args = parser.parse_args()
-    if args.resume:
-        need(not args.server and re.fullmatch(r'/home/firelion/v79-portfolio-rollout\.[A-Za-z0-9]{8}', args.resume), 'RESUME_DIRECTORY_INVALID')
-        monitor(args.resume)
+    if args.continue_run:
+        need(not args.server and not args.server_continue and not args.resume, 'CONFLICTING_MODES')
+        acer_continue()
         return 0
-    if args.server:
-        run = Path(args.server[0])
+    if args.resume:
+        need(not args.server and not args.server_continue and re.fullmatch(r'/home/firelion/v79-portfolio-rollout\.[A-Za-z0-9]{8}', args.resume), 'RESUME_DIRECTORY_INVALID')
+        copy_checkpoint = remote(['sh', '-c', 'if test -f "$1/checkpoint-reference.json"; then echo no; else echo yes; fi', 'resume', args.resume]).decode().strip() != 'no'
+        monitor(args.resume, copy_checkpoint=copy_checkpoint)
+        return 0
+    if args.server or args.server_continue:
+        need(not (args.server and args.server_continue), 'CONFLICTING_MODES')
+        options = args.server or args.server_continue
+        run = Path(options[0])
         need(run == Path(__file__).resolve().parent and run.parent == Path('/home/firelion'), 'REMOTE_PATH_INVALID')
         code = 1
         try:
-            server(run, args.server[1])
+            if args.server_continue:
+                proof = json.loads(base64.b64decode(options[2], validate=True))
+                server(run, '', (Path(options[1]), proof))
+            else:
+                server(run, options[1])
             code = 0
         except BaseException as error:
             emit('STOP', str(error) if isinstance(error, Stop) and re.fullmatch('[A-Z0-9_]+', str(error)) else 'REMOTE_ERROR_REDACTED')

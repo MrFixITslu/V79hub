@@ -91,3 +91,47 @@ This checkpoint covers Hub/Tiquet, not the complete portfolio. Full encrypted
 portfolio backup, isolated new-release restoration, authenticated MFA/SSO,
 revocation, two-tenant security tests and real Sentinel monitoring are outstanding.
 `CUSTOMER_RELEASE=NO_GO` remains unconditional.
+
+## Diagnosed mount-order false failure and continuation
+
+The founder's read-only diagnostic on the failed run
+`/home/firelion/v79-portfolio-rollout.W8DQrYJI` proved all five core services
+healthy on original images. Hub had been recreated; only the order of
+`HostConfig.Binds` and `HostConfig.Mounts` differed from baseline. Tiquet, both
+PostgreSQL containers and the business agent retained their IDs and exact runtime
+fingerprints. Thus the global rollback failure was a comparison false negative.
+The initial candidate snapshot was not retained, so its entire prior difference
+cannot be reconstructed; corrected comparison still checks the next attempt fully.
+
+Canonicalize only these two mount lists, preserving every complete specification
+and duplicate count. Reject duplicate destinations across bind/structured mounts.
+All unrelated host options, list ordering, environment, command and mount content
+remain compared. Regression tests cover reordered binds/structured mounts, changed
+sources/targets/access/propagation, duplicate targets and unrelated list ordering.
+
+Use the updated verified helper on Acer with `--continue-run`. This mode is fixed
+to the diagnosed failed run and its already verified off-host checkpoint:
+`$HOME/V79-Portfolio-Checkpoints/v79-portfolio-rollout.W8DQrYJI-6_p2qopr/checkpoint`.
+It performs no build, image import, new checkpoint capture or data restore.
+The checkpoint is from **before the first attempt**, not a fresh snapshot after
+original apps resumed. It remains untouched and is not represented as a final
+portfolio backup or a rollback of any state/schema changes.
+
+Before launching a detached continuation, Acer verifies the small encrypted
+runtime/config archive's ciphertext hash and decrypts it in memory. Derive hashes
+of exactly the original runtime snapshot and two original frozen Compose models;
+reject unexpected/duplicate members, symlinks and excessive sizes. Send only these
+hashes, original manifest hash and candidate image IDs to the server. Server must
+match its saved files/manifest, verify original source Compose input hashes,
+original app image/health/configuration, cached candidate image IDs and revision
+labels, frozen environment/mount/network equality, and unchanged other containers.
+Generate candidate models from the authenticated original models with image-only
+changes; do not trust leftover candidate files or overwrite old run artifacts.
+
+The continuation uses the same host lock and scheduler guard. Only each selected
+app is recreated. Compare genuine health and full normalized runtime after each
+switch. If needed, restore only attempted apps in reverse order; report individual
+rollback results instead of hiding them behind a single aggregate status. The new
+run retains a checkpoint reference and release receipt. Resume monitoring detects
+this reference and does not repeat copying/decrypting the previously accepted set.
+Full new-release security and restore acceptance remain outstanding, NO_GO.
