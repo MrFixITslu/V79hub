@@ -235,7 +235,9 @@ def run(root,mounts,db,resolved,selected):
     app_h="r1-hub-"+uid
     app_t="r1-tiquet-"+uid
     try:
+        line("R1_PHASE","RESTORE_THREE_APP_DATA_MOUNTS_TO_RAM")
         extract_verified(root,selected,scratch)
+        line("R1_PHASE","CREATE_NETWORK_NONE_POD")
         quiet([*PD,"pod","create","--name",pod,"--network=none"],timeout=60)
         infra=quiet([*PD,"pod","inspect",pod,"--format","{{.InfraContainerID}}"])
         need(infra!="","POD_INFRA_NOT_CREATED")
@@ -249,6 +251,7 @@ def run(root,mounts,db,resolved,selected):
         common=["--tmpfs=/var/lib/postgresql/data:rw,size=1073741824,mode=0700",
                 "--tmpfs=/var/run/postgresql:rw,size=16777216",
                 "--tmpfs=/tmp:rw,size=67108864"]
+        line("R1_PHASE","START_SAVED_PG17_AND_PG16")
         for name,img,db_name,pw,command in [
             (pg_h,resolved["v79-hub-postgres"],db_h,pass_h,None),
             (pg_t,resolved["tiquet-postgres"],db_t,pass_t,
@@ -262,6 +265,7 @@ def run(root,mounts,db,resolved,selected):
             inspect_no_net(name)
         wait_sql(pg_h,5432,db_h)
         wait_sql(pg_t,5433,db_t)
+        line("R1_PHASE","RESTORE_TWO_ORIGINAL_DATABASES")
         hub_count=restore_sql(root,"hub-pg.dump.gpg",pg_h,5432,db_h,db)
         tiquet_count=restore_sql(root,"tiquet-pg.dump.gpg",pg_t,5433,db_t,db)
         line("R1_HUB_RESTORED_USER_TABLES",hub_count)
@@ -305,12 +309,14 @@ def run(root,mounts,db,resolved,selected):
         mounts_h=["--volume",str(scratch/"hub_data")+":/app/data:rw"]
         mounts_t=["--volume",str(scratch/"tiquet_data")+":/app/data:rw",
                   "--volume",str(scratch/"tiquet_uploads")+":/app/uploads:rw"]
+        line("R1_PHASE","START_SAVED_HUB_AND_TIQUET_APPS")
         quiet(pod_command(app_h,resolved["v79-hub"],pod,app_h_env,extra=mounts_h),timeout=120)
         quiet(pod_command(app_t,resolved["v79-tiquet-manager"],pod,app_t_env,extra=mounts_t),timeout=120)
         allowed={str(scratch/f) for f in ("hub_data","tiquet_data","tiquet_uploads")}
         inspect_no_net(app_h,allowed)
         inspect_no_net(app_t,allowed)
         line("R1_FOUR_PINNED_CONTAINERS_STARTED","PASS")
+        line("R1_PHASE","CHECK_BOTH_APP_HEALTH_ENDPOINTS")
         h=check_service(app_h,"http://127.0.0.1:3040/api/health")
         t=check_service(app_t,"http://127.0.0.1:3050/health")
         line("R1_HUB_API_HEALTH","PASS" if h else "FAIL")
@@ -321,6 +327,7 @@ def run(root,mounts,db,resolved,selected):
         line("R1_SSO_TENANT_ISOLATION","NOT_TESTED")
         line("R1_ROLLBACK_BOOT","NOT_TESTED")
     finally:
+        line("R1_PHASE","TEARDOWN_PRIVATE_POD_AND_RAM_DATA")
         subprocess.run([*PD,"pod","rm","-f",pod],
                        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=100)
         left=subprocess.run([*PD,"pod","exists",pod],
