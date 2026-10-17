@@ -166,6 +166,8 @@ def extract_verified(root, selected, scratch):
 def pod_command(container,image,pod,env,extra=None,commands=None):
     arr=[*PD,"run","--detach","--pull=never",
          "--name",container,"--pod",pod,
+         "--read-only","--log-driver=none",
+         "--tmpfs=/tmp:rw,size=67108864,mode=0700",
          "--security-opt=no-new-privileges",
          "--pids-limit=256",
          "--env","NODE_ENV=production"]
@@ -180,6 +182,15 @@ def inspect_no_net(container,allowed=None):
     need(isinstance(data,list) and len(data)==1,"PODMAN_CONTAINER_INSPECT_INVALID")
     host=data[0].get("HostConfig") or {}
     need(not host.get("PortBindings"),"UNEXPECTED_HOST_PORT_BINDING")
+    need(host.get("ReadonlyRootfs") is True,
+         "CONTAINER_WRITABLE_ROOT_FILESYSTEM_REFUSED")
+    config=data[0].get("HostConfig") or {}
+    # The run args explicitly set --log-driver=none. If inspect reports a
+    # concrete logging driver other than none, fail rather than writing
+    # recovered app output into Podman's persistent local storage.
+    log_cfg=config.get("LogConfig") or {}
+    if isinstance(log_cfg,dict) and log_cfg.get("Type") not in (None,"none"):
+        raise Stop("PERSISTENT_RUNTIME_LOG_DRIVER_REFUSED")
     mounts=data[0].get("Mounts") or []
     need(isinstance(mounts,list),"PODMAN_MOUNTS_INVALID")
     for m in mounts:
