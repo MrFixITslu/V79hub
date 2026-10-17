@@ -115,7 +115,7 @@ def prep(root):
     need(h.hexdigest() == entries[0].get("sha256"), "IMAGE_CIPHERTEXT_HASH_CHANGED")
     return p
 
-def stream_proof(encrypted):
+def stream_proof(encrypted, return_mapping=False):
     p = subprocess.Popen(["gpg","--batch","--quiet","--decrypt",str(encrypted)],
                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                          stderr=subprocess.DEVNULL)
@@ -221,6 +221,15 @@ def stream_proof(encrypted):
     need(len(verified_configs) == 5 and (by_manifest or by_index),
          "OCI_PIN_TO_CONFIG_PROVENANCE_NOT_PROVEN")
     print("R1_PINNED_OCI_ID_TO_CONFIG_PROVENANCE=PASS_OFFLINE_ONLY")
+    if return_mapping:
+        mapping = (dict(matched_by_manifest) if by_manifest else
+                   {pin: next(iter(values)) for pin, values in matched_by_index.items()})
+        need(set(mapping) == PINS and len(set(mapping.values())) == 5
+             and set(mapping.values()) == verified_configs,
+             "OCI_MAPPING_NOT_EXACTLY_FIVE_CONFIGS")
+        # This dict is for the strictly local, networkless restore runner only.
+        # Never print either OCI ids or unreviewed image metadata.
+        return mapping
 
 def main():
     a=argparse.ArgumentParser()
