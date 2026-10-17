@@ -1,0 +1,29 @@
+name: Remaining portfolio guarded rollout safety
+on:
+  pull_request:
+    paths:
+      - scripts/portfolio-remaining-rollout.py
+      - tests/portfolio-remaining-rollout.test.py
+      - tests/portfolio-remaining-probe-docker.test.py
+      - .github/workflows/portfolio-remaining-rollout.yml
+  push:
+    paths:
+      - scripts/portfolio-remaining-rollout.py
+      - tests/portfolio-remaining-rollout.test.py
+      - tests/portfolio-remaining-probe-docker.test.py
+      - .github/workflows/portfolio-remaining-rollout.yml
+permissions:
+  contents: read
+jobs:
+  guarded-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -B tests/portfolio-remaining-rollout.test.py
+      - run: python3 -B tests/portfolio-remaining-preflight.test.py
+      - run: python3 -B tests/portfolio-pinned-rollout.test.py
+      - run: python3 -B tests/portfolio-remaining-probe-docker.test.py
