@@ -25,6 +25,12 @@ The helper requires the exact inventoried original images, ordered 13 Hub layers
 and one Tiquet effective file, matching file hashes, healthy apps, unchanged
 rendered environment, MFA, entitlement recheck and shared launch secret. It
 rejects ambient Compose/Docker/Git environment overrides and published app ports.
+Literal dollar signs in inspected environment/command values are escaped for
+Compose reload, and rendered environment is compared again before shutdown. An
+actual Compose serialization test runs in GitHub CI without starting containers.
+Docker Compose 5.5.0 config serialization explicitly doubles dollars:
+https://github.com/docker/compose/blob/v5.5.0/cmd/compose/config.go
+
 It records the actual candidate image IDs after sequential builds from exact Git
 commits, with revision labels. It never retags or deletes original images.
 

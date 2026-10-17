@@ -113,6 +113,27 @@ def validate_storage_and_networks(model, service, row):
     expected = {model['networks'][alias]['name'] for alias in networks}
     need(expected == set(row['NetworkSettings']['Networks']), 'RENDERED_NETWORKS_DIFFER')
 
+def compose_runtime(value):
+    # Compose config (including JSON) re-escapes dollars for a subsequent load.
+    if isinstance(value, str):
+        return value.replace('$$', '$')
+    if isinstance(value, list):
+        return [compose_runtime(v) for v in value]
+    if isinstance(value, dict):
+        return {k: compose_runtime(v) for k, v in value.items()}
+    return value
+
+def compose_literal(value):
+    # These values come from container inspect, not Compose's serialized model.
+    # A literal dollar must survive the frozen model's next interpolation pass.
+    if isinstance(value, str):
+        return value.replace('$', '$$')
+    if isinstance(value, list):
+        return [compose_literal(v) for v in value]
+    if isinstance(value, dict):
+        return {k: compose_literal(v) for k, v in value.items()}
+    return value
+
 def original_model(row, pin):
     labels = row['Config']['Labels']
     paths = labels['com.docker.compose.project.config_files'].split(',')
@@ -132,16 +153,16 @@ def original_model(row, pin):
     validate_storage_and_networks(model, service, row)
     old = inspect(row['Image'], image=True)['Config']
     expected = envmap(old.get('Env'))
-    expected.update({k: str(v) for k, v in service.get('environment', {}).items()})
+    expected.update({k: compose_runtime(str(v)) for k, v in service.get('environment', {}).items()})
     need(expected == envmap(row['Config'].get('Env')), 'RENDERED_ENV_DIFFERS_FROM_RUNNING')
     # Freeze the complete observed environment, including image defaults.
     # Explicit runtime fields prevent a new image changing execution/user/health defaults.
-    service['environment'] = envmap(row['Config'].get('Env'))
+    service['environment'] = compose_literal(envmap(row['Config'].get('Env')))
     for field, key in [('command', 'Cmd'), ('entrypoint', 'Entrypoint'), ('user', 'User'),
                        ('working_dir', 'WorkingDir')]:
         value = row['Config'].get(key)
         if value is not None and value != '':
-            service[field] = value
+            service[field] = compose_literal(value)
     service['image'] = row['Image']
     service.pop('build', None)
     service.pop('pull_policy', None)
@@ -283,7 +304,9 @@ def server_locked(run, key):
         need(original == plans[name], 'NON_IMAGE_CONFIGURATION_CHANGE')
         path = run / (name + '-candidate.compose.json')
         private_json(path, candidate)
-        call(compose(path, PINNED[name]['compose_project'], 'config', '--quiet'))
+        rendered = json.loads(call(compose(path, PINNED[name]['compose_project'], 'config', '--format', 'json')))
+        actual_env = rendered['services'][PINNED[name]['compose_service']].get('environment', {})
+        need(compose_runtime(actual_env) == envmap(before[name]['Config'].get('Env')), 'FROZEN_ENVIRONMENT_INTERPOLATION_DRIFT')
     same_others(before, set())
     # Re-check all files and running configuration after potentially long builds.
     for name, pin in PINNED.items():

@@ -103,6 +103,13 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(r.Stop, 'RENDERED_NETWORKS_DIFFER'):
             r.validate_storage_and_networks(model, service, original)
 
+    def test_runtime_dollars_survive_compose_interpolation(self):
+        original = {'ENV': 'literal$VALUE-and-$$-and-${HOME}'}
+        escaped = r.compose_literal(original)
+        self.assertEqual(escaped['ENV'], 'literal$$VALUE-and-$$$$-and-$${HOME}')
+        self.assertEqual(r.compose_runtime(escaped), original)
+        self.assertEqual(r.compose_literal(['sh', '-c', 'echo "$PORT"']), ['sh', '-c', 'echo "$$PORT"'])
+
     def test_up_is_strictly_one_service_no_dependencies(self):
         with patch.object(r, 'call') as call:
             r.up(Path('/frozen.json'), {'compose_project': 'p', 'compose_service': 'api'})
@@ -110,6 +117,21 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(args[-6:], ['-d', '--no-deps', '--no-build', '--pull', 'never', 'api'])
             self.assertNotIn('down', args)
             self.assertNotIn('--remove-orphans', args)
+
+class ActualComposeSerializationTests(unittest.TestCase):
+    @unittest.skipUnless(r.shutil.which('docker'), 'Docker CLI unavailable locally; required on GitHub Ubuntu runner')
+    def test_actual_compose_preserves_literal_environment_and_command(self):
+        # This invokes Compose config only: no daemon, containers or registry access.
+        original = {'EXAMPLE': 'literal$VALUE-and-$$-and-${HOME}'}
+        command = ['sh', '-c', 'printf "%s" "$EXAMPLE"']
+        model = {'services': {'api': {'image': 'busybox:stable',
+                  'environment': r.compose_literal(original), 'command': r.compose_literal(command)}}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'frozen.json'
+            r.private_json(path, model)
+            actual = json.loads(r.call(r.compose(path, 'synthetic', 'config', '--format', 'json')))
+            self.assertEqual(r.compose_runtime(actual['services']['api']['environment']), original)
+            self.assertEqual(r.compose_runtime(actual['services']['api']['command']), command)
 
 class SchedulerAndHealthTests(unittest.TestCase):
     def test_only_matching_active_v79_timers_are_selected(self):
@@ -161,6 +183,8 @@ class LifecycleTests(unittest.TestCase):
                     return json.dumps(list(snapshots.values())).encode()
                 if args[:4] == ['docker', 'compose', 'up', '--help']:
                     return b'--no-deps --no-build --pull'
+                if args[:2] == ['docker', 'compose'] and '--format' in args:
+                    return json.dumps({'services': {n: {'environment': r.envmap(v['Config']['Env'])} for n, v in snapshots.items()}}).encode()
                 if args[:2] == ['docker', 'build'] and failure == 'build':
                     raise r.Stop('INJECTED_BUILD')
                 if args[:2] == ['docker', 'stop'] and failure == 'stop':
