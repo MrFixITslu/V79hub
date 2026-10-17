@@ -26,6 +26,8 @@ MODULES={'core.py':('scripts/portfolio-pinned-rollout.py','6a3a5bd30f4e66b341589
 PLAN=Path('/home/firelion/v79-remaining-plan.by50q9w3')
 FAILED_BUILD_RUN=Path('/home/firelion/v79-remaining-rollout.T2HHBqwg')
 FAILED_HELPER_BLOB='b0fb7386d4b71db54421f81dd517df1af04c3d7d'
+FAILED_POS_RUN=Path('/home/firelion/v79-remaining-rollout.uQ1BertQ')
+FAILED_POS_HELPER_BLOB='31e574568aafee30b9a2cd90e1ec9a16190d4317'
 RUN_RE=r'/home/firelion/v79-remaining-rollout\.[A-Za-z0-9]{8}'
 STOP_ORDER=('v79-pos-worker','v79-pos','v79_course_builder','gaming-studio-j')
 SWITCH_ORDER=('v79-pos','v79-pos-worker','v79_course_builder','gaming-studio-j')
@@ -143,7 +145,19 @@ def cleanup_probe(r,name,identity,image=None):
         need(not row.get('Mounts') and row['HostConfig']['NetworkMode']=='none'
              and not row['HostConfig'].get('PortBindings') and not row['HostConfig'].get('Privileged'),'REFUSE_CLEANUP_NONISOLATED_PROBE')
         if image is not None:need(row['Image']==image,'REFUSE_CLEANUP_DIFFERENT_PROBE_IMAGE')
-        r.call(['docker','rm','-f','-v',name],timeout=30)
+        state=row.get('State',{})
+        status=state.get('Status')
+        need(status in ('created','running','paused','restarting','removing','exited','dead'),'PROBE_STATE_INVALID')
+        r.emit('RESULT','OWNED_PROBE_STATE_'+status.upper())
+        # A timed-out client does not prove daemon-side removal failed. Reconcile
+        # absence explicitly; never accept a timeout as successful cleanup.
+        try:
+            result=probe_call(r,['docker','rm','-f','-v',name],120,'CANDIDATE_PROBE_REMOVE_TIMEOUT')
+        except Stop:
+            need(optional_container(r,name) is None,'CANDIDATE_PROBE_REMOVE_TIMEOUT_RESOURCE_REMAINS')
+            r.emit('RESULT','PROBE_REMOVAL_COMPLETED_AFTER_CLIENT_TIMEOUT')
+        else:
+            need(result.returncode==0 or optional_container(r,name) is None,'CANDIDATE_PROBE_REMOVE_FAILED')
     need(optional_container(r,name) is None,'PROBE_CLEANUP_NOT_PROVEN')
 
 
@@ -167,7 +181,7 @@ def probe_image(r,run,name,image,old):
     code+="console.log('PUBLIC_EXECUTION_FILES_READABLE')"
     code="try{"+code+"}catch(e){console.log('PUBLIC_EXECUTION_'+(['EACCES','EPERM','ENOENT'].includes(e.code)?e.code:'UNCLASSIFIED'));process.exitCode=2}"
     args=['docker','create','--name',probe,'--label',label+'='+identity,'--pull','never','--network','none',
-          '--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--memory','128m',
+          '--no-healthcheck','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--memory','128m',
           '--memory-swap','128m','--pids-limit','48','--entrypoint','node']
     if old['Config'].get('User'):args+=['--user',old['Config']['User']]
     r.emit('PHASE','PROBE_'+name.upper().replace('-','_'))
@@ -197,6 +211,7 @@ def probe_image(r,run,name,image,old):
             if state.get('OOMKilled'):category='PUBLIC_EXECUTION_OOM_KILLED'
             r.emit('RESULT',name+'_'+category)
             raise Stop('CANDIDATE_EXECUTION_PROBE_FAILED')
+        r.emit('RESULT',name+'_PUBLIC_EXECUTION_PASS_CLEANUP_PENDING')
     except BaseException as error:
         report_exception(r,error,'PROBE_PRIMARY_FAILURE');raise
     finally:
@@ -240,6 +255,51 @@ def recover_academy_build(r,p,run):
                    'source_commit':revision,'image_id':image['Id'],'scope':'VERIFIED_COMPLETED_BUILD_REPROBE_REQUIRED'})
     r.emit('RESULT','CACHED_ACADEMY_BUILD_VERIFIED_NO_REBUILD')
     return {repo:image['Id']}
+
+
+def recover_academy_pos_builds(r,p,run):
+    old=FAILED_POS_RUN
+    need(old.is_dir() and not old.is_symlink() and old.stat().st_uid==os.getuid()
+         and old.stat().st_mode & 0o077==0,'FAILED_POS_DIRECTORY_UNSAFE')
+    helper=old/'rollout.py'
+    need(helper.is_file() and not helper.is_symlink() and blob(helper.read_bytes())==FAILED_POS_HELPER_BLOB,'FAILED_POS_HELPER_INTEGRITY_CHANGED')
+    load_modules(old)
+    need((old/'exit-code').read_text().strip()=='1' and not (old/'checkpoint').exists(),'FAILED_POS_RUN_NOT_PREDEPLOY_COMPLETE')
+    lines=(old/'progress.log').read_text().splitlines()
+    need('RESULT=v79_course_builder_PUBLIC_EXECUTION_AND_PROBE_CLEANUP_PASS' in lines
+         and 'PHASE=PROBE_CLEANUP_V79_POS' in lines
+         and not any(line.startswith(('PHASE=SWITCH_','PHASE=QUIESCE_','DEPLOYED=')) for line in lines),'FAILED_POS_PHASE_NOT_ACCEPTED')
+    reference=private_read(old/'plan-reference.json')
+    need(reference['directory']==str(PLAN) and reference['sources']==p.SOURCES
+         and reference['summary_sha256']==r.sha_file(PLAN/'plan-summary.json'),'FAILED_POS_PLAN_REFERENCE_CHANGED')
+    baseline=private_read(old/'runtime-before.json')
+    for name,pin in p.PINS.items():
+        current=r.inspect(name)
+        need(current['Id']==baseline[name]['Id'] and current['Image']==pin['image_id']
+             and r.fingerprint(current)==r.fingerprint(baseline[name]),'FAILED_POS_RUNTIME_DRIFT')
+    cached=recover_academy_build(r,p,run)
+    academy=private_read(old/'V79acaedmy-built-image.json')
+    need(academy=={'repo':'V79acaedmy','source_commit':p.SOURCES['V79acaedmy'],
+                  'image_id':cached['V79acaedmy']},'CACHED_ACADEMY_RECEIPT_CHANGED')
+    repo='V79POS';revision=p.SOURCES[repo];stage=old/repo
+    need(r.call(['git','-C',str(stage),'rev-parse','HEAD']).decode().strip()==revision,'CACHED_POS_SOURCE_CHANGED')
+    r.call(['git','-C',str(stage),'diff','--exit-code','HEAD','--'])
+    need(not r.call(['git','-C',str(stage),'ls-files','--others','-z']),'CACHED_POS_UNTRACKED_CONTEXT')
+    record=private_read(old/(repo+'-built-image.json'))
+    need(record.get('repo')==repo and record.get('source_commit')==revision
+         and r.IMAGE.fullmatch(record.get('image_id','')),'CACHED_POS_RECEIPT_INVALID')
+    image=r.inspect(record['image_id'],image=True)
+    need(image['Id']==record['image_id'] and (image['Config'].get('Labels') or {}).get('org.opencontainers.image.revision')==revision,'CACHED_POS_IMAGE_SOURCE_CHANGED')
+    created=datetime.fromisoformat(image['Created'].replace('Z','+00:00')).timestamp()
+    need(helper.stat().st_mtime-2<=created<=(old/'exit-code').stat().st_mtime+2,'CACHED_POS_BUILD_TIME_NOT_PROVEN')
+    identity=old.name.split('.')[-1]
+    cleanup_probe(r,'v79-release-probe-'+identity+'-0',identity,cached['V79acaedmy'])
+    cleanup_probe(r,'v79-release-probe-'+identity+'-1',identity,image['Id'])
+    cached[repo]=image['Id']
+    r.private_json(run/'cached-academy-pos-proof.json',{'prior_run':str(old),'helper_blob':FAILED_POS_HELPER_BLOB,
+                   'sources':p.SOURCES,'images':cached,'scope':'VERIFIED_COMPLETED_BUILDS_REPROBE_REQUIRED'})
+    r.emit('RESULT','CACHED_ACADEMY_AND_POS_BUILDS_VERIFIED_NO_REBUILD')
+    return cached
 
 
 def build_images(r,p,run,before,cached=None):
@@ -384,7 +444,7 @@ def checkpoint_and_switch(r,p,run,before,models,images,key,all_before):
         if timers:
             r.call(['systemctl','--user','start',*timers]);r.emit('PRESERVED','ORIGINALLY_ACTIVE_USER_TIMERS_RESUMED')
 
-def server(run,key,r,p,continue_academy=False):
+def server(run,key,r,p,continue_academy=False,continue_pos=False):
     need(socket.gethostname()=='v79sl' and os.getuid()!=0,'RUN_ON_V79SL_NON_ROOT')
     signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(Stop('TERMINATED')))
     os.umask(0o077)
@@ -403,7 +463,7 @@ def server(run,key,r,p,continue_academy=False):
         r.emit('PHASE','REVALIDATE_ACCEPTED_PRIVATE_PLAN')
         before,models=check_plan(r,p)
         check_pos_environment(before['v79-pos']);check_pos_environment(before['v79-pos-worker'])
-        cached=recover_academy_build(r,p,run) if continue_academy else None
+        cached=recover_academy_pos_builds(r,p,run) if continue_pos else recover_academy_build(r,p,run) if continue_academy else None
         names=r.call(['docker','ps','--all','--format','{{.Names}}']).decode().splitlines()
         all_before={x['Name'].lstrip('/'):x for x in json.loads(r.call(['docker','inspect',*names]))}
         r.private_json(run/'runtime-before.json',all_before)
@@ -434,18 +494,19 @@ def acer(args):
             r.call([*r.SSH,'umask 077; cat > '+shlex.quote(directory+'/'+filename)],data=data)
         launch_args=['python3','-B','-u',directory+'/rollout.py','--server',directory,base64.b64encode(key).decode()]
         if args.continue_built_academy:launch_args.append('--continue-built-academy')
+        if args.continue_built_academy_pos:launch_args.append('--continue-built-academy-pos')
         launch=shlex.join(launch_args)
         r.call([*r.SSH,'umask 077; nohup '+launch+' > '+shlex.quote(directory+'/progress.log')+' 2>&1 < /dev/null &'])
         return r.monitor(directory)
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--server',nargs=2);parser.add_argument('--resume');parser.add_argument('--continue-built-academy',action='store_true');args=parser.parse_args()
-    need(not(args.server and args.resume) and not(args.resume and args.continue_built_academy),'CONFLICTING_MODES')
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--server',nargs=2);parser.add_argument('--resume');parser.add_argument('--continue-built-academy',action='store_true');parser.add_argument('--continue-built-academy-pos',action='store_true');args=parser.parse_args()
+    need(not(args.server and args.resume) and not(args.resume and (args.continue_built_academy or args.continue_built_academy_pos)) and not(args.continue_built_academy and args.continue_built_academy_pos),'CONFLICTING_MODES')
     if not args.server:return acer(args) or 0
     run=Path(args.server[0]);need(re.fullmatch(RUN_RE,str(run)) and run==Path(__file__).resolve().parent,'REMOTE_DIRECTORY_INVALID')
     code=1;r=p=None
     try:
-        r,p=load_modules(run);server(run,args.server[1],r,p,continue_academy=args.continue_built_academy);code=0
+        r,p=load_modules(run);server(run,args.server[1],r,p,continue_academy=args.continue_built_academy,continue_pos=args.continue_built_academy_pos);code=0
     except BaseException as error:
         trusted=isinstance(error,Stop) or r is not None and isinstance(error,r.Stop) or p is not None and isinstance(error,p.Stop)
         message=str(error)
