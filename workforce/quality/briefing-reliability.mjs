@@ -22,8 +22,9 @@ export function auditBriefingReliability({
   const unavailable=(reason)=>Object.freeze({mode:'read-only',status:'unavailable',
     reason,slots:[],summary:{verified:0,missing:0,unverified:0,pending:0,incomplete:0}});
   const now=safeTime(asOfUtc);
-  if (!Array.isArray(reports)||reports.length>100||typeof firstDay!=='string'||!DAY.test(firstDay)||
-      asDay(Date.parse(firstDay+'T00:00:00Z'))!==firstDay||
+  const initial=typeof firstDay==='string'&&DAY.test(firstDay) ? Date.parse(firstDay+'T00:00:00Z') : NaN;
+  if (!Array.isArray(reports)||reports.length>100||!Number.isFinite(initial)||
+      asDay(initial)!==firstDay||
       !Number.isSafeInteger(days)||days<1||days>14||!Number.isFinite(now))
     return unavailable('INVALID_AUDIT_SCOPE');
   const complete=trusted(verifyInventory,{firstDay,days,reports});
