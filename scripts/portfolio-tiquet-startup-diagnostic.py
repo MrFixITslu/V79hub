@@ -47,7 +47,13 @@ def run(args, *, timeout=45, check=True):
 
 def inspect(name, image=False, optional=False):
     result = run(['docker', 'image' if image else 'container', 'inspect', name], check=not optional)
-    return json.loads(result.stdout)[0] if result.returncode == 0 else None
+    if result.returncode == 0:
+        return json.loads(result.stdout)[0]
+    # A daemon/query error must never be treated as proven resource absence.
+    need(optional and not image, 'IMAGE_INSPECT_FAILED')
+    remaining = run(['docker', 'container', 'ls', '--all', '--quiet', '--filter', 'name=^/'+name+'$'])
+    need(not remaining.stdout.strip(), 'CONTAINER_INSPECT_FAILED_NOT_ABSENCE')
+    return None
 
 def classify(text):
     categories = sorted(k for k, pattern in RULES.items() if re.search(pattern, text, re.I))
@@ -78,11 +84,15 @@ def owned_cleanup(names, network, identity):
         run(['docker', 'rm', '-f', '-v', name])
         need(inspect(name, optional=True) is None, 'SYNTHETIC_CONTAINER_CLEANUP_FAILED')
     p = run(['docker', 'network', 'inspect', network], check=False)
+    if p.returncode != 0:
+        remaining = run(['docker', 'network', 'ls', '--quiet', '--filter', 'name=^'+network+'$'])
+        need(not remaining.stdout.strip(), 'NETWORK_INSPECT_FAILED_NOT_ABSENCE')
     if p.returncode == 0:
         row = json.loads(p.stdout)[0]
         need(row.get('Labels', {}).get(LABEL) == identity, 'REFUSE_CLEANUP_FOREIGN_NETWORK')
         run(['docker', 'network', 'rm', network])
-        need(run(['docker', 'network', 'inspect', network], check=False).returncode != 0, 'SYNTHETIC_NETWORK_CLEANUP_FAILED')
+        remaining = run(['docker', 'network', 'ls', '--quiet', '--filter', 'name=^'+network+'$'])
+        need(not remaining.stdout.strip(), 'SYNTHETIC_NETWORK_CLEANUP_FAILED')
 
 def validate_synthetic(row, identity, network):
     need(row['Config']['Labels'].get(LABEL) == identity, 'SYNTHETIC_IDENTITY_INVALID')

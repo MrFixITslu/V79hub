@@ -40,6 +40,20 @@ class SafetyTests(unittest.TestCase):
                 d.owned_cleanup(['synthetic'], 'internal', 'ours')
             run.assert_not_called()
 
+    def test_failed_inspect_does_not_hide_daemon_failure_as_absence(self):
+        from types import SimpleNamespace
+        missing = SimpleNamespace(returncode=1, stdout=b'')
+        with patch.object(d, 'run', side_effect=[missing, d.Stop('ENGINE_METADATA_UNAVAILABLE')]):
+            with self.assertRaisesRegex(d.Stop, 'ENGINE_METADATA_UNAVAILABLE'):
+                d.inspect('synthetic', optional=True)
+
+    def test_failed_inspect_with_existing_resource_is_not_absence(self):
+        from types import SimpleNamespace
+        results = [SimpleNamespace(returncode=1, stdout=b''), SimpleNamespace(returncode=0, stdout=b'container-id')]
+        with patch.object(d, 'run', side_effect=results):
+            with self.assertRaisesRegex(d.Stop, 'CONTAINER_INSPECT_FAILED_NOT_ABSENCE'):
+                d.inspect('synthetic', optional=True)
+
 class LifecycleTests(unittest.TestCase):
     def exercise(self, fail=False):
         with tempfile.TemporaryDirectory() as tmp:
