@@ -69,27 +69,51 @@ def podman_image_ids(items):
     return found
 
 def read_archive_configs(archive):
+    """Verify actual Docker config JSON content against SHA filenames.
+
+    Do not trust manifest Config filenames alone. Hash the bytes of the exact
+    config members with bounded in-memory reads; do not output JSON or tags.
+    Full encrypted archive still streams to EOF, and GPG must finish cleanly.
+    """
     decrypt = subprocess.Popen(
         ["gpg", "--batch", "--quiet", "--decrypt", str(archive)],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL)
     parsed = None
+    members = {}
     try:
-        # r| is truly streaming and never extracts archive members to disk.
         with tarfile.open(fileobj=decrypt.stdout, mode="r|") as tar:
             for member in tar:
-                if member.name.removeprefix("./") == "manifest.json":
+                clean_name = member.name.removeprefix("./")
+                basename = PurePosixPath(clean_name).name
+                digest = normalize_id(basename.removesuffix(".json"))
+                if clean_name == "manifest.json":
                     require(parsed is None and member.isfile()
                             and 0 < member.size <= 2 * 1024 * 1024,
                             "DOCKER_ARCHIVE_MANIFEST_INVALID")
                     stream = tar.extractfile(member)
                     require(stream is not None, "DOCKER_ARCHIVE_MANIFEST_UNREADABLE")
                     parsed = docker_manifest_config_ids(json.load(stream))
-            # Iterate through EOF even if manifest was encountered early.
-            # It ensures GPG's return code is meaningful, never SIGPIPE.
+                elif digest and basename.endswith(".json"):
+                    require(member.isfile() and 0 < member.size <= 8 * 1024 * 1024
+                            and len(members) < 100 and clean_name not in members,
+                            "DOCKER_ARCHIVE_CONFIG_MEMBER_INVALID")
+                    stream = tar.extractfile(member)
+                    require(stream is not None, "DOCKER_ARCHIVE_CONFIG_UNREADABLE")
+                    raw = stream.read(member.size + 1)
+                    require(len(raw) == member.size,
+                            "DOCKER_ARCHIVE_CONFIG_SIZE_INVALID")
+                    members[clean_name] = hashlib.sha256(raw).hexdigest() == digest
+            # TAR stream must be consumed entirely for the GPG integrity result.
         decrypt.stdout.close()
         require(decrypt.wait(timeout=90) == 0, "ARCHIVE_GPG_DECRYPT_FAILED")
         require(parsed is not None, "DOCKER_ARCHIVE_MANIFEST_NOT_FOUND")
+        require(len(parsed) == 5, "DOCKER_ARCHIVE_IMAGE_COUNT_NOT_FIVE")
+        require(len(members) == 5 and all(members.values()),
+                "DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH")
+        require(set(PurePosixPath(p).name.removesuffix(".json")
+                    for p in members) == parsed,
+                "DOCKER_ARCHIVE_MANIFEST_CONFIG_CONTENT_DISAGREES")
         return parsed
     finally:
         if decrypt.stdout and not decrypt.stdout.closed:
@@ -236,6 +260,7 @@ def main():
               "|PIN_LOOKUP=" + ("YES" if addressable else "NO"), flush=True)
     print("R1_ARCHIVE_CONFIG_IDS_MATCH=%d/5" % matched_archive)
     print("R1_ARCHIVE_UNIQUE_CONFIG_IDS=%d" % len(archive_ids))
+    print("R1_ARCHIVE_CONFIG_CONTENT_HASHED=5_OF_5_PASS")
     print("R1_SAVED_RUNTIME_INSPECT_IDS_MATCH=%d/4" %
           len(set(list(IMAGES.values())[:4]) & runtime_ids))
     print("R1_ARCHIVE_VS_RUNTIME_INSPECT_SHARED=%d" %
