@@ -109,7 +109,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C .paired-tiquet rev-parse HEAD)" = c8e00f1b3fe74ecdbfaf4fa60165c8dd3638e08e
+          test "$(git -C .paired-tiquet rev-parse HEAD)" = 6f4d93c2f6ed2002eca6fb88bcba0e8bceacdd10
           git merge-base --is-ancestor ffae1c104d6ded918a0028f92c76624bc0501d8b HEAD
           if [ -n "$(git ls-files -- data uploads backups logs)" ] ||
              [ -n "$(git -C .paired-tiquet ls-files -- data uploads backups logs)" ]; then
