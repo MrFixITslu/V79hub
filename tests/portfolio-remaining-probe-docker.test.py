@@ -38,10 +38,17 @@ try:
         call('docker','pull','node:20-alpine')
         (root/'dist').mkdir();(root/'dist/server.cjs').write_text('console.log("public fixture")')
         (root/'package.json').write_text('{"type":"module"}')
-        (root/'Dockerfile').write_text('FROM node:20-alpine\nWORKDIR /app\nCOPY package.json /app/\nCOPY dist /app/dist\nHEALTHCHECK CMD wget -q -O - http://127.0.0.1:3030/healthz\nCMD ["node","dist/server.cjs"]\n')
+        (root/'Dockerfile').write_text('FROM node:20-alpine\nWORKDIR /app\nCOPY package.json /app/\nCOPY dist /app/dist\nHEALTHCHECK --interval=1s CMD sleep 300\nCMD ["node","dist/server.cjs"]\n')
         call('docker','build','-t',academy,str(root))
         academy_old={'Config':{'User':'','WorkingDir':'/app','Cmd':['node','dist/server.cjs'],'Entrypoint':['docker-entrypoint.sh']}}
-        s.probe_image(r,run,'v79_course_builder',r.inspect(academy,image=True)['Id'],academy_old)
+        metadata=s.probe_metadata
+        def checked_metadata(*args):
+            result=metadata(*args)
+            assert result['Config']['Healthcheck']['Test']==['NONE'],'Inherited healthcheck was not disabled'
+            return result
+        s.probe_metadata=checked_metadata
+        try:s.probe_image(r,run,'v79_course_builder',r.inspect(academy,image=True)['Id'],academy_old)
+        finally:s.probe_metadata=metadata
         remaining=call('docker','container','ls','--all','--quiet','--filter','label=v79.remaining-release-probe=ABC12345')
         assert not remaining.strip(),'Probe resource leaked'
     call('docker','pull','redis:7-alpine')
