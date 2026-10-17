@@ -3,6 +3,7 @@
 import argparse
 import base64
 import copy
+from datetime import datetime
 import fcntl
 import hashlib
 import importlib.util
@@ -23,6 +24,8 @@ MODULE_COMMIT='0cf1fad981d59ab1269ff9133472062e7587ccfb'
 MODULES={'core.py':('scripts/portfolio-pinned-rollout.py','6a3a5bd30f4e66b3415891f654a7e142d04dbd79'),
          'plan.py':('scripts/portfolio-remaining-preflight.py','803bce37760ca1da98011f05d836cbd1f5014966')}
 PLAN=Path('/home/firelion/v79-remaining-plan.by50q9w3')
+FAILED_BUILD_RUN=Path('/home/firelion/v79-remaining-rollout.T2HHBqwg')
+FAILED_HELPER_BLOB='b0fb7386d4b71db54421f81dd517df1af04c3d7d'
 RUN_RE=r'/home/firelion/v79-remaining-rollout\.[A-Za-z0-9]{8}'
 STOP_ORDER=('v79-pos-worker','v79-pos','v79_course_builder','gaming-studio-j')
 SWITCH_ORDER=('v79-pos','v79-pos-worker','v79_course_builder','gaming-studio-j')
@@ -104,6 +107,46 @@ def optional_container(r,name):
     need(not r.call(['docker','container','ls','--all','--quiet','--filter','name=^/'+name+'$']).strip(),'PROBE_INSPECT_NOT_ABSENCE')
     return None
 
+def report_exception(r,error,context):
+    """Only trusted codes or type/function/line; never exception message values."""
+    trusted=isinstance(error,(Stop,r.Stop))
+    message=str(error)
+    if trusted and re.fullmatch(r'[A-Z0-9_]+',message):
+        r.emit('RESULT',context+'_'+message);return
+    kind=type(error).__name__
+    if not re.fullmatch(r'[A-Za-z0-9_]{1,80}',kind):kind='UNKNOWN'
+    function='UNKNOWN';line=0;trace=error.__traceback__
+    while trace:
+        if Path(trace.tb_frame.f_code.co_filename).name in (Path(__file__).name,'core.py','plan.py'):
+            function=trace.tb_frame.f_code.co_name;line=trace.tb_lineno
+        trace=trace.tb_next
+    if not re.fullmatch(r'[A-Za-z0-9_]{1,80}',function):function='UNKNOWN'
+    r.emit('RESULT',context+'_'+kind+'_IN_'+function+'_LINE_'+str(line))
+
+def probe_call(r,args,timeout,code):
+    try:
+        return subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,env=r.clean_env())
+    except subprocess.TimeoutExpired:
+        raise Stop(code) from None
+
+def probe_metadata(r,name):
+    result=probe_call(r,['docker','container','inspect',name],10,'CANDIDATE_PROBE_INSPECT_TIMEOUT')
+    need(result.returncode==0,'CANDIDATE_PROBE_INSPECT_FAILED')
+    rows=json.loads(result.stdout)
+    need(isinstance(rows,list) and len(rows)==1 and isinstance(rows[0],dict),'CANDIDATE_PROBE_METADATA_INVALID')
+    return rows[0]
+
+def cleanup_probe(r,name,identity,image=None):
+    row=optional_container(r,name)
+    if row is not None:
+        need((row['Config'].get('Labels') or {}).get('v79.remaining-release-probe')==identity,'FOREIGN_PROBE_REFUSE_CLEANUP')
+        need(not row.get('Mounts') and row['HostConfig']['NetworkMode']=='none'
+             and not row['HostConfig'].get('PortBindings') and not row['HostConfig'].get('Privileged'),'REFUSE_CLEANUP_NONISOLATED_PROBE')
+        if image is not None:need(row['Image']==image,'REFUSE_CLEANUP_DIFFERENT_PROBE_IMAGE')
+        r.call(['docker','rm','-f','-v',name],timeout=30)
+    need(optional_container(r,name) is None,'PROBE_CLEANUP_NOT_PROVEN')
+
+
 def probe_image(r,run,name,image,old):
     # No production environment, credentials, data mounts or network enter this probe.
     identity=run.name.split('.')[-1]
@@ -130,39 +173,96 @@ def probe_image(r,run,name,image,old):
     r.emit('PHASE','PROBE_'+name.upper().replace('-','_'))
     try:
         r.call([*args,image,'-e',code])
-        row=r.inspect(probe)
+        row=probe_metadata(r,probe)
         need(not row['Mounts'] and row['HostConfig']['NetworkMode']=='none'
              and not row['HostConfig'].get('PortBindings'),'PROBE_ISOLATION_INVALID')
-        started=subprocess.run(['docker','start','--attach',probe],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=45,env=r.clean_env())
-        output=started.stdout.strip();state=r.inspect(probe)['State']
-        if output!=b'PUBLIC_EXECUTION_FILES_READABLE' or state['ExitCode']!=0 or started.returncode!=0:
+        r.emit('PHASE','PROBE_START_'+name.upper().replace('-','_'))
+        started=probe_call(r,['docker','start',probe],20,'CANDIDATE_PROBE_START_TIMEOUT')
+        if started.returncode!=0:
+            category='USER_NOT_PRESENT' if re.search(rb'unable to find user|no matching entries in passwd',started.stderr,re.I) else 'START_FAILED'
+            r.emit('RESULT',name+'_PUBLIC_EXECUTION_'+category)
+            raise Stop('CANDIDATE_EXECUTION_PROBE_FAILED')
+        r.emit('PHASE','PROBE_WAIT_'+name.upper().replace('-','_'))
+        deadline=time.monotonic()+20
+        while True:
+            state=probe_metadata(r,probe)['State']
+            if state.get('Status') in ('exited','dead'):break
+            need(time.monotonic()<deadline,'CANDIDATE_PROBE_EXIT_TIMEOUT')
+            time.sleep(0.2)
+        result=probe_call(r,['docker','logs','--tail','4',probe],15,'CANDIDATE_PROBE_LOG_TIMEOUT')
+        need(result.returncode==0,'CANDIDATE_PROBE_LOG_QUERY_FAILED')
+        output=result.stdout.strip()
+        if output!=b'PUBLIC_EXECUTION_FILES_READABLE' or state['ExitCode']!=0:
             category=output.decode() if output in (b'PUBLIC_EXECUTION_EACCES',b'PUBLIC_EXECUTION_EPERM',b'PUBLIC_EXECUTION_ENOENT') else 'PUBLIC_EXECUTION_UNCLASSIFIED'
-            if re.search(rb'unable to find user|no matching entries in passwd',started.stderr,re.I):category='PUBLIC_EXECUTION_USER_NOT_PRESENT'
+            if state.get('OOMKilled'):category='PUBLIC_EXECUTION_OOM_KILLED'
             r.emit('RESULT',name+'_'+category)
             raise Stop('CANDIDATE_EXECUTION_PROBE_FAILED')
+    except BaseException as error:
+        report_exception(r,error,'PROBE_PRIMARY_FAILURE');raise
     finally:
-        row=optional_container(r,probe)
-        if row is not None:
-            need((row['Config'].get('Labels') or {}).get(label)==identity,'FOREIGN_PROBE_REFUSE_CLEANUP')
-            r.call(['docker','rm','-f','-v',probe])
-        need(optional_container(r,probe) is None,'PROBE_CLEANUP_NOT_PROVEN')
+        r.emit('PHASE','PROBE_CLEANUP_'+name.upper().replace('-','_'))
+        try:cleanup_probe(r,probe,identity,image)
+        except BaseException as error:
+            report_exception(r,error,'PROBE_CLEANUP_FAILURE');raise
     r.emit('RESULT',name+'_PUBLIC_EXECUTION_AND_PROBE_CLEANUP_PASS')
 
-def build_images(r,p,run,before):
+def recover_academy_build(r,p,run):
+    old=FAILED_BUILD_RUN
+    need(old.is_dir() and not old.is_symlink() and old.stat().st_uid==os.getuid()
+         and old.stat().st_mode & 0o077==0,'FAILED_BUILD_DIRECTORY_UNSAFE')
+    helper=old/'rollout.py'
+    need(helper.is_file() and not helper.is_symlink() and blob(helper.read_bytes())==FAILED_HELPER_BLOB,'FAILED_HELPER_INTEGRITY_CHANGED')
+    load_modules(old)
+    need((old/'exit-code').read_text().strip()=='1' and not (old/'checkpoint').exists(),'FAILED_RUN_NOT_PREDEPLOY_COMPLETE')
+    lines=(old/'progress.log').read_text().splitlines()
+    need('PHASE=PROBE_V79_COURSE_BUILDER' in lines and
+         not any(line.startswith(('PHASE=SWITCH_','PHASE=QUIESCE_','DEPLOYED=')) for line in lines),'FAILED_RUN_PHASE_NOT_ACCEPTED')
+    reference=private_read(old/'plan-reference.json')
+    need(reference['directory']==str(PLAN) and reference['sources']==p.SOURCES
+         and reference['summary_sha256']==r.sha_file(PLAN/'plan-summary.json'),'FAILED_PLAN_REFERENCE_CHANGED')
+    baseline=private_read(old/'runtime-before.json')
+    for name,pin in p.PINS.items():
+        row=r.inspect(name)
+        need(row['Id']==baseline[name]['Id'] and row['Image']==pin['image_id']
+             and r.fingerprint(row)==r.fingerprint(baseline[name]),'FAILED_RUN_RUNTIME_DRIFT')
+    repo='V79acaedmy';revision=p.SOURCES[repo];stage=old/repo
+    need(r.call(['git','-C',str(stage),'rev-parse','HEAD']).decode().strip()==revision,'CACHED_ACADEMY_SOURCE_CHANGED')
+    r.call(['git','-C',str(stage),'diff','--exit-code','HEAD','--'])
+    need(not r.call(['git','-C',str(stage),'ls-files','--others','-z']),'CACHED_ACADEMY_UNTRACKED_CONTEXT')
+    image=r.inspect('v79-portfolio/'+repo.lower()+':'+revision,image=True)
+    need(r.IMAGE.fullmatch(image['Id']) and (image['Config'].get('Labels') or {}).get('org.opencontainers.image.revision')==revision,'CACHED_ACADEMY_IMAGE_SOURCE_CHANGED')
+    created=datetime.fromisoformat(image['Created'].replace('Z','+00:00')).timestamp()
+    need(helper.stat().st_mtime-2<=created<=(old/'exit-code').stat().st_mtime+2,'CACHED_ACADEMY_BUILD_TIME_NOT_PROVEN')
+    identity=old.name.split('.')[-1]
+    cleanup_probe(r,'v79-release-probe-'+identity+'-0',identity,image['Id'])
+    r.emit('RESULT','FAILED_RUN_OWNED_PROBE_CLEANUP_PASS')
+    r.private_json(run/'cached-academy-proof.json',{'prior_run':str(old),'helper_blob':FAILED_HELPER_BLOB,
+                   'source_commit':revision,'image_id':image['Id'],'scope':'VERIFIED_COMPLETED_BUILD_REPROBE_REQUIRED'})
+    r.emit('RESULT','CACHED_ACADEMY_BUILD_VERIFIED_NO_REBUILD')
+    return {repo:image['Id']}
+
+
+def build_images(r,p,run,before,cached=None):
     images={}
     for repo,revision in p.SOURCES.items():
-        r.emit('PHASE','BUILD_'+repo.upper().replace('-','_'))
-        stage=run/repo
-        r.call(['git','init','-q',str(stage)])
-        r.call(['git','-C',str(stage),'fetch','--depth','1','--no-tags','https://github.com/MrFixITslu/'+repo+'.git',revision],timeout=300)
-        need(r.call(['git','-C',str(stage),'rev-parse','FETCH_HEAD']).decode().strip()==revision,'SOURCE_PIN_FAILED')
-        r.call(['git','-C',str(stage),'checkout','--detach','-q',revision])
-        r.public_checkout_modes(stage)
-        tag='v79-portfolio/'+repo.lower()+':'+revision
-        r.call(['docker','build','--label','org.opencontainers.image.revision='+revision,'--build-arg','V79_SOURCE_COMMIT='+revision,'--tag',tag,str(stage)],timeout=3600)
-        candidate=r.inspect(tag,image=True)
+        if cached and repo in cached:
+            r.emit('PHASE','REUSE_VERIFIED_'+repo.upper())
+            candidate=r.inspect(cached[repo],image=True)
+            need(candidate['Id']==cached[repo],'CACHED_IMAGE_ID_CHANGED')
+        else:
+            r.emit('PHASE','BUILD_'+repo.upper().replace('-','_'))
+            stage=run/repo
+            r.call(['git','init','-q',str(stage)])
+            r.call(['git','-C',str(stage),'fetch','--depth','1','--no-tags','https://github.com/MrFixITslu/'+repo+'.git',revision],timeout=300)
+            need(r.call(['git','-C',str(stage),'rev-parse','FETCH_HEAD']).decode().strip()==revision,'SOURCE_PIN_FAILED')
+            r.call(['git','-C',str(stage),'checkout','--detach','-q',revision])
+            r.public_checkout_modes(stage)
+            tag='v79-portfolio/'+repo.lower()+':'+revision
+            r.call(['docker','build','--label','org.opencontainers.image.revision='+revision,'--build-arg','V79_SOURCE_COMMIT='+revision,'--tag',tag,str(stage)],timeout=3600)
+            candidate=r.inspect(tag,image=True)
         need(r.IMAGE.fullmatch(candidate['Id']) and not candidate['Config'].get('Volumes')
              and (candidate['Config'].get('Labels') or {}).get('org.opencontainers.image.revision')==revision,'CANDIDATE_SOURCE_OR_VOLUMES_INVALID')
+        r.private_json(run/(repo+'-built-image.json'),{'repo':repo,'source_commit':revision,'image_id':candidate['Id']})
         for name,pin in p.PINS.items():
             if pin['repo']!=repo:continue
             for field in ('User','Entrypoint','Cmd','WorkingDir'):
@@ -284,7 +384,7 @@ def checkpoint_and_switch(r,p,run,before,models,images,key,all_before):
         if timers:
             r.call(['systemctl','--user','start',*timers]);r.emit('PRESERVED','ORIGINALLY_ACTIVE_USER_TIMERS_RESUMED')
 
-def server(run,key,r,p):
+def server(run,key,r,p,continue_academy=False):
     need(socket.gethostname()=='v79sl' and os.getuid()!=0,'RUN_ON_V79SL_NON_ROOT')
     signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(Stop('TERMINATED')))
     os.umask(0o077)
@@ -303,11 +403,12 @@ def server(run,key,r,p):
         r.emit('PHASE','REVALIDATE_ACCEPTED_PRIVATE_PLAN')
         before,models=check_plan(r,p)
         check_pos_environment(before['v79-pos']);check_pos_environment(before['v79-pos-worker'])
+        cached=recover_academy_build(r,p,run) if continue_academy else None
         names=r.call(['docker','ps','--all','--format','{{.Names}}']).decode().splitlines()
         all_before={x['Name'].lstrip('/'):x for x in json.loads(r.call(['docker','inspect',*names]))}
         r.private_json(run/'runtime-before.json',all_before)
         r.private_json(run/'plan-reference.json',{'directory':str(PLAN),'summary_sha256':r.sha_file(PLAN/'plan-summary.json'),'sources':p.SOURCES})
-        images=build_images(r,p,run,before)
+        images=build_images(r,p,run,before,cached=cached)
         # Expensive builds do not authorize stale runtime/config or new migrations.
         check_plan(r,p);r.same_others(all_before,set())
         checkpoint_and_switch(r,p,run,before,models,images,key,all_before)
@@ -331,21 +432,24 @@ def acer(args):
         r.emit('CHECKPOINT',directory)
         for filename,data in [('rollout.py',Path(__file__).read_bytes()),*[(n,(stage/n).read_bytes()) for n in MODULES]]:
             r.call([*r.SSH,'umask 077; cat > '+shlex.quote(directory+'/'+filename)],data=data)
-        launch=shlex.join(['python3','-B','-u',directory+'/rollout.py','--server',directory,base64.b64encode(key).decode()])
+        launch_args=['python3','-B','-u',directory+'/rollout.py','--server',directory,base64.b64encode(key).decode()]
+        if args.continue_built_academy:launch_args.append('--continue-built-academy')
+        launch=shlex.join(launch_args)
         r.call([*r.SSH,'umask 077; nohup '+launch+' > '+shlex.quote(directory+'/progress.log')+' 2>&1 < /dev/null &'])
         return r.monitor(directory)
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--server',nargs=2);parser.add_argument('--resume');args=parser.parse_args()
-    need(not(args.server and args.resume),'CONFLICTING_MODES')
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--server',nargs=2);parser.add_argument('--resume');parser.add_argument('--continue-built-academy',action='store_true');args=parser.parse_args()
+    need(not(args.server and args.resume) and not(args.resume and args.continue_built_academy),'CONFLICTING_MODES')
     if not args.server:return acer(args) or 0
     run=Path(args.server[0]);need(re.fullmatch(RUN_RE,str(run)) and run==Path(__file__).resolve().parent,'REMOTE_DIRECTORY_INVALID')
     code=1;r=p=None
     try:
-        r,p=load_modules(run);server(run,args.server[1],r,p);code=0
+        r,p=load_modules(run);server(run,args.server[1],r,p,continue_academy=args.continue_built_academy);code=0
     except BaseException as error:
         trusted=isinstance(error,Stop) or r is not None and isinstance(error,r.Stop) or p is not None and isinstance(error,p.Stop)
         message=str(error)
+        if not trusted and r is not None:report_exception(r,error,'UNEXPECTED_ROLLOUT_EXCEPTION')
         print('STOP='+ (message if trusted and re.fullmatch(r'[A-Z0-9_]+',message) else 'REMAINING_ROLLOUT_ERROR_REDACTED'),flush=True)
     finally:
         print('CUSTOMER_RELEASE=NO_GO',flush=True);(run/'exit-code').write_text(str(code))

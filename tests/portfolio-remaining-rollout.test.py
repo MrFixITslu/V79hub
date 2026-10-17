@@ -217,4 +217,88 @@ class PlanAndBuildTests(unittest.TestCase):
             self.assertEqual((root/'exit-code').read_text(),'1')
             self.assertIn('MODULE_INTEGRITY_FAILURE',output.getvalue())
 
+
+class DetachedProbeTests(unittest.TestCase):
+    def test_probe_exit_timeout_still_cleans_and_never_attaches(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            run=Path(tmp)/'v79-remaining-rollout.ABC12345';run.mkdir()
+            old={'Config':{'User':'node','Cmd':['node','server.js'],'WorkingDir':'/app'}}
+            metadata={'Mounts':[],'HostConfig':{'NetworkMode':'none','PortBindings':None},'State':{'Status':'running'}}
+            with patch.object(r,'call'),patch.object(r,'emit') as emit,patch.object(s,'probe_metadata',return_value=metadata), \
+                 patch.object(s,'probe_call',return_value=SimpleNamespace(returncode=0,stdout=b'probe',stderr=b'')) as call, \
+                 patch.object(s.time,'monotonic',side_effect=[0,1,21]),patch.object(s.time,'sleep'),patch.object(s,'cleanup_probe') as cleanup:
+                with self.assertRaisesRegex(s.Stop,'CANDIDATE_PROBE_EXIT_TIMEOUT'):s.probe_image(r,run,'gaming-studio-j','sha256:'+'a'*64,old)
+            self.assertEqual(call.call_args.args[1][:2],['docker','start'])
+            self.assertNotIn('--attach',call.call_args.args[1]);cleanup.assert_called_once()
+            self.assertIn('PROBE_PRIMARY_FAILURE_CANDIDATE_PROBE_EXIT_TIMEOUT',str(emit.call_args_list))
+
+    def test_cli_timeout_has_fixed_code_not_raw_arguments(self):
+        with patch.object(s.subprocess,'run',side_effect=subprocess.TimeoutExpired(['PRIVATE_CREDENTIAL'],3)):
+            with self.assertRaisesRegex(s.Stop,'PROBE_FIXED_TIMEOUT'):s.probe_call(r,['docker','start','probe'],3,'PROBE_FIXED_TIMEOUT')
+
+    def test_unexpected_exception_reports_type_without_message(self):
+        output=[]
+        try:raise RuntimeError('PRIVATE_CREDENTIAL')
+        except Exception as error:
+            with patch.object(r,'emit',side_effect=lambda k,v:output.append((k,v))):s.report_exception(r,error,'PROBE_FAILURE')
+        self.assertNotIn('PRIVATE',json.dumps(output));self.assertIn('RuntimeError',json.dumps(output))
+
+    def test_cleanup_refuses_foreign_or_nonisolated_container(self):
+        for label,network,mounts in [('foreign','none',[]),('owner','host',[]),('owner','none',[{'Type':'bind'}])]:
+            data={'Config':{'Labels':{'v79.remaining-release-probe':label}},'HostConfig':{'NetworkMode':network},'Mounts':mounts}
+            with patch.object(s,'optional_container',return_value=data),patch.object(r,'call') as call:
+                with self.assertRaises(s.Stop):s.cleanup_probe(r,'probe','owner')
+                call.assert_not_called()
+
+class CachedAcademyTests(unittest.TestCase):
+    def exercise(self,failure=None):
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);old=root/'v79-remaining-rollout.T2HHBqwg';old.mkdir(mode=0o700)
+            run=root/'new';run.mkdir();plan=root/'plan';plan.mkdir();(old/'V79acaedmy').mkdir()
+            helper=old/'rollout.py';helper.write_bytes(b'fixed old verified source');os.utime(helper,(1000,1000))
+            (old/'exit-code').write_text('1');os.utime(old/'exit-code',(2000,2000))
+            (old/'progress.log').write_text('PHASE=PROBE_V79_COURSE_BUILDER\n'+('PHASE=SWITCH_V79_POS\n' if failure=='cutover' else ''))
+            r.private_json(plan/'plan-summary.json',{'public':'fixture'})
+            r.private_json(old/'plan-reference.json',{'directory':str(plan),'sources':p.SOURCES,'summary_sha256':r.sha_file(plan/'plan-summary.json')})
+            baseline={n:row(n,pin['image_id']) for n,pin in p.PINS.items()};r.private_json(old/'runtime-before.json',baseline)
+            candidate={'Id':'sha256:'+'a'*64,'Config':{'Labels':{'org.opencontainers.image.revision':p.SOURCES['V79acaedmy']}},
+                       'Created':'1970-01-01T00:25:00Z' if failure!='time' else '1970-01-01T01:00:00Z'}
+            def call(args,**kwargs):
+                if 'rev-parse' in args:return p.SOURCES['V79acaedmy'].encode()
+                if 'ls-files' in args and failure=='untracked':return b'PRIVATE_EXTRA'
+                return b''
+            with patch.object(s,'FAILED_BUILD_RUN',old),patch.object(s,'FAILED_HELPER_BLOB',s.blob(helper.read_bytes())), \
+                 patch.object(s,'PLAN',plan),patch.object(s,'load_modules'),patch.object(r,'call',side_effect=call), \
+                 patch.object(r,'inspect',side_effect=lambda name,**kw:copy.deepcopy(candidate if kw.get('image') else baseline[name])), \
+                 patch.object(s,'cleanup_probe') as cleanup,patch.object(r,'emit') as emit:
+                if failure:
+                    with self.assertRaises(s.Stop):s.recover_academy_build(r,p,run)
+                    cleanup.assert_not_called()
+                else:
+                    result=s.recover_academy_build(r,p,run)
+                    self.assertEqual(result,{'V79acaedmy':candidate['Id']});cleanup.assert_called_once()
+                    self.assertTrue((run/'cached-academy-proof.json').exists())
+                    self.assertNotIn('PRIVATE',str(emit.call_args_list))
+
+    def test_cached_build_path_has_no_checkout_or_docker_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);cached={repo:'sha256:'+ch*64 for repo,ch in zip(p.SOURCES,('a','b','c'))}
+            before={n:row(n,pin['image_id']) for n,pin in p.PINS.items()}
+            def inspect(name,**kwargs):
+                repo=next(repo for repo,value in cached.items() if value==name)
+                return {'Id':name,'Config':{'User':'node','Env':[],'Labels':{'org.opencontainers.image.revision':p.SOURCES[repo]}}}
+            with patch.object(r,'inspect',side_effect=inspect),patch.object(r,'call') as call, \
+                 patch.object(r,'public_checkout_modes') as modes,patch.object(s,'probe_image') as probe,patch.object(r,'emit'):
+                result=s.build_images(r,p,root,before,cached=cached)
+                call.assert_not_called();modes.assert_not_called();self.assertEqual(probe.call_count,4)
+                self.assertEqual(result['v79_course_builder'],cached['V79acaedmy'])
+
+    def test_exact_finished_build_is_reused_after_owned_cleanup(self):self.exercise()
+
+    def test_unproven_image_time_or_modified_context_or_prior_cutover_is_rejected(self):
+        for failure in ('time','untracked','cutover'):
+            with self.subTest(failure=failure):self.exercise(failure)
+
 if __name__=='__main__':unittest.main()

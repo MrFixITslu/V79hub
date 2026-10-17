@@ -18,6 +18,7 @@ def call(*args):return subprocess.run(args,check=True,capture_output=True).stdou
 identity=secrets.token_hex(6)
 good='v79-remaining-probe-fixture:'+identity
 bad=good+'-bad'
+academy=good+'-academy'
 redis='v79-remaining-redis-fixture-'+identity
 try:
     call('docker','pull','node:22-alpine')
@@ -34,6 +35,13 @@ try:
         try:s.probe_image(r,run,'gaming-studio-j',r.inspect(bad,image=True)['Id'],old)
         except (s.Stop,r.Stop):pass
         else:raise AssertionError('Unreadable candidate was not rejected')
+        call('docker','pull','node:20-alpine')
+        (root/'dist').mkdir();(root/'dist/server.cjs').write_text('console.log("public fixture")')
+        (root/'package.json').write_text('{"type":"module"}')
+        (root/'Dockerfile').write_text('FROM node:20-alpine\nWORKDIR /app\nCOPY package.json /app/\nCOPY dist /app/dist\nHEALTHCHECK CMD wget -q -O - http://127.0.0.1:3030/healthz\nCMD ["node","dist/server.cjs"]\n')
+        call('docker','build','-t',academy,str(root))
+        academy_old={'Config':{'User':'','WorkingDir':'/app','Cmd':['node','dist/server.cjs'],'Entrypoint':['docker-entrypoint.sh']}}
+        s.probe_image(r,run,'v79_course_builder',r.inspect(academy,image=True)['Id'],academy_old)
         remaining=call('docker','container','ls','--all','--quiet','--filter','label=v79.remaining-release-probe=ABC12345')
         assert not remaining.strip(),'Probe resource leaked'
     call('docker','pull','redis:7-alpine')
@@ -49,4 +57,4 @@ try:
     print('ACTUAL_DOCKER_RELEASE_PROBE_SUCCESS_FAILURE_CLEANUP_AND_REDIS_STDOUT=PASS')
 finally:
     subprocess.run(['docker','rm','-fv',redis],capture_output=True)
-    subprocess.run(['docker','image','rm',bad,good],capture_output=True)
+    subprocess.run(['docker','image','rm',academy,bad,good],capture_output=True)
