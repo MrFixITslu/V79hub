@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Cached Tiquet startup diagnosis. Synthetic resources only; never deploys apps."""
 import argparse
+import fcntl
 import json
+import tempfile
 import os
 from pathlib import Path
 import re
@@ -49,7 +51,9 @@ def run(args, *, timeout=45, check=True):
 def inspect(name, image=False, optional=False):
     result = run(['docker', 'image' if image else 'container', 'inspect', name], check=not optional)
     if result.returncode == 0:
-        return json.loads(result.stdout)[0]
+        rows = json.loads(result.stdout)
+        need(isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict), 'INSPECT_SHAPE_INVALID')
+        return rows[0]
     # A daemon/query error must never be treated as proven resource absence.
     need(optional and not image, 'IMAGE_INSPECT_FAILED')
     remaining = run(['docker', 'container', 'ls', '--all', '--quiet', '--filter', 'name=^/'+name+'$'])
@@ -101,7 +105,7 @@ def owned_cleanup(names, network, identity):
         row = inspect(name, optional=True)
         if row is None:
             continue
-        need(row.get('Config', {}).get('Labels', {}).get(LABEL) == identity, 'REFUSE_CLEANUP_FOREIGN_CONTAINER')
+        need((row.get('Config', {}).get('Labels') or {}).get(LABEL) == identity, 'REFUSE_CLEANUP_FOREIGN_CONTAINER')
         run(['docker', 'rm', '-f', '-v', name])
         need(inspect(name, optional=True) is None, 'SYNTHETIC_CONTAINER_CLEANUP_FAILED')
     p = run(['docker', 'network', 'inspect', network], check=False)
@@ -110,10 +114,44 @@ def owned_cleanup(names, network, identity):
         need(not remaining.stdout.strip(), 'NETWORK_INSPECT_FAILED_NOT_ABSENCE')
     if p.returncode == 0:
         row = json.loads(p.stdout)[0]
-        need(row.get('Labels', {}).get(LABEL) == identity, 'REFUSE_CLEANUP_FOREIGN_NETWORK')
+        need((row.get('Labels') or {}).get(LABEL) == identity, 'REFUSE_CLEANUP_FOREIGN_NETWORK')
         run(['docker', 'network', 'rm', network])
         remaining = run(['docker', 'network', 'ls', '--quiet', '--filter', 'name=^'+network+'$'])
         need(not remaining.stdout.strip(), 'SYNTHETIC_NETWORK_CLEANUP_FAILED')
+
+def reap_previous():
+    rows = run(['docker', 'container', 'ls', '--all', '--quiet', '--filter', 'label='+LABEL]).stdout.decode().split()
+    groups = {}
+    for container in rows:
+        row = inspect(container)
+        identity = (row.get('Config', {}).get('Labels') or {}).get(LABEL, '')
+        need(re.fullmatch(r'[a-f0-9]{12}', identity), 'PREVIOUS_IDENTITY_INVALID')
+        network = 'v79-tqdiag-' + identity
+        name = row.get('Name', '').lstrip('/')
+        need(name in [network+'-'+suffix for suffix in ('pg', 'metadata', 'app')], 'PREVIOUS_NAME_INVALID')
+        validate_synthetic(row, identity, network)
+        groups.setdefault(identity, []).append(name)
+    networks = run(['docker', 'network', 'ls', '--quiet', '--filter', 'label='+LABEL]).stdout.decode().split()
+    verified_networks = set()
+    for network_id in networks:
+        row = json.loads(run(['docker', 'network', 'inspect', network_id]).stdout)[0]
+        identity = (row.get('Labels') or {}).get(LABEL, '')
+        need(re.fullmatch(r'[a-f0-9]{12}', identity) and row.get('Name') == 'v79-tqdiag-'+identity
+             and row.get('Internal') is True, 'PREVIOUS_NETWORK_INVALID')
+        verified_networks.add(identity)
+        owned_names = set(groups.get(identity, []))
+        need(all(v.get('Name') in owned_names for v in (row.get('Containers') or {}).values()), 'PREVIOUS_NETWORK_FOREIGN_ENDPOINT')
+        groups.setdefault(identity, [])
+    need(set(groups) <= verified_networks, 'PREVIOUS_NETWORK_OWNERSHIP_UNPROVEN')
+    for identity, names in groups.items():
+        owned_cleanup(names, 'v79-tqdiag-'+identity, identity)
+    for kind in ('container', 'network'):
+        query = ['docker', kind, 'ls', '--quiet', '--filter', 'label='+LABEL]
+        if kind == 'container':
+            query.insert(3, '--all')
+        need(not run(query).stdout.strip(), 'PREVIOUS_CLEANUP_INCOMPLETE')
+    print('PREVIOUS_SYNTHETIC_RESOURCE_CLEANUP=PASS', flush=True)
+
 
 def validate_synthetic(row, identity, network):
     need(row['Config']['Labels'].get(LABEL) == identity, 'SYNTHETIC_IDENTITY_INVALID')
@@ -121,9 +159,81 @@ def validate_synthetic(row, identity, network):
     need(set(row['NetworkSettings']['Networks']) == {network}, 'SYNTHETIC_NETWORK_INVALID')
     need(all(m['Type'] == 'tmpfs' for m in row['Mounts']), 'SYNTHETIC_UNEXPECTED_PERSISTENT_MOUNT')
 
-def main():
+REVISION = '7da53ebb71530366168bd72a7efd52b57d34a23c'
+MODE_REPAIR_JS = r"""
+const fs=require('fs'),crypto=require('crypto');
+const rows=JSON.parse(fs.readFileSync('/tmp/v79-public-modes.json','utf8'));
+const dirs=new Set(['/app']); const snapshots=[];
+for(const r of rows){
+ if(!/^(package(?:-lock)?\.json|(?:server|scripts)\/[A-Za-z0-9_./-]+)$/.test(r.path)||r.path.split('/').some(x=>x==='..'||x==='.')||![420,493].includes(r.mode))throw Error('MANIFEST_INVALID');
+ const p='/app/'+r.path; const st=fs.lstatSync(p);if(!st.isFile())throw Error('NOT_REGULAR');
+ for(let dir=require('path').dirname(p);dir!=='/';dir=require('path').dirname(dir)){
+  if(!fs.lstatSync(dir).isDirectory())throw Error('PARENT_NOT_DIRECTORY');dirs.add(dir);
+ }
+ const data=fs.readFileSync(p);const sha=crypto.createHash('sha1').update(Buffer.from('blob '+data.length+'\0')).update(data).digest('hex');
+ if(r.path!=='package-lock.json'&&sha!==r.blob)throw Error('PUBLIC_BYTES_DIFFER_FROM_GIT');
+ snapshots.push([p,crypto.createHash('sha256').update(data).digest('hex'),r.mode]);
+}
+for(const dir of dirs)fs.chmodSync(dir,493);
+for(const [p,hash,mode]of snapshots){fs.chmodSync(p,mode);if(crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')!==hash)throw Error('BYTES_CHANGED');}
+fs.unlinkSync('/tmp/v79-public-modes.json');fs.unlinkSync('/tmp/v79-public-mode-repair.js');
+"""
+
+def public_mode_inventory(stage):
+    need(run(['git', '-C', str(stage), 'rev-parse', 'HEAD']).stdout.decode().strip() == REVISION, 'PUBLIC_SOURCE_REVISION_CHANGED')
+    raw = run(['git', '-C', str(stage), 'ls-tree', '-r', '-z', REVISION, '--', 'package.json', 'package-lock.json', 'server', 'scripts']).stdout
+    rows = []
+    for record in filter(None, raw.split(b'\0')):
+        metadata, path = record.split(b'\t', 1)
+        mode, kind, blob = metadata.decode().split()
+        path = path.decode('ascii')
+        need(kind == 'blob' and mode in ('100644', '100755') and
+             re.fullmatch(r'(?:package(?:-lock)?\.json|(?:server|scripts)/[A-Za-z0-9_./-]+)', path)
+             and all(part not in ('.', '..') for part in path.split('/')), 'PUBLIC_MODE_INVENTORY_INVALID')
+        rows.append({'path': path, 'mode': 0o755 if mode == '100755' else 0o644, 'blob': blob})
+    need({'package.json', 'package-lock.json', 'server/index.js'} <= {r['path'] for r in rows}, 'PUBLIC_MODE_INVENTORY_INCOMPLETE')
+    return rows
+
+def repair_public_modes(candidate, metadata):
+    paths = metadata.get('paths', {})
+    need(any(paths.get(p, {}).get('readable') is False for p in ('/app/package.json', '/app/server')), 'PUBLIC_PERMISSION_CAUSE_NOT_PROVEN')
+    tag = 'v79-portfolio/v79tiquet:' + REVISION
+    base = inspect(tag, image=True)
+    need(base['Id'] == candidate, 'CACHED_BASE_TAG_CHANGED')
+    user = base['Config'].get('User', '')
+    need(re.fullmatch(r'[A-Za-z0-9_:-]{1,80}', user) and user not in ('root', '0', '0:0'), 'REPAIR_USER_INVALID')
+    inventory = public_mode_inventory(RUN/'V79Tiquet')
+    repaired_tag = tag + '-public-modes-v1'
+    with tempfile.TemporaryDirectory(prefix='v79-public-mode-repair.') as tmp:
+        root = Path(tmp)
+        (root/'manifest.json').write_text(json.dumps(inventory))
+        (root/'repair.js').write_text(MODE_REPAIR_JS)
+        (root/'Dockerfile').write_text('FROM '+tag+'\nUSER root\nCOPY manifest.json /tmp/v79-public-modes.json\nCOPY repair.js /tmp/v79-public-mode-repair.js\nRUN node /tmp/v79-public-mode-repair.js\nUSER '+user+'\nLABEL v79.public-source-modes="git-v1" v79.mode-repair.base="'+candidate+'"\n')
+        print('PHASE=REPAIR_PUBLIC_CODE_PERMISSIONS_ONLY', flush=True)
+        run(['docker', 'build', '--pull=false', '--network=none', '--tag', repaired_tag, str(root)], timeout=240)
+    repaired = inspect(repaired_tag, image=True)
+    need(IMAGE.fullmatch(repaired['Id']), 'REPAIRED_IMAGE_ID_INVALID')
+    # Image build provenance fields may change; every execution setting must match.
+    old = dict(base['Config']); new = dict(repaired['Config'])
+    old.pop('Image', None); new.pop('Image', None)
+    old['Labels'] = dict(old.get('Labels') or {})
+    labels = dict(new.get('Labels') or {})
+    need(labels.pop('v79.public-source-modes', None) == 'git-v1' and
+         labels.pop('v79.mode-repair.base', None) == candidate, 'REPAIR_LABELS_INVALID')
+    new['Labels'] = labels
+    if old != new:
+        print(json.dumps({'repair_runtime_changed_fields': sorted(k for k in old.keys() | new.keys() if old.get(k) != new.get(k))}), flush=True)
+    need(old == new, 'REPAIRED_RUNTIME_CONFIGURATION_CHANGED')
+    print('PUBLIC_CODE_PERMISSION_REPAIR=IDENTICAL_BYTES_RUNTIME_CONFIG_PRESERVED', flush=True)
+    print('REPAIRED_CANDIDATE_IMAGE='+repaired['Id'], flush=True)
+    return repaired['Id']
+
+
+def diagnostic_main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('--repair-public-modes', action='store_true', help='Derive a cached image with verified public source permissions, then synthetic startup only')
+    parser.add_argument('--permissions-only', action='store_true', help='Clean prior diagnostic resources and read cached image permissions; no app startup')
     args = parser.parse_args()
     if args.self_test:
         result = classify("password=PRIVATE_MARKER code: '42703' column PRIVATE_MARKER does not exist server/db.js:219:2")
@@ -155,6 +265,7 @@ def main():
     user = original_config.get('User', '')
     need(re.fullmatch(r'[A-Za-z0-9_:-]{1,80}', user), 'LIVE_EXECUTION_USER_UNREVIEWED')
     need(all(before[n]['Image'] == value for n, value in manifest['source_images'].items()), 'ORIGINAL_APP_IMAGES_NOT_RESTORED')
+    reap_previous()
     print('PHASE=SYNTHETIC_CACHED_IMAGE_STARTUP_ONLY', flush=True)
     identity = secrets.token_hex(6)
     network = 'v79-tqdiag-' + identity
@@ -165,23 +276,24 @@ def main():
         run(['docker', 'network', 'create', '--internal', '--label', LABEL+'='+identity, network])
         net = json.loads(run(['docker', 'network', 'inspect', network]).stdout)[0]
         need(net.get('Internal') is True, 'NETWORK_NOT_INTERNAL')
-        password = secrets.token_urlsafe(32)
-        owned.append(pg)
-        run(['docker', 'create', '--name', pg, '--label', LABEL+'='+identity, '--pull', 'never',
-             '--network', network, '--memory', '384m', '--memory-swap', '384m',
-             '--tmpfs', '/var/lib/postgresql/data:rw,nosuid,nodev,noexec,size=160m',
-             '-e', 'POSTGRES_DB=synthetic', '-e', 'POSTGRES_USER=synthetic', '-e', 'POSTGRES_PASSWORD='+password, pg_image])
-        validate_synthetic(inspect(pg), identity, network)
-        run(['docker', 'start', pg])
-        ready = False
-        for _ in range(30):
-            if run(['docker', 'exec', pg, 'pg_isready', '-U', 'synthetic', '-d', 'synthetic'], check=False).returncode == 0:
-                ready = True; break
-            time.sleep(1)
-        if not ready:
-            print(json.dumps({'synthetic_postgres': report(pg)}, sort_keys=True), flush=True)
-        need(ready, 'SYNTHETIC_POSTGRES_NOT_READY')
-        metadata_code = "const fs=require('fs');console.log(JSON.stringify({uid:process.getuid(),gid:process.getgid(),paths:Object.fromEntries(['/app/data','/app/uploads','/app/logs'].map(p=>{try{const s=fs.statSync(p);return[p,{uid:s.uid,gid:s.gid,mode:s.mode&511}]}catch{return[p,{missing:true}]}}))}))"
+        if not args.permissions_only:
+            password = secrets.token_urlsafe(32)
+            owned.append(pg)
+            run(['docker', 'create', '--name', pg, '--label', LABEL+'='+identity, '--pull', 'never',
+                 '--network', network, '--memory', '384m', '--memory-swap', '384m',
+                 '--tmpfs', '/var/lib/postgresql/data:rw,nosuid,nodev,noexec,size=160m',
+                 '-e', 'POSTGRES_DB=synthetic', '-e', 'POSTGRES_USER=synthetic', '-e', 'POSTGRES_PASSWORD='+password, pg_image])
+            validate_synthetic(inspect(pg), identity, network)
+            run(['docker', 'start', pg])
+            ready = False
+            for _ in range(30):
+                if run(['docker', 'exec', pg, 'pg_isready', '-U', 'synthetic', '-d', 'synthetic'], check=False).returncode == 0:
+                    ready = True; break
+                time.sleep(1)
+            if not ready:
+                print(json.dumps({'synthetic_postgres': report(pg)}, sort_keys=True), flush=True)
+            need(ready, 'SYNTHETIC_POSTGRES_NOT_READY')
+        metadata_code = "const fs=require('fs');console.log(JSON.stringify({uid:process.getuid(),gid:process.getgid(),paths:Object.fromEntries(['/app/package.json','/app/server','/app/server/index.js','/app/data','/app/uploads','/app/logs'].map(p=>{try{const s=fs.statSync(p);let readable=true;try{fs.accessSync(p,fs.constants.R_OK)}catch{readable=false}return[p,{uid:s.uid,gid:s.gid,mode:s.mode&511,readable}]}catch{return[p,{missing:true}]}}))}))"
         current_metadata = json.loads(run(['docker', 'exec', 'v79-tiquet-manager', 'node', '-e', metadata_code]).stdout)
         meta = network + '-metadata'
         owned.append(meta)
@@ -192,6 +304,11 @@ def main():
         validate_synthetic(inspect(meta), identity, network)
         candidate_metadata = json.loads(run(['docker', 'start', '--attach', meta]).stdout)
         print(json.dumps({'execution_metadata': {'original': current_metadata, 'candidate': candidate_metadata}}, sort_keys=True), flush=True)
+        if args.repair_public_modes:
+            candidate = repair_public_modes(candidate, candidate_metadata)
+        if args.permissions_only:
+            print('TIQUET_PERMISSION_INVENTORY=COMPLETE', flush=True)
+            return
         env = {'NODE_ENV': 'production', 'PORT': str(port), 'DB_HOST': pg, 'DB_PORT': '5432',
                'DB_NAME': 'synthetic', 'DB_USER': 'synthetic', 'DB_PASSWORD': password,
                'JWT_SECRET': secrets.token_urlsafe(48), 'SUPER_ADMIN_JWT_SECRET': secrets.token_urlsafe(48),
@@ -232,6 +349,7 @@ def main():
         print('TIQUET_SYNTHETIC_STARTUP=' + ('PASS' if passed else 'FAIL'), flush=True)
         need(passed, 'SYNTHETIC_CANDIDATE_STARTUP_FAILED')
     finally:
+        print('PHASE=SYNTHETIC_CLEANUP', flush=True)
         owned_cleanup(owned, network, identity)
         print('SYNTHETIC_RESOURCE_CLEANUP=PASS', flush=True)
         for name, old in before.items():
@@ -241,9 +359,30 @@ def main():
         print('LIVE_FIVE_ORIGINAL_CONTAINERS=UNCHANGED_HEALTHY', flush=True)
         print('R1_CUSTOMER_RELEASE=NO_GO', flush=True)
 
+def main():
+    if '--self-test' in sys.argv:
+        return diagnostic_main()
+    need(socket.gethostname() == 'v79sl' and os.getuid() != 0, 'RUN_ON_V79SL_NON_ROOT')
+    os.umask(0o077)
+    with (Path.home()/'.v79-portfolio-rollout.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Stop('OTHER_ROLLOUT_OR_DIAGNOSTIC_RUNNING')
+        return diagnostic_main()
+
+
 if __name__ == '__main__':
     try:
         main()
     except Exception as error:
+        if not isinstance(error, Stop):
+            frames = []
+            trace = error.__traceback__
+            while trace:
+                if trace.tb_frame.f_code.co_filename == __file__:
+                    frames.append(trace.tb_lineno)
+                trace = trace.tb_next
+            print(json.dumps({'diagnostic_exception_type': type(error).__name__, 'diagnostic_source_lines': frames}))
         print('STOP=' + (str(error) if isinstance(error, Stop) else 'DIAGNOSTIC_ERROR_REDACTED'))
         sys.exit(1)
