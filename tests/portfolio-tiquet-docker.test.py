@@ -27,10 +27,10 @@ try:
         blob=hashlib.sha1(b'blob '+str(len(content)).encode()+b'\0'+content).hexdigest()
         (root/'manifest.json').write_text(json.dumps([{'path':'server/index.js','mode':420,'blob':blob}]))
         (root/'repair.js').write_text(d.MODE_REPAIR_JS)
-        (root/'Dockerfile').write_text('FROM node:20-alpine\nWORKDIR /app\nCOPY index.js /app/server/index.js\nRUN chmod 700 /app/server && chmod 600 /app/server/index.js\nUSER node\nCMD ["node","server/index.js"]\n')
+        (root/'Dockerfile').write_text('FROM node:20-alpine\nWORKDIR /app\nCOPY index.js /app/server/index.js\nRUN chmod 700 /app/server && chmod 600 /app/server/index.js\nUSER node\nCMD ["node","-e","eval(require(\'fs\').readFileSync(\'/app/server/index.js\',\'utf8\'))"]\n')
         command('docker','build','--network=none','-t',tag,str(root))
         failed=subprocess.run(['docker','run','--rm','--network=none',tag], capture_output=True)
-        assert failed.returncode != 0 and b'EACCES' in failed.stderr, 'Fixture did not reproduce non-root permission failure'
+        assert failed.returncode != 0 and b'EACCES' in failed.stderr, 'Fixture did not reproduce non-root permission failure: '+failed.stderr.decode()
         (root/'Dockerfile').write_text('FROM '+tag+'\nUSER root\nCOPY manifest.json /tmp/v79-public-modes.json\nCOPY repair.js /tmp/v79-public-mode-repair.js\nRUN node /tmp/v79-public-mode-repair.js\nUSER node\n')
         command('docker','build','--pull=false','--network=none','-t',repaired,str(root))
         assert b'PUBLIC_FIXTURE_OK' in command('docker','run','--rm','--network=none',repaired)
