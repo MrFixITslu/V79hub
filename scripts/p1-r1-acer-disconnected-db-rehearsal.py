@@ -178,15 +178,35 @@ def wait_for_sql(name, database):
         time.sleep(0.5)
     raise Stop("ISOLATED_DATABASE_SQL_NOT_READY")
 
+def assert_disconnected_tmpfs_container(name):
+    # Read full inspect only in memory: it contains a synthetic password.
+    # Never print or write inspect JSON or synthetic credentials.
+    raw = silent_run([*PODMAN, "inspect", "--type=container", name], timeout=20)
+    rows = json.loads(raw)
+    ensure(isinstance(rows, list) and len(rows) == 1,
+           "RESTORE_CONTAINER_INSPECT_INVALID")
+    record = rows[0]
+    host = record.get("HostConfig") or {}
+    ensure(host.get("NetworkMode") == "none",
+           "ISOLATION_NETWORK_POLICY_NOT_ENFORCED")
+    ensure(not host.get("PortBindings"),
+           "RESTORE_CONTAINER_PORT_PUBLISHED")
+    mounts = record.get("Mounts") or []
+    ensure(isinstance(mounts, list) and all(
+        isinstance(m, dict) and m.get("Type") == "tmpfs"
+        for m in mounts), "UNEXPECTED_PERSISTENT_DATABASE_MOUNT")
+    tmpfs = host.get("Tmpfs") or {}
+    ensure(isinstance(tmpfs, dict) and
+           "/var/lib/postgresql/data" in tmpfs,
+           "DATABASE_NOT_ON_DISPOSABLE_TMPFS")
+
 def restore_one(root, prefix, image, dump, database):
     name = "v79-r1-" + prefix + "-" + secrets.token_hex(4)
     # Register name for unconditional container removal even when run fails.
     print("R1_" + prefix.upper() + "_RESTORE=START", flush=True)
     try:
         silent_run(db_run_args(name, image, database), timeout=90)
-        mode = silent_run([*PODMAN, "inspect", "--type=container", name, "--format",
-                           "{{.HostConfig.NetworkMode}}"], timeout=20)
-        ensure(mode == "none", "ISOLATION_NETWORK_POLICY_NOT_ENFORCED")
+        assert_disconnected_tmpfs_container(name)
         wait_for_sql(name, database)
         decrypted_pipe_to_command(
             root / dump,
