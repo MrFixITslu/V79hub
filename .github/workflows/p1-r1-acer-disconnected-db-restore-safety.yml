@@ -10,6 +10,7 @@ on:
       - 'scripts/p1-r1-acer-image-id-diagnostic.py'
       - 'tests/p1-r1-acer-image-id-diagnostic.test.py'
       - 'scripts/p1-r1-acer-oci-pin-proof.py'
+      - 'scripts/p1-r1-acer-app-mount-preflight.py'
       - 'tests/p1-r1-acer-oci-pin-proof.test.py'
       - '.github/workflows/p1-r1-acer-disconnected-db-restore-safety.yml'
   workflow_dispatch:
@@ -37,6 +38,7 @@ jobs:
                        'scripts/p1-r1-acer-image-id-diagnostic.py',
                        'tests/p1-r1-acer-image-id-diagnostic.test.py',
                        'scripts/p1-r1-acer-oci-pin-proof.py',
+                       'scripts/p1-r1-acer-app-mount-preflight.py',
                        'tests/p1-r1-acer-oci-pin-proof.test.py'):
               compile(Path(name).read_text(), name, 'exec')
           PY
