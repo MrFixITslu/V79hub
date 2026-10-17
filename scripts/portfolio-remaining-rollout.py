@@ -122,17 +122,24 @@ def probe_image(r,run,name,image,old):
     if executable:
         code+="const entry="+json.dumps(executable)+";const paths=entry.includes('/')?[entry]:(process.env.PATH||'').split(':').map(p=>p+'/'+entry);if(!paths.some(p=>{try{fs.accessSync(p,fs.constants.X_OK);return true}catch{return false}}))process.exit(2);"
     code+="console.log('PUBLIC_EXECUTION_FILES_READABLE')"
+    code="try{"+code+"}catch(e){console.log('PUBLIC_EXECUTION_'+(['EACCES','EPERM','ENOENT'].includes(e.code)?e.code:'UNCLASSIFIED'));process.exitCode=2}"
     args=['docker','create','--name',probe,'--label',label+'='+identity,'--pull','never','--network','none',
           '--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--memory','128m',
           '--memory-swap','128m','--pids-limit','48','--entrypoint','node']
     if old['Config'].get('User'):args+=['--user',old['Config']['User']]
+    r.emit('PHASE','PROBE_'+name.upper().replace('-','_'))
     try:
         r.call([*args,image,'-e',code])
         row=r.inspect(probe)
         need(not row['Mounts'] and row['HostConfig']['NetworkMode']=='none'
              and not row['HostConfig'].get('PortBindings'),'PROBE_ISOLATION_INVALID')
-        output=r.call(['docker','start','--attach',probe])
-        need(output.strip()==b'PUBLIC_EXECUTION_FILES_READABLE' and r.inspect(probe)['State']['ExitCode']==0,'CANDIDATE_PUBLIC_FILES_UNREADABLE')
+        started=subprocess.run(['docker','start','--attach',probe],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=45,env=r.clean_env())
+        output=started.stdout.strip();state=r.inspect(probe)['State']
+        if output!=b'PUBLIC_EXECUTION_FILES_READABLE' or state['ExitCode']!=0 or started.returncode!=0:
+            category=output.decode() if output in (b'PUBLIC_EXECUTION_EACCES',b'PUBLIC_EXECUTION_EPERM',b'PUBLIC_EXECUTION_ENOENT') else 'PUBLIC_EXECUTION_UNCLASSIFIED'
+            if re.search(rb'unable to find user|no matching entries in passwd',started.stderr,re.I):category='PUBLIC_EXECUTION_USER_NOT_PRESENT'
+            r.emit('RESULT',name+'_'+category)
+            raise Stop('CANDIDATE_EXECUTION_PROBE_FAILED')
     finally:
         row=optional_container(r,probe)
         if row is not None:
