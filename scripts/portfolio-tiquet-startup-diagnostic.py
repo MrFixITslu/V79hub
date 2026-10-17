@@ -216,10 +216,13 @@ def repair_public_modes(candidate, metadata):
     # Image build provenance fields may change; every execution setting must match.
     old = dict(base['Config']); new = dict(repaired['Config'])
     old.pop('Image', None); new.pop('Image', None)
+    old['Labels'] = dict(old.get('Labels') or {})
     labels = dict(new.get('Labels') or {})
     need(labels.pop('v79.public-source-modes', None) == 'git-v1' and
          labels.pop('v79.mode-repair.base', None) == candidate, 'REPAIR_LABELS_INVALID')
     new['Labels'] = labels
+    if old != new:
+        print(json.dumps({'repair_runtime_changed_fields': sorted(k for k in old.keys() | new.keys() if old.get(k) != new.get(k))}), flush=True)
     need(old == new, 'REPAIRED_RUNTIME_CONFIGURATION_CHANGED')
     print('PUBLIC_CODE_PERMISSION_REPAIR=IDENTICAL_BYTES_RUNTIME_CONFIG_PRESERVED', flush=True)
     print('REPAIRED_CANDIDATE_IMAGE='+repaired['Id'], flush=True)
