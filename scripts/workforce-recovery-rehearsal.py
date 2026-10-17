@@ -47,25 +47,7 @@ with tarfile.open(fileobj=sys.stdin.buffer,mode='r|gz') as archive:
 if not count:raise SystemExit('EMPTY_ARCHIVE')
 print('RESTORED_FILE_COUNT='+str(count))
 '''
-IMAGE_CHECK=r'''
-import hashlib,json,sys,tarfile
-expected=sys.argv[1].removeprefix('sha256:'); config_found=False; manifest_found=False
-with tarfile.open(fileobj=sys.stdin.buffer,mode='r|') as archive:
- for member in archive:
-  if not member.isfile():continue
-  # Docker legacy layout or OCI content store layout.
-  if member.name in [expected+'.json','blobs/sha256/'+expected]:
-   source=archive.extractfile(member); digest=hashlib.sha256()
-   while chunk:=source.read(1024*1024):digest.update(chunk)
-   if digest.hexdigest()!=expected:raise SystemExit('CONFIG_DIGEST_MISMATCH')
-   config_found=True
-  elif member.name=='manifest.json':
-   if member.size>1000000:raise SystemExit('OVERSIZED_MANIFEST')
-   rows=json.load(archive.extractfile(member))
-   manifest_found=any(row.get('Config') in [expected+'.json','blobs/sha256/'+expected] for row in rows)
-if not config_found or not manifest_found:raise SystemExit('IMAGE_IDENTITY_UNVERIFIED')
-print('ORIGINAL_IMAGE_CONFIG_IDENTITY=PASS')
-'''
+IMAGE_CHECK='#!/usr/bin/env python3\n"""Stream-verify Docker/OCI archive digests and reachable graph; never load images."""\nimport hashlib,json,re,subprocess,sys,tarfile\n\nEXPECTED=\'sha256:33a357c6c73f45ef05edcef57c6c0abf9234022cbec1c30041c463b2f3ff8d06\'\n\ndef verify(source, expected=EXPECTED):\n if not re.fullmatch(\'sha256:[0-9a-f]{64}\',expected):raise ValueError(\'Invalid expected image identity\')\n blobs={};nodes={};index=None;docker_manifest=None\n with tarfile.open(fileobj=source,mode=\'r|\') as archive:\n  for member in archive:\n   name=member.name.removeprefix(\'./\')\n   if not member.isfile():continue\n   digest_name=None\n   if re.fullmatch(r\'blobs/sha256/[0-9a-f]{64}\',name):digest_name=\'sha256:\'+name.rsplit(\'/\',1)[1]\n   if digest_name:\n    if digest_name in blobs:raise ValueError(\'Duplicate blob\')\n    h=hashlib.sha256();count=0;small=bytearray() if member.size<=2_000_000 else None\n    data=archive.extractfile(member)\n    while chunk:=data.read(1024*1024):\n     h.update(chunk);count+=len(chunk)\n     if small is not None:small.extend(chunk)\n    if count!=member.size or \'sha256:\'+h.hexdigest()!=digest_name:raise ValueError(\'Blob digest/size mismatch\')\n    blobs[digest_name]=count\n    if small is not None:\n     try:obj=json.loads(small)\n     except (ValueError,UnicodeDecodeError):continue\n     # Keep only graph structure, never image environment, labels or history.\n     if isinstance(obj,dict):\n      if isinstance(obj.get(\'manifests\'),list):nodes[digest_name]=(\'index\',obj[\'manifests\'])\n      elif isinstance(obj.get(\'config\'),dict) and isinstance(obj.get(\'layers\'),list):nodes[digest_name]=(\'manifest\',[obj[\'config\'],*obj[\'layers\']])\n      elif isinstance(obj.get(\'rootfs\'),dict):nodes[digest_name]=(\'config\',[])\n   elif name in [\'index.json\',\'manifest.json\']:\n    if member.size>2_000_000:raise ValueError(\'Oversized archive index\')\n    obj=json.load(archive.extractfile(member))\n    if name==\'index.json\':\n     if index is not None:raise ValueError(\'Duplicate index\')\n     index=obj\n    else:\n     if docker_manifest is not None:raise ValueError(\'Duplicate Docker manifest\')\n     docker_manifest=obj\n if not blobs or not isinstance(index,dict) or not isinstance(index.get(\'manifests\'),list):raise ValueError(\'OCI archive index unavailable\')\n roots=[d for d in index[\'manifests\'] if isinstance(d,dict) and d.get(\'digest\')==expected]\n if len(roots)!=1:raise ValueError(\'Expected live image absent from archive index\')\n seen=set();configs=set();manifests=0\n def walk(descriptor,ancestors):\n  nonlocal manifests\n  if not isinstance(descriptor,dict):raise ValueError(\'Invalid graph descriptor\')\n  digest=descriptor.get(\'digest\');size=descriptor.get(\'size\')\n  if digest not in blobs or not isinstance(size,int) or isinstance(size,bool) or size!=blobs[digest]:raise ValueError(\'Missing or incorrectly sized graph blob\')\n  if digest in ancestors:raise ValueError(\'Cyclic graph\')\n  if digest in seen:return\n  seen.add(digest)\n  kind,children=nodes.get(digest,(\'layer\',[]))\n  if kind==\'config\':configs.add(digest)\n  elif kind==\'manifest\':manifests+=1\n  for child in children:walk(child,ancestors|{digest})\n walk(roots[0],set())\n if not manifests or not configs:raise ValueError(\'No reachable image manifest/config\')\n if not isinstance(docker_manifest,list) or not any(isinstance(row,dict) and \'sha256:\'+str(row.get(\'Config\',\'\')).removeprefix(\'./\').removeprefix(\'blobs/sha256/\') in configs for row in docker_manifest):raise ValueError(\'Docker manifest does not reference a reachable config\')\n return {\'hashedBlobs\':len(blobs),\'reachableBlobs\':len(seen),\'reachableImageManifests\':manifests,\'reachableConfigs\':len(configs),\'rootImage\':expected}\n\nresult=verify(sys.stdin.buffer,sys.argv[1])\nprint(\'ORIGINAL_IMAGE_OCI_GRAPH=PASS\')\n'
 
 def main():
  if socket.gethostname()=='v79sl':raise RuntimeError('Run on Acer, not the server')
@@ -132,7 +114,7 @@ def main():
   print('DISPOSABLE_RESOURCE_CLEANUP='+('PASS' if cleanup else 'FAILED'),flush=True)
   print('LIVE_IMAGE_AND_HEALTH_RECHECK=PASS',flush=True)
   if not cleanup:raise RuntimeError('Disposable cleanup incomplete')
- receipt={'schema':1,'state':'PASS_ISOLATED_RESTORE','originalImage':HUB,'candidateImage':'sha256:4a9f5868b8c5b7df818225478fc56836e9e6acf9e19c2a8c6faeebe58cec1698','verifiedAt':time.time(),'databaseRestore':True,'fileArchiveExtraction':True,'imageConfigIdentity':True,'fullDockerImageReload':False,'productionDeployed':False}
+ receipt={'schema':1,'state':'PASS_ISOLATED_RESTORE','originalImage':HUB,'candidateImage':'sha256:4a9f5868b8c5b7df818225478fc56836e9e6acf9e19c2a8c6faeebe58cec1698','verifiedAt':time.time(),'databaseRestore':True,'fileArchiveExtraction':True,'imageConfigIdentity':True,'imageGraphVerified':True,'fullDockerImageReload':False,'productionDeployed':False}
  target=root/('restore-receipt-'+run_id+'.json')
  with target.open('x') as f:os.chmod(target,0o600);json.dump(receipt,f)
  print('RECOVERY_REHEARSAL=PASS_DATABASE_FILES_IMAGE_CONFIG_IDENTITY')
