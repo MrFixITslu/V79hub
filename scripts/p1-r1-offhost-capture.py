@@ -51,6 +51,11 @@ HUB_SECRET_DESTINATIONS = (
     "/run/secrets/v79-agent-token",
     "/run/secrets/v79-workforce-token",
     "/run/secrets/v79-readonly-platform-token",
+    "/run/secrets/v79-coo-github-token",
+)
+# The report volume is a known read-only directory, not a token file.
+HUB_REPORT_DESTINATIONS = (
+    "/run/v79-workforce-reports",
 )
 
 # Passed to python3 -B - over SSH STDIN. No shell-interpreted source or secrets.
@@ -102,14 +107,16 @@ def mounts(container,name):
   "/run/secrets/v79-agent-token",
   "/run/secrets/v79-workforce-token",
   "/run/secrets/v79-readonly-platform-token",
+  "/run/secrets/v79-coo-github-token",
  )
+ reviewed_hub_reports=("/run/v79-workforce-reports",)
  for m in container.get("Mounts",[]):
   target=m.get("Destination")
   if m.get("Type") not in ("bind","volume") or not isinstance(target,str) or any(z in target for z in ("\n","\r")) or ".." in pathlib.PurePath(target).parts or target.endswith("/"):
    raise RuntimeError("UNREVIEWED_APP_MOUNT")
   if target.startswith("/app/"):
    pass
-  elif name=="v79-hub" and target in reviewed_hub_secrets and m.get("Type")=="bind" and m.get("RW") is False:
+  elif name=="v79-hub" and target in (*reviewed_hub_secrets,*reviewed_hub_reports) and m.get("Type")=="bind" and m.get("RW") is False:
    pass
   else:raise RuntimeError("UNREVIEWED_APP_MOUNT")
   if target in out:raise RuntimeError("DUPLICATE_MOUNT_TARGET")
@@ -217,7 +224,8 @@ def validate_plan(data):
                 len(set(targets)) == len(targets) and len(targets) <= 20 and
                 all(isinstance(v, str) and
                     (v.startswith("/app/") or
-                     (name == "v79-hub" and v in HUB_SECRET_DESTINATIONS)) and
+                     (name == "v79-hub" and
+                      v in (*HUB_SECRET_DESTINATIONS, *HUB_REPORT_DESTINATIONS))) and
                     not v.endswith("/") and ".." not in Path(v).parts and
                     "\n" not in v and "\r" not in v for v in targets),
                 "APP_MOUNT_PLAN_INVALID")
@@ -245,6 +253,13 @@ def streams_for(plan):
                 reader = ["docker", "exec", "-u", "0", container, "sh", "-c",
                           'test -f "$1" && test ! -L "$1" && exec tar -C / -czf - -- "$2"',
                           "v79-read-only-secret", destination, destination.lstrip("/")]
+            elif destination in HUB_REPORT_DESTINATIONS:
+                require(container == "v79-hub", "REPORTS_MOUNT_ASSIGNED_TO_WRONG_APP")
+                # A directory must remain a directory. Do not capture a
+                # replaced symlink or a misconfigured sensitive file.
+                reader = ["docker", "exec", "-u", "0", container, "sh", "-c",
+                          'test -d "$1" && test ! -L "$1" && exec tar -C / -czf - -- "$2"',
+                          "v79-read-only-report", destination, destination.lstrip("/")]
             else:
                 reader = ["docker", "exec", "-u", "0", container, "tar", "-C", "/", "-czf",
                           "-", "--", destination.lstrip("/")]
@@ -382,7 +397,8 @@ def verify_set(root):
                 and (container != "v79-tiquet-manager" or "/app/uploads" in destinations)
                 and all(isinstance(v, str) and
                         (v.startswith("/app/") or
-                         (container == "v79-hub" and v in HUB_SECRET_DESTINATIONS)) and
+                         (container == "v79-hub" and
+                          v in (*HUB_SECRET_DESTINATIONS, *HUB_REPORT_DESTINATIONS))) and
                         not v.endswith("/") and ".." not in Path(v).parts and
                         "\n" not in v and "\r" not in v for v in destinations),
                 "MANIFEST_APP_MOUNT_SET_INVALID")
