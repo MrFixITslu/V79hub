@@ -199,6 +199,22 @@ def main():
             "VERIFIED_BACKUP_DIRECTORY_MISSING")
     require((root.stat().st_mode & 0o077) == 0,
             "BACKUP_DIRECTORY_PERMISSIONS_INVALID")
+    require(not (root / "CAPTURE_INCOMPLETE").exists(),
+            "INCOMPLETE_BACKUP_SET")
+    receipt = root / "ciphertext-manifest.json"
+    require(receipt.is_file() and not receipt.is_symlink(),
+            "BACKUP_MANIFEST_MISSING")
+    data = json.loads(receipt.read_text())
+    expected = dict(zip(
+        ("v79-hub", "v79-tiquet-manager", "v79-hub-postgres", "tiquet-postgres"),
+        ("sha256:" + pin for pin in list(IMAGES.values())[:4])))
+    require(data.get("schema") == 1
+            and data.get("status") == "CAPTURED_NOT_RESTORED"
+            and data.get("images") == expected
+            and data.get("rollbackHub") == "sha256:" + IMAGES["HUB_ROLLBACK"]
+            and isinstance(data.get("files"), list)
+            and len(data["files"]) == 14,
+            "ORIGINAL_BACKUP_SET_PROVENANCE_NOT_MATCHED")
     source = verify_ciphertext(root, FILE)
     saved_inspect = verify_ciphertext(root, INSPECT_FILE)
     print("R1_DIAGNOSTIC=READ_ONLY_ACER_LOCAL", flush=True)
