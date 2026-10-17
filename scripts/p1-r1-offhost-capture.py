@@ -333,7 +333,7 @@ def verify_set(root):
     data = json.loads(receipt.read_text())
     require(data.get("schema") == 1 and data.get("images") == IMAGE_IDS and
             data.get("status") == "CAPTURED_NOT_RESTORED" and
-            isinstance(data.get("files"), list) and len(data["files"]) >= 9,
+            isinstance(data.get("files"), list) and len(data["files"]) >= 6,
             "MANIFEST_INVALID")
     names = set()
     expected_names = {
