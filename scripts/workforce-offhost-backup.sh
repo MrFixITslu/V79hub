@@ -4,7 +4,7 @@ set -euo pipefail
 umask 077
 [[ "$(hostname)" != v79sl ]] || { echo "STOP=RUN_ON_ACER_NOT_V79SL"; exit 1; }
 RECIPIENT='484CF39CE37A02884497AD9C41A17102D2842ECE'
-for tool in ssh gpg pg_restore tar sha256sum python3; do
+for tool in ssh gpg tar sha256sum python3; do
  command -v "$tool" >/dev/null || { echo "STOP=MISSING_$tool"; exit 1; }
 done
 gpg --batch --list-secret-keys "$RECIPIENT" >/dev/null 2>&1
@@ -59,7 +59,8 @@ echo 'STAGE=ENCRYPT_ORIGINAL_ROLLBACK_IMAGE'
 ssh firelion@v79sl 'docker image save sha256:33a357c6c73f45ef05edcef57c6c0abf9234022cbec1c30041c463b2f3ff8d06' | encrypt hub-original-image.tar.gpg
 
 echo 'STAGE=VERIFY_ALL_FIVE_ENCRYPTED_STREAMS'
-gpg --quiet --decrypt "$BACKUP_DIR/hub-pg.dump.gpg" | pg_restore --list >/dev/null
+gpg --quiet --decrypt "$BACKUP_DIR/hub-pg.dump.gpg" |
+ ssh firelion@v79sl 'set -eu; PG_IMAGE="$(docker inspect --format={{.Image}} v79-hub-postgres)"; docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges --memory 256m --cpus 1 --pids-limit 64 --entrypoint pg_restore "$PG_IMAGE" --list >/dev/null' 
 for archive in hub-data.tar.gpg hub-config.tar.gpg; do
  gpg --quiet --decrypt "$BACKUP_DIR/$archive" | tar -tzf - >/dev/null
 done
