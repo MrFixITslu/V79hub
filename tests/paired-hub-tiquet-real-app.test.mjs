@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import pg from "pg";
 
 // Exact pinned public source checkouts; never contact an existing Hub/Tiquet server.
-const TIQUET_COMMIT = "c8e00f1b3fe74ecdbfaf4fa60165c8dd3638e08e";
+const TIQUET_COMMIT = "6f4d93c2f6ed2002eca6fb88bcba0e8bceacdd10";
 const tiquetDir = resolve(".paired-tiquet");
 const pgUrl = "postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test";
 const platformSecret="paired-ci-platform-secret-12345678901234567890";
