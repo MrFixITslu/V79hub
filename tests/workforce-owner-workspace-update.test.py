@@ -20,4 +20,16 @@ class RolloutGuards(unittest.TestCase):
   for mutate in [lambda r:r['Config'].update(User='1000'),lambda r:r['HostConfig'].update(ReadonlyRootfs=False),lambda r:r['Mounts'][0].update(RW=True),lambda r:r['Config'].update(Env=['FLAG=0','OTHER=2'])]:
    changed=copy.deepcopy(after);mutate(changed)
    with self.assertRaises(RuntimeError):update.runtime_same(before,changed)
+ def test_unset_image_user_matches_empty_runtime_user_without_explicit_override(self):
+  image={'Cmd':['node','server.ts'],'Entrypoint':None,'User':None,'WorkingDir':'/app'}
+  live={**image,'User':''}
+  update.process_same({},image,live)
+  update.process_same({'user':None},image,live)
+  self.assertEqual(image['User'],None)
+ def test_explicit_user_and_process_overrides_still_require_exact_match(self):
+  image={'Cmd':['node','server.ts'],'Entrypoint':None,'User':None,'WorkingDir':'/app'}
+  live={**image,'User':''}
+  for override in [{'user':'1000:1000'},{'user':'0'},{'command':[]},{'entrypoint':[]},{'working_dir':'/other'}]:
+   with self.subTest(override=override),self.assertRaises(RuntimeError):update.process_same(override,image,live)
+  update.process_same({'user':'1000:1000'},image,{**live,'User':'1000:1000'})
 if __name__=='__main__':unittest.main()
