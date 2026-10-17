@@ -77,3 +77,14 @@ test("manifest registry rejects databases, mutable image tags, arbitrary scripts
     { ...h.m, services: [{ ...h.m.services[0], container: "v79-hub-postgres" }] },
     { ...h.m, services: [{ ...h.m.services[0], targetImage: "hub:latest" }] }]) assert.throws(() => validateReleaseManifest(m, h.job));
 });
+
+test("twelve ordered pinned Compose inputs are preserved while oversized and duplicate stacks reject", async t => {
+  const h = await setup(t);
+  const original = h.m.compose;
+  h.m.compose = Array.from({length:12}, (_,i) => ({path:path.join(path.dirname(original[0].path),`layer-${i}.json`),sha256:"a".repeat(64)}));
+  assert.equal(validateReleaseManifest(h.m,h.job).compose.length,12);
+  const paths=h.m.compose.map(f=>f.path);
+  assert.deepEqual(validateReleaseManifest(h.m,h.job).compose.map(f=>f.path),paths);
+  assert.throws(()=>validateReleaseManifest({...h.m,compose:[...h.m.compose,...h.m.compose.slice(0,5)]},h.job));
+  assert.throws(()=>validateReleaseManifest({...h.m,compose:[...h.m.compose.slice(0,11),h.m.compose[0]]},h.job));
+});
