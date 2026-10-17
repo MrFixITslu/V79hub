@@ -249,3 +249,28 @@ checkpoint are untouched. After worker completion, Acer copies the fresh encrypt
 checkpoint and verifies hashes plus full GPG decryption without plaintext files;
 mark restore not tested. New full-portfolio backup, isolated restore/rollback and
 positive owner MFA/SSO/tenant/security acceptance remain due. Customer NO_GO stays.
+
+## Academy probe failure before production downtime
+
+Owner run `/home/firelion/v79-remaining-rollout.T2HHBqwg` completed the Academy
+build, then stopped at its disposable probe with an unexpected redacted exception.
+No checkpoint, app stop or image switch was reached. Probe cleanup was not confirmed
+in that output. The exact exception/cause is not recoverable from the old helper's
+redacted message; an attached-client timeout is a hypothesis, not a proven cause.
+
+The corrected probe uses detached Docker start, bounded inspect polling for process
+exit, then bounded log retrieval. It reports fixed permission/missing-file/OOM/user
+categories and safe exception type/function/line, never raw messages/arguments.
+Cleanup verifies ownership, no mounts/ports/privilege and network-none isolation;
+cleanup failures no longer hide the primary failure's safe evidence.
+
+Use `--continue-built-academy` only for this specifically diagnosed run. Revalidate
+the old helper Git blob, module integrity, failed predeploy exit/phase, absence of
+checkpoint/cutover, private plan/source/runtime reference, exact clean Git source
+including no untracked context, revision label and image creation within the old
+worker's build interval. Remove only its identity-labelled, network-none, no-mount
+probe on that verified candidate image, then confirm absence. Reuse the Academy
+image without a checkout/build and re-probe it; build POS/Games normally only after
+it passes. New runs record each completed candidate ID before probes so a later
+failure retains that evidence. All previous checkpoint/runtime/rollback controls
+remain. Passing the image probe is not application health or security acceptance.
