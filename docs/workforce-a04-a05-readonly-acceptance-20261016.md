@@ -47,9 +47,9 @@ Before any live integration: independently review the cumulative #156→#159 cha
 
 ## One-pass operator evidence (no secrets; 17 October 2026)
 
-The morning slot of **17 October 2026 08:00 AST** is now due, but its actual host result has **not** been observed through this ChatGPT session. The remote-terminal connector is usage-limited, not evidence that the timer failed. Run the following **read-only** command locally on \`v79sl\` and share only its terminal output. It does not call any live application API, dump tokens, write files, or change a timer:
+The morning slot of **17 October 2026 08:00 AST** is now due, but its actual host result has **not** been observed through this ChatGPT session. The remote-terminal connector is usage-limited, not evidence that the timer failed. Run the following **read-only** command locally on `v79sl` and share only its terminal output. It does not call any live application API, dump tokens, write files, or change a timer:
 
-\`\`\`bash
+```bash
 (
   set -u
   echo '=== HOST_AND_TIME ==='
@@ -84,6 +84,6 @@ The morning slot of **17 October 2026 08:00 AST** is now due, but its actual hos
     echo 'TASK_WORKER_UNCERTAIN=NOT_OBSERVED'
   fi
 )
-\`\`\`
+```
 
-This is a **triage snapshot, not final acceptance**: a timer being active does not prove successful execution, status \`AVAILABLE\` alone does not prove complete authentic app evidence, and absence of an uncertainty latch does not demonstrate approval/denial/audit pass. After reading results, use independent source-timestamp, G2 ledger, task-row, and supervisor MFA verification before any owner GO.
+This is a **triage snapshot, not final acceptance**: a timer being active does not prove successful execution, status `AVAILABLE` alone does not prove complete authentic app evidence, and absence of an uncertainty latch does not demonstrate approval/denial/audit pass. After reading results, use independent source-timestamp, G2 ledger, task-row, and supervisor MFA verification before any owner GO.
