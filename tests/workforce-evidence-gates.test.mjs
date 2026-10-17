@@ -115,23 +115,23 @@ test('execution or owner approval claims and arbitrary queued actions fail outpu
 });
 test('budget is unavailable unless all trusted usage receipts are supplied',()=>{
   assert.equal(checkModelBudget({receipts:[],estimateUsd:1,nowMs:NOW}).allowed,false);
-  assert.equal(checkModelBudget({receiptsComplete:true,verifyReceipt:()=>true,receipts:[],estimateUsd:0.01,budgetUsd:21,nowMs:NOW}).allowed,false);
+  assert.equal(checkModelBudget({receiptsComplete:true,verifyReceipt:()=>true,verifyCompleteness:()=>true,receipts:[],estimateUsd:0.01,budgetUsd:21,nowMs:NOW}).allowed,false);
 });
 test('actual receipts cap the monthly spend at twenty USD',()=>{
   const receipts=[{id:'run-01',usd:19.90,recordedAt:'2026-10-16T22:00:00Z'}];
-  assert.equal(checkModelBudget({receipts,estimateUsd:0.2,receiptsComplete:true,verifyReceipt:()=>true,nowMs:NOW}).allowed,false);
-  assert.equal(checkModelBudget({receipts,estimateUsd:0.05,receiptsComplete:true,verifyReceipt:()=>true,nowMs:NOW}).allowed,true);
+  assert.equal(checkModelBudget({receipts,estimateUsd:0.2,receiptsComplete:true,verifyReceipt:()=>true,verifyCompleteness:()=>true,nowMs:NOW}).allowed,false);
+  assert.equal(checkModelBudget({receipts,estimateUsd:0.05,receiptsComplete:true,verifyReceipt:()=>true,verifyCompleteness:()=>true,nowMs:NOW}).allowed,true);
 });
 test('duplicate, fake, future and invalid model receipts fail closed',()=>{
   const valid={id:'run-01',usd:1,recordedAt:'2026-10-16T22:00:00Z'};
   for(const receipts of [
     [valid,valid],[{...valid,usd:-1}],[{...valid,recordedAt:'2027-01-01T00:00:00Z'}],
     [{...valid,id:'raw secret'}],
-  ])assert.equal(checkModelBudget({receipts,estimateUsd:1,receiptsComplete:true,verifyReceipt:()=>true,nowMs:NOW}).allowed,false);
+  ])assert.equal(checkModelBudget({receipts,estimateUsd:1,receiptsComplete:true,verifyReceipt:()=>true,verifyCompleteness:()=>true,nowMs:NOW}).allowed,false);
 });
 test('older receipts are not counted in thirty-day window',()=>{
   const receipts=[{id:'old-run',usd:19,recordedAt:'2026-08-01T00:00:00Z'}];
-  const r=checkModelBudget({receipts,estimateUsd:0.5,receiptsComplete:true,verifyReceipt:()=>true,nowMs:NOW});
+  const r=checkModelBudget({receipts,estimateUsd:0.5,receiptsComplete:true,verifyReceipt:()=>true,verifyCompleteness:()=>true,nowMs:NOW});
   assert.equal(r.allowed,true);
   assert.equal(r.usedUsd,0);
 });
@@ -157,4 +157,27 @@ test('untrusted model spend receipts fail closed even when caller asserts comple
   assert.equal(checkModelBudget({receipts,estimateUsd:0.1,receiptsComplete:true,nowMs:NOW}).allowed,false);
   assert.equal(checkModelBudget({receipts,estimateUsd:0.1,receiptsComplete:true,nowMs:NOW,verifyReceipt:()=>false}).allowed,false);
   assert.equal(checkModelBudget({receipts,estimateUsd:0.1,receiptsComplete:true,nowMs:NOW,verifyReceipt:()=>{throw Error('invalid signature')}}).allowed,false);
+});
+
+test('self-declared complete model ledger is rejected without independent completeness proof',()=>{
+ const receipts=[{id:'verified-run',usd:1,recordedAt:'2026-10-16T22:00:00Z'}];
+ for(const verifyCompleteness of [
+   undefined,()=>false,()=>{throw Error('provider incomplete')},
+ ]){
+   const r=checkModelBudget({
+     receipts,estimateUsd:0.1,receiptsComplete:true,
+     verifyReceipt:()=>true,verifyCompleteness,nowMs:NOW,
+   });
+   assert.equal(r.allowed,false);
+ }
+});
+test('even a claimed empty 30-day receipt inventory needs independent proof',()=>{
+ assert.equal(checkModelBudget({
+  receipts:[],estimateUsd:0.1,receiptsComplete:true,
+  verifyReceipt:()=>true,nowMs:NOW,
+ }).allowed,false);
+ assert.equal(checkModelBudget({
+  receipts:[],estimateUsd:0.1,receiptsComplete:true,
+  verifyReceipt:()=>true,verifyCompleteness:()=>true,nowMs:NOW,
+ }).allowed,true);
 });
