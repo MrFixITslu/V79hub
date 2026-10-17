@@ -117,6 +117,14 @@ class OffhostTests(unittest.TestCase):
                  contextlib.redirect_stdout(io.StringIO()):
                 capture.verify_set(root)
             self.assertEqual(checker.call_count, 9)
+            original_manifest = receipt.read_text()
+            incomplete = json.loads(original_manifest)
+            incomplete["files"] = [x for x in incomplete["files"]
+                                   if x["name"] != "tiquet-pg.dump.gpg"]
+            receipt.write_text(json.dumps(incomplete))
+            with self.assertRaisesRegex(capture.Abort, "MANIFEST_COMPONENT_COUNT_MISMATCH"):
+                capture.verify_set(root)
+            receipt.write_text(original_manifest)
             # Tamper and confirm the archive hash gate prevents any further processing.
             (root / data["files"][0]["name"]).write_bytes(b"CORRUPTED")
             with self.assertRaisesRegex(capture.Abort, "CIPHERTEXT_HASH"):
