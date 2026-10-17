@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """R1: one-pass, Acer-only, ROOTLESS Podman isolated PostgreSQL restore smoke.
 
-Loads only pinned encrypted image archive into the local rootless image cache,
-restores Hub PG17 and Tiquet PG16 dumps into disposable --network=none
+Uses a cryptographically proven Docker29 OCI-index -> config-ID map against
+already-imported images in the Acer rootless Podman cache; DOES NOT import.
+Restores Hub PG17 and Tiquet PG16 dumps into disposable --network=none
 PostgreSQL containers with tmpfs databases, counts restored user tables,
 and ALWAYS destroys all disposable DB containers (including on failure).
 Never reads or connects to the v79sl production host or starts Hub/Tiquet apps.
@@ -10,6 +11,7 @@ No decrypted files are written to disk. Does NOT authorize a release.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -156,16 +158,46 @@ def local_image_exists(image):
                        stderr=subprocess.DEVNULL, timeout=30)
     return p.returncode == 0
 
-def import_saved_images(root):
-    wanted = [*IMAGES.values(), ROLLBACK]
-    if not all(local_image_exists(x) for x in wanted):
-        print("R1_LOCAL_IMAGE_LOAD=START_VERIFIED_ENCRYPTED_ARCHIVE", flush=True)
-        decrypted_pipe_to_command(
-            root / "exact-images-and-rollback.tar.gpg",
-            [*PODMAN, "load"], timeout=1800)
-    ensure(all(local_image_exists(x) for x in wanted),
-           "PINNED_SAVED_IMAGE_ID_MISMATCH")
-    print("R1_ALL_5_PINNED_IMAGES_LOCAL=PASS", flush=True)
+def prove_and_resolve_saved_images(root):
+    # Import no images and NEVER choose by mutable image tag/repository name.
+    # Identity mapping must be independently rebuilt from the original 14-
+    # stream encrypted archive, not a user-entered alternate image digest.
+    source = Path(__file__).with_name("p1-r1-acer-oci-pin-proof.py")
+    ensure(source.is_file() and not source.is_symlink(),
+           "PINNED_OCI_PROOF_SCRIPT_MISSING")
+    spec = importlib.util.spec_from_file_location("r1_saved_oci_proof", source)
+    ensure(spec is not None and spec.loader is not None,
+           "OCI_PROOF_SCRIPT_IMPORT_NOT_AVAILABLE")
+    proof = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(proof)
+    archive = proof.prep(root)
+    result = proof.stream_proof(archive, return_mapping=True)
+    ensure(isinstance(result, dict) and
+           set(result) == {x.removeprefix("sha256:") for x in [*IMAGES.values(), ROLLBACK]} and
+           len(set(result.values())) == 5,
+           "OCI_INDEX_TO_CONFIG_MAPPING_UNVERIFIED")
+    # Read-only local rootless image inventory: exact CONFIG digest, not OCI
+    # manifest/index reference. Never print the IDs or tags.
+    inventory = json.loads(silent_run(
+        [*PODMAN, "images", "--all", "--no-trunc", "--format", "json"], timeout=40))
+    ensure(isinstance(inventory, list), "PODMAN_IMAGE_INVENTORY_INVALID")
+    local = set()
+    for row in inventory:
+        ensure(isinstance(row, dict), "PODMAN_IMAGE_INVENTORY_ROW_INVALID")
+        value = row.get("Id", row.get("ID", row.get("id", "")))
+        if isinstance(value, str):
+            clean = value.removeprefix("sha256:")
+            if re.fullmatch(r"[0-9a-f]{64}", clean):
+                local.add(clean)
+    ensure(set(result.values()).issubset(local),
+           "PINNED_CONFIG_IMAGES_NOT_PRESENT_LOCAL_NO_IMPORT")
+    for config in result.values():
+        ensure(local_image_exists("sha256:" + config),
+               "PODMAN_EXACT_CONFIG_ID_NOT_ADDRESSABLE")
+    print("R1_ORIGINAL_OCI_PIN_TO_LOCAL_CONFIG_IDS=PASS_5_OF_5", flush=True)
+    print("R1_IMAGE_IMPORT=NONE_ALREADY_CACHED", flush=True)
+    return {name: "sha256:" + result[pin.removeprefix("sha256:")]
+            for name, pin in IMAGES.items()}
 
 def wait_for_sql(name, database):
     # Do not trust pg_isready during the image's transient initdb server.
@@ -227,17 +259,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--backup", type=Path, required=True)
     parser.add_argument("--execute", action="store_true",
-                        help="Explicitly allow local image import and offline DB restore")
+                        help="Explicitly allow networkless DB restore from pinned pre-cached images")
     args = parser.parse_args()
     os.umask(0o077)
     root = preflight(args.backup)
     if not args.execute:
         print("R1_ACTION=READ_ONLY_PREFLIGHT", flush=True)
     else:
-        import_saved_images(root)
-        restore_one(root, "hub", IMAGES["v79-hub-postgres"],
+        offline = prove_and_resolve_saved_images(root)
+        restore_one(root, "hub", offline["v79-hub-postgres"],
                     "hub-pg.dump.gpg", "r1_hub_restore")
-        restore_one(root, "tiquet", IMAGES["tiquet-postgres"],
+        restore_one(root, "tiquet", offline["tiquet-postgres"],
                     "tiquet-pg.dump.gpg", "r1_tiquet_restore")
         print("R1_BOTH_DATABASES_RESTORED_OFFLINE=PASS", flush=True)
         print("R1_DISPOSABLE_DATABASE_CONTAINERS=REMOVED", flush=True)
