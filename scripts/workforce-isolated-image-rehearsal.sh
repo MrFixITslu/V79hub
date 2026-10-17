@@ -67,11 +67,10 @@ timeout 300 docker run --rm --name "$TEST_CONTAINER" \
  --memory 1536m --cpus 1 --pids-limit 256 \
  --tmpfs /tmp:rw,nosuid,nodev,size=384m --tmpfs /app/data:rw,nosuid,nodev,size=16m \
  -e NODE_OPTIONS=--import=./tests/isolated-env.mjs \
- -e V79_WORKFORCE_REPORTS_ENABLED=0 \
+ -e V79_WORKFORCE_REPORTS_ENABLED=0 -e NODE_ENV=production \
  --entrypoint node "$IMAGE_ID" --test \
  tests/admin-mfa-flow.test.mjs \
  tests/agent-executive-owner-proxy.test.mjs \
- tests/workforce-briefing-history-ui.test.mjs \
  tests/workforce-report-http.test.mjs \
  tests/workforce-python-report-reader.test.mjs \
  tests/workforce-briefing-route.test.mjs \
@@ -79,6 +78,17 @@ timeout 300 docker run --rm --name "$TEST_CONTAINER" \
  tests/owner-coo-workboard.test.mjs \
  > "$STAGE_DIR/tests.log" 2>&1 || { tail -n 45 "$STAGE_DIR/tests.log"; echo 'REHEARSAL=FAILED'; exit 1; }
 tail -n 12 "$STAGE_DIR/tests.log"
+echo 'STAGE=DEVELOPMENT_ONLY_REACT_DOM_TESTS'
+timeout 120 docker run --rm --name "$TEST_CONTAINER" \
+ --label "v79.workforce.rehearsal=$RUN_ID" \
+ --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+ --memory 768m --cpus 1 --pids-limit 128 \
+ --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+ -e NODE_ENV=development -e NODE_OPTIONS=--import=./tests/isolated-env.mjs \
+ --entrypoint node "$IMAGE_ID" --test tests/workforce-briefing-history-ui.test.mjs \
+ > "$STAGE_DIR/ui-tests.log" 2>&1 || { tail -n 45 "$STAGE_DIR/ui-tests.log"; echo 'UI_REHEARSAL=FAILED'; exit 1; }
+tail -n 12 "$STAGE_DIR/ui-tests.log"
+
 printf '%s\n' "$IMAGE_ID" > "$STAGE_DIR/candidate-image.txt"
 echo 'REHEARSAL=PASS_SYNTHETIC_IMAGE_TESTS'
 echo 'PRODUCTION_DEPLOYED=NO'
