@@ -12,6 +12,7 @@ on:
       - 'scripts/p1-r1-acer-oci-pin-proof.py'
       - 'scripts/p1-r1-acer-app-mount-preflight.py'
       - 'scripts/p1-r1-acer-four-image-boot.py'
+      - 'scripts/p1-r1-acer-guarded-recovery-v2.sh'
       - 'tests/p1-r1-acer-four-image-boot.test.py'
       - 'tests/p1-r1-acer-oci-pin-proof.test.py'
       - '.github/workflows/p1-r1-acer-disconnected-db-restore-safety.yml'
@@ -46,6 +47,8 @@ jobs:
                        'tests/p1-r1-acer-oci-pin-proof.test.py'):
               compile(Path(name).read_text(), name, 'exec')
           PY
+      - name: Verify Acer swap guard syntax
+        run: bash -n scripts/p1-r1-acer-guarded-recovery-v2.sh
       - name: Check source policy and synthetic manifest/permission negatives
         run: |
           python -B tests/p1-r1-acer-disconnected-db-rehearsal.test.py -v
