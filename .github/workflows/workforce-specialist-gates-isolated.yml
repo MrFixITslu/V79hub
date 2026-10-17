@@ -1,0 +1,24 @@
+name: Workforce specialist safety gates (source only)
+on:
+  pull_request:
+    paths:
+      - 'workforce/skills/**'
+      - 'workforce/quality/**'
+      - 'tests/workforce-skill-packages.test.mjs'
+      - 'tests/workforce-evidence-gates.test.mjs'
+      - '.github/workflows/workforce-specialist-gates-isolated.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-contract-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Source syntax gate
+        run: node --check workforce/quality/evidence-gates.mjs
+      - name: Safety and package contract regressions
+        run: node --test tests/workforce-evidence-gates.test.mjs tests/workforce-skill-packages.test.mjs
