@@ -11,6 +11,8 @@ Status: DRAFT SOURCE. Not executed against the server. No customer GO or product
 * If the updated --plan still reports REMOTE_UNREVIEWED_APP_MOUNT, inspect only each container's Docker mount destination, kind, and RW status; never print the mount Source, container Env, Docker inspect JSON or token contents. Do not change the script allowlist until the actual destination is reviewed.
 * Latest Acer diagnostic confirmed exactly six Hub mounts and two Tiquet mounts, with no host source paths or secret values exposed. Hub data: /app/data (bind, RW=true). Hub workforce reports: /run/v79-workforce-reports (bind, RW=false). Hub secret files: /run/secrets/v79-agent-token, /run/secrets/v79-coo-github-token, /run/secrets/v79-readonly-platform-token and /run/secrets/v79-workforce-token (all bind, RW=false). Tiquet data: /app/data and /app/uploads (both volumes, RW=true).
 * The second strict allowlist update now permits only those exact four read-only Hub secret-file destinations plus the exact read-only Hub workforce reports directory. The report destination is checked as a real non-symlink directory; tokens are checked as regular non-symlink files. Files and reports are encrypted directly through GPG as separate archive streams, with no token contents printed. Extra/changed mounts still block the preflight.
+* Current corrected preflight now runs read-only `docker exec` file-type checks on Hub before authorizing a capture: four allowed /run/secrets token destinations must be regular, readable non-symlink files, and /run/v79-workforce-reports must be a readable non-symlink directory. Failures report only REVIEWED_TOKEN_FILE_UNAVAILABLE or REVIEWED_REPORT_DIRECTORY_UNAVAILABLE; no contents, Source paths or environment values are emitted.
+* Source-only test evidence for the exact allowlist and file-type checks: CI run 39000143463 (PASS). It does not prove that the Acer's next live --plan succeeds.
 * Hub Compose currently has thirteen layers. The old audit printed only **63 hex characters** for the sixth layer (g3-hub-disabled.yml): not a valid SHA-256. The other twelve are pinned. The operator must obtain a new full 64-character sixth-layer hash via --plan, then explicitly accept exactly that hash when authorizing capture.
 
 ## Read-only smoke and exact pin
@@ -21,7 +23,7 @@ Status: DRAFT SOURCE. Not executed against the server. No customer GO or product
    python3 -B tests/p1-r1-offhost-capture.test.py -v
 4. From Acer run:
    python3 -B scripts/p1-r1-offhost-capture.py --plan
-5. Expect LIVE_PIN_AND_SECURITY=PASS, HUB_COMPOSE_LAYERS=12_PINNED_1_NEEDS_REPIN, a newly computed full HUB_COMPOSE_LAYER_6_SHA256, app mount count, stream count, MODE=READ_ONLY_PLAN_NO_BACKUPS_CREATED. This does not create backups.
+5. The plan performs no database dumps, container changes or archive writes; it uses metadata-only checks inside the existing Hub container for the five scoped read-only mounts. Expect LIVE_PIN_AND_SECURITY=PASS, HUB_COMPOSE_LAYERS=12_PINNED_1_NEEDS_REPIN, a newly computed full HUB_COMPOSE_LAYER_6_SHA256, app mount count, stream count, MODE=READ_ONLY_PLAN_NO_BACKUPS_CREATED. This does not create backups.
 
 STOP for any drift, missing .env, unreviewed mount, missing image, unhealthy service or config error. Do not bypass the checks. Inspect the new SHA-256 (64 hex characters).
 
