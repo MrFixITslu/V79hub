@@ -3,13 +3,19 @@ import assert from 'node:assert/strict';
 import {projectWorkItem,summarizeDeliveryBoard} from '../workforce/quality/task-delivery-gates.mjs';
 
 const NOW=Date.parse('2026-10-16T23:55:00Z');
+const AT='2026-10-16T23:01:00.000Z';
 const DIGEST='a'.repeat(64);
-const RECEIPT='b'.repeat(64);
 const COMMIT='c'.repeat(40);
+// Exact installed G2 createApprovedWorkItem public data shape:
+// job.result={taskId,at}, plus independently authenticated state.tasks[].
 const queue=({status='succeeded',...changes}={})=>({
  id:'job-001',operation:'create_work_item',organizationId:'org-v79',system:'hub',
- revision:5,digest:DIGEST,status,
- result:{taskId:'task-001',receiptSha256:RECEIPT},...changes,
+ revision:5,digest:DIGEST,status,result:{taskId:'task-001',at:AT},...changes,
+});
+const task=(changes={})=>({
+ id:'task-001',jobId:'job-001',organizationId:'org-v79',system:'hub',
+ title:'Test approved task',detail:'No operation carried out',status:'open',
+ assignedTo:'coo',createdAt:AT,...changes,
 });
 const delivery=(changes={})=>({
  jobId:'job-001',taskId:'task-001',actionDigest:DIGEST,
@@ -19,62 +25,84 @@ const delivery=(changes={})=>({
  acceptedAt:'2026-10-16T23:00:00Z',...changes,
 });
 const defaults=(changes={})=>({
- job:queue(),organizationId:'org-v79',nowMs:NOW,
- verifyQueueRecord:()=>true,verifyDeliveryEvidence:()=>true,...changes,
+ job:queue(),taskRecord:task(),organizationId:'org-v79',nowMs:NOW,
+ verifyQueueRecord:()=>true,verifyTaskRecord:()=>true,
+ verifyDeliveryEvidence:()=>true,...changes,
 });
-test('missing authenticated source verifier or scope fails closed',()=>{
+
+test('missing authenticated owner queue or cross-org scope fails closed',()=>{
  assert.equal(projectWorkItem({job:queue(),organizationId:'org-v79'}).state,'unknown');
  assert.equal(projectWorkItem(defaults({organizationId:'other-org'})).state,'unknown');
  assert.equal(projectWorkItem(defaults({verifyQueueRecord:()=>false})).state,'unknown');
  assert.equal(projectWorkItem(defaults({verifyQueueRecord:()=>{throw Error('offline')}})).state,'unknown');
 });
-test('G2 queue success means only work item created; not engineering delivery',()=>{
+test('actual G2 create_work_item result without receipt SHA proves task creation only with trusted tasks[] row',()=>{
  const p=projectWorkItem(defaults());
  assert.equal(p.state,'work_item_created');
  assert.equal(p.created,true);
  assert.equal(p.delivered,false);
  assert.equal(p.taskId,'task-001');
- assert.equal(JSON.stringify(p).includes('customer'),false);
+ assert.equal(p.evidenceRef,null);
+ assert.equal(JSON.stringify(p).includes('Test approved task'),false);
  assert.equal(Object.isFrozen(p),true);
 });
-test('pending, approved and running do not assert creation',()=>{
- const mapping={pending:'awaiting_approval',approved:'awaiting_execution',running:'execution_unconfirmed'};
- for(const [status,expected] of Object.entries(mapping)){
+test('approval and running states never assert task creation',()=>{
+ const states={pending:'awaiting_approval',approved:'awaiting_execution',running:'execution_unconfirmed'};
+ for(const [status,expected] of Object.entries(states)){
    const p=projectWorkItem(defaults({job:queue({status})}));
    assert.equal(p.state,expected);
    assert.equal(p.created,false);
  }
 });
-test('denied, failed, cancelled and uncertain never become delivered',()=>{
- const mapping={rejected:'rejected',failed:'failed',cancelled:'cancelled',uncertain:'blocked_uncertain'};
- for(const [status,expected] of Object.entries(mapping)){
+test('denied, failed, cancelled and uncertain never become delivered even with fake acceptance',()=>{
+ const states={rejected:'rejected',failed:'failed',cancelled:'cancelled',uncertain:'blocked_uncertain'};
+ for(const [status,expected] of Object.entries(states)){
    const p=projectWorkItem(defaults({job:queue({status}),deliveryEvidence:delivery()}));
    assert.equal(p.state,expected);
    assert.equal(p.delivered,false);
  }
 });
-test('missing task creation receipt requires reconciliation',()=>{
- for(const result of [undefined,null,{taskId:'task-001'}, {taskId:'task-001',receiptSha256:'invalid'}]){
+test('G2 result must have its authentic task ID and created timestamp',()=>{
+ for(const result of [undefined,null,{taskId:'task-001'},{taskId:'task-001',at:'invalid'},
+ {taskId:'task-002',at:AT},{taskId:'task-001',at:'2026-10-16T23:01:01.000Z'}]){
   const p=projectWorkItem(defaults({job:queue({result})}));
   assert.equal(p.state,'blocked_uncertain');
   assert.equal(p.delivered,false);
  }
 });
-test('an independent matching founder-accepted delivery can be projected only after G2 receipt',()=>{
+test('G2 task row must match exact task, job, tenant, app, COO, open state and timestamp',()=>{
+ for(const changes of [
+   {id:'task-002'},{jobId:'job-002'},{organizationId:'other-org'},
+   {system:'tiquet'},{assignedTo:'agent'},{status:'completed'},
+   {createdAt:'2026-10-16T23:01:01.000Z'},
+   {createdAt:'2026-11-16T23:01:00.000Z'},
+ ]){
+  const p=projectWorkItem(defaults({taskRecord:task(changes)}));
+  assert.equal(p.state,'blocked_uncertain',JSON.stringify(changes));
+ }
+});
+test('missing, false or throwing trusted task-row verifier refuses creation',()=>{
+ for(const verifyTaskRecord of [undefined,()=>false,()=>{throw Error('untrusted')}]) {
+  const p=projectWorkItem(defaults({verifyTaskRecord}));
+  assert.equal(p.state,'blocked_uncertain');
+ }
+ assert.equal(projectWorkItem(defaults({taskRecord:null})).state,'blocked_uncertain');
+});
+test('independent founder-accepted delivery matches G2 row and digest',()=>{
  const p=projectWorkItem(defaults({deliveryEvidence:delivery()}));
  assert.equal(p.created,true);
  assert.equal(p.delivered,true);
  assert.equal(p.state,'delivery_verified');
  assert.equal(p.evidenceRef,'owner:accept-001');
 });
-test('self asserted, forged and verifier-throwing delivery never passes',()=>{
+test('self asserted, forged or verifier-throwing delivery never passes',()=>{
  for(const verifyDeliveryEvidence of [undefined,()=>false,()=>{throw Error('bad signature')}]) {
   const p=projectWorkItem(defaults({deliveryEvidence:delivery(),verifyDeliveryEvidence}));
   assert.equal(p.state,'delivery_unverified');
   assert.equal(p.delivered,false);
  }
 });
-test('scope mismatch, digest mismatch, task mismatch, missing tests and future owner acceptance deny delivery',()=>{
+test('bad scope, digest, task, CI, timing and owner identity block delivery',()=>{
  for(const change of [
   {jobId:'job-002'},{taskId:'task-002'},{actionDigest:'d'.repeat(64)},
   {organizationId:'org-other'},{system:'tiquet'},{scope:'customer'},
@@ -87,38 +115,53 @@ test('scope mismatch, digest mismatch, task mismatch, missing tests and future o
   assert.equal(p.state,'delivery_unverified',JSON.stringify(change));
  }
 });
-test('unrecognized operations, bad digest and synthetic other-org queue do not enter board',()=>{
- for(const change of [
+test('unrecognized operations, bad digest and cross-org jobs cannot enter G2 board',()=>{
+ for(const changes of [
   {operation:'deploy_release'},{system:'arbitrary'},{digest:'bad'},
   {status:'agent_claimed_succeeded'},{revision:-1},{organizationId:'org-other'},
  ]){
-  const p=projectWorkItem(defaults({job:queue(change)}));
-  assert.equal(p.state,'unknown',JSON.stringify(change));
+  assert.equal(projectWorkItem(defaults({job:queue(changes)})).state,'unknown',JSON.stringify(changes));
  }
 });
-test('board counts created vs delivered vs awaiting, without task text or duplicate job IDs',()=>{
- const records=[
+test('board projects authentic real G2 jobs and linked task rows without leaking task text',()=>{
+ const jobs=[
    queue({id:'job-001'}),
    queue({id:'job-002',status:'approved',result:null}),
-   queue({id:'job-003',result:{taskId:'task-003',receiptSha256:RECEIPT}}),
+   queue({id:'job-003',result:{taskId:'task-003',at:AT}}),
  ];
- const snapshot=summarizeDeliveryBoard({
-  jobs:records,organizationId:'org-v79',nowMs:NOW,
-  verifyQueueRecord:()=>true,verifyDeliveryEvidence:()=>true,
+ const tasks=[task(),task({id:'task-003',jobId:'job-003'})];
+ const board=summarizeDeliveryBoard({
+  jobs,tasks,organizationId:'org-v79',nowMs:NOW,
+  verifyQueueRecord:()=>true,verifyTaskRecord:()=>true,verifyDeliveryEvidence:()=>true,
   deliveryEvidenceByJobId:{'job-001':delivery()},
  });
- assert.equal(snapshot.state,'verified_queue_projection');
- assert.deepEqual(snapshot.totals,{awaiting:1,created:1,delivered:1,blocked:0});
- assert.equal(JSON.stringify(snapshot).includes('summary'),false);
- assert.equal(summarizeDeliveryBoard({
-   jobs:[records[0],records[0]],organizationId:'org-v79',
-   verifyQueueRecord:()=>true
- }).state,'unavailable');
+ assert.equal(board.state,'verified_queue_projection');
+ assert.deepEqual(board.totals,{awaiting:1,created:1,delivered:1,blocked:0});
+ assert.equal(JSON.stringify(board).includes('Test approved task'),false);
+ assert.equal(JSON.stringify(board).includes('receiptSha256'),false);
 });
-test('failed queue verification fails the whole board rather than returning partial false counts',()=>{
- const snapshot=summarizeDeliveryBoard({
-  jobs:[queue()],organizationId:'org-v79',verifyQueueRecord:()=>false,
+test('board refuses duplicate jobs or task row identity collisions',()=>{
+ for(const bad of [
+  {jobs:[queue(),queue()],tasks:[task()]},
+  {jobs:[queue()],tasks:[task(),task()]},
+ ]){
+  const out=summarizeDeliveryBoard({...bad,organizationId:'org-v79',
+    verifyQueueRecord:()=>true,verifyTaskRecord:()=>true});
+  assert.equal(out.state,'unavailable');
+ }
+});
+test('unverifiable queue invalidates entire board instead of publishing guessed counts',()=>{
+ const out=summarizeDeliveryBoard({
+   jobs:[queue()],tasks:[task()],organizationId:'org-v79',verifyQueueRecord:()=>false,
  });
- assert.equal(snapshot.state,'unavailable');
- assert.equal(snapshot.rows.length,0);
+ assert.equal(out.state,'unavailable');
+ assert.equal(out.rows.length,0);
+});
+test('missing authenticated task row produces blocked status rather than phantom creation',()=>{
+ const out=summarizeDeliveryBoard({
+   jobs:[queue()],tasks:[],organizationId:'org-v79',
+   verifyQueueRecord:()=>true,verifyTaskRecord:()=>true,
+ });
+ assert.deepEqual(out.totals,{awaiting:0,created:0,delivered:0,blocked:1});
+ assert.equal(out.rows[0].state,'blocked_uncertain');
 });
