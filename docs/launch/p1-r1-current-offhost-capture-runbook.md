@@ -172,3 +172,36 @@ The revised read-only `scripts/p1-r1-acer-image-id-diagnostic.py` reports numeri
 Even if candidate image JSON members hash cleanly, **exact production-image provenance remains a separate hard NO-GO** while archived/local IDs disagree with immutable runtime pins and saved inspect records. A new capture, image retag, forced Podman run or relaxed restoration guard is NOT an authorized fix.
 
 Latest test-only code and safety workflows passed at commit 338ae2d3fea89d6ed452a32040bf2804c74eee70: [offline diagnostic safety CI](https://github.com/MrFixITslu/V79hub/actions/runs/39037763229), [original capture static checks](https://github.com/MrFixITslu/V79hub/actions/runs/39037763147), [synthetic PG17/GPG stream validation](https://github.com/MrFixITslu/V79hub/actions/runs/39037763285). The actual Acer diagnosis needs the next pinned manual run to distinguish config-reference errors from true content hash mismatches.
+
+
+## 17 October — actual R1 diagnostic revealed OCI path and container-ID parser bugs
+
+Founder supplied on Acer:
+```
+SOURCE_INTEGRITY=PASS
+R1_ARCHIVE_CONFIG_MEMBERS=0
+R1_ARCHIVE_MANIFEST_REFERENCES_PRESENT=0/5
+R1_ARCHIVE_CONFIG_MEMBERS_MISSING=5
+R1_ARCHIVE_CONFIG_SHA256_VALID=0
+R1_ARCHIVE_CONFIG_SHA256_INVALID=0
+R1_ARCHIVE_CONFIG_BYTE_INTEGRITY=FAIL
+R1_ARCHIVE_UNIQUE_CONFIG_IDS=5
+R1_ARCHIVE_VS_LOCAL_SHARED_CONFIG_IDS=5
+R1_SAVED_INSPECT_IMAGE_SHAPE_COUNT=0/4
+R1_SAVED_INSPECT_CONTAINER_SHAPE_COUNT=4/4
+STOP=DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH
+```
+
+**Precise corrected interpretation:** zero candidates were checked; there is **NO actual invalid-hash evidence** from this run. The diagnostic had restricted byte verification to legacy `<digest>.json` TAR config entries, despite accepting OCI-style `blobs/sha256/<digest>` references from the saved `manifest.json`. It also used `docker inspect` object `Id` for source runtime comparisons; the capture's command used `docker inspect` with **four container names**, so this field was a **container ID**, not an image config ID. Correct comparison is container `Image`. Prior archive-vs-container comparison (0 shared) was therefore a diagnostic artefact, not evidence that the four live image IDs failed.
+
+The amended `scripts/p1-r1-acer-image-id-diagnostic.py`:
+- Accepts exactly five manifest config paths in either canonical legacy Docker archive `<digest>.json` or Docker/OCI `blobs/sha256/<digest>` format.
+- Hashes actual bytes of referenced config objects with SHA256, retaining no decrypted archive member on disk.
+- Recognizes that OCI blobs also contain **image layer data**; ignores objects larger than an 8 MiB config cap and does not count unrelated small unreferenced layer blobs as configs. Handles archive manifests that appear before or after configs. Missing or wrong-byte config still fails closed.
+- For the captured four Docker *container* inspect rows, reads `Image` (not `Id`) as the original image identity, and prints object-kind indicators.
+- Maintains the original Acer-only, rootless-local, GPG full-stream and original manifest SHA/size guards, no raw tags, unknown hashes, credentials or image inspect objects printed. No import, image tag/pull/remove, SSH, DB restore or production write.
+- Does not relax the five immutable image provenance gate or authorize a real DB/app restore.
+
+**Source tests at commit `d9ebb3ed90b9fb81d0fe7afdd701683f11decf02`:** [OCI + classic archive and container-kind safety suite PASS](https://github.com/MrFixITslu/V79hub/actions/runs/39038462185), [original capture source tests PASS](https://github.com/MrFixITslu/V79hub/actions/runs/39038462254), [actual PostgreSQL17 synthetic encrypted stream CI PASS](https://github.com/MrFixITslu/V79hub/actions/runs/39038462196). All changes still only in draft PR #158.
+
+**Next:** one updated **read-only** Acer diagnostic, strictly pinned by commit + Git blob, before any image import or database execution. Expected decisive data: `R1_ARCHIVE_CONFIG_BYTE_INTEGRITY`, `R1_ARCHIVE_CONFIG_IDS_MATCH`, `R1_SAVED_RUNTIME_INSPECT_IDS_MATCH`, `R1_ARCHIVE_VS_RUNTIME_INSPECT_SHARED`, and `R1_ARCHIVE_VS_LOCAL_SHARED_CONFIG_IDS`. Do not recapture already-verified ciphertext to resolve a diagnostic parsing bug.
