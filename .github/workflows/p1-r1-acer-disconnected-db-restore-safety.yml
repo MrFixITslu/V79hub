@@ -1,0 +1,39 @@
+name: P1 R1 Acer disconnected database restore script safety (synthetic CI only)
+
+on:
+  pull_request:
+    branches:
+      - feature/p1-r1-runtime-contract-audit-20261016
+    paths:
+      - 'scripts/p1-r1-acer-disconnected-db-rehearsal.py'
+      - 'tests/p1-r1-acer-disconnected-db-rehearsal.test.py'
+      - '.github/workflows/p1-r1-acer-disconnected-db-restore-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-policy-and-source-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile without creating pycache or touching backup data
+        run: |
+          python -B - <<'PY'
+          from pathlib import Path
+          for name in ('scripts/p1-r1-acer-disconnected-db-rehearsal.py',
+                       'tests/p1-r1-acer-disconnected-db-rehearsal.test.py'):
+              compile(Path(name).read_text(), name, 'exec')
+          PY
+      - name: Check source policy and synthetic manifest/permission negatives
+        run: python -B tests/p1-r1-acer-disconnected-db-rehearsal.test.py -v
+
+# No Docker/Podman container runs, real database decrypt, GPG key, SSH,
+# image import, artifact publication or production deployment in CI.
