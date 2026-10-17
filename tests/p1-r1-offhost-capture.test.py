@@ -30,7 +30,7 @@ def fixture():
             "tiquet": {"files": ["/opt/tiquet/docker-compose.yml", "/opt/tiquet/.env"],
                        "digests": ["b" * 64, "c" * 64], "composeCount": 1}
         },
-        "mounts": {"v79-hub": ["/app/data"],
+        "mounts": {"v79-hub": ["/app/data", *capture.HUB_SECRET_DESTINATIONS],
                    "v79-tiquet-manager": ["/app/data", "/app/uploads"]}
     }
 
@@ -44,7 +44,7 @@ class OffhostTests(unittest.TestCase):
         plan = fixture()
         capture.validate_plan(plan)
         streams = capture.streams_for(plan)
-        self.assertEqual(len(streams), 9)
+        self.assertEqual(len(streams), 12)
         self.assertEqual([a for a, _, _ in streams][:4],
                          ["hub-pg.dump.gpg", "tiquet-pg.dump.gpg",
                           "hub-config.tar.gpg", "tiquet-config.tar.gpg"])
@@ -60,6 +60,8 @@ class OffhostTests(unittest.TestCase):
             lambda p: p["configs"]["hub"]["digests"].__setitem__(0, "f" * 64),
             lambda p: p["configs"]["hub"].update({"composeCount": 9}),
             lambda p: p["mounts"]["v79-hub"].append("/app/../../etc"),
+            lambda p: p["mounts"]["v79-hub"].append("/run/secrets/unreviewed-token"),
+            lambda p: p["mounts"]["v79-tiquet-manager"].append("/run/secrets/v79-agent-token"),
             lambda p: p["mounts"]["v79-tiquet-manager"].remove("/app/uploads"),
             lambda p: p["mounts"]["v79-hub"].append("/app/data"),
             lambda p: p["configs"]["tiquet"]["digests"].pop(),
@@ -70,6 +72,22 @@ class OffhostTests(unittest.TestCase):
                 change(sample)
                 with self.assertRaises(capture.Abort):
                     capture.validate_plan(sample)
+
+    def test_secret_file_mounts_are_explicit_and_regular_file_gated(self):
+        plan = fixture()
+        streams = capture.streams_for(plan)
+        secret_reader_commands = [
+            args for name, args, kind in streams
+            if kind == "tgz" and any(secret in args for secret in capture.HUB_SECRET_DESTINATIONS)
+        ]
+        self.assertEqual(len(secret_reader_commands), 3)
+        for args in secret_reader_commands:
+            self.assertEqual(args[:6], ["docker", "exec", "-u", "0", "v79-hub", "sh"])
+            self.assertIn('test -f "$1"', args)
+            self.assertIn('test ! -L "$1"', args)
+            self.assertIn('exec tar', args)
+        self.assertNotIn("v79-agent-token", json.dumps([name for name, _, _ in streams]))
+        self.assertNotIn("V79_WORKFORCE_TOKEN_FILE_HOST", json.dumps(streams))
 
     def test_missing_history_layer_six_requires_explicit_acknowledgment(self):
         self.assertIsNone(capture.HUB_COMPOSE_HASHES[5])
@@ -108,7 +126,7 @@ class OffhostTests(unittest.TestCase):
             self.assertEqual(data["status"], "CAPTURED_NOT_RESTORED")
             self.assertFalse(data["fullAppRestoreVerified"])
             self.assertFalse(data["customerBetaAuthorized"])
-            self.assertEqual(len(data["files"]), 9)
+            self.assertEqual(len(data["files"]), 12)
             for entry in data["files"]:
                 f = root / entry["name"]
                 self.assertEqual(f.stat().st_mode & 0o077, 0)
@@ -116,7 +134,7 @@ class OffhostTests(unittest.TestCase):
             with mock.patch.object(capture, "verify_one") as checker, \
                  contextlib.redirect_stdout(io.StringIO()):
                 capture.verify_set(root)
-            self.assertEqual(checker.call_count, 9)
+            self.assertEqual(checker.call_count, 12)
             original_manifest = receipt.read_text()
             incomplete = json.loads(original_manifest)
             incomplete["files"] = [x for x in incomplete["files"]
