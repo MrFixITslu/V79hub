@@ -1,7 +1,8 @@
 /**
  * V79 A05: read-only work-item lifecycle projection.
  * Source-only library; never submits a queue action or accepts an LLM's claims.
- * G2 create_work_item success confirms task creation, NOT completed engineering.
+ * G2 create_work_item success plus authenticated task state confirms task creation,
+ * NOT completed engineering. There is NO receiptSha256 in this operation.
  */
 const SHA256 = /^[a-f0-9]{64}$/;
 const SHA1 = /^[a-f0-9]{40}$/;
@@ -25,14 +26,14 @@ const noTask = (state, reason) => Object.freeze({
 });
 
 /**
- * verifyQueueRecord must verify authentic owner-MFA queue provenance and scope,
- * NOT trust a JSON flag from the record or a generative model response.
+ * verifyQueueRecord / verifyTaskRecord must validate the authentic G2
+ * owner-MFA HMAC ledger, not a JSON field or a generative model response.
  * verifyDeliveryEvidence must independently verify owner acceptance/test evidence,
  * e.g. signed founder acceptance + pinned integration CI + source/runtime parity.
  */
 export function projectWorkItem({
-  job, deliveryEvidence=null, nowMs=Date.now(),
-  organizationId, verifyQueueRecord, verifyDeliveryEvidence,
+  job, taskRecord=null, deliveryEvidence=null, nowMs=Date.now(),
+  organizationId, verifyQueueRecord, verifyTaskRecord, verifyDeliveryEvidence,
 }={}) {
   if (!Number.isFinite(nowMs) || typeof organizationId !== 'string' || !ID.test(organizationId))
     return noTask('unknown','NO_AUTHORIZED_OWNER_SCOPE');
@@ -55,13 +56,20 @@ export function projectWorkItem({
     case 'failed': return result('failed','ACTION_FAILED_NO_DELIVERY');
     case 'uncertain': return result('blocked_uncertain','RECONCILE_BEFORE_RETRY');
   }
-  // Only a succeeded G2 create_work_item can be described as task created.
-  if (!job.result || !ID.test(job.result.taskId ?? '') ||
-      !SHA256.test(job.result.receiptSha256 ?? ''))
-    return result('blocked_uncertain','CREATION_RECEIPT_MISSING');
+  // G2 createApprovedWorkItem stores result:{taskId,at} and a separate
+  // tasks[] row. The receiptSha256 belongs to release jobs, NOT task creation.
+  const createdAt=time(job.result?.at,nowMs);
+  if (!ID.test(job.result?.taskId ?? '') || !Number.isFinite(createdAt))
+    return result('blocked_uncertain','G2_TASK_CREATION_RESULT_MISSING');
+  const taskAt=time(taskRecord?.createdAt,nowMs);
+  if (!taskRecord || !trusted(verifyTaskRecord,taskRecord) ||
+      !ID.test(taskRecord.id ?? '') || taskRecord.id!==job.result.taskId ||
+      taskRecord.jobId!==job.id || taskRecord.organizationId!==organizationId ||
+      taskRecord.system!==job.system || taskRecord.assignedTo!=='coo' ||
+      taskRecord.status!=='open' || !Number.isFinite(taskAt) || taskAt!==createdAt)
+    return result('blocked_uncertain','G2_TASK_ROW_UNVERIFIED');
   const created = result('work_item_created','ENGINEERING_OUTCOME_UNVERIFIED',{
     created:true,taskId:job.result.taskId,
-    evidenceRef:job.result.receiptSha256,
   });
   if (!deliveryEvidence) return created;
   const d = deliveryEvidence;
@@ -72,7 +80,7 @@ export function projectWorkItem({
       !SHA1.test(d.commitSha ?? '') || !ID.test(d.independentTestRef ?? '') ||
       !ID.test(d.acceptanceRef ?? '') || !Number.isFinite(time(d.acceptedAt,nowMs)))
     return result('delivery_unverified','DELIVERY_PROOF_REJECTED',{
-      created:true,taskId:job.result.taskId,evidenceRef:job.result.receiptSha256,
+      created:true,taskId:job.result.taskId,
     });
   return result('delivery_verified','OWNER_ACCEPTED_INDEPENDENT_DELIVERY',{
     created:true,delivered:true,taskId:job.result.taskId,
@@ -84,19 +92,24 @@ export function projectWorkItem({
  * Returns only aggregate counts; does not import user task descriptions or
  * customer data. If any queue snapshot fails verification, do not assert totals.
  */
-export function summarizeDeliveryBoard({jobs,organizationId,verifyQueueRecord,verifyDeliveryEvidence,
+export function summarizeDeliveryBoard({jobs,tasks=[],organizationId,verifyQueueRecord,verifyTaskRecord,verifyDeliveryEvidence,
   deliveryEvidenceByJobId={},nowMs=Date.now()}={}) {
   const unavailable = () => Object.freeze({mode:'read-only',state:'unavailable',
     totals:{awaiting:0,created:0,delivered:0,blocked:0},rows:[]});
   if (!Array.isArray(jobs) || jobs.length>200 || !jobs.every(j=>j&&typeof j==='object') ||
+      !Array.isArray(tasks) || tasks.length>200 ||
+      !tasks.every(t=>t&&typeof t==='object'&&ID.test(t.id??'')) ||
+      new Set(tasks.map(t=>t.id)).size!==tasks.length ||
       !deliveryEvidenceByJobId || typeof deliveryEvidenceByJobId!=='object' ||
       Array.isArray(deliveryEvidenceByJobId)) return unavailable();
+  const taskById=new Map(tasks.map(t=>[t.id,t]));
   const seen = new Set(), rows=[];
   for(const job of jobs) {
     if (!ID.test(job.id??'') || seen.has(job.id)) return unavailable();
     seen.add(job.id);
     const projected=projectWorkItem({
-      job,deliveryEvidence:Object.prototype.hasOwnProperty.call(deliveryEvidenceByJobId,job.id) ?
+      job,taskRecord:taskById.get(job.result?.taskId)||null,
+      verifyTaskRecord,deliveryEvidence:Object.prototype.hasOwnProperty.call(deliveryEvidenceByJobId,job.id) ?
         deliveryEvidenceByJobId[job.id] : null,
       organizationId,verifyQueueRecord,verifyDeliveryEvidence,nowMs,
     });
