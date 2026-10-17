@@ -50,13 +50,18 @@ export function auditBriefingReliability({
       else if(!r) state=complete?'missing':'unverified';
       else {
         const checked=safeTime(r.checkedAt);
+        // The installed Python host emits uppercase AVAILABLE/INCOMPLETE.
+        // Normalize only exact known labels, matching the owner Hub reader.
+        // Signature/inventory checks below still independently attest source.
+        const coverage=typeof r.report?.coverage==='string'
+          ? r.report.coverage.toLowerCase():null;
         if(!trusted(verifyReport,r) || r.state!=='recorded' ||
             r.report?.noActionsExecuted!==true ||
-            !['available','incomplete'].includes(r.report.coverage) ||
+            !['available','incomplete'].includes(coverage) ||
             !Number.isFinite(checked) || checked<expected-5*60_000||
             checked>expected+30*60_000 || checked>now+60_000)
           state='unverified';
-        else state=r.report.coverage==='available'?'verified':'incomplete';
+        else state=coverage==='available'?'verified':'incomplete';
       }
       counts[state]++; 
       slots.push(Object.freeze({slot,expectedAt:new Date(expected).toISOString(),state}));
