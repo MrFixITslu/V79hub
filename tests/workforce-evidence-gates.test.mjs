@@ -115,23 +115,46 @@ test('execution or owner approval claims and arbitrary queued actions fail outpu
 });
 test('budget is unavailable unless all trusted usage receipts are supplied',()=>{
   assert.equal(checkModelBudget({receipts:[],estimateUsd:1,nowMs:NOW}).allowed,false);
-  assert.equal(checkModelBudget({receiptsComplete:true,receipts:[],estimateUsd:0.01,budgetUsd:21,nowMs:NOW}).allowed,false);
+  assert.equal(checkModelBudget({receiptsComplete:true,verifyReceipt:()=>true,receipts:[],estimateUsd:0.01,budgetUsd:21,nowMs:NOW}).allowed,false);
 });
 test('actual receipts cap the monthly spend at twenty USD',()=>{
   const receipts=[{id:'run-01',usd:19.90,recordedAt:'2026-10-16T22:00:00Z'}];
-  assert.equal(checkModelBudget({receipts,estimateUsd:0.2,receiptsComplete:true,nowMs:NOW}).allowed,false);
-  assert.equal(checkModelBudget({receipts,estimateUsd:0.05,receiptsComplete:true,nowMs:NOW}).allowed,true);
+  assert.equal(checkModelBudget({receipts,estimateUsd:0.2,receiptsComplete:true,verifyReceipt:()=>true,nowMs:NOW}).allowed,false);
+  assert.equal(checkModelBudget({receipts,estimateUsd:0.05,receiptsComplete:true,verifyReceipt:()=>true,nowMs:NOW}).allowed,true);
 });
 test('duplicate, fake, future and invalid model receipts fail closed',()=>{
   const valid={id:'run-01',usd:1,recordedAt:'2026-10-16T22:00:00Z'};
   for(const receipts of [
     [valid,valid],[{...valid,usd:-1}],[{...valid,recordedAt:'2027-01-01T00:00:00Z'}],
     [{...valid,id:'raw secret'}],
-  ])assert.equal(checkModelBudget({receipts,estimateUsd:1,receiptsComplete:true,nowMs:NOW}).allowed,false);
+  ])assert.equal(checkModelBudget({receipts,estimateUsd:1,receiptsComplete:true,verifyReceipt:()=>true,nowMs:NOW}).allowed,false);
 });
 test('older receipts are not counted in thirty-day window',()=>{
   const receipts=[{id:'old-run',usd:19,recordedAt:'2026-08-01T00:00:00Z'}];
-  const r=checkModelBudget({receipts,estimateUsd:0.5,receiptsComplete:true,nowMs:NOW});
+  const r=checkModelBudget({receipts,estimateUsd:0.5,receiptsComplete:true,verifyReceipt:()=>true,nowMs:NOW});
   assert.equal(r.allowed,true);
   assert.equal(r.usedUsd,0);
+});
+
+test('untrusted object cannot impersonate a verified snapshot for alerts or claims',()=>{
+  const fake = {status:'available', records:[{
+    id:'hub:health_pass',system:'hub',metric:'health_pass',unit:'state',
+    value:0,sourceRef:'fake',collector:'fake',observedAt:'2026-10-16T22:59:00Z',
+  }]};
+  assert.deepEqual(proposeOwnerExceptions(fake),[]);
+  assert.equal(gateSpecialistOutput(draft(),fake).accepted,false);
+});
+test('accepted snapshots are immutable and cannot be turned into forged outage alerts',()=>{
+  const trusted=goodSnapshot();
+  assert.equal(Object.isFrozen(trusted),true);
+  assert.equal(Object.isFrozen(trusted.records),true);
+  assert.equal(Object.isFrozen(trusted.records[0]),true);
+  assert.throws(()=>{trusted.records[0].value=0;},TypeError);
+  assert.deepEqual(proposeOwnerExceptions(trusted),[]);
+});
+test('untrusted model spend receipts fail closed even when caller asserts completeness',()=>{
+  const receipts=[{id:'run-01',usd:1,recordedAt:'2026-10-16T22:00:00Z'}];
+  assert.equal(checkModelBudget({receipts,estimateUsd:0.1,receiptsComplete:true,nowMs:NOW}).allowed,false);
+  assert.equal(checkModelBudget({receipts,estimateUsd:0.1,receiptsComplete:true,nowMs:NOW,verifyReceipt:()=>false}).allowed,false);
+  assert.equal(checkModelBudget({receipts,estimateUsd:0.1,receiptsComplete:true,nowMs:NOW,verifyReceipt:()=>{throw Error('invalid signature')}}).allowed,false);
 });
