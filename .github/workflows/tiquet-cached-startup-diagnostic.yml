@@ -4,18 +4,20 @@ on:
     paths:
       - scripts/portfolio-tiquet-startup-diagnostic.py
       - tests/portfolio-tiquet-startup-diagnostic.test.py
+      - tests/portfolio-tiquet-docker.test.py
       - .github/workflows/tiquet-cached-startup-diagnostic.yml
   push:
     paths:
       - scripts/portfolio-tiquet-startup-diagnostic.py
       - tests/portfolio-tiquet-startup-diagnostic.test.py
+      - tests/portfolio-tiquet-docker.test.py
       - .github/workflows/tiquet-cached-startup-diagnostic.yml
 permissions:
   contents: read
 jobs:
   synthetic-guards:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,3 +25,4 @@ jobs:
           python-version: '3.12'
       - run: python3 -B scripts/portfolio-tiquet-startup-diagnostic.py --self-test
       - run: python3 -B tests/portfolio-tiquet-startup-diagnostic.test.py
+      - run: python3 -B tests/portfolio-tiquet-docker.test.py

@@ -69,6 +69,67 @@ class SafetyTests(unittest.TestCase):
             with self.assertRaisesRegex(d.Stop, 'CONTAINER_INSPECT_FAILED_NOT_ABSENCE'):
                 d.inspect('synthetic', optional=True)
 
+
+class CleanupRegressionTests(unittest.TestCase):
+    def test_null_labels_fail_closed_without_attribute_error(self):
+        with patch.object(d, 'inspect', return_value={'Config': {'Labels': None}}), patch.object(d, 'run') as run:
+            with self.assertRaisesRegex(d.Stop, 'REFUSE_CLEANUP_FOREIGN_CONTAINER'):
+                d.owned_cleanup(['test'], 'network', 'identity')
+            run.assert_not_called()
+
+    def test_successful_empty_inspect_is_not_treated_as_absence(self):
+        from types import SimpleNamespace
+        with patch.object(d, 'run', return_value=SimpleNamespace(returncode=0, stdout=b'[]')):
+            with self.assertRaisesRegex(d.Stop, 'INSPECT_SHAPE_INVALID'):
+                d.inspect('test', optional=True)
+
+    def test_reaper_refuses_production_mount_before_deleting(self):
+        from types import SimpleNamespace
+        identity = 'abcdef123456'; network = 'v79-tqdiag-'+identity
+        row = {'Name': '/'+network+'-app', 'Config': {'Labels': {d.LABEL: identity}},
+               'HostConfig': {}, 'NetworkSettings': {'Networks': {network:{}}},
+               'Mounts': [{'Type': 'bind', 'Source': '/production'}]}
+        with patch.object(d, 'run', return_value=SimpleNamespace(stdout=b'container-id')) as run, \
+             patch.object(d, 'inspect', return_value=row):
+            with self.assertRaisesRegex(d.Stop, 'SYNTHETIC_UNEXPECTED_PERSISTENT_MOUNT'):
+                d.reap_previous()
+            self.assertEqual(run.call_count, 1)
+
+
+class ModeRepairTests(unittest.TestCase):
+    def test_repair_refuses_when_permission_cause_not_proven(self):
+        with patch.object(d, 'run') as run:
+            with self.assertRaisesRegex(d.Stop, 'PUBLIC_PERMISSION_CAUSE_NOT_PROVEN'):
+                d.repair_public_modes('unused', {'paths': {'/app/package.json': {'readable': True}}})
+            run.assert_not_called()
+
+    def test_actual_node_repair_changes_only_public_modes_and_preserves_bytes(self):
+        import hashlib
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); app=root/'app'; app.mkdir()
+            (app/'server').mkdir(mode=0o700)
+            rows=[]
+            for path, content in [('package.json', b'{}'), ('package-lock.json', b'{"lockfileVersion":3}'), ('server/index.js', b'console.log("fixture");')]:
+                target=app/path; target.write_bytes(content); target.chmod(0o600)
+                blob=hashlib.sha1(b'blob '+str(len(content)).encode()+b'\0'+content).hexdigest()
+                rows.append({'path':path,'mode':0o644,'blob':blob})
+            private=app/'private-token'; private.write_bytes(b'PRIVATE'); private.chmod(0o600)
+            manifest=root/'manifest.json'; manifest.write_text(json.dumps(rows))
+            script=root/'repair.js'
+            code=d.MODE_REPAIR_JS.replace('/tmp/v79-public-modes.json', str(manifest)).replace('/tmp/v79-public-mode-repair.js', str(script)).replace('/app', str(app))
+            # The fixture parent is private; avoid walking outside the fixture in this test.
+            code=code.replace("dir!=='/'", 'dir!=='+json.dumps(str(root)))
+            script.write_text(code)
+            result=subprocess.run(['node', str(script)], capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual((app/'server/index.js').read_bytes(), b'console.log("fixture");')
+            self.assertEqual((app/'server/index.js').stat().st_mode & 0o777, 0o644)
+            self.assertEqual((app/'server').stat().st_mode & 0o777, 0o755)
+            self.assertEqual(private.stat().st_mode & 0o777, 0o600)
+            self.assertFalse(manifest.exists())
+            self.assertFalse(script.exists())
+
 class LifecycleTests(unittest.TestCase):
     def exercise(self, fail=False):
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,6 +184,7 @@ class LifecycleTests(unittest.TestCase):
             output=io.StringIO()
             with patch.object(d, 'RUN', root), patch.object(d.socket, 'gethostname', return_value='v79sl'), \
                  patch.object(d.os, 'getuid', return_value=1000), patch.object(d.signal, 'signal'), \
+                 patch.object(d.Path, 'home', return_value=root), \
                  patch.object(d, 'inspect', side_effect=inspect), patch.object(d, 'run', side_effect=run), \
                  patch.object(d.time, 'sleep'), patch.object(d, 'report', return_value=d.classify('42703 PRIVATE_MARKER')), \
                  patch.object(d.sys, 'argv', ['diagnostic']), redirect_stdout(output):

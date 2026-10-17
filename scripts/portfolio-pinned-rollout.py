@@ -36,6 +36,33 @@ def need(ok, code):
     if not ok:
         raise Stop(code)
 
+def public_checkout_modes(stage):
+    """Normalize tracked public build input only; keep private parent/Git data private."""
+    stage = Path(stage)
+    records = call(['git', '-C', str(stage), 'ls-files', '--stage', '-z']).split(b'\0')
+    files = []
+    directories = {stage}
+    for record in filter(None, records):
+        metadata, raw_path = record.split(b'\t', 1)
+        mode, _blob, index = metadata.split()
+        need(mode in (b'100644', b'100755') and index == b'0', 'PUBLIC_SOURCE_MODE_UNREVIEWED')
+        relative = Path(os.fsdecode(raw_path))
+        need(not relative.is_absolute() and all(x not in ('.', '..', '.git') for x in relative.parts), 'PUBLIC_SOURCE_PATH_INVALID')
+        target = stage / relative
+        need(not target.is_symlink() and target.is_file(), 'PUBLIC_SOURCE_NOT_REGULAR')
+        parent = target.parent
+        while parent != stage:
+            need(not parent.is_symlink() and parent.is_dir(), 'PUBLIC_SOURCE_PARENT_INVALID')
+            directories.add(parent)
+            parent = parent.parent
+        files.append((target, 0o755 if mode == b'100755' else 0o644))
+    # Validate the entire inventory before changing any permissions.
+    for directory in directories:
+        directory.chmod(0o755)
+    for target, mode in files:
+        target.chmod(mode)
+
+
 def emit(key, value):
     line = key + '=' + str(value)
     need(SAFE_LINE.fullmatch(line), 'INVALID_OUTPUT')
@@ -302,6 +329,7 @@ def server_locked(run, key):
               'https://github.com/MrFixITslu/' + repo + '.git', sha], timeout=300)
         need(call(['git', '-C', str(stage), 'rev-parse', 'FETCH_HEAD']).decode().strip() == sha, 'SOURCE_PIN_FAILED')
         call(['git', '-C', str(stage), 'checkout', '--detach', '-q', sha])
+        public_checkout_modes(stage)
         tag = 'v79-portfolio/' + repo.lower() + ':' + sha
         # Single build at a time; production images are not retagged or pruned.
         call(['docker', 'build', '--label', 'org.opencontainers.image.revision=' + sha,

@@ -221,6 +221,7 @@ class LifecycleTests(unittest.TestCase):
                  patch.object(r.shutil, 'disk_usage', return_value=type('D', (), {'free': 99*1024**3})()), \
                  patch.object(r.Path, 'read_text', return_value='MemAvailable: 9000000 kB'), \
                  patch.object(r, 'call', side_effect=fake_call), \
+                 patch.object(r, 'public_checkout_modes'), \
                  patch.object(r, 'original_model', side_effect=fake_model), \
                  patch.object(r, 'inspect', side_effect=fake_inspect), \
                  patch.object(r, 'encrypted_stream', side_effect=fake_encrypt), \
@@ -461,6 +462,40 @@ class ContinuationLifecycleTests(unittest.TestCase):
         _, _, output = self.exercise('rollback')
         self.assertIn(('ROLLBACK', 'FAILED_MANUAL_RECOVERY_REQUIRED'), output)
         self.assertIn(('ROLLBACK', 'v79-hub_NOT_PROVEN_MANUAL_REVIEW_REQUIRED'), output)
+
+
+class PublicCheckoutTests(unittest.TestCase):
+    def test_private_umask_checkout_becomes_public_without_exposing_private_files(self):
+        import os
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp); parent.chmod(0o700)
+            stage = parent/'source'; stage.mkdir(mode=0o700)
+            subprocess.run(['git', 'init', '-q', str(stage)], check=True)
+            (stage/'server').mkdir(mode=0o700)
+            code = stage/'server/index.js'; code.write_text('public source'); code.chmod(0o600)
+            executable = stage/'run.sh'; executable.write_text('public executable'); executable.chmod(0o700)
+            subprocess.run(['git', '-C', str(stage), 'add', '.'], check=True)
+            private = stage/'untracked-secret'; private.write_text('PRIVATE'); private.chmod(0o600)
+            r.public_checkout_modes(stage)
+            self.assertEqual(code.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(executable.stat().st_mode & 0o777, 0o755)
+            self.assertEqual((stage/'server').stat().st_mode & 0o777, 0o755)
+            self.assertEqual(parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(private.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(code.read_text(), 'public source')
+
+    def test_symlink_is_rejected_before_permission_changes(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp)
+            outside = stage/'private'; outside.write_text('PRIVATE'); outside.chmod(0o600)
+            (stage/'link').symlink_to(outside)
+            subprocess.run(['git', 'init', '-q', str(stage)], check=True)
+            subprocess.run(['git', '-C', str(stage), 'add', 'link'], check=True)
+            with self.assertRaisesRegex(r.Stop, 'PUBLIC_SOURCE_MODE_UNREVIEWED'):
+                r.public_checkout_modes(stage)
+            self.assertEqual(outside.stat().st_mode & 0o777, 0o600)
 
 if __name__ == '__main__':
     unittest.main()
