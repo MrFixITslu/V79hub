@@ -127,7 +127,7 @@ class ActualComposeSerializationTests(unittest.TestCase):
         model = {'services': {'api': {'image': 'busybox:stable',
                   'environment': r.compose_literal(original), 'command': r.compose_literal(command)}}}
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp)/'frozen.json'
+            path = Path(tmp)/'frozen.pinned.yml'
             r.private_json(path, model)
             actual = json.loads(r.call(r.compose(path, 'synthetic', 'config', '--format', 'json')))
             self.assertEqual(r.compose_runtime(actual['services']['api']['environment']), original)
@@ -408,9 +408,9 @@ class ContinuationLifecycleTests(unittest.TestCase):
                 return b''
             def fake_up(path, pin):
                 switches.append(path.name)
-                if failure in ('second', 'rollback') and path.name == 'v79-tiquet-manager-candidate.compose.json':
+                if failure in ('second', 'rollback') and path.name == 'v79-tiquet-manager-candidate.pinned.yml':
                     raise r.Stop('INJECTED_SWITCH_FAILURE')
-                if failure == 'rollback' and path.name == 'v79-hub-original.compose.json':
+                if failure == 'rollback' and path.name == 'v79-hub-original.pinned.yml':
                     raise r.Stop('INJECTED_ROLLBACK_FAILURE')
             def fake_health(name, image):
                 value = copy.deepcopy(before[name]); value['Image'] = image
@@ -448,13 +448,13 @@ class ContinuationLifecycleTests(unittest.TestCase):
 
     def test_security_difference_still_rolls_back(self):
         events, switches, output = self.exercise('config')
-        self.assertEqual(switches, ['v79-hub-candidate.compose.json', 'v79-hub-original.compose.json'])
+        self.assertEqual(switches, ['v79-hub-candidate.pinned.yml', 'v79-hub-original.pinned.yml'])
         self.assertIn(('ROLLBACK', 'ORIGINAL_IMAGES_HEALTHY'), output)
         self.assertIn(['systemctl', '--user', 'start', 'v79-workforce-task.timer'], events)
 
     def test_second_switch_failure_restores_both(self):
         _, switches, output = self.exercise('second')
-        self.assertEqual(switches[-2:], ['v79-tiquet-manager-original.compose.json', 'v79-hub-original.compose.json'])
+        self.assertEqual(switches[-2:], ['v79-tiquet-manager-original.pinned.yml', 'v79-hub-original.pinned.yml'])
         self.assertIn(('ROLLBACK', 'ORIGINAL_IMAGES_HEALTHY'), output)
 
     def test_genuine_rollback_failure_is_not_hidden(self):

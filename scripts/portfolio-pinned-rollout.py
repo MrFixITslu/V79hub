@@ -536,10 +536,10 @@ def continued_server_locked(run, old, proof):
         model = json.loads((old / (name + '-original.compose.json')).read_text())
         service = model['services'][pin['compose_service']]
         need(service['image'] == pin['image_id'], 'ORIGINAL_MODEL_IMAGE_CHANGED')
-        original_path = run / (name + '-original.compose.json')
+        original_path = run / (name + '-original.pinned.yml')
         private_json(original_path, model)
         service['image'] = candidate_id
-        candidate_path = run / (name + '-candidate.compose.json')
+        candidate_path = run / (name + '-candidate.pinned.yml')
         private_json(candidate_path, model)
         rendered = json.loads(call(compose(candidate_path, pin['compose_project'], 'config', '--format', 'json')))
         selected = rendered['services'][pin['compose_service']]

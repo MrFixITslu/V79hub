@@ -135,3 +135,9 @@ rollback results instead of hiding them behind a single aggregate status. The ne
 run retains a checkpoint reference and release receipt. Resume monitoring detects
 this reference and does not repeat copying/decrypting the previously accepted set.
 Full new-release security and restore acceptance remain outstanding, NO_GO.
+
+Continuation model filenames retain `.pinned.yml` so the installed generic Hub
+deployer continues recognizing the protected stack. The source generic guard also
+rejects older `v79-portfolio-rollout` frozen `.compose.json` paths; executable Bash
+guard regression tests cover both formats. Frozen model content remains JSON, which
+is also valid YAML; the real Compose CLI regression tests that file extension.

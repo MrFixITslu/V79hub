@@ -23,3 +23,7 @@ jobs:
           python-version: '3.12'
       - run: python3 -m py_compile scripts/portfolio-pinned-rollout.py
       - run: python3 tests/portfolio-pinned-rollout.test.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/deploy-wipay-pinned-guard.test.mjs
