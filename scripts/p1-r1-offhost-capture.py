@@ -35,7 +35,7 @@ HUB_COMPOSE_HASHES = (
     "fddb7d2a6934dfa65a5ce05358ca71a6769eebdff8c7def760eb070adac2b4c5",
     "44e177b5c5cd8138ea42139bd6cbd5d82452a2a83585db88ef4f50e74519bd34",
     "51cb2fb1629f1900a363aed090a1066d27f1ed2b97a63372b951d85bcd07591f",
-    "cfac41db973d8f99b9e3675389988cef9e009d5dc9dae39d07dc0a900eb7bda",
+    None,  # Source v3 printed only 63 hex chars for layer 6: require fresh read-only re-pin.
     "c532df563e257d2077705d48b39f0071d5fed88fcb2e9ca2874c46cba4b125c5",
     "108845250715cfb91c8db538cfafc34e189ff938fc0a56a4cbb724e8f883f168",
     "50e68e1f530e3cfac48111d2947e4ce2059e4795a4bfcd2388efd4e668d8020a",
@@ -111,7 +111,7 @@ try:
  if tf.get("V79_ENTITLEMENT_RECHECK_ENABLED")!="1" or tf.get("V79_ALLOW_LEGACY_AUTH")!="0":raise RuntimeError("TIQUET_SECURITY_CHANGED")
  hub_config=configs(hub)
  tiquet_config=configs(tiquet)
- if hub_config["digests"][:-1]!=pins["hub_composes"]:raise RuntimeError("HUB_COMPOSE_DRIFT")
+ if len(hub_config["digests"][:-1])!=13 or any(old is not None and got!=old for got,old in zip(hub_config["digests"][:-1],pins["hub_composes"])):raise RuntimeError("HUB_COMPOSE_DRIFT")
  rev=call("docker","image","inspect",images["v79-hub"])[0].get("Config",{}).get("Labels",{}).get("org.opencontainers.image.revision")
  if rev!=pins["revision"]:raise RuntimeError("HUB_SOURCE_LABEL_DRIFT")
  for ident in [*images.values(),pins["rollback"]]:
@@ -184,7 +184,9 @@ def validate_plan(data):
                 and c.get("composeCount") == len(c["files"]) - 1
                 and all(re.fullmatch(r"[0-9a-f]{64}", h) for h in c["digests"]),
                 "CONFIG_PLAN_INVALID")
-    require(data["configs"]["hub"]["digests"][:-1] == list(HUB_COMPOSE_HASHES),
+    require(len(data["configs"]["hub"]["digests"][:-1]) == 13 and
+            all(expected is None or actual == expected for actual, expected in
+                zip(data["configs"]["hub"]["digests"][:-1], HUB_COMPOSE_HASHES)),
             "HUB_COMPOSE_BASELINE_MISMATCH")
     require(data["configs"]["hub"]["composeCount"] == 13, "HUB_COMPOSE_COUNT_MISMATCH")
     mounts = data.get("mounts")
@@ -372,7 +374,7 @@ def run_capture(plan, base):
         require(after == plan, "LIVE_RUNTIME_OR_CONFIGURATION_CHANGED_DURING_BACKUP")
         manifest = {"schema": 1, "status": "CAPTURED_NOT_RESTORED", "images": IMAGE_IDS,
                     "rollbackHub": ROLLBACK_HUB, "sourceRevision": SOURCE_REVISION,
-                    "hubComposeSHA256Ordered": list(HUB_COMPOSE_HASHES),
+                    "hubComposeSHA256Ordered": plan["configs"]["hub"]["digests"][:-1],
                     "tiquetComposeSHA256Ordered": plan["configs"]["tiquet"]["digests"][:-1],
                     "appMountDestinations": plan["mounts"], "files": files,
                     "fullAppRestoreVerified": False, "customerBetaAuthorized": False}
@@ -390,14 +392,16 @@ def run_capture(plan, base):
 
 
 def self_test():
-    require(len(HUB_COMPOSE_HASHES) == 13, "BROKEN_HASH_BASELINE")
+    require(len(HUB_COMPOSE_HASHES) == 13 and HUB_COMPOSE_HASHES[5] is None and
+            all(x is None or re.fullmatch(r"[0-9a-f]{64}", x) for x in HUB_COMPOSE_HASHES),
+            "BROKEN_HASH_BASELINE")
     assert all(VALID_SHA.fullmatch(v) for v in (*IMAGE_IDS.values(), ROLLBACK_HUB))
     dummy = {"images": IMAGE_IDS, "rollback": ROLLBACK_HUB,
              "sourceRevision": SOURCE_REVISION,
              "configs": {
                  "hub": {"files": ["/opt/v79/hub/x" + str(i) for i in range(13)] +
                          ["/opt/v79/hub/.env"],
-                         "digests": list(HUB_COMPOSE_HASHES) + ["a" * 64], "composeCount": 13},
+                         "digests": [x if x is not None else "e" * 64 for x in HUB_COMPOSE_HASHES] + ["a" * 64], "composeCount": 13},
                  "tiquet": {"files": ["/opt/tiquet/docker-compose.yml", "/opt/tiquet/.env"],
                             "digests": ["b" * 64, "c" * 64], "composeCount": 1}},
              "mounts": {"v79-hub": ["/app/data"], "v79-tiquet-manager": ["/app/data", "/app/uploads"]}}
@@ -427,6 +431,8 @@ def main():
     action.add_argument("--verify", metavar="DIR")
     action.add_argument("--self-test", action="store_true")
     arg.add_argument("--approve-live-reads", action="store_true")
+    arg.add_argument("--accept-layer-6-sha", default=None,
+                     help="The 64-digit SHA256 from read-only --plan, reviewed by the owner")
     arg.add_argument("--offhost-parent", default=str(Path.home() / "V79-P1-R1-Offhost"))
     args = arg.parse_args()
     os.umask(0o077)
@@ -440,7 +446,8 @@ def main():
     p = probe()
     streams = streams_for(p)
     print("LIVE_PIN_AND_SECURITY=PASS")
-    print("HUB_COMPOSE_LAYERS=13_PINNED")
+    print("HUB_COMPOSE_LAYERS=12_PINNED_1_NEEDS_REPIN")
+    print("HUB_COMPOSE_LAYER_6_SHA256=" + p["configs"]["hub"]["digests"][5])
     print("TIQUET_COMPOSE_LAYERS=" + str(p["configs"]["tiquet"]["composeCount"]))
     print("APP_MOUNT_STREAMS=" + str(sum(map(len, p["mounts"].values()))))
     print("PLANNED_ENCRYPTED_STREAMS=" + str(len(streams)))
@@ -449,6 +456,10 @@ def main():
         print("MODE=READ_ONLY_PLAN_NO_BACKUPS_CREATED")
         return
     require(args.approve_live_reads, "EXPLICIT_LIVE_BACKUP_READ_APPROVAL_REQUIRED")
+    require(isinstance(args.accept_layer_6_sha, str) and
+            re.fullmatch(r"[0-9a-f]{64}", args.accept_layer_6_sha) and
+            args.accept_layer_6_sha == p["configs"]["hub"]["digests"][5],
+            "LAYER_6_SHA256_EXPLICIT_OWNER_REPIN_REQUIRED")
     run_capture(p, args.offhost_parent)
 
 
