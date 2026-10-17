@@ -156,7 +156,7 @@ class DiagnosticTests(unittest.TestCase):
                 self.assertEqual(stats, {
                     "members":5,"referenced":5,"missing":0,
                     "extra":0,"valid":5,"invalid":0,
-                    "docker_json":5,"oci_blobs":0,
+                    "docker_json":5,"oci_blobs":0,"candidate_blobs":5,
                 })
                 make_tar(plain,oci=True,manifest_last=True)
                 ids, stats, intact = m.read_archive_configs(plain)
@@ -164,7 +164,38 @@ class DiagnosticTests(unittest.TestCase):
                 self.assertTrue(intact)
                 self.assertEqual(stats["oci_blobs"],5)
                 self.assertEqual(stats["docker_json"],0)
+                self.assertEqual(stats["candidate_blobs"],5)
                 self.assertEqual(stats["valid"],5)
+                # OCI archives may also contain layer blobs with identical
+                # path shape. These are NOT Config entries: skip large layers
+                # and ignore small unreferenced ones.
+                with tarfile.open(plain,mode="w") as tar:
+                    obj=json.dumps([{"Config":"blobs/sha256/"+name[:-5],
+                                     "RepoTags":None,"Layers":[]}
+                                    for name,_ in configs]).encode()
+                    info=tarfile.TarInfo("manifest.json")
+                    info.size=len(obj)
+                    tar.addfile(info,io.BytesIO(obj))
+                    for name, data in configs:
+                        info=tarfile.TarInfo("blobs/sha256/"+name[:-5])
+                        info.size=len(data)
+                        tar.addfile(info,io.BytesIO(data))
+                    small_blob=b"CI-SYNTHETIC-UNREFERENCED-LAYER"
+                    info=tarfile.TarInfo("blobs/sha256/"+
+                                         hashlib.sha256(small_blob).hexdigest())
+                    info.size=len(small_blob)
+                    tar.addfile(info,io.BytesIO(small_blob))
+                    large_blob=b"z"*(8*1024*1024+1)
+                    info=tarfile.TarInfo("blobs/sha256/"+
+                                         hashlib.sha256(large_blob).hexdigest())
+                    info.size=len(large_blob)
+                    tar.addfile(info,io.BytesIO(large_blob))
+                ids, stats, intact=m.read_archive_configs(plain)
+                self.assertTrue(intact)
+                self.assertEqual(stats["members"],5)
+                self.assertEqual(stats["valid"],5)
+                self.assertEqual(stats["extra"],1)
+                self.assertEqual(stats["candidate_blobs"],6)
                 make_tar(plain,oci=True,omit_index=0)
                 _, stats, intact = m.read_archive_configs(plain)
                 self.assertFalse(intact)
@@ -194,6 +225,7 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("R1_ARCHIVE_CONFIG_SHA256_VALID=",code)
         self.assertIn("R1_ARCHIVE_CONFIG_SHA256_INVALID=",code)
         self.assertIn("R1_ARCHIVE_OCI_BLOB_MEMBERS=",code)
+        self.assertIn("R1_ARCHIVE_SMALL_BLOB_CANDIDATES=",code)
         self.assertIn('item.get("Image") if container else item.get("Id")',code)
         self.assertIn("R1_ARCHIVE_CONFIG_BYTE_INTEGRITY=",code)
         self.assertIn('require(archive_intact, "DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH")',code)
