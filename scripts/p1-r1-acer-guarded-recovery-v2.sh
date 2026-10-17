@@ -6,13 +6,13 @@ umask 077
 
 REPO="$HOME/v79-r1-src.PnZUGsH9/repo"
 BACKUP="$HOME/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_"
-COMMIT="6386d16f1abdac55a9c1a2eb4647f0fae66e1b22"
+COMMIT="43851e5eaea9b5bf240902566ea8bf42337a6818"
 BRANCH="feature/p1-r1-offhost-capture-20261016"
 WORK=""
 SWAP_ATTEMPTED=0
 
 declare -A EXPECTED=(
-  [p1-r1-acer-four-image-boot.py]="c23e2f7bb758c9a5b93fa7b1d5907ddd852cb752"
+  [p1-r1-acer-four-image-boot.py]="93c1d6152af07eca18c99c7cbe2f970d1b945675"
   [p1-r1-acer-disconnected-db-rehearsal.py]="deb45ce7bd627a7d59c5a611715a18e55da32904"
   [p1-r1-acer-oci-pin-proof.py]="4e530500395864a30060e94667ac602436f68972"
   [p1-r1-acer-app-mount-preflight.py]="cf7c5ad2a33be1caa4405e1017fd3b5a8a8c23a3"
@@ -128,8 +128,8 @@ ram="$(available_ram_kib)"
 echo "R1_DISK_SWAP_DISABLED=PASS"
 
 RUNNER="$WORK/p1-r1-acer-four-image-boot.py"
-echo "=== ORIGINAL BACKUP READ-ONLY PREFLIGHT ==="
-python3 -B "$RUNNER" --backup "$BACKUP"
-echo "=== FOUR-IMAGE NETWORK-DISCONNECTED APPLICATION SMOKE ==="
+# --execute performs the same mandatory preflight before any extraction.
+# Do not run that expensive read-only proof twice in the same invocation.
+echo "=== VERIFIED PREFLIGHT AND FOUR-IMAGE DISCONNECTED SMOKE ==="
 python3 -B "$RUNNER" --backup "$BACKUP" --execute
 echo "R1_FOUR_IMAGE_SMOKE_COMMAND=COMPLETE"
