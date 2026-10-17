@@ -116,3 +116,33 @@ test('one missing early slot prevents acceptance even with later perfect slots',
  assert.equal(r.summary.verified,5);
  assert.equal(r.summary.missing,1);
 });
+
+test('installed uppercase Python report coverage is normalized only after independent proof',()=>{
+  // Installed worker status uses AVAILABLE; private raw Python JSON can contain
+  // the same uppercase coverage. This does not bypass source attestation.
+  const raw=reports().map(r=>({...r,report:{...r.report,coverage:'AVAILABLE'}}));
+  const pass=auditBriefingReliability(opts({reports:raw}));
+  assert.equal(pass.status,'candidate_for_owner_acceptance');
+  assert.equal(pass.summary.verified,6);
+  const missingVerifier=auditBriefingReliability(opts({reports:raw,verifyReport:undefined}));
+  assert.equal(missingVerifier.summary.unverified,6);
+  assert.equal(missingVerifier.status,'not_yet_accepted');
+  const missingInventory=auditBriefingReliability(opts({reports:raw,verifyInventory:undefined}));
+  assert.equal(missingInventory.inventoryVerified,false);
+  assert.equal(missingInventory.status,'not_yet_accepted');
+});
+test('installed uppercase INCOMPLETE is never counted as reliable complete coverage',()=>{
+  const raw=reports();raw[0].report.coverage='INCOMPLETE';
+  const result=auditBriefingReliability(opts({reports:raw}));
+  assert.equal(result.status,'not_yet_accepted');
+  assert.equal(result.summary.incomplete,1);
+  assert.equal(result.summary.verified,5);
+});
+test('uppercase parsing never permits bogus coverage, whitespace or non-string status',()=>{
+  for(const value of [' AVAILABLE ','UNVERIFIED','available!','',null,{},3]){
+    const raw=reports();raw[0].report.coverage=value;
+    const result=auditBriefingReliability(opts({reports:raw}));
+    assert.equal(result.status,'not_yet_accepted',JSON.stringify(value));
+    assert.equal(result.summary.unverified,1,JSON.stringify(value));
+  }
+});
