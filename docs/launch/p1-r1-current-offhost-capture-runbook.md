@@ -154,3 +154,21 @@ R1_RELEASE_GATE=NO_GO
 The result **rules out merely one failed Podman SHA lookup**. Docker image identities come from hashed image config JSON, and neither archive manifest `Config` names nor local rootless Podman inventory reported the five recorded production image IDs. At present neither successful image restoration nor a corrupt/tampered backup can be inferred. Keep **R1 image provenance BLOCKED** and the previously verified 14 ciphertext integrity/format receipts preserved; image-tar structural validity alone does not prove the five intended images are in it.
 
 The *second read-only diagnostic*, updating `scripts/p1-r1-acer-image-id-diagnostic.py`, compares: (a) pinned manifest `images` and `rollbackHub`, (b) four original GPG-encrypted `runtime-inspect.json.gpg` image IDs captured by Docker, (c) Docker archive `manifest.json` config image IDs, (d) Podman's local image `Id` fields. All sensitive saved inspect JSON stays in bounded process memory; archive ciphertext hash/size independently checked; never prints raw inspect, tags, labels, environment, secrets or unknown hashes. It emits only per-role known-ID YES/NO plus three-way intersection counts. No `podman load`, tag/import/pull, container startup, production access or new backup capture. Stop for any source drift or mismatch. Final restore runner `--execute` must **not** be retried before provenance reconciliation and independent review.
+
+
+## 17 October follow-up — config-content diagnosis stopped safely (original set preserved)
+
+Founder ran source-integrity-verified Acer diagnostic (prior source head b476dc04fd70ae37a13d563f53d52847200617b1); it returned:
+```
+SOURCE_INTEGRITY=PASS
+R1_DIAGNOSTIC=READ_ONLY_ACER_LOCAL
+STOP=DOCKER_ARCHIVE_CONFIG_CONTENT_HASH_MISMATCH
+R1_RELEASE_GATE=NO_GO
+```
+The previous implementation collapsed **three distinct findings** into this single stop: (a) fewer or more than five candidate image JSON members, (b) a candidate image member SHA256 not matching its filename, or (c) manifest configuration paths not matching actual archived config members. It is **incorrect** to conclude the data is corrupted solely from this stop, and equally incorrect to claim all five image configurations are verified. Prior checks showed five manifest IDs and five local Podman image IDs, with five shared IDs between those two sources, but 0/5 alignment to expected immutable production image pins; none of those findings are overridden here.
+
+The revised read-only `scripts/p1-r1-acer-image-id-diagnostic.py` reports numeric-only counters `R1_ARCHIVE_CONFIG_MEMBERS`, `R1_ARCHIVE_MANIFEST_REFERENCES_PRESENT`, `R1_ARCHIVE_CONFIG_MEMBERS_MISSING`, `R1_ARCHIVE_CONFIG_MEMBERS_UNREFERENCED`, `R1_ARCHIVE_CONFIG_SHA256_VALID`, `R1_ARCHIVE_CONFIG_SHA256_INVALID`, and `R1_ARCHIVE_CONFIG_BYTE_INTEGRITY`. It **continues** inspecting the encrypted original runtime metadata for cross-source comparison, but still returns a **nonzero status and explicit STOP** if config byte integrity is not 5/5. All counters are private metadata summaries: unknown hashes, private tags, Docker env, credentials, and raw inspect records are never printed or written. The original ciphertext is not overwritten; no image imports, containers or database restores occur.
+
+Even if candidate image JSON members hash cleanly, **exact production-image provenance remains a separate hard NO-GO** while archived/local IDs disagree with immutable runtime pins and saved inspect records. A new capture, image retag, forced Podman run or relaxed restoration guard is NOT an authorized fix.
+
+Latest test-only code and safety workflows passed at commit 338ae2d3fea89d6ed452a32040bf2804c74eee70: [offline diagnostic safety CI](https://github.com/MrFixITslu/V79hub/actions/runs/39037763229), [original capture static checks](https://github.com/MrFixITslu/V79hub/actions/runs/39037763147), [synthetic PG17/GPG stream validation](https://github.com/MrFixITslu/V79hub/actions/runs/39037763285). The actual Acer diagnosis needs the next pinned manual run to distinguish config-reference errors from true content hash mismatches.
