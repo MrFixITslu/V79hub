@@ -34,6 +34,21 @@ class SafetyTests(unittest.TestCase):
             with self.assertRaises(d.Stop):
                 d.validate_synthetic(other, 'x', 'internal')
 
+    def test_frozen_probe_accepts_only_unauthenticated_loopback_health(self):
+        probe = ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3050/health']
+        self.assertEqual(d.safe_health_command(probe), probe[1:])
+        self.assertIsNone(d.safe_health_command(['CMD-SHELL', 'arbitrary code']))
+        for url in ['https://public.example/health', 'http://user:PRIVATE@127.0.0.1:3050/health',
+                    'http://127.0.0.1:3050/health?token=PRIVATE', 'http://127.0.0.1:3050/api/customers']:
+            self.assertIsNone(d.safe_health_command(['CMD', 'wget', '-qO-', url]))
+
+    def test_health_status_does_not_return_response_bodies(self):
+        from types import SimpleNamespace
+        with patch.object(d, 'run', return_value=SimpleNamespace(stdout=b'200')):
+            self.assertEqual(d.http_status('synthetic', 3050), 200)
+        with patch.object(d, 'run', return_value=SimpleNamespace(stdout=b'PRIVATE_BODY')):
+            self.assertEqual(d.http_status('synthetic', 3050), 0)
+
     def test_cleanup_refuses_foreign_resource(self):
         with patch.object(d, 'inspect', return_value={'Config': {'Labels': {d.LABEL:'foreign'}}}), patch.object(d, 'run') as run:
             with self.assertRaisesRegex(d.Stop, 'REFUSE_CLEANUP_FOREIGN_CONTAINER'):

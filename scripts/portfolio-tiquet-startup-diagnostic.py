@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import time
+from urllib.parse import urlparse
 
 RUN = Path('/home/firelion/v79-portfolio-rollout.W8DQrYJI')
 LABEL = 'v79.synthetic-startup-diagnostic'
@@ -60,6 +61,26 @@ def classify(text):
     codes = sorted(set(re.findall(r"\b(?:EACCES|EPERM|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EADDRINUSE|ERR_MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|28P01|42703|42P01|42830|42501|42601)\b", text)))
     locations = sorted(set(re.findall(r'\bserver/[A-Za-z0-9_-]+\.js:\d+(?::\d+)?', text)))[:12]
     return {'categories': categories or ['UNCLASSIFIED'], 'error_codes': codes, 'source_locations': locations}
+
+def safe_health_command(test):
+    # Never execute arbitrary copied shell code, headers, credentials or URLs.
+    if not isinstance(test, list) or len(test) != 4 or test[:3] != ['CMD', 'wget', '-qO-']:
+        return None
+    try:
+        url = urlparse(test[3])
+        if (url.scheme == 'http' and url.hostname in ('127.0.0.1', 'localhost', '::1')
+            and not url.username and not url.password and not url.query and not url.fragment
+            and url.path in ('/health', '/api/health', '/health/ready')):
+            return test[1:]
+    except ValueError:
+        pass
+    return None
+
+def http_status(app, port):
+    code = "fetch('http://127.0.0.1:%d/health',{signal:AbortSignal.timeout(2500)}).then(r=>console.log(r.status)).catch(()=>console.log(0))" % port
+    p = run(['docker', 'exec', app, 'node', '-e', code], check=False, timeout=8)
+    raw = p.stdout.decode().strip()
+    return int(raw) if re.fullmatch(r'[0-9]{1,3}', raw) else 0
 
 def report(name):
     row = inspect(name)
@@ -125,7 +146,13 @@ def main():
     need(all(v['State'].get('Health', {}).get('Status') == 'healthy' for v in before.values()), 'LIVE_SERVICES_NOT_HEALTHY')
     pg_image = before['tiquet-postgres']['Image']
     need(pg_image == 'sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685', 'POSTGRES_IMAGE_CHANGED')
-    user = before['v79-tiquet-manager']['Config'].get('User', '')
+    original_config = before['v79-tiquet-manager']['Config']
+    original_env = dict(x.split('=', 1) for x in original_config.get('Env', []) if '=' in x)
+    raw_port = original_env.get('PORT', '3050')
+    need(re.fullmatch(r'[0-9]{1,5}', raw_port) and 1024 <= int(raw_port) <= 65535, 'LIVE_PORT_UNREVIEWED')
+    port = int(raw_port)
+    frozen_probe = safe_health_command(original_config.get('Healthcheck', {}).get('Test'))
+    user = original_config.get('User', '')
     need(re.fullmatch(r'[A-Za-z0-9_:-]{1,80}', user), 'LIVE_EXECUTION_USER_UNREVIEWED')
     need(all(before[n]['Image'] == value for n, value in manifest['source_images'].items()), 'ORIGINAL_APP_IMAGES_NOT_RESTORED')
     print('PHASE=SYNTHETIC_CACHED_IMAGE_STARTUP_ONLY', flush=True)
@@ -165,7 +192,7 @@ def main():
         validate_synthetic(inspect(meta), identity, network)
         candidate_metadata = json.loads(run(['docker', 'start', '--attach', meta]).stdout)
         print(json.dumps({'execution_metadata': {'original': current_metadata, 'candidate': candidate_metadata}}, sort_keys=True), flush=True)
-        env = {'NODE_ENV': 'production', 'PORT': '3050', 'DB_HOST': pg, 'DB_PORT': '5432',
+        env = {'NODE_ENV': 'production', 'PORT': str(port), 'DB_HOST': pg, 'DB_PORT': '5432',
                'DB_NAME': 'synthetic', 'DB_USER': 'synthetic', 'DB_PASSWORD': password,
                'JWT_SECRET': secrets.token_urlsafe(48), 'SUPER_ADMIN_JWT_SECRET': secrets.token_urlsafe(48),
                'V79_TIQUET_LAUNCH_SECRET': secrets.token_urlsafe(48), 'V79_ENTITLEMENT_RECHECK_ENABLED': '1',
@@ -183,23 +210,27 @@ def main():
         validate_synthetic(inspect(app), identity, network)
         run(['docker', 'start', app])
         status = 0
-        probe = "fetch('http://127.0.0.1:3050/health',{signal:AbortSignal.timeout(2500)}).then(r=>console.log(r.status)).catch(()=>console.log(0))"
         for _ in range(25):
             state = inspect(app)['State']
             if not state.get('Running'):
                 break
-            p = run(['docker', 'exec', app, 'node', '-e', probe], check=False, timeout=8)
-            raw = p.stdout.decode().strip()
-            status = int(raw) if re.fullmatch(r'[0-9]{1,3}', raw) else 0
+            status = http_status(app, port)
             if status == 200:
                 break
             time.sleep(2)
         result = report(app)
         result['synthetic_health_http'] = status
+        result['live_port'] = port
+        result['frozen_health_probe_supported'] = frozen_probe is not None
+        probe_exit = run(['docker', 'exec', app, *frozen_probe], check=False, timeout=12).returncode if frozen_probe else None
+        result['frozen_health_probe_exit_code'] = probe_exit
+        if status != 200 and inspect(app)['State'].get('Running'):
+            result['alternate_loopback_health_http'] = {str(p): http_status(app, p) for p in (3000, 3050) if p != port}
         result['same_execution_user_spec'] = inspect(app)['Config'].get('User') == user
         print(json.dumps(result, sort_keys=True), flush=True)
-        print('TIQUET_SYNTHETIC_STARTUP=' + ('PASS' if status == 200 else 'FAIL'), flush=True)
-        need(status == 200, 'SYNTHETIC_CANDIDATE_STARTUP_FAILED')
+        passed = status == 200 and probe_exit in (0, None)
+        print('TIQUET_SYNTHETIC_STARTUP=' + ('PASS' if passed else 'FAIL'), flush=True)
+        need(passed, 'SYNTHETIC_CANDIDATE_STARTUP_FAILED')
     finally:
         owned_cleanup(owned, network, identity)
         print('SYNTHETIC_RESOURCE_CLEANUP=PASS', flush=True)
