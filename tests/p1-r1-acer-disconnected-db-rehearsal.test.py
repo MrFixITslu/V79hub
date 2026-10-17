@@ -1,0 +1,107 @@
+"""Synthetic R1 database restore safety tests — no Podman, GPG or network."""
+import importlib.util
+import hashlib
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+
+SOURCE = Path(__file__).resolve().parents[1] / "scripts/p1-r1-acer-disconnected-db-rehearsal.py"
+spec = importlib.util.spec_from_file_location("acer_r1_dbrestore_under_test", SOURCE)
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+class R1SyntheticSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="r1-acerdummy-")
+        self.root = Path(self.tmp.name)
+        os.chmod(self.root, 0o700)
+        files=[]
+        for name, kind in [("hub-pg.dump.gpg","pg"),
+                           ("tiquet-pg.dump.gpg","pg"),
+                           ("exact-images-and-rollback.tar.gpg","tar")]:
+            data=("CI-SYNTHETIC-" + name).encode()
+            (self.root/name).write_bytes(data)
+            os.chmod(self.root/name, 0o600)
+            files.append({"name":name,"type":kind,"bytes":len(data),
+                          "sha256":hashlib.sha256(data).hexdigest()})
+        for i in range(11):
+            files.append({"name":f"dummy-{i}.tar.gpg","type":"tgz",
+                          "bytes":0,"sha256":"0"*64})
+        self.data={"schema":1,"status":"CAPTURED_NOT_RESTORED",
+                   "images":m.IMAGES.copy(),"rollback":m.ROLLBACK,"files":files}
+        self.write_manifest()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_manifest(self):
+        p=self.root/"ciphertext-manifest.json"
+        p.write_text(json.dumps(self.data))
+        os.chmod(p,0o600)
+
+    def test_valid_pinned_manifest(self):
+        self.assertEqual(m.validate_manifest(self.root),self.root)
+
+    def test_reject_any_critical_ciphertext_mutation(self):
+        for name in m.REQUIRED:
+            with self.subTest(name=name):
+                p=self.root/name
+                previous=p.read_bytes()
+                p.write_bytes(previous+b"bad")
+                with self.assertRaisesRegex(m.Stop,"BACKUP_REQUIRED_COMPONENT_INTEGRITY_FAILURE"):
+                    m.validate_manifest(self.root)
+                p.write_bytes(previous)
+
+    def test_reject_wrong_image_id_and_rollback_drift(self):
+        self.data["images"]["v79-hub"]="sha256:"+"0"*64
+        self.write_manifest()
+        with self.assertRaisesRegex(m.Stop,"BACKUP_PROVENANCE_NOT_PINNED"):
+            m.validate_manifest(self.root)
+        self.data["images"]=m.IMAGES.copy()
+        self.data["rollback"]="sha256:"+"0"*64
+        self.write_manifest()
+        with self.assertRaisesRegex(m.Stop,"BACKUP_PROVENANCE_NOT_PINNED"):
+            m.validate_manifest(self.root)
+
+    def test_permissions_and_incomplete_marker_fail_closed(self):
+        os.chmod(self.root,0o755)
+        with self.assertRaisesRegex(m.Stop,"ARCHIVE_DIRECTORY_PERMISSIONS"):
+            m.validate_manifest(self.root)
+        os.chmod(self.root,0o700)
+        (self.root/"CAPTURE_INCOMPLETE").write_text("")
+        with self.assertRaisesRegex(m.Stop,"INCOMPLETE_BACKUP_SET"):
+            m.validate_manifest(self.root)
+
+    def test_restore_containers_are_disconnected_tmpfs_and_no_pull(self):
+        args=m.db_run_args("synthetic-db-name",m.IMAGES["v79-hub-postgres"],"r1_hub_restore")
+        self.assertIn("--remote=false",args)
+        self.assertIn("--network=none",args)
+        self.assertIn("--pull=never",args)
+        self.assertIn("--rm",args)
+        self.assertIn("--security-opt=no-new-privileges",args)
+        self.assertIn("--tmpfs=/var/lib/postgresql/data:rw,size=1073741824,mode=0700",args)
+        self.assertNotIn("-p",args)
+        self.assertNotIn("--publish",args)
+        self.assertNotIn("--volume",args)
+        self.assertNotIn("--network=host",args)
+        self.assertNotIn("--network=slirp4netns",args)
+        self.assertEqual(args[-1],m.IMAGES["v79-hub-postgres"])
+        self.assertTrue(any(a.startswith("POSTGRES_PASSWORD=") for a in args))
+        self.assertNotIn("v79sl",str(args))
+
+    def test_preflight_enforces_rootless_acer_and_no_ssh(self):
+        code=SOURCE.read_text()
+        self.assertNotIn("ssh_command",code)
+        self.assertNotIn("ssh -",code)
+        self.assertNotIn("http://",code)
+        self.assertNotIn("https://",code)
+        self.assertIn('socket.gethostname() == "firelion-Aspire-A315-51"',code)
+        self.assertIn("REMOTE_CONTAINER_CONTEXT_REFUSED",code)
+        self.assertIn('PODMAN, "rm", "-f", name',code)
+        self.assertIn('R1_CUSTOMER_RELEASE=NO_GO',code)
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
