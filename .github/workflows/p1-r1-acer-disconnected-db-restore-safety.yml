@@ -7,6 +7,8 @@ on:
     paths:
       - 'scripts/p1-r1-acer-disconnected-db-rehearsal.py'
       - 'tests/p1-r1-acer-disconnected-db-rehearsal.test.py'
+      - 'scripts/p1-r1-acer-image-id-diagnostic.py'
+      - 'tests/p1-r1-acer-image-id-diagnostic.test.py'
       - '.github/workflows/p1-r1-acer-disconnected-db-restore-safety.yml'
   workflow_dispatch:
 
@@ -29,11 +31,15 @@ jobs:
           python -B - <<'PY'
           from pathlib import Path
           for name in ('scripts/p1-r1-acer-disconnected-db-rehearsal.py',
-                       'tests/p1-r1-acer-disconnected-db-rehearsal.test.py'):
+                       'tests/p1-r1-acer-disconnected-db-rehearsal.test.py',
+                       'scripts/p1-r1-acer-image-id-diagnostic.py',
+                       'tests/p1-r1-acer-image-id-diagnostic.test.py'):
               compile(Path(name).read_text(), name, 'exec')
           PY
       - name: Check source policy and synthetic manifest/permission negatives
-        run: python -B tests/p1-r1-acer-disconnected-db-rehearsal.test.py -v
+        run: |
+          python -B tests/p1-r1-acer-disconnected-db-rehearsal.test.py -v
+          python -B tests/p1-r1-acer-image-id-diagnostic.test.py -v
 
 # No Docker/Podman container runs, real database decrypt, GPG key, SSH,
 # image import, artifact publication or production deployment in CI.
