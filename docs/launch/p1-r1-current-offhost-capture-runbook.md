@@ -105,3 +105,27 @@ Safety limitations: restoring SQL can execute functions within a disconnected ro
 The source-only policy tests are `tests/p1-r1-acer-disconnected-db-rehearsal.test.py` and `.github/workflows/p1-r1-acer-disconnected-db-restore-safety.yml`. The first draft fixture incorrectly used a non-production `rollback` field; before any owner execution, code and tests were corrected to check the actual captured manifest's **`rollbackHub`**. Exact source ID must be pinned by Git commit and `git hash-object` before operation.
 
 **Next acceptance:** two real, restored offline DBs with synthetic local database names and nonzero tables; then a *separately reviewed* isolated Hub+Tiquet boot/network-contract test with genuine no-egress policy, placeholder secrets and no provider callbacks. Customer Beta and commercial launch remain NO-GO until full app boot and rollback plus independent review.
+
+
+## 17 October — rootless Podman image-ID import diagnostic
+
+Founder executed the exact pinned Acer Podman offline restore candidate at head `68fbba1484ee0ed6323e548cc82f8637c13a1f02` and source blob `bbcf4db981327fd03e70f057272b77f93033de3f`, using the original 14 archived streams. The preflight/source identity passed. The GPG→Podman load pipeline returned normally, but checking all five expected exact Docker image IDs by `podman image exists sha256:...` failed:
+
+```
+SOURCE_INTEGRITY=PASS
+R1_ACER_ROOTLESS_ISOLATION_PREFLIGHT=PASS
+R1_LOCAL_IMAGE_LOAD=START_VERIFIED_ENCRYPTED_ARCHIVE
+STOP=PINNED_SAVED_IMAGE_ID_MISMATCH
+R1_CUSTOMER_RELEASE=NO_GO
+```
+
+No database container was created, no SQL restored and no application booted. Do **not** repeat the GPG image import, change backup manifest, pull substitute images, guess tags, weaken exact ID enforcement or override the stop. The original offhost backup still passed 14/14 actual GPG/structure checks.
+
+The bounded next task is to use the **new read-only** `scripts/p1-r1-acer-image-id-diagnostic.py` on the Acer. It runs only `podman --remote=false images --all --no-trunc --format json` and `podman image exists` for the five fixed image IDs; then streams only the bounded `manifest.json` from the encrypted Docker image archive to compare the Docker config hashes with those pins. Other archive content is skipped safely in memory, and GPG is drained to EOF. Output shows only known component-role names and YES/NO statuses, no image tags, raw secret-bearing archive members, exported image config, decrypted tar files or credentials. No rootful mode, SSH, network, containers, image/tag mutations, imports, cleanup or PostgreSQL restoration.
+
+Decision matrix:
+- Archive config YES, Podman local config YES, pin lookup NO → exact image bits present but CLI lookup cannot resolve `sha256:` reference; fix lookup semantics with independently verified config ID before retry.
+- Archive config YES, Podman local config NO → image import did not retain the pinned config ID; inspect Podman archive selection/remapping offline before a new import strategy. Do **not** alias a different image by tag.
+- Archive config NO → structural archive verification was not sufficient to demonstrate all five pinned image configs are included; stop and independently investigate archive provenance (no recapture solely from this finding).
+
+Source-only [CI #39027544892](https://github.com/MrFixITslu/V79hub/actions/runs/39027544892) PASS for both restore policy and new ID diagnostic tests. Existing [capture CI #39027544762](https://github.com/MrFixITslu/V79hub/actions/runs/39027544762) and [synthetic PG17 stream CI #39027544859](https://github.com/MrFixITslu/V79hub/actions/runs/39027544859) PASS. This is not a real Acer diagnostic result or release GO.
