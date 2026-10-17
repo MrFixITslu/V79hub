@@ -249,7 +249,10 @@ def run(root,mounts,db,resolved,selected):
         line("R1_PHASE","RESTORE_THREE_APP_DATA_MOUNTS_TO_RAM")
         extract_verified(root,selected,scratch)
         line("R1_PHASE","CREATE_NETWORK_NONE_POD")
-        quiet([*PD,"pod","create","--name",pod,"--network=none"],timeout=60)
+        # Reuse an exact already-local image for infra; never resolve/pull pause.
+        quiet([*PD,"pod","create","--name",pod,"--network=none",
+               "--infra-image",resolved["v79-hub-postgres"],
+               "--infra-command","/bin/sleep infinity"],timeout=60)
         infra=quiet([*PD,"pod","inspect",pod,"--format","{{.InfraContainerID}}"])
         need(infra!="","POD_INFRA_NOT_CREATED")
         mode=quiet([*PD,"inspect","--format","{{.HostConfig.NetworkMode}}",infra])
@@ -345,8 +348,11 @@ def run(root,mounts,db,resolved,selected):
                             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
         # Zeroize by removing RAM-only scratch recursively; no symlink members
         # can be extracted by source validator; exact scratch path unique.
+        # exists returns 1 for absence, 125 for a CLI/runtime error.
+        # Retain RAM data and leave swap off if teardown is uncertain.
+        need(left.returncode==1,"EPHEMERAL_POD_ABSENCE_NOT_VERIFIED")
         shutil.rmtree(scratch)
-        need(left.returncode!=0 and not scratch.exists(),
+        need(not scratch.exists(),
              "EPHEMERAL_RUNTIME_CLEANUP_NOT_VERIFIED")
         line("R1_EPHEMERAL_POD_AND_RAM_SCRATCH_REMOVED","PASS")
 def main():

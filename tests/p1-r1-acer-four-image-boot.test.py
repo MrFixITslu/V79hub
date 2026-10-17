@@ -87,6 +87,14 @@ class SafetyContractTests(unittest.TestCase):
                 with self.assertRaises(m.Stop):
                     m.inspect_no_net("r1-dummy")
 
+    def test_cleanup_cli_errors_do_not_authorize_ram_deletion(self):
+        src=SRC.read_text()
+        self.assertIn('need(left.returncode==1,',src)
+        self.assertLess(src.index('need(left.returncode==1,'),
+                        src.index('shutil.rmtree(scratch)'))
+        self.assertIn('"--infra-image",resolved["v79-hub-postgres"]',src)
+        self.assertIn('"--infra-command","/bin/sleep infinity"',src)
+
     def test_proof_and_ram_scratch_only(self):
         src=SRC.read_text()
         for x in (
