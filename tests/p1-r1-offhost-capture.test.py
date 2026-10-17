@@ -25,7 +25,7 @@ def fixture():
         "configs": {
             "hub": {"files": ["/opt/v79/hub/file-%d.yml" % i for i in range(13)] +
                     ["/opt/v79/hub/.env"],
-                    "digests": list(capture.HUB_COMPOSE_HASHES) + ["a" * 64],
+                    "digests": [x if x is not None else "e" * 64 for x in capture.HUB_COMPOSE_HASHES] + ["a" * 64],
                     "composeCount": 13},
             "tiquet": {"files": ["/opt/tiquet/docker-compose.yml", "/opt/tiquet/.env"],
                        "digests": ["b" * 64, "c" * 64], "composeCount": 1}
@@ -70,6 +70,13 @@ class OffhostTests(unittest.TestCase):
                 change(sample)
                 with self.assertRaises(capture.Abort):
                     capture.validate_plan(sample)
+
+    def test_missing_history_layer_six_requires_explicit_acknowledgment(self):
+        self.assertIsNone(capture.HUB_COMPOSE_HASHES[5])
+        plan = fixture()
+        capture.validate_plan(plan)
+        self.assertRegex(plan["configs"]["hub"]["digests"][5], r"^[0-9a-f]{64}$")
+        self.assertNotEqual(plan["configs"]["hub"]["digests"][5], plan["configs"]["hub"]["digests"][4])
 
     def test_command_quotes_remote_script_args(self):
         command = capture.ssh_command(["python3", "-B", "-", "a'$(echo danger)"])
