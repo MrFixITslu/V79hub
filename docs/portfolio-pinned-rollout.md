@@ -141,3 +141,31 @@ deployer continues recognizing the protected stack. The source generic guard als
 rejects older `v79-portfolio-rollout` frozen `.compose.json` paths; executable Bash
 guard regression tests cover both formats. Frozen model content remains JSON, which
 is also valid YAML; the real Compose CLI regression tests that file extension.
+
+## Accepted Tiquet public-permission repair continuation
+
+The next continuation uses `--continue-repaired-tiquet` instead of the earlier
+`--continue-run`. The owner-run diagnostic proved that the cached Tiquet
+`package.json` and `server/index.js` had root-owned mode 0600 and were unreadable
+by UID 100. The permission-only derivative
+`sha256:e9f093d93d12ff9793311c3d6f7d5248a3dc09ba79eb2a0a07e51d967c680c16`
+passed synthetic HTTP 200 and the unchanged production health probe on port 3050;
+synthetic resource cleanup and all five unchanged healthy original containers
+were confirmed. This is startup acceptance, not positive MFA/SSO/tenant acceptance.
+
+Keep the authenticated old checkpoint and its candidate map unchanged. The new
+mode selects a copy of that map and replaces only Tiquet with the exact accepted
+image ID. Before any switch, verify that immutable ID, the base image ID from the
+authenticated old manifest, both repair labels, identical image execution Config
+(except the two repair labels and non-runtime Image build metadata), and an exact
+base filesystem layer prefix. Existing source revision, runtime, environment,
+storage, network and rollback comparisons still apply. No build/import, database
+restore or fresh checkpoint capture occurs in the continuation.
+
+If a switch fails, project only fixed startup error categories, exit/OOM state
+and log byte count to safe evidence before removing the failed container. Raw
+logs are never printed or saved. Evidence collection failure never prevents image
+rollback. Both original app images remain available; rollback restores images
+and runtime settings only, not database or application data changes. After a
+successful rollout, full new portfolio backup and recovery/security acceptance
+are still required. Customer release remains NO_GO.

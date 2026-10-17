@@ -373,7 +373,7 @@ class CheckpointProofTests(unittest.TestCase):
                     r.continuation_proof(root)
 
 class ContinuationLifecycleTests(unittest.TestCase):
-    def exercise(self, failure=None):
+    def exercise(self, failure=None, repaired=False):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             old = root/'old'
@@ -394,13 +394,21 @@ class ContinuationLifecycleTests(unittest.TestCase):
                 files.add(n+'-original.compose.json')
             proof = {'files': {n: r.sha_file(old/n) for n in files}, 'candidates': ids,
                      'manifest_sha256': r.sha_file(old/'checkpoint/manifest.json')}
+            effective = dict(ids)
+            if repaired:
+                proof['tiquet_mode_repair'] = r.ACCEPTED_TIQUET_MODE_REPAIR
+                effective['v79-tiquet-manager'] = r.ACCEPTED_TIQUET_MODE_REPAIR
             if failure == 'integrity':
                 (old/'v79-hub-original.compose.json').write_text('{}')
             events = []; switches = []; output = []
             def fake_inspect(name, image=False):
                 if image:
-                    app = next(n for n in ids if ids[n] == name)
-                    return {'Id': name, 'Config': {'Labels': {'org.opencontainers.image.revision': r.SOURCES[app][1]}}}
+                    fixed = name == r.ACCEPTED_TIQUET_MODE_REPAIR
+                    app = 'v79-tiquet-manager' if fixed else next(n for n in ids if ids[n] == name)
+                    labels = {'org.opencontainers.image.revision': r.SOURCES[app][1]}
+                    if fixed:
+                        labels.update({'v79.public-source-modes':'git-v1', 'v79.mode-repair.base':ids[app]})
+                    return {'Id': name, 'Config': {'Labels': labels}, 'RootFS': {'Layers':['base','repair'] if fixed else ['base']}}
                 return copy.deepcopy(before[name])
             def fake_call(args, **kwargs):
                 events.append(args)
@@ -415,7 +423,7 @@ class ContinuationLifecycleTests(unittest.TestCase):
                     raise r.Stop('INJECTED_ROLLBACK_FAILURE')
             def fake_health(name, image):
                 value = copy.deepcopy(before[name]); value['Image'] = image
-                if failure == 'config' and image == ids[name]:
+                if failure == 'config' and image == effective[name]:
                     value['HostConfig']['Privileged'] = True
                 return value
             with patch.object(r, 'FAILED_RUN', old), \
@@ -433,6 +441,13 @@ class ContinuationLifecycleTests(unittest.TestCase):
                         r.continued_server_locked(run, old, proof)
                 else:
                     r.continued_server_locked(run, old, proof)
+            if repaired:
+                self.assertEqual(json.loads((old/'checkpoint/manifest.json').read_text())['candidates'], ids)
+                self.assertEqual(proof['candidates'], ids)
+                model=json.loads((run/'v79-tiquet-manager-candidate.pinned.yml').read_text())
+                self.assertEqual(model['services']['v79-tiquet-manager']['image'], r.ACCEPTED_TIQUET_MODE_REPAIR)
+                if not failure:
+                    self.assertEqual(json.loads((run/'release-receipt.json').read_text())['images'], effective)
             return events, switches, output
 
     def test_continuation_never_builds_stops_captures_or_imports(self):
@@ -463,6 +478,70 @@ class ContinuationLifecycleTests(unittest.TestCase):
         self.assertIn(('ROLLBACK', 'FAILED_MANUAL_RECOVERY_REQUIRED'), output)
         self.assertIn(('ROLLBACK', 'v79-hub_NOT_PROVEN_MANUAL_REVIEW_REQUIRED'), output)
 
+
+    def test_exact_repaired_image_is_used_without_rewriting_checkpoint(self):
+        events, switches, output=self.exercise(repaired=True)
+        self.assertIn(('RESULT','EXACT_SYNTHETICALLY_ACCEPTED_TIQUET_REPAIR_VERIFIED'),output)
+        self.assertIn(('RESULT','BOTH_APPS_DEPLOYED_HEALTHY'),output)
+        self.assertFalse(any(e[:2] in (['docker','build'],['docker','image'],['docker','cp'],['docker','stop']) for e in events))
+
+    def test_repaired_image_failure_still_rolls_back_both_originals(self):
+        _,switches,output=self.exercise('second',repaired=True)
+        self.assertEqual(switches[-2:],['v79-tiquet-manager-original.pinned.yml','v79-hub-original.pinned.yml'])
+        self.assertIn(('ROLLBACK','ORIGINAL_IMAGES_HEALTHY'),output)
+
+class RepairedCandidateTests(unittest.TestCase):
+    def fixture(self):
+        source='sha256:'+'b'*64
+        proof={'candidates':{'v79-hub':'sha256:'+'a'*64,'v79-tiquet-manager':source},'tiquet_mode_repair':r.ACCEPTED_TIQUET_MODE_REPAIR}
+        base={'Id':source,'Config':{'User':'appuser','Env':['EXAMPLE=public'],'Labels':{'org.opencontainers.image.revision':r.SOURCES['v79-tiquet-manager'][1]}},'RootFS':{'Layers':['layer1','layer2']}}
+        repaired=copy.deepcopy(base);repaired['Id']=r.ACCEPTED_TIQUET_MODE_REPAIR
+        repaired['Config']['Labels'].update({'v79.public-source-modes':'git-v1','v79.mode-repair.base':source})
+        repaired['RootFS']['Layers'].append('repair')
+        return proof,base,repaired
+
+    def test_unaccepted_id_rejected_without_queries(self):
+        proof,_,_=self.fixture();proof['tiquet_mode_repair']='sha256:'+'c'*64
+        with patch.object(r,'inspect') as inspect:
+            with self.assertRaisesRegex(r.Stop,'UNACCEPTED_TIQUET_REPAIR_IMAGE'):
+                r.effective_candidates(proof)
+            inspect.assert_not_called()
+
+    def test_runtime_security_or_environment_drift_rejected(self):
+        for field,value in [('User','root'),('Env',['EXAMPLE=changed']),('Volumes',{'/production':{}}),('Cmd',['other'])]:
+            proof,base,repaired=self.fixture();repaired['Config'][field]=value
+            with patch.object(r,'inspect',side_effect=[base,repaired]):
+                with self.assertRaisesRegex(r.Stop,'REPAIR_RUNTIME_DEFAULTS_CHANGED'):
+                    r.effective_candidates(proof)
+
+    def test_changed_base_provenance_rejected(self):
+        proof,base,repaired=self.fixture();repaired['Config']['Labels']['v79.mode-repair.base']='foreign'
+        with patch.object(r,'inspect',side_effect=[base,repaired]):
+            with self.assertRaisesRegex(r.Stop,'REPAIR_PROVENANCE_CHANGED'):
+                r.effective_candidates(proof)
+
+    def test_changed_base_layers_rejected(self):
+        proof,base,repaired=self.fixture();repaired['RootFS']['Layers']=['foreign','repair']
+        with patch.object(r,'inspect',side_effect=[base,repaired]):
+            with self.assertRaisesRegex(r.Stop,'REPAIR_BASE_LAYERS_CHANGED'):
+                r.effective_candidates(proof)
+
+    def test_failure_evidence_is_projected_before_rollback_without_raw_output(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);output=[]
+            row={'Image':r.ACCEPTED_TIQUET_MODE_REPAIR,'State':{'ExitCode':1,'OOMKilled':False}}
+            proc=SimpleNamespace(returncode=0,stdout=b'password=PRIVATE_DATA EACCES')
+            with patch.object(r,'inspect',return_value=row),patch.object(r.subprocess,'run',return_value=proc),patch.object(r,'emit',side_effect=lambda k,v:output.append((k,v))):
+                r.capture_failed_startup(root,'v79-tiquet-manager',r.ACCEPTED_TIQUET_MODE_REPAIR)
+            report=(root/'v79-tiquet-manager-failed-startup-safe.json').read_text()
+            self.assertNotIn('PRIVATE',report+json.dumps(output))
+            self.assertIn('FILESYSTEM_PERMISSION',report)
+
+    def test_failure_evidence_error_cannot_prevent_rollback(self):
+        with patch.object(r,'inspect',side_effect=RuntimeError('PRIVATE')),patch.object(r,'emit') as emit:
+            r.capture_failed_startup(Path('/unused'),'v79-tiquet-manager',r.ACCEPTED_TIQUET_MODE_REPAIR)
+            emit.assert_called_once_with('RESULT','v79-tiquet-manager_STARTUP_EVIDENCE_UNAVAILABLE')
 
 class PublicCheckoutTests(unittest.TestCase):
     def test_private_umask_checkout_becomes_public_without_exposing_private_files(self):

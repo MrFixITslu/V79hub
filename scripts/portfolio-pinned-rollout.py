@@ -531,6 +531,62 @@ def check_original_inputs():
             need(path.is_file() and not path.is_symlink() and sha_file(path) == entry['sha256'],
                  'ORIGINAL_COMPOSE_INPUT_CHANGED')
 
+# Owner-run synthetic acceptance, 2026-10-17: HTTP 200, frozen probe 0,
+# isolated cleanup PASS, five original live containers unchanged/healthy.
+ACCEPTED_TIQUET_MODE_REPAIR = 'sha256:e9f093d93d12ff9793311c3d6f7d5248a3dc09ba79eb2a0a07e51d967c680c16'
+
+def effective_candidates(proof):
+    result = dict(proof['candidates'])
+    if 'tiquet_mode_repair' not in proof:
+        return result
+    repaired_id = proof['tiquet_mode_repair']
+    need(repaired_id == ACCEPTED_TIQUET_MODE_REPAIR, 'UNACCEPTED_TIQUET_REPAIR_IMAGE')
+    base_id = result['v79-tiquet-manager']
+    base = inspect(base_id, image=True)
+    repaired = inspect(repaired_id, image=True)
+    need(base['Id'] == base_id and repaired['Id'] == repaired_id, 'REPAIR_IMAGE_ID_CHANGED')
+    old = copy.deepcopy(base['Config']); new = copy.deepcopy(repaired['Config'])
+    old.pop('Image', None); new.pop('Image', None)
+    old['Labels'] = dict(old.get('Labels') or {})
+    labels = dict(new.get('Labels') or {})
+    need(labels.pop('v79.public-source-modes', None) == 'git-v1' and
+         labels.pop('v79.mode-repair.base', None) == base_id, 'REPAIR_PROVENANCE_CHANGED')
+    new['Labels'] = labels
+    need(old == new and not new.get('Volumes'), 'REPAIR_RUNTIME_DEFAULTS_CHANGED')
+    layers = base.get('RootFS', {}).get('Layers', [])
+    derived = repaired.get('RootFS', {}).get('Layers', [])
+    need(layers and len(derived) > len(layers) and derived[:len(layers)] == layers, 'REPAIR_BASE_LAYERS_CHANGED')
+    result['v79-tiquet-manager'] = repaired_id
+    emit('RESULT', 'EXACT_SYNTHETICALLY_ACCEPTED_TIQUET_REPAIR_VERIFIED')
+    return result
+
+def capture_failed_startup(run, name, expected_image):
+    # Best effort evidence never prevents rollback and never forwards log bodies.
+    try:
+        row = inspect(name)
+        need(row['Image'] == expected_image, 'FAILED_CANDIDATE_NOT_PRESENT')
+        state = row.get('State', {})
+        proc = subprocess.run(['docker', 'logs', '--tail', '100', name],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15, env=clean_env())
+        need(proc.returncode == 0, 'FAILED_CANDIDATE_LOG_QUERY_FAILED')
+        text = proc.stdout.decode('utf8', 'replace')
+        rules = {'FILESYSTEM_PERMISSION': r'\b(?:EACCES|EPERM)\b|permission denied',
+                 'DATABASE_AUTH': r'28P01|password authentication failed',
+                 'DATABASE_CONNECT': r'ECONNREFUSED|ENOTFOUND|ETIMEDOUT',
+                 'SCHEMA_ERROR': r'42703|42P01|42830|42501|42601',
+                 'MISSING_MODULE': r'ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|Cannot find package',
+                 'NATIVE_MODULE': r'ERR_DLOPEN_FAILED|NODE_MODULE_VERSION|invalid ELF',
+                 'ADDRESS_IN_USE': r'EADDRINUSE'}
+        categories = sorted(k for k, pattern in rules.items() if re.search(pattern, text, re.I)) or ['UNCLASSIFIED']
+        private_json(run/(name+'-failed-startup-safe.json'),
+                     {'image': expected_image, 'categories': categories, 'captured_output_bytes': len(proc.stdout),
+                      'running': bool(state.get('Running')), 'exit_code': state.get('ExitCode'),
+                      'oom_killed': bool(state.get('OOMKilled'))})
+        emit('RESULT', name+'_STARTUP_'+'_'.join(categories))
+    except Exception:
+        emit('RESULT', name+'_STARTUP_EVIDENCE_UNAVAILABLE')
+
+
 def continued_server_locked(run, old, proof):
     need(old == FAILED_RUN and old.is_dir() and not old.is_symlink(), 'CONTINUATION_RUN_INVALID')
     need((old / 'exit-code').read_text().strip() == '1', 'PREVIOUS_RUN_NOT_FAILED_COMPLETE')
@@ -545,6 +601,7 @@ def continued_server_locked(run, old, proof):
     need(manifest['candidates'] == proof['candidates'] and set(proof['candidates']) == set(PINNED),
          'CANDIDATE_PROOF_CHANGED')
     need(manifest['source_images'] == {n: p['image_id'] for n, p in PINNED.items()}, 'SOURCE_IMAGES_CHANGED')
+    candidates = effective_candidates(proof)
     baseline = json.loads((old / 'runtime-before.json').read_text())
     check_original_inputs()
     emit('PHASE', 'VERIFY_RESTORED_ORIGINALS_AND_CACHED_CANDIDATES')
@@ -555,7 +612,7 @@ def continued_server_locked(run, old, proof):
         need(row['Image'] == pin['image_id'] and row['State'].get('Health', {}).get('Status') == 'healthy',
              'ORIGINAL_APP_NOT_HEALTHY')
         need(fingerprint(row) == fingerprint(baseline[name]), 'ORIGINAL_RUNTIME_DRIFT')
-        candidate_id = proof['candidates'][name]
+        candidate_id = candidates[name]
         need(IMAGE.fullmatch(candidate_id), 'CANDIDATE_ID_INVALID')
         image = inspect(candidate_id, image=True)
         need(image['Id'] == candidate_id and
@@ -591,12 +648,16 @@ def continued_server_locked(run, old, proof):
             # Arm rollback before up. No builds, captures, imports or data restores.
             emit('PHASE', 'SWITCH_' + name.replace('-', '_').upper())
             changed.append(name)
-            up(plans[name][1], pin)
-            current = health(name, proof['candidates'][name])
-            need(fingerprint(current) == fingerprint(before[name]), 'RUNTIME_CONFIGURATION_CHANGED')
+            try:
+                up(plans[name][1], pin)
+                current = health(name, candidates[name])
+                need(fingerprint(current) == fingerprint(before[name]), 'RUNTIME_CONFIGURATION_CHANGED')
+            except BaseException:
+                capture_failed_startup(run, name, candidates[name])
+                raise
             emit('DEPLOYED', name + '_HEALTHY_CONFIGURATION_PRESERVED')
         same_others(before, set(PINNED))
-        private_json(run / 'release-receipt.json', {'images': proof['candidates'], 'sources': SOURCES,
+        private_json(run / 'release-receipt.json', {'images': candidates, 'sources': SOURCES,
                      'checkpoint': 'PRE_FIRST_ATTEMPT_REUSED', 'health': 'PASS_BOTH',
                      'security_acceptance': 'NOT_PERFORMED'})
         success = True
@@ -620,9 +681,11 @@ def continued_server_locked(run, old, proof):
             call(['systemctl', '--user', 'start', *timers])
             emit('PRESERVED', 'ORIGINALLY_ACTIVE_USER_TIMERS_RESUMED')
 
-def acer_continue():
+def acer_continue(repaired_tiquet=False):
     need(socket.gethostname() != 'v79sl' and os.getuid() != 0, 'RUN_ON_NON_ROOT_ACER')
     proof = continuation_proof(VERIFIED_CHECKPOINT)
+    if repaired_tiquet:
+        proof['tiquet_mode_repair'] = ACCEPTED_TIQUET_MODE_REPAIR
     encoded = base64.b64encode(json.dumps(proof).encode()).decode()
     directory = remote(['mktemp', '-d', '/home/firelion/v79-portfolio-rollout.XXXXXXXX']).decode().strip()
     need(re.fullmatch(r'/home/firelion/v79-portfolio-rollout\.[A-Za-z0-9]{8}', directory), 'REMOTE_DIRECTORY_INVALID')
@@ -636,13 +699,14 @@ def acer_continue():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', nargs=2, metavar=('DIRECTORY', 'PUBLIC_KEY_BASE64'))
+    parser.add_argument('--continue-repaired-tiquet', action='store_true', help='Continue with the exact owner-tested Tiquet public-mode repair and cached Hub image')
     parser.add_argument('--continue-run', action='store_true', help='Continue the specifically diagnosed failed run with cached candidates and its existing verified checkpoint')
     parser.add_argument('--server-continue', nargs=3, metavar=('DIRECTORY', 'OLD_DIRECTORY', 'PROOF_BASE64'))
     parser.add_argument('--resume', help='Monitor an existing remote run; never start another deployment')
     args = parser.parse_args()
-    if args.continue_run:
-        need(not args.server and not args.server_continue and not args.resume, 'CONFLICTING_MODES')
-        acer_continue()
+    if args.continue_run or args.continue_repaired_tiquet:
+        need(not (args.continue_run and args.continue_repaired_tiquet) and not args.server and not args.server_continue and not args.resume, 'CONFLICTING_MODES')
+        acer_continue(repaired_tiquet=args.continue_repaired_tiquet)
         return 0
     if args.resume:
         need(not args.server and not args.server_continue and re.fullmatch(r'/home/firelion/v79-portfolio-rollout\.[A-Za-z0-9]{8}', args.resume), 'RESUME_DIRECTORY_INVALID')
