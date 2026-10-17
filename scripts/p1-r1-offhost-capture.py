@@ -161,8 +161,10 @@ def pins():
 def probe():
     arg = json.dumps(pins(), separators=(",", ":"))
     p = subprocess.run(ssh_command(["python3", "-B", "-", arg]), input=REMOTE_PROBE.encode(),
-                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=100)
-    require(p.returncode == 0, "REMOTE_PLAN_UNAVAILABLE_OR_DRIFT")
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=100)
+    if p.returncode:
+        safe_codes = re.findall(r"STOP=([A-Z0-9_]+)", p.stderr.decode("utf-8", "replace")[:2048])
+        raise Abort("REMOTE_" + safe_codes[-1] if safe_codes else "REMOTE_PLAN_UNAVAILABLE_OR_DRIFT")
     try:
         result = json.loads(p.stdout)
     except ValueError:
