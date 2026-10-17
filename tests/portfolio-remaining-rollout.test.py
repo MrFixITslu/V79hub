@@ -63,7 +63,7 @@ class LifecycleTests(unittest.TestCase):
                 result=copy.deepcopy(live[name])
                 if failure=='runtime' and image==images[name]:result['HostConfig']['Privileged']=True
                 return result
-            with patch.object(s,'frozen_candidates',return_value=plans),patch.object(s,'check_plan',return_value=(before,{})),patch.object(r,'call',side_effect=call), \
+            with patch.object(s,'frozen_candidates',return_value=plans),patch.object(s,'check_plan',return_value=(before,{})),patch.object(s,'check_shared_releases',side_effect=r.Stop('SHARED_RELEASE_HEALTH_CHANGED') if failure=='shared' else None),patch.object(r,'call',side_effect=call), \
                  patch.object(r,'encrypted_stream',side_effect=encrypted),patch.object(r,'active_timers',return_value=['v79-workforce-task.timer']), \
                  patch.object(r,'timers_idle'),patch.object(r,'up',side_effect=up),patch.object(s,'wait_service',side_effect=wait), \
                  patch.object(r,'same_others'),patch.object(p,'pos_migrations',return_value={'status':'PASS'}), \
@@ -97,6 +97,8 @@ class LifecycleTests(unittest.TestCase):
     def test_every_switch_failure_restores_changed_and_unswitched_originals(self):
         for n in s.SWITCH_ORDER:
             with self.subTest(service=n):self.exercise(n)
+
+    def test_shared_release_health_regression_restores_all_selected_originals(self):self.exercise('shared')
 
     def test_runtime_security_drift_forces_rollback(self):self.exercise('runtime')
 

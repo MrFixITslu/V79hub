@@ -72,6 +72,10 @@ def check_plan(r,p):
         need(model==r.original_model(row,pin),'ACCEPTED_COMPOSE_PLAN_CHANGED')
         models[name]=model
     need(p.pos_migrations(r)['status']=='PASS','POS_MIGRATION_HISTORY_CHANGED')
+    check_shared_releases(r,p)
+    return baseline,models
+
+def check_shared_releases(r,p):
     receipt=private_read(p.ACCEPTED_RUN/'release-receipt.json')
     for name in ('v79-hub','v79-tiquet-manager'):
         row=r.inspect(name)
@@ -80,7 +84,7 @@ def check_plan(r,p):
         row=r.inspect(name)
         need(row['Image']==image and row['State'].get('Running') is True,'DEPENDENCY_IMAGE_OR_STATE_CHANGED')
         if name!='v79_academy_postgres':need(row['State'].get('Health',{}).get('Status')=='healthy','DEPENDENCY_UNHEALTHY')
-    return baseline,models
+
 
 def check_pos_environment(row):
     env=dict(x.split('=',1) for x in row['Config'].get('Env',[]) if '=' in x)
@@ -247,6 +251,7 @@ def checkpoint_and_switch(r,p,run,before,models,images,key,all_before):
                 r.capture_failed_startup(run,name,images[name]);raise
             r.emit('DEPLOYED',name+('_STABLE_PROCESS_DB_VERIFIED_RUNTIME_PRESERVED' if name=='v79-pos-worker' else '_HEALTHY_CONFIGURATION_PRESERVED'))
         r.same_others(all_before,set(p.PINS))
+        check_shared_releases(r,p)
         need(p.pos_migrations(r)['status']=='PASS','POS_MIGRATION_HISTORY_CHANGED')
         r.private_json(run/'release-receipt.json',{'images':images,'sources':p.SOURCES,'health':'PASS_THREE_APPS',
                         'pos_worker':'STABLE_PROCESS_READ_ONLY_DATABASE_PASS_JOB_DELIVERY_NOT_TESTED',
