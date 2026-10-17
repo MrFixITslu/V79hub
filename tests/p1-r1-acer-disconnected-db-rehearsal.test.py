@@ -92,6 +92,27 @@ class R1SyntheticSafetyTests(unittest.TestCase):
         self.assertTrue(any(a.startswith("POSTGRES_PASSWORD=") for a in args))
         self.assertNotIn("v79sl",str(args))
 
+    def test_effective_inspect_denies_network_ports_and_unencrypted_persistent_mounts(self):
+        base={
+            "HostConfig":{
+                "NetworkMode":"none","PortBindings":None,
+                "Tmpfs":{"/var/lib/postgresql/data":"rw,size=1073741824,mode=0700"}},
+            "Mounts":[{"Type":"tmpfs","Destination":"/var/lib/postgresql/data"}]}
+        with mock.patch.object(m,"silent_run",return_value=json.dumps([base])):
+            m.assert_disconnected_tmpfs_container("synthetic")
+        for mutate in (
+            lambda x:x["HostConfig"].update(NetworkMode="bridge"),
+            lambda x:x["HostConfig"].update(PortBindings={"5432/tcp":[{"HostPort":"5432"}]}),
+            lambda x:x["HostConfig"].update(Tmpfs={}),
+            lambda x:x["Mounts"].append({"Type":"volume","Destination":"/var/lib/postgresql/data"}),
+            lambda x:x["Mounts"].append({"Type":"bind","Destination":"/run/secrets/live"}),
+        ):
+            sample=json.loads(json.dumps(base))
+            mutate(sample)
+            with mock.patch.object(m,"silent_run",return_value=json.dumps([sample])):
+                with self.assertRaises(m.Stop):
+                    m.assert_disconnected_tmpfs_container("synthetic")
+
     def test_preflight_enforces_rootless_acer_and_no_ssh(self):
         code=SOURCE.read_text()
         self.assertNotIn("ssh_command",code)
