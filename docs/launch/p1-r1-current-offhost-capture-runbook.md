@@ -129,3 +129,28 @@ Decision matrix:
 - Archive config NO → structural archive verification was not sufficient to demonstrate all five pinned image configs are included; stop and independently investigate archive provenance (no recapture solely from this finding).
 
 Source-only [CI #39027544892](https://github.com/MrFixITslu/V79hub/actions/runs/39027544892) PASS for both restore policy and new ID diagnostic tests. Existing [capture CI #39027544762](https://github.com/MrFixITslu/V79hub/actions/runs/39027544762) and [synthetic PG17 stream CI #39027544859](https://github.com/MrFixITslu/V79hub/actions/runs/39027544859) PASS. This is not a real Acer diagnostic result or release GO.
+
+
+## 17 October — first read-only image-ID diagnosis: all five pinned IDs disagree
+
+Founder ran exact pinned source blob `fa893ccb4487ec9f8545d81fda1730c0d1f95637` at reviewed Git head `6b7647d272460349ec6901e9dd5aa8e5d5a82ec8` against existing original Acer backup, **no restore**. Actual result:
+
+```
+SOURCE_INTEGRITY=PASS
+R1_HUB_APP|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_TIQUET_APP|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_HUB_POSTGRES|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_TIQUET_POSTGRES|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_HUB_ROLLBACK|ARCHIVE_CONFIG=NO|PODMAN_CONFIG=NO|PIN_LOOKUP=NO
+R1_ARCHIVE_CONFIG_IDS_MATCH=0/5
+R1_LOCAL_CONFIG_IDS_MATCH=0/5
+R1_SHA_PIN_LOOKUPS=0/5
+R1_LOCAL_IMAGE_RECORDS=5
+R1_DATABASE_RESTORE=NOT_RUN
+R1_PRODUCTION_CONNECTION=NONE
+R1_RELEASE_GATE=NO_GO
+```
+
+The result **rules out merely one failed Podman SHA lookup**. Docker image identities come from hashed image config JSON, and neither archive manifest `Config` names nor local rootless Podman inventory reported the five recorded production image IDs. At present neither successful image restoration nor a corrupt/tampered backup can be inferred. Keep **R1 image provenance BLOCKED** and the previously verified 14 ciphertext integrity/format receipts preserved; image-tar structural validity alone does not prove the five intended images are in it.
+
+The *second read-only diagnostic*, updating `scripts/p1-r1-acer-image-id-diagnostic.py`, compares: (a) pinned manifest `images` and `rollbackHub`, (b) four original GPG-encrypted `runtime-inspect.json.gpg` image IDs captured by Docker, (c) Docker archive `manifest.json` config image IDs, (d) Podman's local image `Id` fields. All sensitive saved inspect JSON stays in bounded process memory; archive ciphertext hash/size independently checked; never prints raw inspect, tags, labels, environment, secrets or unknown hashes. It emits only per-role known-ID YES/NO plus three-way intersection counts. No `podman load`, tag/import/pull, container startup, production access or new backup capture. Stop for any source drift or mismatch. Final restore runner `--execute` must **not** be retried before provenance reconciliation and independent review.
