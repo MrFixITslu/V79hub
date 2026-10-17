@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+from types import SimpleNamespace
 
 SOURCE = Path(__file__).resolve().parents[1] / "scripts/p1-r1-acer-disconnected-db-rehearsal.py"
 spec = importlib.util.spec_from_file_location("acer_r1_dbrestore_under_test", SOURCE)
@@ -113,6 +114,51 @@ class R1SyntheticSafetyTests(unittest.TestCase):
                 with self.assertRaises(m.Stop):
                     m.assert_disconnected_tmpfs_container("synthetic")
 
+    def test_exact_oci_index_mapping_used_without_importing_images(self):
+        # Different cryptographic OCI INDEX ids vs locally cached CONFIG IDs.
+        values=list(m.IMAGES.values())+[m.ROLLBACK]
+        indexes=[v.removeprefix("sha256:") for v in values]
+        configs=[format(i+1, "064x") for i in range(5)]
+        remap=dict(zip(indexes,configs))
+        proof=SimpleNamespace(prep=lambda root:self.root/"encrypted",
+                              stream_proof=lambda archive,return_mapping=False:remap)
+        spec=SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _p:None))
+        inventory=json.dumps([{"Id":"sha256:"+c} for c in configs])
+        with mock.patch.object(m.importlib.util,"spec_from_file_location",return_value=spec), \
+             mock.patch.object(m.importlib.util,"module_from_spec",return_value=proof), \
+             mock.patch.object(m,"silent_run",return_value=inventory), \
+             mock.patch.object(m,"local_image_exists",return_value=True):
+            resolved=m.prove_and_resolve_saved_images(self.root)
+        self.assertEqual(resolved["v79-hub-postgres"],"sha256:"+configs[2])
+        self.assertEqual(resolved["tiquet-postgres"],"sha256:"+configs[3])
+        self.assertNotEqual(resolved["v79-hub-postgres"],m.IMAGES["v79-hub-postgres"])
+
+    def test_missing_pin_cache_or_addressability_fails_closed(self):
+        values=list(m.IMAGES.values())+[m.ROLLBACK]
+        pins=[v.removeprefix("sha256:") for v in values]
+        configs=[format(i+1,"064x") for i in range(5)]
+        expected=dict(zip(pins,configs))
+        spec=SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _p:None))
+        for reason in ("missing-pin","missing-local","not-addressable"):
+            with self.subTest(reason=reason):
+                mapping=dict(expected)
+                if reason=="missing-pin":
+                    mapping.pop(pins[0])
+                proof=SimpleNamespace(prep=lambda root:self.root/"ciphertext",
+                                      stream_proof=lambda archive,return_mapping=False:mapping)
+                inventory=[{"Id":"sha256:"+c} for c in
+                           (configs[:4] if reason=="missing-local" else configs)]
+                with mock.patch.object(m.importlib.util,"spec_from_file_location",
+                                       return_value=spec), \
+                     mock.patch.object(m.importlib.util,"module_from_spec",
+                                       return_value=proof), \
+                     mock.patch.object(m,"silent_run",
+                                       return_value=json.dumps(inventory)), \
+                     mock.patch.object(m,"local_image_exists",
+                                       return_value=reason!="not-addressable"):
+                    with self.assertRaises(m.Stop):
+                        m.prove_and_resolve_saved_images(self.root)
+
     def test_preflight_enforces_rootless_acer_and_no_ssh(self):
         code=SOURCE.read_text()
         self.assertNotIn("ssh_command",code)
@@ -123,6 +169,10 @@ class R1SyntheticSafetyTests(unittest.TestCase):
         self.assertIn("REMOTE_CONTAINER_CONTEXT_REFUSED",code)
         self.assertIn('PODMAN, "rm", "-f", name',code)
         self.assertIn('R1_CUSTOMER_RELEASE=NO_GO',code)
+        self.assertIn('prove_and_resolve_saved_images(root)',code)
+        self.assertIn('R1_ORIGINAL_OCI_PIN_TO_LOCAL_CONFIG_IDS=PASS_5_OF_5',code)
+        self.assertNotIn('"load"',code)
+        self.assertNotIn('"pull"',code)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
