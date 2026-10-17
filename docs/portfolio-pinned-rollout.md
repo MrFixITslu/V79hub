@@ -200,3 +200,52 @@ acceptance. Later deployment must checkpoint the remaining applications/data,
 verify candidate execution compatibility and any required migrations, preserve
 runtime and all unrelated services, and verify rollback. Full post-deployment
 portfolio backup/recovery and owner MFA/SSO/tenant/security acceptance remain due.
+
+## Remaining applications: guarded rollout after successful preflight
+
+Owner preflight passed in `/home/firelion/v79-remaining-plan.by50q9w3`: all four
+app/worker runtime models matched; POS had exactly the expected baseline migration
+with no pending, unknown, unfinished or checksum-divergent entries. Hub/Tiquet
+remained deployed healthy. POS worker business-job readiness was not proven.
+
+`scripts/portfolio-remaining-rollout.py` runs on Acer, obtains two immutable
+Git-blob-verified modules from commit `0cf1fad981d59ab1269ff9133472062e7587ccfb`,
+transfers only the public helper/modules and recovery public key to a fresh private
+server run, and starts a detached worker under the existing host lock. Resume only
+monitors that run. SSH loss does not abandon rollback. No production secrets are
+printed or transferred to Acer except within encrypted checkpoint artifacts.
+
+Revalidate accepted plans, original images/container IDs/runtime, Compose inputs,
+current Hub/Tiquet release and POS migration history. Reject missing/placeholder
+required POS production credentials rather than introducing new defaults. Build
+three exact source commits sequentially with normalized tracked public file modes;
+POS API/worker share one newly built image. Before downtime, disposable rootfs-read-
+only, network-none, no-mount/no-secret probes verify code readability under the
+original execution user and executable entrypoint availability. Reject unreviewed
+new image execution defaults or environment keys. Revalidate after long builds.
+
+The fresh encrypted **remaining-app prechange checkpoint** includes original app
+and database/Redis images, both POS and Academy PostgreSQL logical dumps, a streamed
+Redis RDB snapshot, the four apps' mounted content (including original token mounts
+only inside encrypted archives), full runtime metadata and original frozen models.
+Plaintext dump/archive data flows through pipes into GPG. This is not a complete
+post-deployment portfolio backup, a consistent snapshot of every other application,
+or restore acceptance. No database migration is performed because none is pending.
+Databases, Redis and unrelated containers are never recreated or reconfigured.
+
+Stop POS worker/API and Academy/Games only after all builds and probes pass.
+Capture the checkpoint, then switch API, worker, Academy and Games one service at a
+time with `--no-deps --no-build --pull never`. Verify actual app health and full
+normalized runtime parity. For the worker, require stable running, the actual Node
+worker process and a read-only Prisma transaction executing `SELECT 1`, using its
+actual in-container process environment. This does not trigger a job or establish
+business-job delivery acceptance. Capture redacted failure evidence before removal.
+
+On any failure, restore changed originals in reverse order and restart every
+stopped-but-unswitched original. Verify runtime and health/process state, report
+individual failures, and resume originally active user timers. Image rollback does
+not restore data/schema. The original recovery set and preceding Hub/Tiquet
+checkpoint are untouched. After worker completion, Acer copies the fresh encrypted
+checkpoint and verifies hashes plus full GPG decryption without plaintext files;
+mark restore not tested. New full-portfolio backup, isolated restore/rollback and
+positive owner MFA/SSO/tenant/security acceptance remain due. Customer NO_GO stays.
