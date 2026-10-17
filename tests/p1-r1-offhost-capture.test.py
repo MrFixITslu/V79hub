@@ -94,7 +94,7 @@ class OffhostTests(unittest.TestCase):
         # probe. Synthetic Docker inspect rows; never connect to the server.
         probe = capture.REMOTE_PROBE
         start = probe.index("def mounts(container,name):")
-        stop = probe.index("\\ntry:\\n if os.uname()", start) if False else probe.index("\ntry:\n if os.uname()", start)
+        stop = probe.index("\ntry:\n if os.uname()", start)
         scope = {"pathlib": __import__("pathlib")}
         exec(compile(probe[start:stop], "<isolated-remote-mount-function>", "exec"), scope)
         mounts = scope["mounts"]
