@@ -127,7 +127,7 @@ class ActualComposeSerializationTests(unittest.TestCase):
         model = {'services': {'api': {'image': 'busybox:stable',
                   'environment': r.compose_literal(original), 'command': r.compose_literal(command)}}}
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp)/'frozen.json'
+            path = Path(tmp)/'frozen.pinned.yml'
             r.private_json(path, model)
             actual = json.loads(r.call(r.compose(path, 'synthetic', 'config', '--format', 'json')))
             self.assertEqual(r.compose_runtime(actual['services']['api']['environment']), original)
@@ -273,6 +273,194 @@ class LifecycleTests(unittest.TestCase):
         self.assertIn(('RESULT', 'BOTH_APPS_DEPLOYED_HEALTHY'), output)
         self.assertNotIn(('ROLLBACK', 'ORIGINAL_IMAGES_HEALTHY'), output)
         self.assertIn(('CUSTOMER_RELEASE', 'NO_GO'), output)
+
+class MountOrderingRegressionTests(unittest.TestCase):
+    def sample(self):
+        original = row('v79-hub')
+        original['HostConfig'].update({
+            'Binds': ['/host/data:/app/data:rw', '/host/key:/run/key:ro'],
+            'Mounts': [{'Type': 'bind', 'Source': '/host/reports', 'Target': '/run/reports', 'ReadOnly': True,
+                        'BindOptions': {'Propagation': 'rprivate'}},
+                       {'Type': 'volume', 'Source': 'uploads', 'Target': '/app/uploads', 'ReadOnly': False}]})
+        return original
+
+    def test_real_reported_binds_and_mounts_order_only_is_equal(self):
+        original = self.sample()
+        changed = copy.deepcopy(original)
+        changed['HostConfig']['Binds'].reverse()
+        changed['HostConfig']['Mounts'].reverse()
+        self.assertEqual(r.fingerprint(original), r.fingerprint(changed))
+        # Canonicalization must not mutate the captured evidence.
+        self.assertNotEqual(original['HostConfig']['Binds'], changed['HostConfig']['Binds'])
+
+    def test_full_mount_specs_remain_checked_after_reordering(self):
+        original = self.sample()
+        for field, value in [('Source', '/wrong'), ('Target', '/different'), ('ReadOnly', False),
+                             ('Type', 'volume'), ('BindOptions', {'Propagation': 'rshared'})]:
+            changed = copy.deepcopy(original)
+            changed['HostConfig']['Mounts'][0][field] = value
+            changed['HostConfig']['Mounts'].reverse()
+            self.assertNotEqual(r.fingerprint(original), r.fingerprint(changed), field)
+        for value in ['/wrong:/app/data:rw', '/host/data:/different:rw', '/host/data:/app/data:ro']:
+            changed = copy.deepcopy(original)
+            changed['HostConfig']['Binds'][0] = value
+            self.assertNotEqual(r.fingerprint(original), r.fingerprint(changed))
+
+    def test_duplicate_destinations_are_rejected(self):
+        for field, value in [('Binds', ['/a:/same:rw', '/b:/same:rw']),
+                             ('Mounts', [{'Type': 'bind', 'Source': '/a', 'Target': '/same'},
+                                         {'Type': 'bind', 'Source': '/b', 'Target': '/same'}])]:
+            original = row('v79-hub')
+            original['HostConfig'][field] = value
+            with self.assertRaisesRegex(r.Stop, 'AMBIGUOUS_MOUNT_DESTINATIONS'):
+                r.fingerprint(original)
+
+    def test_unrelated_list_order_is_not_ignored(self):
+        original = self.sample()
+        original['HostConfig']['DnsSearch'] = ['first.example', 'second.example']
+        changed = copy.deepcopy(original)
+        changed['HostConfig']['DnsSearch'].reverse()
+        self.assertNotEqual(r.fingerprint(original), r.fingerprint(changed))
+
+class CheckpointProofTests(unittest.TestCase):
+    def fixture(self, root, symlink=False):
+        import io
+        import tarfile
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode='w') as tar:
+            for name in ['runtime-before.json', *[n+'-original.compose.json' for n in r.PINNED]]:
+                info = tarfile.TarInfo(name)
+                data = b'{"synthetic":true}'
+                info.size = len(data)
+                if symlink:
+                    info.type = tarfile.SYMTYPE
+                    info.linkname = '/unreviewed'
+                tar.addfile(info, io.BytesIO(data))
+        artifact = root/'runtime-and-config.tar.gpg'
+        artifact.write_bytes(b'synthetic-ciphertext')
+        manifest = {'files': [{'name': artifact.name, 'sha256': r.sha_file(artifact)}],
+                    'source_images': {n: p['image_id'] for n, p in r.PINNED.items()},
+                    'candidates': {n: 'sha256:'+'b'*64 for n in r.PINNED}}
+        r.private_json(root/'manifest.json', manifest)
+        return archive.getvalue()
+
+    def test_proof_is_derived_from_decrypted_offhost_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = self.fixture(root)
+            with patch.object(r, 'call', return_value=archive):
+                proof = r.continuation_proof(root)
+            self.assertEqual(len(proof['files']), 3)
+            self.assertEqual(proof['manifest_sha256'], r.sha_file(root/'manifest.json'))
+
+    def test_changed_ciphertext_stops_before_decryption_or_remote_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root/'runtime-and-config.tar.gpg').write_bytes(b'changed')
+            with patch.object(r, 'call') as call:
+                with self.assertRaisesRegex(r.Stop, 'OFFHOST_CONFIG_CIPHERTEXT_CHANGED'):
+                    r.continuation_proof(root)
+                call.assert_not_called()
+
+    def test_symlink_archive_member_is_rejected_without_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = self.fixture(root, symlink=True)
+            with patch.object(r, 'call', return_value=archive):
+                with self.assertRaisesRegex(r.Stop, 'CONFIG_ARCHIVE_UNEXPECTED_MEMBER'):
+                    r.continuation_proof(root)
+
+class ContinuationLifecycleTests(unittest.TestCase):
+    def exercise(self, failure=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = root/'old'
+            run = root/'new'
+            old.mkdir(); run.mkdir(); (old/'checkpoint').mkdir()
+            (old/'exit-code').write_text('1')
+            before = {n: row(n, p['image_id']) for n, p in r.PINNED.items()}
+            before['database'] = row('database')
+            r.private_json(old/'runtime-before.json', before)
+            ids = {n: 'sha256:' + ch*64 for n, ch in zip(r.PINNED, ('b', 'c'))}
+            manifest = {'source_images': {n: p['image_id'] for n, p in r.PINNED.items()}, 'candidates': ids}
+            r.private_json(old/'checkpoint/manifest.json', manifest)
+            files = {'runtime-before.json'}
+            for n in r.PINNED:
+                model = {'services': {n: {'image': before[n]['Image'], 'environment': r.envmap(before[n]['Config']['Env']),
+                                         'networks': {'private': {}}}}, 'networks': {'private': {'name': 'private'}}}
+                r.private_json(old/(n+'-original.compose.json'), model)
+                files.add(n+'-original.compose.json')
+            proof = {'files': {n: r.sha_file(old/n) for n in files}, 'candidates': ids,
+                     'manifest_sha256': r.sha_file(old/'checkpoint/manifest.json')}
+            if failure == 'integrity':
+                (old/'v79-hub-original.compose.json').write_text('{}')
+            events = []; switches = []; output = []
+            def fake_inspect(name, image=False):
+                if image:
+                    app = next(n for n in ids if ids[n] == name)
+                    return {'Id': name, 'Config': {'Labels': {'org.opencontainers.image.revision': r.SOURCES[app][1]}}}
+                return copy.deepcopy(before[name])
+            def fake_call(args, **kwargs):
+                events.append(args)
+                if args[:2] == ['docker', 'compose']:
+                    return Path(args[args.index('-f') + 1]).read_bytes()
+                return b''
+            def fake_up(path, pin):
+                switches.append(path.name)
+                if failure in ('second', 'rollback') and path.name == 'v79-tiquet-manager-candidate.pinned.yml':
+                    raise r.Stop('INJECTED_SWITCH_FAILURE')
+                if failure == 'rollback' and path.name == 'v79-hub-original.pinned.yml':
+                    raise r.Stop('INJECTED_ROLLBACK_FAILURE')
+            def fake_health(name, image):
+                value = copy.deepcopy(before[name]); value['Image'] = image
+                if failure == 'config' and image == ids[name]:
+                    value['HostConfig']['Privileged'] = True
+                return value
+            with patch.object(r, 'FAILED_RUN', old), \
+                 patch.object(r, 'inspect', side_effect=fake_inspect), \
+                 patch.object(r, 'check_original_inputs'), \
+                 patch.object(r, 'call', side_effect=fake_call), \
+                 patch.object(r, 'same_others'), \
+                 patch.object(r, 'active_timers', return_value=['v79-workforce-task.timer']), \
+                 patch.object(r, 'timers_idle'), \
+                 patch.object(r, 'up', side_effect=fake_up), \
+                 patch.object(r, 'health', side_effect=fake_health), \
+                 patch.object(r, 'emit', side_effect=lambda k, v: output.append((k, v))):
+                if failure:
+                    with self.assertRaises(r.Stop):
+                        r.continued_server_locked(run, old, proof)
+                else:
+                    r.continued_server_locked(run, old, proof)
+            return events, switches, output
+
+    def test_continuation_never_builds_stops_captures_or_imports(self):
+        events, switches, output = self.exercise()
+        self.assertEqual(len(switches), 2)
+        self.assertIn(('RESULT', 'BOTH_APPS_DEPLOYED_HEALTHY'), output)
+        self.assertFalse(any(e[:2] in (['docker', 'build'], ['docker', 'stop'], ['docker', 'cp'],
+                                      ['docker', 'exec'], ['docker', 'image']) for e in events))
+        self.assertIn(['systemctl', '--user', 'start', 'v79-workforce-task.timer'], events)
+
+    def test_saved_config_integrity_failure_never_switches(self):
+        _, switches, _ = self.exercise('integrity')
+        self.assertEqual(switches, [])
+
+    def test_security_difference_still_rolls_back(self):
+        events, switches, output = self.exercise('config')
+        self.assertEqual(switches, ['v79-hub-candidate.pinned.yml', 'v79-hub-original.pinned.yml'])
+        self.assertIn(('ROLLBACK', 'ORIGINAL_IMAGES_HEALTHY'), output)
+        self.assertIn(['systemctl', '--user', 'start', 'v79-workforce-task.timer'], events)
+
+    def test_second_switch_failure_restores_both(self):
+        _, switches, output = self.exercise('second')
+        self.assertEqual(switches[-2:], ['v79-tiquet-manager-original.pinned.yml', 'v79-hub-original.pinned.yml'])
+        self.assertIn(('ROLLBACK', 'ORIGINAL_IMAGES_HEALTHY'), output)
+
+    def test_genuine_rollback_failure_is_not_hidden(self):
+        _, _, output = self.exercise('rollback')
+        self.assertIn(('ROLLBACK', 'FAILED_MANUAL_RECOVERY_REQUIRED'), output)
+        self.assertIn(('ROLLBACK', 'v79-hub_NOT_PROVEN_MANUAL_REVIEW_REQUIRED'), output)
 
 if __name__ == '__main__':
     unittest.main()

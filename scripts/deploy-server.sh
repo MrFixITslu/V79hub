@@ -20,6 +20,13 @@ if [[ "$running_hub_compose_files" == *".pinned.yml"* ]]; then
   echo "Use an explicitly audited, pinned-overlay-preserving release and rollback plan." >&2
   exit 1
 fi
+# Frozen portfolio models retain the pinned overlay even when older runs used
+# a .compose.json suffix. The generic path must not flatten those models either.
+if [[ "$running_hub_compose_files" == *"/v79-portfolio-rollout."* ]]; then
+  echo "STOP: live Hub uses a frozen pinned portfolio Compose model." >&2
+  echo "Use the verified portfolio rollout or rollback plan." >&2
+  exit 1
+fi
 test -f "$root/.env" || { echo "Create $root/.env before deploying" >&2; exit 1; }
 test -d "$root/data" || { echo "Create $root/data before deploying" >&2; exit 1; }
 grep -Eq '^V79_HUB_DB_PASSWORD=.{32,}$' "$root/.env" || { echo "Set a unique 32+ character V79_HUB_DB_PASSWORD in $root/.env before deploying" >&2; exit 1; }

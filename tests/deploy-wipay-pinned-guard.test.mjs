@@ -39,3 +39,23 @@ test("embedded post-deployment Ollama smoke is syntactically valid before deploy
   });
   assert.equal(result.status, 0, result.stderr);
 });
+
+test("generic deployment rejects frozen original and candidate portfolio stacks", () => {
+  const start = script.indexOf('if [[ "$running_hub_compose_files"');
+  const end = script.indexOf('test -f "$root/.env"');
+  const guards = script.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  for (const files of [
+    '/opt/v79/hub/docker-compose.yml,/opt/v79/hub/releases/example.pinned.yml',
+    '/home/firelion/v79-portfolio-rollout.ABC123xy/v79-hub-original.compose.json',
+    '/home/firelion/v79-portfolio-rollout.ABC123xy/v79-hub-candidate.compose.json',
+    '/home/firelion/v79-portfolio-rollout.ABC123xy/v79-hub-candidate.pinned.yml'
+  ]) {
+    const result = spawnSync('bash', ['-c',
+      'set -eu\nrunning_hub_compose_files="$1"\n' + guards + '\necho GUARD_ALLOWED',
+      'synthetic-guard-test', files], {encoding: 'utf8'});
+    assert.equal(result.status, 1, files);
+    assert.doesNotMatch(result.stdout, /GUARD_ALLOWED/);
+    assert.match(result.stderr, /STOP:/);
+  }
+});
