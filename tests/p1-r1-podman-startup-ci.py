@@ -8,6 +8,17 @@ import tempfile
 
 spec=importlib.util.spec_from_file_location('boot',Path(__file__).resolve().parents[1]/'scripts/p1-r1-acer-four-image-boot.py')
 m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+# Diagnostics here apply ONLY to public synthetic fixtures; never imported by runner.
+original_quiet=m.quiet
+def fixture_quiet(cmd,stdin=None,timeout=90):
+    if "create" in cmd and "--user=1000:1000" in cmd:
+        result=subprocess.run(cmd,input=stdin,capture_output=True,timeout=timeout)
+        if result.returncode:
+            print("SYNTHETIC_FIXTURE_CREATE_ERROR="+result.stderr.decode(errors="replace"),flush=True)
+            raise m.Stop("SYNTHETIC_FIXTURE_CREATE_FAILED")
+        return result.stdout.decode().strip()
+    return original_quiet(cmd,stdin=stdin,timeout=timeout)
+m.quiet=fixture_quiet
 assert os.getuid()!=0
 assert m.quiet([*m.PD,'info','--format','{{.Host.Security.Rootless}}'])=='true'
 # CI may pull PUBLIC test fixtures; production recovery never pulls.
