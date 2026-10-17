@@ -77,3 +77,14 @@ To rerun after pinning the corrected Git commit, use `python3 -B scripts/p1-r1-o
 - Capturing large images can impose live CPU, disk, and LAN load. Use an operationally appropriate supervised window.
 
 All instructions refer to source-only draft PR #158 and carry NO automatic merge/deploy authorization.
+
+
+## 17 October 2026 — independent synthetic PostgreSQL 17 + GPG streaming rehearsal
+
+A new **nondeploying GitHub-hosted** test checks the actual unchanged `drain_and_validate` function against a real disposable PostgreSQL **17** `pg_dump -Fc` archive symmetrically encrypted with a **synthetic CI-only GPG key phrase**. Its test DB contains only one synthetic integer row. A PostgreSQL 17 `pg_restore --list` reads and validates the decrypted TOC over stdin. It additionally verifies that a validator which reads only the first five bytes cannot SIGPIPE-short-circuit the GPG stream, and detects tampered/truncated ciphertext.
+
+**[GitHub CI run #39024998586](https://github.com/MrFixITslu/V79hub/actions/runs/39024998586) — PASS, all 4 tests.** Existing independent [offhost-capture synthetic CI #39024998593](https://github.com/MrFixITslu/V79hub/actions/runs/39024998593) also PASS. Code is on draft PR #158 only, with no server/Acer access, production restore, GPG owner key or captured archive read.
+
+The initial CI-only test run failed because `pg_isready` saw PostgreSQL's bootstrap process before its named synthetic database existed. It was fixed to wait for a successful `SELECT 1` against the exact fixture DB; the recovery capture/verifier implementation itself **was not changed**. This is a **CI fixture timing correction**, not evidence of backup integrity failure.
+
+**Unchanged blocked live gate:** the 14 original encrypted Acer streams under `/home/firelion/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_` still require an actual `--verify` with a compatible **local PostgreSQL 17+ pg_restore**, followed by independent isolated full-app restore/boot and rollback. Existing captures must not be overwritten or re-created based solely on the former verification failure. Synthetic CI validation cannot certify those bytes or any customer-launch recovery promise.
