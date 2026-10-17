@@ -83,9 +83,9 @@ class OffhostTests(unittest.TestCase):
         self.assertEqual(len(secret_reader_commands), 3)
         for args in secret_reader_commands:
             self.assertEqual(args[:6], ["docker", "exec", "-u", "0", "v79-hub", "sh"])
-            self.assertIn('test -f "$1"', args)
-            self.assertIn('test ! -L "$1"', args)
-            self.assertIn('exec tar', args)
+            self.assertIn('test -f "$1"', args[7])
+            self.assertIn('test ! -L "$1"', args[7])
+            self.assertIn('exec tar', args[7])
         self.assertNotIn("v79-agent-token", json.dumps([name for name, _, _ in streams]))
         self.assertNotIn("V79_WORKFORCE_TOKEN_FILE_HOST", json.dumps(streams))
 
