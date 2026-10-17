@@ -159,6 +159,30 @@ class R1SyntheticSafetyTests(unittest.TestCase):
                     with self.assertRaises(m.Stop):
                         m.prove_and_resolve_saved_images(self.root)
 
+    def test_disconnected_restore_always_checks_container_cleanup(self):
+        # Never execute real DB; force a synthetic restore-stage abort.
+        def fail_before_db_restore(*args,**kw):
+            raise m.Stop("SYNTHETIC_START_FAILURE")
+        for still_exists in (False,True):
+            with self.subTest(still_exists=still_exists), \
+                 mock.patch.object(m,"silent_run",side_effect=fail_before_db_restore), \
+                 mock.patch.object(m.subprocess,"run") as run:
+                run.side_effect=[
+                    SimpleNamespace(returncode=0),  # podman rm -f
+                    SimpleNamespace(returncode=0 if still_exists else 1),
+                ]
+                with self.assertRaisesRegex(
+                    m.Stop,
+                    "DISPOSABLE_DATABASE_CONTAINER_NOT_REMOVED" if still_exists
+                    else "SYNTHETIC_START_FAILURE"
+                ):
+                    m.restore_one(self.root,"hub",
+                                  m.IMAGES["v79-hub-postgres"],
+                                  "hub-pg.dump.gpg","r1_hub_restore")
+                self.assertEqual(run.call_count,2)
+                self.assertEqual(run.call_args_list[-1].args[0][2:],
+                                 ["container","exists",run.call_args_list[-1].args[0][-1]])
+
     def test_preflight_enforces_rootless_acer_and_no_ssh(self):
         code=SOURCE.read_text()
         self.assertNotIn("ssh_command",code)
