@@ -53,6 +53,20 @@ Once complete, provide the exact recovery directory:
 
 The --verify action compares encrypted SHA256 and byte sizes against the manifest, and streams GPG-decrypted bytes only through validators (pg_restore --list / tar list / JSON parser), not to disk. This is NOT a full restore, not an OCI image graph verification and not an app-boot verification.
 
+## Verification repair after successful 14-stream capture (2026-10-16)
+
+Founder Acer capture completed all 14 encrypted streams under `/home/firelion/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_`, reporting `ENCRYPTED_OFFHOST_CAPTURE=PASS_STREAMS_ONLY` with the post-capture image/Compose recheck PASS. The initial `--verify` returned `STOP=ENCRYPTED_ARCHIVE_VALIDATION_FAILED`, without naming the archive. **Preserve the directory; do not recapture, overwrite, reset keys or alter the manifest.**
+
+The previous verifier piped GPG output directly into `pg_restore --list`. Because a table-of-contents inspection can stop reading early, GPG can receive SIGPIPE; it also called whichever `pg_restore` was in PATH, even though Hub now uses PostgreSQL **17** and the last known Acer binary was **16**. These are plausible verifier failures, not demonstrated archive corruption. The corrected `--verify` (source-only, same draft branch) now:
+
+- Verifies the SHA-256, file size and manifest component identity of all 14 existing ciphertext files before reporting each known safe component name.
+- Drains every byte of GPG output even when a metadata validator exits early, without writing decrypted data to disk.
+- Requires a local PostgreSQL client **17 or later** to structurally inspect the Hub database archive, and **16 or later** for Tiquet. It checks `/usr/lib/postgresql/17/bin/pg_restore`, `/usr/lib/postgresql/18/bin/pg_restore`, and `pg_restore` from PATH. No packages are installed and no server connection is made.
+- If the needed client is missing, **still fully decrypts and verifies GPG integrity** for that archive but reports `PG_STRUCTURE=DEFERRED_CLIENT_17`. It continues verifying the remaining encrypted files, then deliberately returns nonzero with `POSTGRES_CLIENT_REQUIRED=hub-pg.dump.gpg` and `RELEASE_GATE=NO_GO`.
+- On full successful structural validation prints `OFFHOST_CIPHERTEXT_SHA_AND_DECRYPT_STRUCTURE=PASS` and `VERIFIED_STREAMS=14`, but **not** full app restoration or production GO.
+
+To rerun after pinning the corrected Git commit, use `python3 -B scripts/p1-r1-offhost-capture.py --verify /home/firelion/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_`. **Never** rerun `--capture` just because `--verify` failed.
+
 ## Known limitations and next gate
 - Data copied from actively written application-mounted files is not an atomic filesystem snapshot. Actual logical DB dumps are individually consistent, but Hub/Tiquet are not a cross-database atomic point-in-time backup. Isolated restore plus targeted application smoke remains mandatory.
 - Capture assumes project .env and Compose files plus all /app mounts cover the app config; independently review unusual bind secrets, supplemental env_file sources and external token files before declaring completeness.
