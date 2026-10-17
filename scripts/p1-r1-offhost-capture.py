@@ -125,6 +125,25 @@ def mounts(container,name):
   raise RuntimeError("REQUIRED_APP_MOUNT_MISSING")
  if len(out)>20:raise RuntimeError("TOO_MANY_MOUNTS")
  return out
+def checked_mount_content(container,targets):
+ # Metadata-only read through existing container; no token content is shown,
+ # read, copied, or written to disk by --plan.
+ for dest in targets:
+  if dest in ("/run/secrets/v79-agent-token",
+              "/run/secrets/v79-workforce-token",
+              "/run/secrets/v79-readonly-platform-token",
+              "/run/secrets/v79-coo-github-token"):
+   checker='test -f "$1" && test ! -L "$1" && test -r "$1"'
+   reason="REVIEWED_TOKEN_FILE_UNAVAILABLE"
+  elif dest=="/run/v79-workforce-reports":
+   checker='test -d "$1" && test ! -L "$1" && test -r "$1"'
+   reason="REVIEWED_REPORT_DIRECTORY_UNAVAILABLE"
+  else:continue
+  p=subprocess.run(["docker","exec","-u","0",container,"sh","-c",
+                    checker,"p1-r1-filetype-check",dest],
+                   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                   timeout=20)
+  if p.returncode:raise RuntimeError(reason)
 try:
  if os.uname().nodename!="v79sl":raise RuntimeError("WRONG_REMOTE_HOST")
  core=inspect(list(images))
@@ -141,12 +160,15 @@ try:
  for ident in [*images.values(),pins["rollback"]]:
   info=call("docker","image","inspect",ident)
   if len(info)!=1 or info[0].get("Id")!=ident:raise RuntimeError("IMAGE_ARCHIVE_SOURCE_MISSING")
+ hub_mounts=mounts(hub,"v79-hub")
+ tiquet_mounts=mounts(tiquet,"v79-tiquet-manager")
+ checked_mount_content("v79-hub",hub_mounts)
  result={
   "images":images,
   "rollback":pins["rollback"],
   "sourceRevision":rev,
   "configs":{"hub":hub_config,"tiquet":tiquet_config},
-  "mounts":{"v79-hub":mounts(hub,"v79-hub"),"v79-tiquet-manager":mounts(tiquet,"v79-tiquet-manager")}
+  "mounts":{"v79-hub":hub_mounts,"v79-tiquet-manager":tiquet_mounts}
  }
  print(json.dumps(result,separators=(",",":"),sort_keys=True))
 except Exception as e:
