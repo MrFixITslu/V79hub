@@ -8,17 +8,6 @@ import tempfile
 
 spec=importlib.util.spec_from_file_location('boot',Path(__file__).resolve().parents[1]/'scripts/p1-r1-acer-four-image-boot.py')
 m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-# Diagnostics here apply ONLY to public synthetic fixtures; never imported by runner.
-original_quiet=m.quiet
-def fixture_quiet(cmd,stdin=None,timeout=90):
-    if "create" in cmd and "--user=1000:1000" in cmd:
-        result=subprocess.run(cmd,input=stdin,capture_output=True,timeout=timeout)
-        if result.returncode:
-            print("SYNTHETIC_FIXTURE_CREATE_ERROR="+result.stderr.decode(errors="replace"),flush=True)
-            raise m.Stop("SYNTHETIC_FIXTURE_CREATE_FAILED")
-        return result.stdout.decode().strip()
-    return original_quiet(cmd,stdin=stdin,timeout=timeout)
-m.quiet=fixture_quiet
 assert os.getuid()!=0
 assert m.quiet([*m.PD,'info','--format','{{.Host.Security.Rootless}}'])=='true'
 # CI may pull PUBLIC test fixtures; production recovery never pulls.
@@ -48,6 +37,7 @@ try:
     # Verify rootless :U on private synthetic RAM copies as a non-root Node user.
     scratch=Path(tempfile.mkdtemp(prefix="r1-ci-",dir="/dev/shm"))
     data=scratch/"data"; data.mkdir(mode=0o700)
+    logs=scratch/"logs"; logs.mkdir(mode=0o700)
     (data/"private").write_text("SYNTHETIC_ONLY")
     os.chmod(data/"private",0o600)
     app=pod+"-node"
@@ -58,9 +48,9 @@ try:
           "http.createServer((q,r)=>{r.end('ok')}).listen(3060)")
     observer=m.start_app(m.pod_command(app,infra,pod,{},
         extra=["--user=1000:1000","--volume",str(data)+":/app/data:rw,U",
-               "--tmpfs=/app/logs:rw,size=16777216,mode=0700,uid=1000,gid=1000"],
+               "--volume",str(logs)+":/app/logs:rw,U"],
         commands=["node","-e",code]))
-    m.inspect_no_net(app,{str(data)})
+    m.inspect_no_net(app,{str(data),str(logs)})
     assert m.check_service(app,"http://127.0.0.1:3060/health")
     print("SYNTHETIC_NONROOT_PRIVATE_MOUNTS_AND_HEALTH=PASS",flush=True)
 finally:

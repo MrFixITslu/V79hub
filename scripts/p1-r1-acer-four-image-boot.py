@@ -234,7 +234,7 @@ def inspect_no_net(container,allowed=None):
     for m in mounts:
         if m.get("Type")=="bind":
             need(allowed is not None and m.get("Source") in allowed and
-                 m.get("Destination") in ("/app/data","/app/uploads"),
+                 m.get("Destination") in ("/app/data","/app/uploads","/app/logs"),
                  "UNREVIEWED_RUNTIME_BIND_MOUNT")
         else:
             need(m.get("Type")=="tmpfs","PERSISTENT_CONTAINER_VOLUME_REFUSED")
@@ -411,19 +411,12 @@ def run(root,mounts,db,resolved,selected):
         mounts_t=["--volume",str(scratch/"tiquet_data")+":/app/data:rw,U",
                   "--volume",str(scratch/"tiquet_uploads")+":/app/uploads:rw,U"]
         line("R1_PHASE","START_SAVED_HUB_AND_TIQUET_APPS")
-        # Resolve the image user without mounting or reading recovered data.
-        identity=json.loads(quiet([*PD,"run","--rm","--pull=never",
-            "--pod",pod,"--read-only","--image-volume=ignore","--log-driver=none",
-            "--security-opt=no-new-privileges","--entrypoint=node",
-            resolved["v79-tiquet-manager"],"-e",
-            "console.log(JSON.stringify({uid:process.getuid(),gid:process.getgid()}))"]))
-        need(all(type(identity.get(k)) is int and 0<=identity[k]<=65535
-                 for k in ("uid","gid")),"APP_IMAGE_USER_INVALID")
-        mounts_t.append("--tmpfs=/app/logs:rw,size=16777216,mode=0700,uid="+
-                        str(identity["uid"])+",gid="+str(identity["gid"]))
+        # Private RAM-only logs mapped to the image's own user by :U.
+        (scratch/"tiquet_logs").mkdir(mode=0o700)
+        mounts_t.extend(["--volume",str(scratch/"tiquet_logs")+":/app/logs:rw,U"])
         observers.append(start_app(pod_command(app_h,resolved["v79-hub"],pod,app_h_env,extra=mounts_h)))
         observers.append(start_app(pod_command(app_t,resolved["v79-tiquet-manager"],pod,app_t_env,extra=mounts_t)))
-        allowed={str(scratch/f) for f in ("hub_data","tiquet_data","tiquet_uploads")}
+        allowed={str(scratch/f) for f in ("hub_data","tiquet_data","tiquet_uploads","tiquet_logs")}
         inspect_no_net(app_h,allowed)
         inspect_no_net(app_t,allowed)
         line("R1_FOUR_PINNED_CONTAINERS_STARTED","PASS")
