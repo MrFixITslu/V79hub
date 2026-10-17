@@ -27,6 +27,9 @@ class SafetyContractTests(unittest.TestCase):
         self.assertIn("--pull=never",args)
         self.assertIn("--pod",args)
         self.assertIn("--security-opt=no-new-privileges",args)
+        self.assertIn("--read-only",args)
+        self.assertIn("--log-driver=none",args)
+        self.assertTrue(any(a.startswith("--tmpfs=/tmp:") for a in args))
         self.assertNotIn("-p",args)
         self.assertNotIn("--publish",args)
         self.assertEqual(args[-1],"sha256:"+"1"*64)
@@ -63,6 +66,26 @@ class SafetyContractTests(unittest.TestCase):
             "v79-tiquet-manager":["/app/data","/app/uploads"]}}
         with self.assertRaises(m.Stop):
             m.choose_archives({},manifest)
+
+    def test_denies_writable_image_layer_or_file_logging(self):
+        import json
+        base=[{"HostConfig":{"ReadonlyRootfs":True,
+                              "PortBindings":None,
+                              "LogConfig":{"Type":"none"}},
+               "Mounts":[{"Type":"tmpfs","Destination":"/tmp"}]}]
+        with mock.patch.object(m,"quiet",return_value=json.dumps(base)):
+            m.inspect_no_net("r1-dummy")
+        for mutate in (
+            lambda doc:doc[0]["HostConfig"].update(ReadonlyRootfs=False),
+            lambda doc:doc[0]["HostConfig"]["LogConfig"].update(Type="k8s-file"),
+            lambda doc:doc[0]["Mounts"].append({
+                "Type":"volume","Destination":"/somewhere"}),
+        ):
+            instance=json.loads(json.dumps(base))
+            mutate(instance)
+            with mock.patch.object(m,"quiet",return_value=json.dumps(instance)):
+                with self.assertRaises(m.Stop):
+                    m.inspect_no_net("r1-dummy")
 
     def test_proof_and_ram_scratch_only(self):
         src=SRC.read_text()
