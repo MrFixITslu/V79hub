@@ -31,7 +31,7 @@ class R1SyntheticSafetyTests(unittest.TestCase):
             files.append({"name":f"dummy-{i}.tar.gpg","type":"tgz",
                           "bytes":0,"sha256":"0"*64})
         self.data={"schema":1,"status":"CAPTURED_NOT_RESTORED",
-                   "images":m.IMAGES.copy(),"rollback":m.ROLLBACK,"files":files}
+                   "images":m.IMAGES.copy(),"rollbackHub":m.ROLLBACK,"files":files}
         self.write_manifest()
 
     def tearDown(self):
@@ -61,7 +61,7 @@ class R1SyntheticSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(m.Stop,"BACKUP_PROVENANCE_NOT_PINNED"):
             m.validate_manifest(self.root)
         self.data["images"]=m.IMAGES.copy()
-        self.data["rollback"]="sha256:"+"0"*64
+        self.data["rollbackHub"]="sha256:"+"0"*64
         self.write_manifest()
         with self.assertRaisesRegex(m.Stop,"BACKUP_PROVENANCE_NOT_PINNED"):
             m.validate_manifest(self.root)
