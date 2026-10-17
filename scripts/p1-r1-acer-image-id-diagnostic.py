@@ -179,7 +179,15 @@ def read_saved_image_inspect(path):
             chunks.append(block)
         proc.stdout.close()
         require(proc.wait(timeout=60) == 0, "SAVED_INSPECT_DECRYPT_FAILED")
-        return saved_runtime_image_ids(json.loads(b"".join(chunks)))
+        rows = json.loads(b"".join(chunks))
+        ids = saved_runtime_image_ids(rows)
+        image_shapes = sum(isinstance(row.get("RootFS"), dict) and
+                           isinstance(row.get("Architecture"), str)
+                           for row in rows)
+        container_shapes = sum(isinstance(row.get("HostConfig"), dict) and
+                               isinstance(row.get("State"), dict)
+                               for row in rows)
+        return ids, image_shapes, container_shapes
     finally:
         if proc.stdout and not proc.stdout.closed:
             proc.stdout.close()
@@ -244,7 +252,7 @@ def main():
     print("R1_DIAGNOSTIC=READ_ONLY_ACER_LOCAL", flush=True)
     local_ids = run_inventory()
     archive_ids = read_archive_configs(source)
-    runtime_ids = read_saved_image_inspect(saved_inspect)
+    runtime_ids, image_shapes, container_shapes = read_saved_image_inspect(saved_inspect)
     matched_archive = 0
     matched_local = 0
     matched_lookup = 0
@@ -261,6 +269,8 @@ def main():
     print("R1_ARCHIVE_CONFIG_IDS_MATCH=%d/5" % matched_archive)
     print("R1_ARCHIVE_UNIQUE_CONFIG_IDS=%d" % len(archive_ids))
     print("R1_ARCHIVE_CONFIG_CONTENT_HASHED=5_OF_5_PASS")
+    print("R1_SAVED_INSPECT_IMAGE_SHAPE_COUNT=%d/4" % image_shapes)
+    print("R1_SAVED_INSPECT_CONTAINER_SHAPE_COUNT=%d/4" % container_shapes)
     print("R1_SAVED_RUNTIME_INSPECT_IDS_MATCH=%d/4" %
           len(set(list(IMAGES.values())[:4]) & runtime_ids))
     print("R1_ARCHIVE_VS_RUNTIME_INSPECT_SHARED=%d" %
