@@ -336,17 +336,40 @@ def verify_set(root):
             isinstance(data.get("files"), list) and len(data["files"]) >= 9,
             "MANIFEST_INVALID")
     names = set()
+    expected_names = {
+        "hub-pg.dump.gpg": "pg",
+        "tiquet-pg.dump.gpg": "pg",
+        "hub-config.tar.gpg": "tgz",
+        "tiquet-config.tar.gpg": "tgz",
+        "runtime-inspect.json.gpg": "json",
+        "exact-images-and-rollback.tar.gpg": "tar",
+    }
+    mounts = data.get("appMountDestinations")
+    require(isinstance(mounts, dict) and set(mounts) == {"v79-hub", "v79-tiquet-manager"},
+            "MANIFEST_MOUNT_INVENTORY_MISSING")
+    for container, destinations in mounts.items():
+        require(isinstance(destinations, list) and len(destinations) <= 20
+                and len(destinations) == len(set(destinations))
+                and "/app/data" in destinations
+                and (container != "v79-tiquet-manager" or "/app/uploads" in destinations),
+                "MANIFEST_APP_MOUNT_SET_INVALID")
+        prefix = "hub" if container == "v79-hub" else "tiquet"
+        for index, _ in enumerate(destinations, 1):
+            expected_names[prefix + "-mount-%02d.tar.gpg" % index] = "tgz"
+    require(len(data["files"]) == len(expected_names), "MANIFEST_COMPONENT_COUNT_MISMATCH")
     for entry in data["files"]:
         name, kind = entry.get("name"), entry.get("type")
         require(isinstance(name, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]*\.(?:dump|tar|json)\.gpg", name)
                 and name not in names and kind in ("pg", "tgz", "tar", "json"),
                 "MANIFEST_ENTRY_INVALID")
+        require(expected_names.get(name) == kind, "MANIFEST_UNEXPECTED_OR_WRONG_COMPONENT_TYPE")
         names.add(name)
         path = root / name
         require(path.is_file() and not path.is_symlink() and path.stat().st_mode & 0o077 == 0
                 and path.stat().st_size == entry.get("bytes") and sha_file(path) == entry.get("sha256"),
                 "ENCRYPTED_CIPHERTEXT_HASH_MISMATCH")
         verify_one(path, kind)
+    require(names == set(expected_names), "MANIFEST_REQUIRED_COMPONENT_MISSING")
     print("OFFHOST_CIPHERTEXT_SHA_AND_DECRYPT_STRUCTURE=PASS")
     print("VERIFIED_STREAMS=" + str(len(names)))
     print("CURRENT_FULL_APP_RESTORE=NOT_PERFORMED")
