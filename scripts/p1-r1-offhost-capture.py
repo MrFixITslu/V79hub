@@ -45,6 +45,13 @@ HUB_COMPOSE_HASHES = (
     "8eda5018b4fcb591640492f6c44f8d63c446cff6ffa61aac985de19277933ff8",
 )
 VALID_SHA = re.compile(r"sha256:[0-9a-f]{64}\Z")
+# The only reviewed Hub secret-file bind destinations from its base Compose.
+# No wildcard /run/secrets allowlisting.
+HUB_SECRET_DESTINATIONS = (
+    "/run/secrets/v79-agent-token",
+    "/run/secrets/v79-workforce-token",
+    "/run/secrets/v79-readonly-platform-token",
+)
 
 # Passed to python3 -B - over SSH STDIN. No shell-interpreted source or secrets.
 REMOTE_PROBE = r'''
@@ -91,10 +98,20 @@ def configs(container):
  return {"files":files,"digests":digests,"composeCount":len(paths)}
 def mounts(container,name):
  out=[]
+ reviewed_hub_secrets=(
+  "/run/secrets/v79-agent-token",
+  "/run/secrets/v79-workforce-token",
+  "/run/secrets/v79-readonly-platform-token",
+ )
  for m in container.get("Mounts",[]):
   target=m.get("Destination")
-  if m.get("Type") not in ("bind","volume") or not isinstance(target,str) or not target.startswith("/app/") or any(z in target for z in ("\n","\r")) or ".." in pathlib.PurePath(target).parts or target.endswith("/"):
+  if m.get("Type") not in ("bind","volume") or not isinstance(target,str) or any(z in target for z in ("\n","\r")) or ".." in pathlib.PurePath(target).parts or target.endswith("/"):
    raise RuntimeError("UNREVIEWED_APP_MOUNT")
+  if target.startswith("/app/"):
+   pass
+  elif name=="v79-hub" and target in reviewed_hub_secrets and m.get("Type")=="bind" and m.get("RW") is False:
+   pass
+  else:raise RuntimeError("UNREVIEWED_APP_MOUNT")
   if target in out:raise RuntimeError("DUPLICATE_MOUNT_TARGET")
   out.append(target)
  if "/app/data" not in out or (name=="v79-tiquet-manager" and "/app/uploads" not in out):
@@ -198,8 +215,11 @@ def validate_plan(data):
         require(isinstance(targets, list) and "/app/data" in targets and
                 (name != "v79-tiquet-manager" or "/app/uploads" in targets) and
                 len(set(targets)) == len(targets) and len(targets) <= 20 and
-                all(isinstance(v, str) and v.startswith("/app/") and
-                    ".." not in Path(v).parts and "\n" not in v and "\r" not in v for v in targets),
+                all(isinstance(v, str) and
+                    (v.startswith("/app/") or
+                     (name == "v79-hub" and v in HUB_SECRET_DESTINATIONS)) and
+                    not v.endswith("/") and ".." not in Path(v).parts and
+                    "\n" not in v and "\r" not in v for v in targets),
                 "APP_MOUNT_PLAN_INVALID")
 
 
@@ -218,9 +238,17 @@ def streams_for(plan):
     for container, mounts in plan["mounts"].items():
         alias = "hub" if container == "v79-hub" else "tiquet"
         for index, destination in enumerate(mounts, 1):
-            streams.append(("%s-mount-%02d.tar.gpg" % (alias, index),
-                            ["docker", "exec", "-u", "0", container, "tar", "-C", "/", "-czf",
-                             "-", "--", destination.lstrip("/")], "tgz"))
+            # Known Hub token file mounts only: require a regular file, not
+            # a symlink or placeholder device. Stream straight into Acer GPG.
+            if destination in HUB_SECRET_DESTINATIONS:
+                require(container == "v79-hub", "SECRET_MOUNT_ASSIGNED_TO_WRONG_APP")
+                reader = ["docker", "exec", "-u", "0", container, "sh", "-c",
+                          'test -f "$1" && test ! -L "$1" && exec tar -C / -czf - -- "$2"',
+                          "v79-read-only-secret", destination, destination.lstrip("/")]
+            else:
+                reader = ["docker", "exec", "-u", "0", container, "tar", "-C", "/", "-czf",
+                          "-", "--", destination.lstrip("/")]
+            streams.append(("%s-mount-%02d.tar.gpg" % (alias, index), reader, "tgz"))
     streams.extend([
         ("runtime-inspect.json.gpg", ["docker", "inspect", *IMAGE_IDS], "json"),
         ("exact-images-and-rollback.tar.gpg",
@@ -351,7 +379,12 @@ def verify_set(root):
         require(isinstance(destinations, list) and len(destinations) <= 20
                 and len(destinations) == len(set(destinations))
                 and "/app/data" in destinations
-                and (container != "v79-tiquet-manager" or "/app/uploads" in destinations),
+                and (container != "v79-tiquet-manager" or "/app/uploads" in destinations)
+                and all(isinstance(v, str) and
+                        (v.startswith("/app/") or
+                         (container == "v79-hub" and v in HUB_SECRET_DESTINATIONS)) and
+                        not v.endswith("/") and ".." not in Path(v).parts and
+                        "\n" not in v and "\r" not in v for v in destinations),
                 "MANIFEST_APP_MOUNT_SET_INVALID")
         prefix = "hub" if container == "v79-hub" else "tiquet"
         for index, _ in enumerate(destinations, 1):
