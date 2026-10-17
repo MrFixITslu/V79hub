@@ -27,6 +27,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import threading
 
 PD=("podman","--remote=false")
 TARGETS={
@@ -237,6 +238,54 @@ def inspect_no_net(container,allowed=None):
                  "UNREVIEWED_RUNTIME_BIND_MOUNT")
         else:
             need(m.get("Type")=="tmpfs","PERSISTENT_CONTAINER_VOLUME_REFUSED")
+ERROR_SIGNATURES={
+    "PERMISSION_DENIED": ("eacces", "permission denied"),
+    "READ_ONLY_FILESYSTEM": ("erofs", "read-only file system"),
+    "OWNER_IDENTITY_MISSING": ("the hub owner identity is missing",),
+    "HUB_STORE_READ_FAILED": ("unable to read existing hub data",),
+    "POSTGRES_STORE_EMPTY": ("hub postgresql store is empty",),
+    "DATABASE_CONNECTION_REFUSED": ("econnrefused",),
+    "DATABASE_AUTH_FAILED": ("password authentication failed",),
+    "MODULE_LOAD_FAILED": ("err_module_not_found", "cannot find module"),
+    "ADDRESS_IN_USE": ("eaddrinuse",),
+    "JWT_SECRET_PERSIST_FAILED": ("could not persist a generated one",),
+}
+def start_app(cmd):
+    # Attach on FIRST start: never enable persistent container log storage.
+    create=list(cmd)
+    create[create.index("run")]="create"
+    create.remove("--detach")
+    quiet(create,timeout=120)
+    name=create[create.index("--name")+1]
+    process=subprocess.Popen([*PD,"start","--attach",name],
+          stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+    categories=set()
+    def drain():
+        window=""
+        while True:
+            block=process.stdout.read(512)
+            if not block: break
+            window=(window+block.decode(errors="replace").lower())[-8192:]
+            for category,signatures in ERROR_SIGNATURES.items():
+                if any(signature in window for signature in signatures):
+                    categories.add(category)
+    worker=threading.Thread(target=drain,daemon=True)
+    worker.start()
+    return process,worker,categories
+
+def app_diagnostic(name,role,observer):
+    data=json.loads(quiet([*PD,"inspect","--type=container",name]))[0]
+    state=data.get("State") or {}
+    status=state.get("Status")
+    line("R1_"+role+"_PROCESS_STATE",status if status in
+         ("created","running","paused","stopped","exited","dead") else "UNKNOWN")
+    code=state.get("ExitCode")
+    if isinstance(code,int): line("R1_"+role+"_PROCESS_EXIT_CODE",code)
+    if observer:
+        if observer[0].poll() is not None: observer[1].join(timeout=2)
+        line("R1_"+role+"_STARTUP_CATEGORIES",
+             ",".join(sorted(observer[2].copy())) or "UNCLASSIFIED")
+
 def wait_sql(container,port,db):
     for _ in range(100):
         p=subprocess.run([*PD,"exec",container,"psql",
@@ -282,6 +331,7 @@ def run(root,mounts,db,resolved,selected):
     pg_t="r1-tpg-"+uid
     app_h="r1-hub-"+uid
     app_t="r1-tiquet-"+uid
+    observers=[]
     try:
         line("R1_PHASE","CREATE_NETWORK_NONE_POD")
         # Hub has no declared data volumes; PostgreSQL infra images do.
@@ -352,15 +402,27 @@ def run(root,mounts,db,resolved,selected):
             "V79_HUB_MANAGED_BILLING":"1",
             "V79_ALLOW_LEGACY_AUTH":"0",
             "V79_ALLOW_EMAIL_ACCOUNT_LINK":"0",
+            "JWT_SECRET":secrets.token_hex(48),
+            "SUPER_ADMIN_JWT_SECRET":secrets.token_hex(48),
             "V79_ENTITLEMENT_RECHECK_ENABLED":"1",
             "GOOGLE_CLIENT_ID":"",
         }
         mounts_h=["--volume",str(scratch/"hub_data")+":/app/data:rw"]
-        mounts_t=["--volume",str(scratch/"tiquet_data")+":/app/data:rw",
-                  "--volume",str(scratch/"tiquet_uploads")+":/app/uploads:rw"]
+        mounts_t=["--volume",str(scratch/"tiquet_data")+":/app/data:rw,U",
+                  "--volume",str(scratch/"tiquet_uploads")+":/app/uploads:rw,U"]
         line("R1_PHASE","START_SAVED_HUB_AND_TIQUET_APPS")
-        quiet(pod_command(app_h,resolved["v79-hub"],pod,app_h_env,extra=mounts_h),timeout=120)
-        quiet(pod_command(app_t,resolved["v79-tiquet-manager"],pod,app_t_env,extra=mounts_t),timeout=120)
+        # Resolve the image user without mounting or reading recovered data.
+        identity=json.loads(quiet([*PD,"run","--rm","--pull=never",
+            "--pod",pod,"--read-only","--image-volume=ignore","--log-driver=none",
+            "--security-opt=no-new-privileges","--entrypoint=node",
+            resolved["v79-tiquet-manager"],"-e",
+            "console.log(JSON.stringify({uid:process.getuid(),gid:process.getgid()}))"]))
+        need(all(type(identity.get(k)) is int and 0<=identity[k]<=65535
+                 for k in ("uid","gid")),"APP_IMAGE_USER_INVALID")
+        mounts_t.append("--tmpfs=/app/logs:rw,size=16777216,mode=0700,uid="+
+                        str(identity["uid"])+",gid="+str(identity["gid"]))
+        observers.append(start_app(pod_command(app_h,resolved["v79-hub"],pod,app_h_env,extra=mounts_h)))
+        observers.append(start_app(pod_command(app_t,resolved["v79-tiquet-manager"],pod,app_t_env,extra=mounts_t)))
         allowed={str(scratch/f) for f in ("hub_data","tiquet_data","tiquet_uploads")}
         inspect_no_net(app_h,allowed)
         inspect_no_net(app_t,allowed)
@@ -368,6 +430,8 @@ def run(root,mounts,db,resolved,selected):
         line("R1_PHASE","CHECK_BOTH_APP_HEALTH_ENDPOINTS")
         h=check_service(app_h,"http://127.0.0.1:3040/api/health")
         t=check_service(app_t,"http://127.0.0.1:3050/health")
+        if not h: app_diagnostic(app_h,"HUB",observers[0])
+        if not t: app_diagnostic(app_t,"TIQUET",observers[1])
         line("R1_HUB_API_HEALTH","PASS" if h else "FAIL")
         line("R1_TIQUET_HEALTH","PASS" if t else "FAIL")
         need(h and t,"ISOLATED_APP_HEALTH_NOT_PROVEN")
@@ -386,7 +450,15 @@ def run(root,mounts,db,resolved,selected):
         # exists returns 1 for absence, 125 for a CLI/runtime error.
         # Retain RAM data and leave swap off if teardown is uncertain.
         need(left.returncode==1,"EPHEMERAL_POD_ABSENCE_NOT_VERIFIED")
-        shutil.rmtree(scratch)
+        # Ownership mapping affected only unique RAM copies, never originals.
+        quiet([*PD,"unshare","rm","-rf","--",str(scratch)],timeout=100)
+        for process,worker,_ in observers:
+            try: process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait(timeout=10)
+            worker.join(timeout=2)
+            process.stdout.close()
         need(not scratch.exists(),
              "EPHEMERAL_RUNTIME_CLEANUP_NOT_VERIFIED")
         line("R1_EPHEMERAL_POD_AND_RAM_SCRATCH_REMOVED","PASS")

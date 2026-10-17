@@ -122,9 +122,27 @@ class SafetyContractTests(unittest.TestCase):
         src=SRC.read_text()
         self.assertIn('need(left.returncode==1,',src)
         self.assertLess(src.index('need(left.returncode==1,'),
-                        src.index('shutil.rmtree(scratch)'))
+                        src.index('quiet([*PD,"unshare","rm"'))
         self.assertIn('create_closed_pod(pod,resolved["v79-hub"])',src)
         self.assertIn('"--infra-command","/bin/sleep infinity"',src)
+
+    def test_startup_observer_never_prints_raw_app_output(self):
+        from contextlib import redirect_stdout
+        process=mock.Mock()
+        process.stdout=io.BytesIO(b"SECRET_CUSTOMER_DATA EACCES private-path")
+        process.poll.return_value=1
+        args=m.pod_command("r1-app","sha256:dummy","r1-pod",{})
+        output=io.StringIO()
+        with mock.patch.object(m,"quiet",return_value="created") as q:
+            with mock.patch.object(m.subprocess,"Popen",return_value=process):
+                with redirect_stdout(output):
+                    observer=m.start_app(args)
+                    observer[1].join(timeout=2)
+        self.assertEqual(observer[2],{"PERMISSION_DENIED"})
+        self.assertEqual(output.getvalue(),"")
+        self.assertIn("create",q.call_args.args[0])
+        self.assertNotIn("--detach",q.call_args.args[0])
+        self.assertIn("--log-driver=none",q.call_args.args[0])
 
     def test_infra_image_declared_volumes_rejected(self):
         with mock.patch.object(m,"quiet",return_value='{"/var/lib/postgresql/data":{}}') as q:
