@@ -62,6 +62,15 @@ def quiet(cmd,stdin=None,timeout=90):
             if any(needle in error for needle in needles):
                 category=label
                 break
+        if category=="DUPLICATE_MOUNT":
+            # Only fixed public container paths may be disclosed, never raw text.
+            path="UNCLASSIFIED"
+            for candidate in ("/var/lib/postgresql/data", "/var/run/postgresql",
+                              "/dev/shm", "/var/tmp", "/tmp", "/run"):
+                if re.search(r"(?<![\w/])"+re.escape(candidate)+r"(?![\w/])",error):
+                    path=candidate
+                    break
+            line("R1_DUPLICATE_MOUNT_TARGET",path)
         line("R1_LOCAL_COMMAND_ERROR_CATEGORY",category)
         line("R1_LOCAL_COMMAND_EXIT_CODE",r.returncode)
         raise Stop("LOCAL_ROOTLESS_PODMAN_COMMAND_FAILED")
@@ -187,7 +196,7 @@ def database_tmpfs():
 def pod_command(container,image,pod,env,extra=None,commands=None):
     arr=[*PD,"run","--detach","--pull=never",
          "--name",container,"--pod",pod,
-         "--read-only","--log-driver=none",
+         "--read-only","--image-volume=ignore","--log-driver=none",
          "--tmpfs=/tmp:rw,size=67108864,mode=0700",
          "--security-opt=no-new-privileges",
          "--pids-limit=256",
@@ -267,8 +276,6 @@ def run(root,mounts,db,resolved,selected):
     app_h="r1-hub-"+uid
     app_t="r1-tiquet-"+uid
     try:
-        line("R1_PHASE","RESTORE_THREE_APP_DATA_MOUNTS_TO_RAM")
-        extract_verified(root,selected,scratch)
         line("R1_PHASE","CREATE_NETWORK_NONE_POD")
         # Reuse an exact already-local image for infra; never resolve/pull pause.
         quiet([*PD,"pod","create","--name",pod,"--network=none",
@@ -299,6 +306,9 @@ def run(root,mounts,db,resolved,selected):
             inspect_no_net(name)
         wait_sql(pg_h,5432,db_h)
         wait_sql(pg_t,5433,db_t)
+        line("R1_EMPTY_DATABASE_STARTUP","PASS_BOTH")
+        line("R1_PHASE","RESTORE_THREE_APP_DATA_MOUNTS_TO_RAM")
+        extract_verified(root,selected,scratch)
         line("R1_PHASE","RESTORE_TWO_ORIGINAL_DATABASES")
         hub_count=restore_sql(root,"hub-pg.dump.gpg",pg_h,5432,db_h,db)
         tiquet_count=restore_sql(root,"tiquet-pg.dump.gpg",pg_t,5433,db_t,db)

@@ -27,6 +27,7 @@ class SafetyContractTests(unittest.TestCase):
         self.assertIn("--pull=never",args)
         self.assertIn("--pod",args)
         self.assertIn("--security-opt=no-new-privileges",args)
+        self.assertIn("--image-volume=ignore",args)
         self.assertIn("--read-only",args)
         self.assertIn("--log-driver=none",args)
         self.assertTrue(any(a.startswith("--tmpfs=/tmp:") for a in args))
@@ -124,6 +125,11 @@ class SafetyContractTests(unittest.TestCase):
                         src.index('shutil.rmtree(scratch)'))
         self.assertIn('"--infra-image",resolved["v79-hub-postgres"]',src)
         self.assertIn('"--infra-command","/bin/sleep infinity"',src)
+
+    def test_app_data_not_decrypted_until_both_databases_start(self):
+        src=SRC.read_text()
+        self.assertLess(src.index('wait_sql(pg_t,5433,db_t)'),
+                        src.index('extract_verified(root,selected,scratch)'))
 
     def test_proof_and_ram_scratch_only(self):
         src=SRC.read_text()
