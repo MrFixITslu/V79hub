@@ -46,8 +46,25 @@ def line(key,value):
     print(key+"="+str(value),flush=True)
 def quiet(cmd,stdin=None,timeout=90):
     r=subprocess.run(cmd,input=stdin,stdout=subprocess.PIPE,
-                     stderr=subprocess.DEVNULL,timeout=timeout)
-    need(r.returncode==0,"LOCAL_ROOTLESS_PODMAN_COMMAND_FAILED")
+                     stderr=subprocess.PIPE,timeout=timeout)
+    if r.returncode != 0:
+        # Never print raw stderr, argv, container output or environment values.
+        # Classify only fixed diagnostic categories from the local CLI response.
+        error=(r.stderr or b"").decode(errors="replace").lower()
+        category="UNCLASSIFIED"
+        for label, needles in (
+            ("DUPLICATE_MOUNT", ("duplicate mount", "duplicate destination")),
+            ("CLI_OPTION_UNSUPPORTED", ("unknown flag", "unknown shorthand flag")),
+            ("PERMISSION_DENIED", ("permission denied", "operation not permitted")),
+            ("READ_ONLY_FILESYSTEM", ("read-only file system",)),
+            ("MEMORY_OR_SPACE", ("cannot allocate memory", "no space left on device")),
+        ):
+            if any(needle in error for needle in needles):
+                category=label
+                break
+        line("R1_LOCAL_COMMAND_ERROR_CATEGORY",category)
+        line("R1_LOCAL_COMMAND_EXIT_CODE",r.returncode)
+        raise Stop("LOCAL_ROOTLESS_PODMAN_COMMAND_FAILED")
     return r.stdout.decode(errors="replace").strip()
 def load_module(name,path):
     need(path.is_file() and not path.is_symlink(),"REQUIRED_REVIEWED_SOURCE_MISSING")
@@ -163,6 +180,10 @@ def extract_verified(root, selected, scratch):
             gp.wait()
         line("R1_"+folder.upper()+"_FILESYSTEM_RESTORE","PASS")
     line("R1_REAL_APP_DATA_COPIED_TO_RAM_TMPFS","PASS")
+def database_tmpfs():
+    # /tmp is supplied exactly once by pod_command for every container.
+    return ["--tmpfs=/var/lib/postgresql/data:rw,size=1073741824,mode=0700",
+            "--tmpfs=/var/run/postgresql:rw,size=16777216"]
 def pod_command(container,image,pod,env,extra=None,commands=None):
     arr=[*PD,"run","--detach","--pull=never",
          "--name",container,"--pod",pod,
@@ -262,9 +283,7 @@ def run(root,mounts,db,resolved,selected):
         pass_t=secrets.token_hex(24)
         db_h="r1_hub_restore"
         db_t="r1_tiquet_restore"
-        common=["--tmpfs=/var/lib/postgresql/data:rw,size=1073741824,mode=0700",
-                "--tmpfs=/var/run/postgresql:rw,size=16777216",
-                "--tmpfs=/tmp:rw,size=67108864"]
+        common=database_tmpfs()
         line("R1_PHASE","START_SAVED_PG17_AND_PG16")
         for name,img,db_name,pw,command in [
             (pg_h,resolved["v79-hub-postgres"],db_h,pass_h,None),
@@ -275,6 +294,7 @@ def run(root,mounts,db,resolved,selected):
                                           "POSTGRES_DB":db_name,
                                           "POSTGRES_PASSWORD":pw},
                             extra=common,commands=command)
+            line("R1_DATABASE_START_ROLE","HUB_PG17" if name==pg_h else "TIQUET_PG16")
             quiet(cmd,timeout=120)
             inspect_no_net(name)
         wait_sql(pg_h,5432,db_h)

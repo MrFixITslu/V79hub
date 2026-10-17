@@ -34,6 +34,36 @@ class SafetyContractTests(unittest.TestCase):
         self.assertNotIn("--publish",args)
         self.assertEqual(args[-1],"sha256:"+"1"*64)
 
+    def test_database_tmpfs_destinations_unique_for_both_images(self):
+        for commands in (None, ["postgres", "-c", "port=5433"]):
+            args=m.pod_command("r1-test", "sha256:"+"1"*64, "r1-pod",
+                               {"POSTGRES_PASSWORD":"SYNTHETIC_ONLY"},
+                               extra=m.database_tmpfs(), commands=commands)
+            mounts=[a.split("=",1)[1].split(":",1)[0]
+                    for a in args if a.startswith("--tmpfs=")]
+            self.assertEqual(len(mounts),len(set(mounts)))
+            self.assertEqual(set(mounts),{
+                "/tmp","/var/lib/postgresql/data","/var/run/postgresql"})
+            self.assertIn("--read-only",args)
+            self.assertIn("--log-driver=none",args)
+
+    def test_failure_categories_do_not_disclose_stderr_or_arguments(self):
+        from contextlib import redirect_stdout
+        for error, category in (
+            (b"duplicate mount destination /tmp PRIVATE_TOKEN", "DUPLICATE_MOUNT"),
+            (b"unknown flag PRIVATE_TOKEN", "CLI_OPTION_UNSUPPORTED"),
+            (b"permission denied PRIVATE_TOKEN", "PERMISSION_DENIED"),
+            (b"PRIVATE_TOKEN other error", "UNCLASSIFIED"),
+        ):
+            output=io.StringIO()
+            result=subprocess.CompletedProcess([],125,b"PRIVATE_DATA",error)
+            with mock.patch.object(m.subprocess,"run",return_value=result):
+                with redirect_stdout(output), self.assertRaises(m.Stop):
+                    m.quiet(["podman","run","SECRET_ARGUMENT"])
+            self.assertIn("R1_LOCAL_COMMAND_ERROR_CATEGORY="+category,output.getvalue())
+            self.assertNotIn("PRIVATE",output.getvalue())
+            self.assertNotIn("SECRET",output.getvalue())
+
     def test_safe_tar_mount_copy_and_no_config_secret_extraction(self):
         # This is entirely synthetic; no actual GPG key/customer backup.
         actual_popen=subprocess.Popen
