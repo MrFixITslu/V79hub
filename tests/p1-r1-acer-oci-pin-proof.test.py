@@ -109,6 +109,21 @@ class OCIProofTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn("R1_OCI_LINKED_IMAGE_MANIFESTS=4",log)
 
+    def test_return_mapping_provides_five_exact_manifest_to_config_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"synthetic.tar"
+            configs,pins=self.mk_archive(path)
+            actual_popen=subprocess.Popen
+            def cat_gpg(args, **kw):
+                return actual_popen(["cat",args[-1]],**kw)
+            with mock.patch.object(m,"PINS",pins),mock.patch.object(
+                m.subprocess,"Popen",side_effect=cat_gpg
+            ),contextlib.redirect_stdout(io.StringIO()):
+                result=m.stream_proof(path,return_mapping=True)
+            self.assertEqual(set(result),pins)
+            self.assertEqual(set(result.values()),configs)
+            self.assertEqual(len(result),5)
+
     def test_runtime_never_mutates_images_or_contacts_external_hosts(self):
         code=SRC.read_text()
         self.assertIn("RUN_ONLY_ON_ACER",code)
