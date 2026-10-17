@@ -6,13 +6,13 @@ umask 077
 
 REPO="$HOME/v79-r1-src.PnZUGsH9/repo"
 BACKUP="$HOME/V79-P1-R1-Offhost/p1-r1-current-release-rmtdrog_"
-COMMIT="ca50a23ca5cdee52d5e5a462b621c2d6b9eb1137"
+COMMIT="6386d16f1abdac55a9c1a2eb4647f0fae66e1b22"
 BRANCH="feature/p1-r1-offhost-capture-20261016"
 WORK=""
 SWAP_ATTEMPTED=0
 
 declare -A EXPECTED=(
-  [p1-r1-acer-four-image-boot.py]="76318c260ecabb28516a50e1b2a05b21844a6809"
+  [p1-r1-acer-four-image-boot.py]="c23e2f7bb758c9a5b93fa7b1d5907ddd852cb752"
   [p1-r1-acer-disconnected-db-rehearsal.py]="deb45ce7bd627a7d59c5a611715a18e55da32904"
   [p1-r1-acer-oci-pin-proof.py]="4e530500395864a30060e94667ac602436f68972"
   [p1-r1-acer-app-mount-preflight.py]="cf7c5ad2a33be1caa4405e1017fd3b5a8a8c23a3"
@@ -29,12 +29,17 @@ cleanup() {
   if [[ "$SWAP_ATTEMPTED" == 1 ]]; then
     echo "=== CLEANUP ORIGINAL RECOVERY TEST ==="
     local fail=0 pods pod dir
-    pods="$(podman --remote=false pod ps -a --format '{{.Name}}' 2>/dev/null)" || fail=1
+    # pod ps includes stopped/created pods; unlike container ps it has no -a.
+    pods="$(podman --remote=false pod ps --format '{{.Name}}' 2>/dev/null)" || fail=1
     while IFS= read -r pod; do
       [[ "$pod" =~ ^r1-closed-[0-9a-f]{10}$ ]] || continue
       podman --remote=false pod rm -f "$pod" >/dev/null 2>&1 || fail=1
     done <<< "$pods"
+    # Never remove RAM data while any recovery pod may still be alive.
+    pods="$(podman --remote=false pod ps --format '{{.Name}}' 2>/dev/null)" || fail=1
+    if grep -Eq '^r1-closed-[0-9a-f]{10}$' <<< "$pods"; then fail=1; fi
     shopt -s nullglob
+    if (( fail == 0 )); then
     for dir in /dev/shm/v79-r1-*; do
       if [[ -d "$dir" && ! -L "$dir" && "$(stat -c %u "$dir")" == "$(id -u)" ]]; then
         rm -rf -- "$dir" || fail=1
@@ -42,9 +47,10 @@ cleanup() {
         fail=1
       fi
     done
+    fi
     local remaining=(/dev/shm/v79-r1-*)
     (( ${#remaining[@]} == 0 )) || fail=1
-    pods="$(podman --remote=false pod ps -a --format '{{.Name}}' 2>/dev/null)" || fail=1
+    pods="$(podman --remote=false pod ps --format '{{.Name}}' 2>/dev/null)" || fail=1
     if grep -Eq '^r1-closed-[0-9a-f]{10}$' <<< "$pods"; then fail=1; fi
 
     if (( fail != 0 )); then
@@ -102,7 +108,7 @@ scratch_free="$(df -B1 --output=avail /dev/shm | tail -n 1 | tr -d '[:space:]')"
 shopt -s nullglob
 prior=(/dev/shm/v79-r1-*)
 (( ${#prior[@]} == 0 )) || stop PREEXISTING_PRIVATE_RECOVERY_SCRATCH
-pods="$(podman --remote=false pod ps -a --format '{{.Name}}')" || stop PODMAN_POD_QUERY_FAILED
+pods="$(podman --remote=false pod ps --format '{{.Name}}')" || stop PODMAN_POD_QUERY_FAILED
 if grep -Eq '^r1-closed-[0-9a-f]{10}$' <<< "$pods"; then stop PREEXISTING_RECOVERY_POD; fi
 [[ "$(podman --remote=false info --format '{{.Host.Security.Rootless}}')" == true ]] || stop LOCAL_ROOTLESS_PODMAN_NOT_VERIFIED
 echo "R1_MEMORY_AND_SWAP_PREFLIGHT=PASS"
