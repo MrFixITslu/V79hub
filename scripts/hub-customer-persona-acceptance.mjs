@@ -150,8 +150,8 @@ try {
             "Empty source returns neither fake zero nor positive data status");
         }
         if (scenario.id === "owner-a") {
-          assert.ok((await page.locator(".hub-dashboard").innerText()).includes("XCD"),
-            "Product-supplied currency is displayed");
+          assert.match(await page.locator(".hub-dashboard").innerText(), /75[.,]00/,
+            "Product-supplied XCD amount is displayed with its locale currency symbol");
           assert.equal(await tiquetCard.getAttribute("href"), "/api/apps/tiquet/launch");
         }
         await page.evaluate(() => {
