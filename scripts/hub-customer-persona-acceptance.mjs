@@ -62,6 +62,16 @@ const scenarios = [
     visibleApps: 0, expectTiquetLink: false, expectFinance: false,
   },
   {
+    id: "staff-c-no-access", org: "Synthetic Beta Workspace",
+    user: user("beta-staff", "staff", "beta", ["overview"], false, []),
+    apps: [],
+    summary: { generatedAt: "2026-10-18T12:00:00Z", apps: {
+      tiquet: { status: "not_enabled", metrics: {} },
+      ffpro: { status: "not_enabled", metrics: {} },
+    }},
+    visibleApps: 0, expectTiquetLink: false, expectFinance: false,
+  },
+  {
     id: "owner-a-empty-metrics", org: "Synthetic Alpha Workspace",
     user: user("alpha-owner", "admin", "alpha", ["overview", "connections"], true, [tiquet]),
     apps: [tiquet],
@@ -135,9 +145,26 @@ try {
         }
         if (scenario.id === "owner-b-no-apps") {
           await page.getByText("No applications are enabled for this workspace.", { exact: true }).waitFor();
+          assert.equal(await page.getByText("Performance overview", { exact: true }).count(), 0,
+            "Empty workspace should not render an empty KPI section");
+          assert.equal(await page.getByText("Needs your attention", { exact: true }).count(), 0,
+            "Empty workspace should not render an empty attention section");
+          await page.getByRole("heading", { name: "Your workspace is ready for apps" }).waitFor();
+          assert.equal(await page.getByRole("button", { name: /View app access/ }).count(), 1,
+            "Authorized customer receives a real permitted access-management action");
           assert.equal(await page.locator(".hub-kpi").count(), 0, "Empty tenant has no KPI cards");
           assert.ok(!(await page.locator(".hub-dashboard").innerText()).includes("All enabled app data summaries"),
             "Empty tenant is never shown as all green");
+        }
+        if (scenario.id === "staff-c-no-access") {
+          await page.getByRole("heading", { name: "Your workspace is ready for apps" }).waitFor();
+          assert.equal(await page.getByText("Performance overview", { exact: true }).count(), 0);
+          assert.equal(await page.getByText("Needs your attention", { exact: true }).count(), 0);
+          await page.getByText("Ask your workspace administrator to assign an app to your account.").waitFor();
+          assert.equal(await page.getByRole("button", { name: /View app access/ }).count(), 0,
+            "Unprivileged staff cannot click access-management CTA");
+          assert.equal(await page.getByRole("button", { name: "Manage apps" }).count(), 0,
+            "Unprivileged staff cannot access hidden app settings");
         }
         if (scenario.id === "staff-a") {
           assert.ok((await page.locator(".hub-dashboard").innerText()).includes("Restricted"),
@@ -162,6 +189,10 @@ try {
         });
         const file = scenario.id + "-" + device + ".png";
         await page.screenshot({ path: resolve(output, file), fullPage: true, animations: "disabled" });
+        if (scenario.id === "owner-b-no-apps") {
+          await page.getByRole("button", { name: /View app access/ }).click();
+          await page.getByRole("heading", { name: "Ecosystem app launcher" }).waitFor();
+        }
         report.results.push({ scenario: scenario.id, device, width, status: "PASS", file });
         console.log("PERSONA_PASS " + scenario.id + " " + device);
       } finally {
