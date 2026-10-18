@@ -201,6 +201,12 @@ def audit():
             emit('PROBE_IMAGE','MULTIPLE')
             emit('PROBE_SECURITY','MULTIPLE')
             emit('PROBE_CLEANUP_REQUIRED','UNKNOWN')
+        second={n:inspect(n) for n in APP}
+        prod_second,health_second=verify_prod(trusted,baseline,prior,second)
+        need(prod_second==prod and health_second==health and
+             all(second[n] and live[n] and second[n]['Id']==live[n]['Id'] and
+                 trusted.fingerprint(second[n])==trusted.fingerprint(live[n])
+                 for n in APP),'PRODUCTION_CHANGED_DURING_AUDIT')
         emit('CLEANUP_ACTION','NONE')
         emit('REHEARSAL_CLEANUP_ACCEPTED','YES' if not ids and prod=='UNCHANGED' and health=='PASS' else 'NO')
         emit('R1_CUSTOMER_RELEASE','NO_GO')
@@ -250,8 +256,9 @@ def main():
 if __name__=='__main__':
     try:main()
     except Exception as error:
-        reason=str(error) if isinstance(error,Stop) and
-            re.fullmatch(r'[A-Z][A-Z0-9_]{2,100}',str(error)) else 'CLEANUP_AUDIT_ERROR_REDACTED'
+        reason=(str(error) if isinstance(error,Stop) and
+                re.fullmatch(r'[A-Z][A-Z0-9_]{2,100}',str(error))
+                else 'CLEANUP_AUDIT_ERROR_REDACTED')
         print('STOP='+reason,flush=True)
         print('R1_CUSTOMER_RELEASE=NO_GO',flush=True)
         sys.exit(1)
