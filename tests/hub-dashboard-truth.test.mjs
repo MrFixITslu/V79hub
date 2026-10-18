@@ -71,6 +71,25 @@ test("stale summary fetches cannot overwrite newer data, hidden tabs do not poll
   assert.match(dashboard, /Product source timestamp unavailable/);
 });
 
+test("approved light mode keeps readable dashboard and navy-sidebar text", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+  assert.match(css, /hub-theme-light \.hub-dashboard \.text-slate-100/);
+  assert.match(css, /hub-theme-light \.hub-sidebar \.hub-nav-item/);
+  assert.match(css, /hub-theme-light \.hub-dashboard \.text-emerald-300/);
+  const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const lightness = c => {
+    const channels = rgb(c).map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const contrast = (a, b) => {
+    const values = [lightness(a), lightness(b)].sort((x, y) => y - x);
+    return (values[0] + 0.05) / (values[1] + 0.05);
+  };
+  assert.ok(contrast("#17324e", "#f8fafc") >= 4.5, "light dashboard title contrast");
+  assert.ok(contrast("#cbd5e1", "#06101d") >= 4.5, "nav item contrast on navy");
+});
+
 // Only a source-contract test: full network/browser/auth acceptance is separate.
 test("customer component still delegates launch and authentication to existing Hub code", async () => {
   const { readFileSync } = await import("node:fs");
