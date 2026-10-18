@@ -384,6 +384,7 @@ export function HubOverview({
           </div>
         )}
 
+        {visibleMetricCards.length > 0 && (
         <section>
           <div className="mb-2 px-1">
             <div className="text-base font-bold text-white">Performance overview</div>
@@ -418,8 +419,9 @@ export function HubOverview({
               );
             })}
           </div>
-        </section>
+        </section>        )}
 
+        {visibleAppCards.length > 0 && (
         <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
           <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
             <div>
@@ -467,7 +469,7 @@ export function HubOverview({
               </div>
             )}
           </div>
-        </section>
+        </section>        )}
 
         <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
           <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
