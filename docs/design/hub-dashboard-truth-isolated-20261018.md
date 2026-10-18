@@ -10,6 +10,8 @@
 - `src/lib/dashboardTruth.ts`: pure nullable number/count/percentage helpers; financial amounts require an explicit product-supplied three-letter currency; empty source values never become zero; missing job-status totals stay unknown; availability does not equal uptime.
 - `src/components/HubOverview.tsx`: existing UX and signed launch paths retained; safe source-truth labels, source-vs-Hub timestamps, nullable Tiquet open jobs, neutral zero-app states, abortable dashboard refresh, hidden-tab polling suspension and stale-result rejection.
 - `tests/hub-dashboard-truth.test.mjs`: source-truth unit and regression checks.
+- `src/index.css`: scoped light-theme contrast fix for dashboard action text and navy workspace navigation, based on actual isolated screenshots.
+- `.github/workflows/hub-dashboard-truth-browser.yml`: read-only synthetic browser screenshots across desktop, tablet and phone (mock data; not production).
 
 ## Scoped REDTEAM / intentionally unchanged
 1. The running production image, mixed UI overlay, accepted Compose configuration and off-host recovery remain **UNVERIFIED in this session**. This source candidate is **not production-targeted** until provenance is established.
