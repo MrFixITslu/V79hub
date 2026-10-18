@@ -1,0 +1,62 @@
+name: Hub Customer Persona Isolated QA
+
+on:
+  pull_request:
+    branches:
+      - design/hub-dashboard-truth-isolated-20261018
+    paths:
+      - scripts/hub-customer-persona-acceptance.mjs
+      - .github/workflows/hub-customer-persona-isolated.yml
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-customers:
+    name: Customer owner, staff and empty tenant — no backend access
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Validate and compile source
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run lint
+          node --check scripts/hub-customer-persona-acceptance.mjs
+          node --test tests/hub-dashboard-truth.test.mjs
+          npm run build
+      - name: Install temporary test browser
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Serve compiled UI on localhost only
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4187 --bind 127.0.0.1 --directory dist > /tmp/v79-persona-http.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:4187/ >/dev/null && exit 0
+            sleep 1
+          done
+          echo "Synthetic local UI unavailable" >&2
+          exit 1
+      - name: Verify four synthetic personas on desktop and phone
+        run: node scripts/hub-customer-persona-acceptance.mjs
+      - name: Save redacted acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V79-Hub-Customer-Persona-Synthetic-20261018
+          path: persona-artifacts/
+          retention-days: 14
+          if-no-files-found: warn
+
+# NO workflow_dispatch, production environment, image push, remote SSH,
+# real credentials, real client data or application deployment.
