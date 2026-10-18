@@ -1,0 +1,37 @@
+name: Restored Compose lineage read-only safety
+on:
+  push:
+    paths:
+      - scripts/portfolio-remaining-compose-lineage.py
+      - .github/workflows/portfolio-remaining-compose-lineage.yml
+  pull_request:
+    paths:
+      - scripts/portfolio-remaining-compose-lineage.py
+      - .github/workflows/portfolio-remaining-compose-lineage.yml
+permissions:
+  contents: read
+jobs:
+  no-mutations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and synthetic self-test
+        run: |
+          python3 -m py_compile scripts/portfolio-remaining-compose-lineage.py
+          python3 -B scripts/portfolio-remaining-compose-lineage.py --self-test
+      - name: Check no mutation command or raw secret/log rendering
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path('scripts/portfolio-remaining-compose-lineage.py').read_text()
+          assert "['docker','container','inspect',name]" in text
+          assert "'config','--format','json'" in text
+          assert not any(x in text for x in (
+              "['docker','stop'", "['docker','start'", "['docker','rm'",
+              "['docker','up'", "['docker','logs'", "['docker','exec'",
+              "['docker','compose','up'", "['systemctl'", "['gpg'"
+          ))
+          assert "subprocess.run(args,input=Path(__file__).read_bytes()" in text
+          print('READONLY_COMPOSE_INSPECT_SOURCE_LINEAGE_NO_MUTATIONS=PASS')
+          PY
