@@ -438,9 +438,9 @@ class CachedGamesTests(unittest.TestCase):
             root=Path(tmp)
             cached={repo:'sha256:'+ch*64 for repo,ch in zip(p.SOURCES,('a','b','c'))}
             before={n:row(n,pin['image_id']) for n,pin in p.PINS.items()}
-            def inspect(image,**kwargs):
-                repo=next(name for name,digest in cached.items() if digest==image)
-                return {'Id':image,'Config':{'User':'node','Env':[],
+            def inspect(tag,**kwargs):
+                repo=next(name for name,digest in cached.items() if digest==tag)
+                return {'Id':tag,'Config':{'User':'node','Env':[],
                     'Labels':{'org.opencontainers.image.revision':p.SOURCES[repo]}}}
             approved=('v79_course_builder','v79-pos','v79-pos-worker')
             with patch.object(r,'inspect',side_effect=inspect),patch.object(r,'call') as call, \
