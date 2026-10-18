@@ -1,0 +1,59 @@
+name: V79 Hub Dashboard Isolated Browser QA
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/components/HubOverview.tsx"
+      - "src/lib/dashboardTruth.ts"
+      - "tests/hub-dashboard-truth.test.mjs"
+      - ".github/workflows/hub-dashboard-truth-browser.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Compile and test on isolated runner
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run lint
+          node --test tests/hub-dashboard-truth.test.mjs
+          npm run build
+      - name: Install temporary headless browser
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Serve static UI on loopback only
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4178 --bind 127.0.0.1 --directory dist > "${RUNNER_TEMP}/hub-preview-http.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4178/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "Synthetic UI server unavailable"; exit 1
+      - name: Capture browser screenshots with synthetic API data
+        run: node scripts/hub-isolated-browser-preview.mjs
+      - name: Preserve screenshot gallery for owner review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V79-Hub-Dashboard-Synthetic-Preview
+          path: preview-artifacts/
+          retention-days: 14
+          if-no-files-found: warn
+
+# This workflow never invokes server.ts, production endpoints, deployment,
+# SSH, Tailscale, accounts, payment credentials, or live customer data.
