@@ -31,7 +31,12 @@ IMAGE={
  'v79-pos-worker':'sha256:24279f6e693a66dca8bdb47f0e0e072d00983a67e74cc5e55a87ea5ecbf5c19d',
  'gaming-studio-j':'sha256:4039d9ab72c0cc99c5d18c92714678a9a8e05ef26177e85bbe3d56da834b07e7'
 }
-SAFE=re.compile(r'[A-Z][A-Z0-9_]{0,70}=[A-Z0-9_,.-]{1,180}\Z')
+ALLOWED_MARKERS={'EXISTING_RECOVERY_BASELINE':'VERIFIED',
+                 'RESTORED_SOURCE_PARITY':'PASS',
+                 'LIVE_APP_CHANGES':'NONE',
+                 'PLAN_MODE':'EVIDENCE_ONLY_NOT_DEPLOYABLE',
+                 'R1_CUSTOMER_RELEASE':'NO_GO',
+                 'SELF_TEST':'PASS'}
 PATH_LINE=re.compile(r'NEW_RECOVERY_BASELINE=/home/firelion/v79-recovery-replan\.[A-Za-z0-9_-]{8,16}\Z')
 NAME=re.compile(r'v79-recovery-replan\.[A-Za-z0-9_-]{8,16}\Z')
 
@@ -41,7 +46,11 @@ def need(ok,code):
     if not ok:raise Stop(code)
 
 def allowed(line):
-    return bool(SAFE.fullmatch(line) or PATH_LINE.fullmatch(line))
+    if PATH_LINE.fullmatch(line):return True
+    key,sep,value=line.partition('=')
+    if not sep:return False
+    if key=='STOP':return bool(re.fullmatch(r'[A-Z][A-Z0-9_]{2,100}',value))
+    return key in ALLOWED_MARKERS and ALLOWED_MARKERS[key]==value
 
 def emit(key,value):
     line=f'{key}={value}'
