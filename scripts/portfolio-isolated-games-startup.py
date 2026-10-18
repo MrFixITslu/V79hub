@@ -128,6 +128,8 @@ def cleanup(probe,identity,image):
 def server():
     need(socket.gethostname()=='v79sl' and os.getuid()!=0,'SERVER_NONROOT_REQUIRED')
     os.umask(0o077)
+    protected=tuple(dict.fromkeys((*('v79_course_builder','v79-pos','v79-pos-worker','gaming-studio-j'),
+                                    'v79-hub','v79-tiquet-manager')))
     for p in (BASE,FAILED,CORE.parent):privatedir(p)
     privatedir(FAILED/'checkpoint')
     need(CORE.is_file() and not CORE.is_symlink(),'VERIFIED_CORE_MISSING')
@@ -157,12 +159,19 @@ def server():
         need(record and record.get('Id')==candidate and
              (record.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')==REVISION,
              'CANDIDATE_IMAGE_INVALID')
-        live_before=docker_inspect('container',NAME)
-        need(live_before and live_before['Id']==old[NAME]['Id'] and
-             live_before['Image']==OLD_IMAGE and
-             live_before['State'].get('Health',{}).get('Status')=='healthy' and
-             r.fingerprint(live_before)==r.fingerprint(old[NAME]),
-             'LIVE_GAMES_CHANGED')
+        live_before={item:docker_inspect('container',item) for item in protected}
+        for item in protected:
+            current=live_before[item]
+            need(current and current['State'].get('Running') is True,
+                 'LIVE_PROTECTED_CONTAINER_NOT_RUNNING')
+            if item!='v79-pos-worker':
+                need(current['State'].get('Health',{}).get('Status')=='healthy',
+                     'LIVE_PROTECTED_CONTAINER_UNHEALTHY')
+            if item in old:
+                need(current['Id']==old[item]['Id'] and
+                     current['Image']==old[item]['Image'] and
+                     r.fingerprint(current)==r.fingerprint(old[item]),
+                     'LIVE_RECOVERY_BASELINE_CHANGED')
         emit('MODE','ISOLATED_GAMES_STARTUP')
         emit('RECOVERY_BASELINE','UNCHANGED')
         emit('GAMES_IMAGE_PROVENANCE','PASS')
@@ -196,12 +205,17 @@ def server():
         finally:
             cleaned=cleanup(probe,identity,candidate)
             if cleaned:emit('GAMES_OWNED_PROBE_CLEANUP','PASS')
-        now=docker_inspect('container',NAME)
-        need(now and now['Id']==live_before['Id'] and
-             now['Image']==live_before['Image'] and
-             r.fingerprint(now)==r.fingerprint(live_before) and
-             now['State'].get('Health',{}).get('Status')=='healthy',
-             'PRODUCTION_GAMES_CHANGED')
+        for item in protected:
+            now=docker_inspect('container',item)
+            before=live_before[item]
+            need(now and now['Id']==before['Id'] and
+                 now['Image']==before['Image'] and
+                 now['State'].get('Running') is True and
+                 r.fingerprint(now)==r.fingerprint(before),
+                 'PROTECTED_RUNTIME_CHANGED')
+            if item!='v79-pos-worker':
+                need(now['State'].get('Health',{}).get('Status')=='healthy',
+                     'PROTECTED_HEALTH_CHANGED')
         emit('PRODUCTION_CONTAINERS','UNCHANGED')
         emit('NEW_RELEASE_DEPLOYMENT','NONE')
         emit('R1_CUSTOMER_RELEASE','NO_GO')
@@ -233,7 +247,7 @@ def acer():
     need(socket.gethostname()!='v79sl' and os.getuid()!=0,'ACER_NONROOT_REQUIRED')
     cmd=['ssh','-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
          '-o','ConnectTimeout=12','firelion@v79sl','python3 -B - --server']
-    p=run(cmd,timeout=240) if False else subprocess.run(cmd,input=Path(__file__).read_bytes(),
+    p=subprocess.run(cmd,input=Path(__file__).read_bytes(),
          stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=240)
     for line in p.stdout.decode('utf8','replace').splitlines():
         need(allowed(line),'REMOTE_OUTPUT_REDACTED')
