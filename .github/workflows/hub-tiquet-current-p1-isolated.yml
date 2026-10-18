@@ -2,7 +2,7 @@ name: Current P1 Hub Tiquet Isolated Acceptance
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, test/p1-current-tiquet-paired-20261018]
     paths:
       - "tests/paired-hub-tiquet-current-security.test.mjs"
       - ".github/workflows/hub-tiquet-current-p1-isolated.yml"
