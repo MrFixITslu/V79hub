@@ -45,8 +45,8 @@ jobs:
               "['docker','exec'", "['docker','logs'", "['docker','compose','up'",
               "['systemctl'", "['gpg'"
           ))
-          assert "'deployment_authorization'!='NO'" in inspector
-          assert "'R1_CUSTOMER_RELEASE':'NO_GO'" in inspector
+          assert "receipt.get('deployment_authorization')!='NO'" in inspector
+          assert "emit('R1_CUSTOMER_RELEASE','NO_GO')" in inspector
           assert "'RECOVERY_BASELINE_PREPARED_NOT_DEPLOYABLE'" in inspector
           assert "'RECOVERY_BASELINE_PREPARED_NOT_DEPLOYABLE'" in src
           assert "R1_CUSTOMER_RELEASE','NO_GO" in src
