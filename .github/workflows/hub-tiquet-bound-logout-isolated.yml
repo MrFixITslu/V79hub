@@ -1,0 +1,92 @@
+name: P1 Hub Tiquet Bound Logout Isolated QA
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "server.ts"
+      - "tests/paired-hub-tiquet-bound-session.test.mjs"
+      - ".github/workflows/hub-tiquet-bound-logout-isolated.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-session-logout:
+    name: Exact source bound-session global logout (disposable A/B)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    services:
+      postgres:
+        image: docker.io/library/postgres:16-alpine
+        env:
+          POSTGRES_DB: tiquet_test
+          POSTGRES_USER: tiquet_test
+          POSTGRES_PASSWORD: tiquet_test_password
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tiquet_test -d tiquet_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      V79_PAIRED_TEST_SCOPE: github-ci-disposable
+      DATABASE_URL: postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test
+      NODE_ENV: test
+      WIPAY_ENABLED: "0"
+      V79_MCP_READONLY_ENABLE: "0"
+      V79_ALLOW_PRODUCTION_DEPLOY: "0"
+      V79_ALLOW_LEGACY_AUTH: "0"
+    steps:
+      - name: Checkout isolated Hub source only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Checkout exact Tiquet isolated source only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: MrFixITslu/V79Tiquet
+          ref: 775d9f6c9afae70760896f5ef5cf090272d6a2af
+          path: .paired-tiquet
+          persist-credentials: false
+      - name: Refuse wrong source, live data or payment environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor df1046151a02dd27db746a2ec5b928f03dcb9b1d HEAD
+          test "$(git -C .paired-tiquet rev-parse HEAD)" = 775d9f6c9afae70760896f5ef5cf090272d6a2af
+          test "$DATABASE_URL" = postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test
+          test "$V79_PAIRED_TEST_SCOPE" = github-ci-disposable
+          test "$WIPAY_ENABLED" = 0
+          test "$V79_ALLOW_PRODUCTION_DEPLOY" = 0
+          test -z "$(git ls-files -- data uploads backups logs)"
+          test -z "$(git -C .paired-tiquet ls-files -- data uploads backups logs)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Pinned app dependencies, lifecycle scripts disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm ci --prefix .paired-tiquet --ignore-scripts --no-audit --no-fund
+      - name: Source checks and Hub typecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run lint
+          node --check tests/paired-hub-tiquet-bound-session.test.mjs
+          node --check .paired-tiquet/server/hubSessionStatus.js
+          node --check .paired-tiquet/server/index.js
+      - name: Exact two-tenant paired application security and session invalidation
+        run: node --test tests/paired-hub-tiquet-bound-session.test.mjs
+      - name: Reject tracked source mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git -C .paired-tiquet status --porcelain --untracked-files=no)"
+
+# No runner writes to production and no image publishing, SSH or deployment.
+# Default live config is unchanged. Isolated PASS != beta launch GO.
