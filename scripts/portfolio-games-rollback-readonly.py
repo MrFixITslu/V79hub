@@ -86,6 +86,28 @@ def differences(old,new):
     matched=not config and not any(env) and not host and not mount_diff and not networks
     return matched,config,env,host,mount_diff,networks
 
+DNS_KEYS=('Dns','DnsOptions','DnsSearch')
+
+def dns_shape(value):
+    if value is None:return 'NULL'
+    if type(value) is list:
+        return 'EMPTY' if not value else 'CONFIGURED'
+    return 'UNEXPECTED'
+
+def dns_representation_only(old,new):
+    """True only when the WHOLE fingerprint differs solely in null/[] DNS defaults."""
+    same,config,env,host,mounts,network=differences(old,new)
+    if same:return False
+    if config or any(env) or mounts or network:return False
+    if not host or any(field not in (x.upper() for x in DNS_KEYS) for field in host):
+        return False
+    a,b=old['HostConfig'],new['HostConfig']
+    for key in DNS_KEYS:
+        if a.get(key)==b.get(key):continue
+        if set((dns_shape(a.get(key)),dns_shape(b.get(key))))!={'NULL','EMPTY'}:
+            return False
+    return True
+
 def present(name,old,row,game_candidate=None):
     tag={'gaming-studio-j':'GAMES','v79-pos':'POS_API',
          'v79-pos-worker':'POS_WORKER','v79_course_builder':'ACADEMY',
@@ -117,6 +139,20 @@ def present(name,old,row,game_candidate=None):
     good=(old.get('Image')==row.get('Image') and same and state.get('Running') is True and
           (health=='HEALTHY' or name=='v79-pos-worker' and health=='NONE'))
     emit(tag+'_ORIGINAL_VERIFIED','YES' if good else 'NO')
+    if tag=='GAMES':
+        shapes=[]
+        for field in DNS_KEYS:
+            shape_old=dns_shape(old['HostConfig'].get(field))
+            shape_live=dns_shape(row['HostConfig'].get(field))
+            shapes.append(shape_old+'_'+shape_live)
+        emit('GAMES_DNS_DNS_SHAPES',shapes[0])
+        emit('GAMES_DNS_OPTIONS_SHAPES',shapes[1])
+        emit('GAMES_DNS_SEARCH_SHAPES',shapes[2])
+        dns_ok=(row['Image']==old['Image'] and state.get('Running') is True
+                and health=='HEALTHY' and dns_representation_only(old,row))
+        emit('GAMES_EMPTY_DNS_REPRESENTATION_ONLY','YES' if dns_ok else 'NO')
+        emit('GAMES_RECOVERY_CONFIG_ELIGIBLE','YES' if good or dns_ok else 'NO')
+
     return good
 
 def server():
@@ -182,6 +218,25 @@ def self_test():
     result=differences(row,changed)
     assert result[0] is False and result[2]==(0,0,1) and result[3]==['NETWORKMODE']
     assert 'PRIVATE_SECRET' not in str(result) and 'NEW_PRIVATE_SECRET' not in str(result)
+    base=copy.deepcopy(row)
+    base['HostConfig']={'Dns':None,'DnsOptions':None,'DnsSearch':None}
+    live=copy.deepcopy(base)
+    live['HostConfig']={'Dns':[],'DnsOptions':[],'DnsSearch':[]}
+    assert dns_representation_only(base,live)
+    assert dns_representation_only(live,base)
+    assert not dns_representation_only(base,base)
+    for key in DNS_KEYS:
+        changed=copy.deepcopy(live)
+        changed['HostConfig'][key]=['test.invalid']
+        assert not dns_representation_only(base,changed)
+    changed=copy.deepcopy(live)
+    changed['HostConfig']['Privileged']=True
+    assert not dns_representation_only(base,changed)
+    changed=copy.deepcopy(live)
+    changed['Config']['Env']=['PRIVATE_KEY=DIFFERENT_PRIVATE_SECRET']
+    assert not dns_representation_only(base,changed)
+    assert dns_shape(['PRIVATE_VALUE'])=='CONFIGURED'
+    assert 'PRIVATE_SECRET' not in str(differences(base,live))
     emit('SELF_TEST','PASS')
     return 0
 
