@@ -73,7 +73,7 @@ jobs:
           test "${id#sha256:}" != "$id"
           image_tar="v79-p1-${SERVICE}-${SOURCE_EXPECTED}.docker.tar.gz"
           docker save "$image" | gzip -1 > "archive/$image_tar"
-          sha256sum "archive/$image_tar" > "archive/$image_tar.sha256"
+          (cd archive && sha256sum "$image_tar" > "$image_tar.sha256")
           printf 'SERVICE=%s\nSOURCE_SHA=%s\nOCI_IMAGE_ID=%s\nIMAGE_TAG=%s\nCI_STAGE_ONLY=YES\nPRODUCTION_DEPLOYED=NO\nRUNTIME_RECOVERY_ACCEPTED=NO\n' \
             "$SERVICE" "$SOURCE_EXPECTED" "$id" "$image" > "archive/candidate-manifest.txt"
           (cd archive && sha256sum --check "$image_tar.sha256")
