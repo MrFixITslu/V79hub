@@ -367,4 +367,116 @@ class CachedAcademyTests(unittest.TestCase):
         for failure in ('time','untracked','cutover'):
             with self.subTest(failure=failure):self.exercise(failure)
 
+
+class CachedGamesTests(unittest.TestCase):
+    def exercise(self,failure=None):
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);old=root/'v79-remaining-rollout.pu2FVF7b'
+            old.mkdir(mode=0o700);run=root/'new';run.mkdir();plan=root/'plan';plan.mkdir()
+            stage=old/'Gaming-Studio-J';stage.mkdir()
+            helper=old/'rollout.py';helper.write_bytes(b'games verified fixture')
+            os.utime(helper,(1000,1000))
+            (old/'exit-code').write_text('1');os.utime(old/'exit-code',(2000,2000))
+            records=[
+                'RESULT='+name+'_PUBLIC_EXECUTION_AND_PROBE_CLEANUP_PASS'
+                for name in ('v79_course_builder','v79-pos','v79-pos-worker')
+            ]
+            records.extend(['PHASE=BUILD_GAMING_STUDIO_J',
+                'RESULT=gaming-studio-j_PUBLIC_EXECUTION_UNCLASSIFIED',
+                'PHASE=PROBE_CLEANUP_GAMING_STUDIO_J',
+                'STOP=CANDIDATE_EXECUTION_PROBE_FAILED'])
+            if failure=='cutover':records.append('PHASE=SWITCH_GAMING_STUDIO_J')
+            if failure=='proof':records.remove('RESULT=v79-pos-worker_PUBLIC_EXECUTION_AND_PROBE_CLEANUP_PASS')
+            (old/'progress.log').write_text('\\n'.join(records))
+            r.private_json(plan/'plan-summary.json',{})
+            r.private_json(old/'plan-reference.json',{'directory':str(plan),'sources':p.SOURCES,
+                'summary_sha256':r.sha_file(plan/'plan-summary.json')})
+            baseline={n:row(n,pin['image_id']) for n,pin in p.PINS.items()}
+            r.private_json(old/'runtime-before.json',baseline)
+            images={'V79acaedmy':'sha256:'+'a'*64,'V79POS':'sha256:'+'b'*64,
+                'Gaming-Studio-J':'sha256:'+'c'*64}
+            for repo in images:
+                r.private_json(old/(repo+'-built-image.json'),
+                    {'repo':repo,'source_commit':p.SOURCES[repo],'image_id':images[repo]})
+            image={'Id':images['Gaming-Studio-J'],
+                'Config':{'Labels':{'org.opencontainers.image.revision':
+                    ('0'*40 if failure=='label' else p.SOURCES['Gaming-Studio-J'])}},
+                'Created':'1970-01-01T00:25:00Z' if failure!='time' else '1970-01-01T01:00:00Z'}
+            def inspect(name,**kwargs):
+                if kwargs.get('image'):return copy.deepcopy(image)
+                result=copy.deepcopy(baseline[name])
+                if failure=='drift':result['HostConfig']['Privileged']=True
+                return result
+            def call(args,**kwargs):
+                self.assertNotIn('build',args)
+                if 'rev-parse' in args:return (('0'*40 if failure=='source' else p.SOURCES['Gaming-Studio-J'])).encode()
+                if 'ls-files' in args and failure=='untracked':return b'PRIVATE_CONTEXT'
+                return b''
+            with patch.object(s,'FAILED_GAMES_RUN',old),patch.object(s,'FAILED_GAMES_HELPER_BLOB',
+                       '0'*40 if failure=='helper' else s.blob(helper.read_bytes())), \\
+                 patch.object(s,'PLAN',plan),patch.object(s,'load_modules'), \\
+                 patch.object(s,'recover_academy_pos_builds',return_value={k:images[k] for k in ('V79acaedmy','V79POS')}), \\
+                 patch.object(r,'inspect',side_effect=inspect),patch.object(r,'call',side_effect=call), \\
+                 patch.object(s,'cleanup_probe') as cleanup,patch.object(r,'emit'):
+                if failure:
+                    with self.assertRaises(s.Stop):s.recover_all_builds(r,p,run)
+                else:
+                    self.assertEqual(s.recover_all_builds(r,p,run),images)
+                    cleanup.assert_called_once_with(r,'v79-release-probe-pu2FVF7b-3',
+                        'pu2FVF7b',images['Gaming-Studio-J'])
+                    self.assertTrue((run/'cached-all-builds-proof.json').exists())
+
+    def test_cached_three_images_exact_provenance_and_owned_cleanup(self):self.exercise()
+
+    def test_rejects_unproven_or_tampered_games_candidate(self):
+        for failure in ('helper','cutover','proof','drift','source','untracked','label','time'):
+            with self.subTest(failure=failure):self.exercise(failure)
+
+    def test_reused_three_images_skip_only_previously_accepted_probes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            cached={repo:'sha256:'+ch*64 for repo,ch in zip(p.SOURCES,('a','b','c'))}
+            before={n:row(n,pin['image_id']) for n,pin in p.PINS.items()}
+            def inspect(image,**kwargs):
+                repo=next(name for name,digest in cached.items() if digest==image)
+                return {'Id':image,'Config':{'User':'node','Env':[],
+                    'Labels':{'org.opencontainers.image.revision':p.SOURCES[repo]}}}
+            approved=('v79_course_builder','v79-pos','v79-pos-worker')
+            with patch.object(r,'inspect',side_effect=inspect),patch.object(r,'call') as call, \\
+                 patch.object(s,'probe_image') as probe,patch.object(r,'emit'):
+                result=s.build_images(r,p,root,before,cached=cached,skip_cached_probes=approved)
+            self.assertEqual(len(result),4)
+            self.assertEqual(probe.call_count,1)
+            self.assertEqual(probe.call_args.args[2],'gaming-studio-j')
+            call.assert_not_called()
+
+class FilecapProbeSafetyTests(unittest.TestCase):
+    def test_games_shell_readability_checks_do_not_execute_filecap_node(self):
+        self.assertIn('PUBLIC_EXECUTION_EACCES',s.GAME_READABILITY_PROBE)
+        self.assertIn('PUBLIC_EXECUTION_ENOENT',s.GAME_READABILITY_PROBE)
+        self.assertNotIn('eval',s.GAME_READABILITY_PROBE)
+        with tempfile.TemporaryDirectory() as tmp:
+            run=Path(tmp)/'v79-remaining-rollout.ABC12345';run.mkdir()
+            old={'Config':{'User':'node','Cmd':['node','server.js'],
+                'WorkingDir':'/app','Entrypoint':['docker-entrypoint.sh']}}
+            metadata={'Mounts':[],'HostConfig':{'NetworkMode':'none','PortBindings':None},
+                'State':{'Status':'exited','ExitCode':0}}
+            calls=[]
+            def probe_call(_,args,timeout,code):
+                calls.append(args)
+                return type('P',(),{'returncode':0,
+                    'stdout':b'PUBLIC_EXECUTION_FILES_READABLE' if args[1]=='logs' else b'',
+                    'stderr':b''})()
+            with patch.object(r,'call',side_effect=lambda args,**kw:calls.append(args) or b''), \\
+                 patch.object(s,'probe_metadata',return_value=metadata), \\
+                 patch.object(s,'probe_call',side_effect=probe_call), \\
+                 patch.object(s,'cleanup_probe'),patch.object(r,'emit'):
+                s.probe_image(r,run,'gaming-studio-j','sha256:'+'c'*64,old)
+            self.assertIn('--entrypoint',calls[0])
+            self.assertEqual(calls[0][calls[0].index('--entrypoint')+1],'/bin/sh')
+            self.assertIn('--network',calls[0]);self.assertIn('--read-only',calls[0])
+            self.assertIn('--cap-drop',calls[0]);self.assertIn('no-new-privileges:true',calls[0])
+            self.assertNotIn('PRIVATE',json.dumps(calls))
+
 if __name__=='__main__':unittest.main()
