@@ -84,7 +84,7 @@ test("current pinned Hub+Tiquet full stack: replay, cross-tenant read/write and 
     ...process.env,
     NODE_ENV:"production",DATA_DIR:dir,PORT:String(hubPort),APP_URL:hub,
     V79_HUB_STORE_BACKEND:"json",V79_HUB_ADMIN_USERNAME:"admin",
-    V79_HUB_ADMIN_EMAIL:"vision79slu@gmail.com",
+    V79_HUB_ADMIN_EMAIL:"ci-owner@example.invalid",
     V79_HUB_ADMIN_PASSWORD:"paired-ci-admin-password-only-2026",
     V79_PLATFORM_SHARED_SECRET:platformSecret,V79_TIQUET_LAUNCH_SECRET:launchSecret,
     TIQUET_INTERNAL_URL:tiquet,TIQUET_PUBLIC_URL:"https://tiquet.v79sl.com",
