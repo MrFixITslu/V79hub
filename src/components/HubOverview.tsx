@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { EcosystemApp, User, ViewState } from "../types";
 import { appLaunchUrl } from "../lib/appLaunch";
+import { countMetric, percentMetric, moneyMetric, numericMetric, summaryCurrency, openJobsMetric, hasUsableSummary, connectionCopy } from "../lib/dashboardTruth";
 
 type ProductKey = "pos" | "ffpro" | "tiquet" | "marketing" | "academy";
 type ProductStatus = "ok" | "needs_setup" | "unavailable" | "misconfigured" | "restricted" | "not_enabled" | "not_configured";
@@ -24,6 +25,7 @@ interface ProductSummary {
   httpStatus?: number;
   metrics?: Record<string, any>;
   generatedAt?: string | null;
+  sourceReportedAt?: string | null;
   error?: string | null;
 }
 
@@ -40,14 +42,6 @@ interface HubOverviewProps {
 }
 
 const whole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-const n = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0);
-const money = {
-  format(value: unknown) {
-    const amount = n(value);
-    const sign = amount < 0 ? "-" : "";
-    return `${sign}EC${whole.format(Math.abs(amount))}`;
-  },
-};
 
 const appCards: Array<{
   key: ProductKey;
@@ -78,9 +72,9 @@ const appCards: Array<{
     border: "hover:border-[#0A86FF]/65",
     description: "Customers, tickets, service delivery and team activity.",
     metrics: (m) => [
-      { label: "Jobs", value: whole.format(n(m.jobs)) },
-      { label: "Clients", value: whole.format(n(m.clients)) },
-      { label: "Team", value: whole.format(n(m.teamMembers)) },
+      { label: "Jobs", value: countMetric(m.jobs) },
+      { label: "Clients", value: countMetric(m.clients) },
+      { label: "Team", value: countMetric(m.teamMembers) },
     ],
   },
   {
@@ -97,9 +91,9 @@ const appCards: Array<{
     border: "hover:border-[#8b5cf6]/65",
     description: "Cash flow, budgets, goals and business financial visibility.",
     metrics: (m) => [
-      { label: "MTD net", value: money.format(n(m.currentMonthNet)) },
-      { label: "Income", value: money.format(n(m.currentMonthIncome)) },
-      { label: "Transactions", value: whole.format(n(m.transactionCount)) },
+      { label: "MTD net", value: moneyMetric(m.currentMonthNet, m) },
+      { label: "Income", value: moneyMetric(m.currentMonthIncome, m) },
+      { label: "Transactions", value: countMetric(m.transactionCount) },
     ],
   },
   {
@@ -116,9 +110,9 @@ const appCards: Array<{
     border: "hover:border-[#FF7A00]/65",
     description: "Campaigns, customer pipeline, content and marketing analytics.",
     metrics: (m) => [
-      { label: "Campaigns", value: whole.format(n(m.activeCampaigns)) },
-      { label: "Customers", value: whole.format(n(m.customers)) },
-      { label: "AI credits", value: whole.format(n(m.aiCreditsRemaining)) },
+      { label: "Campaigns", value: countMetric(m.activeCampaigns) },
+      { label: "Customers", value: countMetric(m.customers) },
+      { label: "AI credits", value: countMetric(m.aiCreditsRemaining) },
     ],
   },
   {
@@ -135,9 +129,9 @@ const appCards: Array<{
     border: "hover:border-[#10B981]/65",
     description: "Learning progress, course access and certifications.",
     metrics: (m) => [
-      { label: "Enrolled", value: whole.format(n(m.enrolledCourses)) },
-      { label: "Progress", value: `${whole.format(n(m.overallProgressPercent))}%` },
-      { label: "Certificates", value: whole.format(n(m.certificates)) },
+      { label: "Enrolled", value: countMetric(m.enrolledCourses) },
+      { label: "Progress", value: percentMetric(m.overallProgressPercent) },
+      { label: "Certificates", value: countMetric(m.certificates) },
     ],
   },
   {
@@ -154,16 +148,17 @@ const appCards: Array<{
     border: "hover:border-[#EF4444]/65",
     description: "Sales, stock, purchasing and register operations.",
     metrics: (m) => [
-      { label: "30d revenue", value: money.format(n(m.revenue30d)) },
-      { label: "30d sales", value: whole.format(n(m.sales30d)) },
-      { label: "Open POs", value: whole.format(n(m.openPurchaseOrders)) },
+      { label: "30d revenue", value: moneyMetric(m.revenue30d, m) },
+      { label: "30d sales", value: countMetric(m.sales30d) },
+      { label: "Open POs", value: countMetric(m.openPurchaseOrders) },
     ],
   },
 ];
 
 function statusMeta(summary?: ProductSummary) {
   if (!summary) return { label: "Loading", dot: "bg-slate-500", text: "text-slate-400", score: 35 };
-  if (summary.status === "ok") return { label: "Data available", dot: "bg-emerald-400", text: "text-emerald-300", score: 100 };
+  if (summary.status === "ok" && hasUsableSummary(summary)) return { label: "Data available", dot: "bg-emerald-400", text: "text-emerald-300", score: 100 };
+  if (summary.status === "ok") return { label: "No metrics", dot: "bg-slate-500", text: "text-slate-400", score: 0 };
   if (summary.status === "restricted") return { label: "Restricted", dot: "bg-slate-400", text: "text-slate-300", score: 55 };
   if (summary.status === "not_enabled") return { label: "Not enabled", dot: "bg-slate-600", text: "text-slate-500", score: 15 };
   if (summary.status === "not_configured") return { label: "Not connected", dot: "bg-slate-500", text: "text-slate-400", score: 30 };
@@ -213,43 +208,39 @@ export function HubOverview({
   const marketing = summaries?.marketing?.metrics || {};
   const academy = summaries?.academy?.metrics || {};
   const pos = summaries?.pos?.metrics || {};
-  const onlineCount = visibleAppCards.filter((card) => summaries?.[card.key]?.status === "ok").length;
+  const availableSummaryCount = visibleAppCards.filter((card) => hasUsableSummary(summaries?.[card.key])).length;
 
-  const openJobs = useMemo(() => {
-    const byStatus =
-      tiquet.jobsByStatus && typeof tiquet.jobsByStatus === "object" ? tiquet.jobsByStatus : {};
-    return Object.entries(byStatus).reduce((sum, [status, count]) => {
-      return /resolved|closed|complete/i.test(status) ? sum : sum + n(count);
-    }, 0);
-  }, [tiquet.jobsByStatus]);
+  const openJobs = useMemo(() => openJobsMetric(tiquet.jobsByStatus), [tiquet.jobsByStatus]);
 
   const actions = useMemo(() => {
     const result: Array<{ title: string; detail: string; key: ProductKey }> = [];
-    if (summaries?.ffpro?.status === "ok" && n(ffpro.currentMonthNet) < 0) {
+    if (summaries?.ffpro?.status === "ok" && numericMetric(ffpro.currentMonthNet) !== null && Number(ffpro.currentMonthNet) < 0) {
       result.push({
         title: "Monthly cash flow needs attention",
-        detail: `Expenses exceed income by ${money.format(Math.abs(n(ffpro.currentMonthNet)))} this month.`,
+        detail: summaryCurrency(ffpro)
+          ? `Expenses exceed income by ${moneyMetric(Math.abs(Number(ffpro.currentMonthNet)), ffpro)} this month.`
+          : "Expenses exceed income this month; source currency is unavailable.",
         key: "ffpro",
       });
     }
-    if (summaries?.tiquet?.status === "ok" && openJobs > 0) {
+    if (summaries?.tiquet?.status === "ok" && openJobs !== null && openJobs > 0) {
       result.push({
         title: `${whole.format(openJobs)} open service job${openJobs === 1 ? "" : "s"}`,
         detail: "Review ownership and service deadlines in V79 Digital Tiquet.",
         key: "tiquet",
       });
     }
-    if (summaries?.marketing?.status === "ok" && n(marketing.activeCampaigns) === 0) {
+    if (summaries?.marketing?.status === "ok" && numericMetric(marketing.activeCampaigns) === 0) {
       result.push({
         title: "No active marketing campaign",
         detail: "Marketing is connected, but there is no active campaign right now.",
         key: "marketing",
       });
     }
-    if (summaries?.pos?.status === "ok" && n(pos.openPurchaseOrders) > 0) {
+    if (summaries?.pos?.status === "ok" && numericMetric(pos.openPurchaseOrders) !== null && Number(pos.openPurchaseOrders) > 0) {
       result.push({
         title: "Purchase orders require follow-up",
-        detail: `${whole.format(n(pos.openPurchaseOrders))} POS purchase order(s) are still open.`,
+        detail: `${countMetric(pos.openPurchaseOrders)} POS purchase order(s) are still open.`,
         key: "pos",
       });
     }
@@ -279,8 +270,10 @@ export function HubOverview({
     {
       key: "pos",
       label: "Sales · last 30 days",
-      value: summaries?.pos?.status === "ok" ? money.format(n(pos.revenue30d)) : "-",
-      detail: summaries?.pos?.status === "ok" ? `${whole.format(n(pos.sales30d))} completed sale${n(pos.sales30d) === 1 ? "" : "s"} · XCD` : "Awaiting POS data",
+      value: summaries?.pos?.status === "ok" ? moneyMetric(pos.revenue30d, pos) : "—",
+      detail: summaries?.pos?.status === "ok"
+        ? (summaryCurrency(pos) ? `${countMetric(pos.sales30d)} completed sales · ${summaryCurrency(pos)}` : "POS currency not reported")
+        : "Awaiting POS data",
       icon: CreditCard,
       color: "text-[#ff6b72]",
       glow: "from-[#EF4444]/20 to-transparent",
@@ -288,8 +281,8 @@ export function HubOverview({
     {
       key: "ffpro",
       label: "Net cash flow · this month",
-      value: summaries?.ffpro?.status === "ok" ? money.format(n(ffpro.currentMonthNet)) : "-",
-      detail: summaries?.ffpro?.status === "ok" ? `${whole.format(n(ffpro.transactionCount))} transactions this period` : "Awaiting finance data",
+      value: summaries?.ffpro?.status === "ok" ? moneyMetric(ffpro.currentMonthNet, ffpro) : "—",
+      detail: summaries?.ffpro?.status === "ok" ? `${countMetric(ffpro.transactionCount)} transactions this period${summaryCurrency(ffpro) ? "" : " · currency unknown"}` : "Awaiting finance data",
       icon: Wallet,
       color: "text-[#a78bfa]",
       glow: "from-[#8b5cf6]/22 to-transparent",
@@ -297,8 +290,8 @@ export function HubOverview({
     {
       key: "tiquet",
       label: "Open service jobs",
-      value: summaries?.tiquet?.status === "ok" ? whole.format(openJobs) : "-",
-      detail: summaries?.tiquet?.status === "ok" ? `Current workload · ${whole.format(n(tiquet.clients))} clients` : "Awaiting service data",
+      value: summaries?.tiquet?.status === "ok" && openJobs !== null ? whole.format(openJobs) : "—",
+      detail: summaries?.tiquet?.status === "ok" ? `Current workload · ${countMetric(tiquet.clients)} clients` : "Awaiting service data",
       icon: Headphones,
       color: "text-[#62c7ff]",
       glow: "from-[#0A86FF]/22 to-transparent",
@@ -306,8 +299,8 @@ export function HubOverview({
     {
       key: "marketing",
       label: "Active campaigns",
-      value: summaries?.marketing?.status === "ok" ? whole.format(n(marketing.activeCampaigns)) : "-",
-      detail: summaries?.marketing?.status === "ok" ? `Current activity · ${whole.format(n(marketing.customers))} customers` : "Awaiting marketing data",
+      value: summaries?.marketing?.status === "ok" ? countMetric(marketing.activeCampaigns) : "—",
+      detail: summaries?.marketing?.status === "ok" ? `Current activity · ${countMetric(marketing.customers)} customers` : "Awaiting marketing data",
       icon: Megaphone,
       color: "text-[#ff9a3d]",
       glow: "from-[#FF7A00]/22 to-transparent",
@@ -340,7 +333,7 @@ export function HubOverview({
                 <div className="mt-1 text-sm font-black text-white">{attentionLabel}</div>
               </div>
               <div className="rounded-2xl border border-[#21405d] bg-[#081422]/80 px-4 py-3 min-w-[135px]">
-                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Data refreshed</div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Hub checked</div>
                 <div className="mt-1 text-sm font-bold text-white">{lastUpdated}</div>
               </div>
               <button
@@ -438,7 +431,7 @@ export function HubOverview({
               <div className={`lg:col-span-2 rounded-2xl border p-4 flex items-start gap-3 ${!dashboard || loadError ? "border-slate-500/20 bg-slate-500/[0.07]" : "border-emerald-500/20 bg-emerald-500/[0.07]"}`} role="status">
                 {!dashboard || loadError ? <Activity className="w-4 h-4 text-slate-400 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />}
                 <div>
-                  <div className={`text-xs font-bold ${!dashboard || loadError ? "text-slate-200" : "text-emerald-200"}`}>{!dashboard || loadError ? "Action insights are not available yet" : "No action alerts reported"}</div>
+                  <div className={`text-xs font-bold ${!dashboard || loadError ? "text-slate-200" : "text-emerald-200"}`}>{!dashboard || loadError ? "Action insights are not available yet" : "No action alerts reported by available sources"}</div>
                   <div className="text-[10px] text-slate-500 mt-1">Only connected apps with available data contribute alerts. Check your apps for complete activity.</div>
                 </div>
               </div>
@@ -498,6 +491,11 @@ export function HubOverview({
                         </div>
                       ))}
                     </div>
+                    <div className="mt-2 text-[9px] text-slate-500 truncate" title={summary?.sourceReportedAt || "Source timestamp unavailable"}>
+                      {summary?.sourceReportedAt && Number.isFinite(Date.parse(summary.sourceReportedAt))
+                        ? `Product reported ${new Date(summary.sourceReportedAt).toLocaleDateString()}`
+                        : "Product source timestamp unavailable"}
+                    </div>
                     <div className="mt-auto pt-3 flex items-center justify-between">
                       <span className="text-[9px] text-slate-600">{launchUrl ? "Ready to open" : app?.accessMessage || "Setup pending"}</span>
                       <span className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-black/10 px-2.5 py-1.5 text-[9px] font-bold" style={{ color: card.accent }}>
@@ -519,9 +517,7 @@ export function HubOverview({
             <div>
               <div className="text-[11px] font-bold text-white">System status</div>
               <div className="text-[9px] text-slate-500 mt-1">
-                {onlineCount === visibleAppCards.length
-                  ? "All enabled app data connections responded to the latest check."
-                  : `${onlineCount} of ${visibleAppCards.length} enabled app data connections responded to the latest check.`}
+                {connectionCopy(visibleAppCards.length, availableSummaryCount, Boolean(dashboard), Boolean(loadError))}
               </div>
             </div>
           </div>
