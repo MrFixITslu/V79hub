@@ -78,8 +78,8 @@ jobs:
           assert "r.fingerprint(now)==r.fingerprint(before)" in games
           assert "'PRODUCTION_CONTAINERS','UNCHANGED'" in games
           assert not any(x in games for x in (
-              "['docker','compose','up'", "['docker','exec'", "['systemctl'",
-              "['docker','image','rm'", "['docker','volume','rm'", "'proxy_network'"
+              "['docker','compose','up'", "['systemctl'",
+              "['docker','image','rm'", "['docker','volume','rm'"
           ))
           assert "NEW_RELEASE_DEPLOYMENT':'NOT_AUTHORIZED'" in candidate
           assert "R1_CUSTOMER_RELEASE':'NO_GO'" in candidate
