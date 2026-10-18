@@ -1,0 +1,23 @@
+name: Pure Academy isolation contract
+on:
+  push:
+    paths:
+      - scripts/academy-isolation-contract.py
+      - tests/academy-isolation-contract.test.py
+      - .github/workflows/academy-isolation-contract.yml
+  pull_request:
+    paths:
+      - scripts/academy-isolation-contract.py
+      - tests/academy-isolation-contract.test.py
+      - .github/workflows/academy-isolation-contract.yml
+permissions:
+  contents: read
+jobs:
+  pure-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/academy-isolation-contract.test.py
