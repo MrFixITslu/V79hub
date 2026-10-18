@@ -337,4 +337,30 @@ test("Hub-bound current Hub+Tiquet full stack: global logout, read/write isolati
   assert.equal(offline.status,401,"Hub outage must not silently authorize Tiquet");
   assert.equal((await offline.json()).code,"HUB_SESSION_INACTIVE");
   console.log("HUB_SESSION_STATUS_HMAC_SCOPE=PASS HUB_OUTAGE_FAIL_CLOSED=PASS");
+
+  // Reboot only the disposable Hub process over the same isolated data dir.
+  // The persisted session store must keep B alive and A revoked.
+  const resumedHub=launchProcess(t,"Restarted synthetic Hub",process.cwd(),["--import","tsx","server.ts"],{
+    ...process.env,
+    NODE_ENV:"production",DATA_DIR:dir,PORT:String(hubPort),APP_URL:hub,
+    V79_HUB_STORE_BACKEND:"json",V79_HUB_ADMIN_USERNAME:"admin",
+    V79_HUB_ADMIN_EMAIL:"vision79slu@gmail.com",
+    V79_HUB_ADMIN_PASSWORD:"paired-ci-admin-password-only-2026",
+    V79_HUB_TIQUET_SESSION_BINDING:"1",
+    V79_PLATFORM_SHARED_SECRET:platformSecret,V79_TIQUET_LAUNCH_SECRET:launchSecret,
+    TIQUET_INTERNAL_URL:tiquet,TIQUET_PUBLIC_URL:"https://tiquet.v79sl.com",
+    POS_BASE_URL:dead,FFPRO_INTERNAL_URL:dead,MARKETING_INTERNAL_URL:dead,
+    ACADEMY_INTERNAL_URL:dead,LASERTAG_INTERNAL_URL:dead,OLLAMA_BASE_URL:"",
+    WIPAY_ENABLED:"0",V79_MCP_READONLY_ENABLE:"0",V79_RESEND_API_KEY:"",
+  });
+  await ready(hub,"/api/health",resumedHub,async()=>true);
+  assert.equal((await req(hub,"/api/auth/me",{headers:{Cookie:a.hubCookie}})).status,401,
+    "revoked Hub session must remain revoked after restart");
+  assert.equal((await req(hub,"/api/auth/me",{headers:{Cookie:b.hubCookie}})).status,200,
+    "unrelated valid Hub session must survive restart");
+  assert.equal((await readOk(await signedStatus(a.organization.id,hubScopedUser),200)).active,false,
+    "revoked Hub session may not reappear after restart");
+  assert.equal((await req(tiquet,"/api/auth/me",{headers:{Cookie:bCookie}})).status,200,
+    "unrelated linked Tiquet access can recover after Hub restarts");
+  console.log("HUB_SESSION_RESTART_DURABILITY=PASS");
 });
