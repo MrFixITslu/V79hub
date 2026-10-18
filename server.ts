@@ -1024,7 +1024,9 @@ const posPrivateKey = crypto.createPrivateKey(fs.readFileSync(posKeyPath));
 const posPublicKey = crypto.createPublicKey(posPrivateKey);
 const posKeyId = crypto.createHash("sha256").update(posPublicKey.export({ format: "der", type: "spki" })).digest("hex").slice(0, 20);
 type LaunchProduct = "pos" | "ffpro" | "tiquet" | "marketing";
-const launchTickets = new Map<string, { userId: string; tenantId: string; product: LaunchProduct; expiresAt: number }>();
+// OFF by default: only isolated coordinated Hub/Tiquet session-binding candidates use this.
+const tiquetSessionBinding = process.env.V79_HUB_TIQUET_SESSION_BINDING === "1";
+const launchTickets = new Map<string, { userId: string; tenantId: string; product: LaunchProduct; expiresAt: number; hubSessionId?: string }>();
 function pruneAuthState(now = Date.now()) {
   let sessionsChanged = false;
   for (const [key, session] of sessions) {
@@ -1047,10 +1049,10 @@ const managedLaunch = {
 function managedProduct(source: string): keyof typeof managedLaunch | null {
   return (Object.keys(managedLaunch) as (keyof typeof managedLaunch)[]).find(product => managedLaunch[product].serviceId === source) || null;
 }
-function launchTicket(userId: string, tenantId: string, product: LaunchProduct) {
+function launchTicket(userId: string, tenantId: string, product: LaunchProduct, hubSessionId?: string) {
   for (const [key, entry] of launchTickets) if (entry.expiresAt < Date.now() || (entry.userId === userId && entry.product === product)) launchTickets.delete(key);
   const ticket = crypto.randomBytes(32).toString("base64url");
-  launchTickets.set(crypto.createHash("sha256").update(ticket).digest("hex"), { userId, tenantId, product, expiresAt: Date.now() + 120000 });
+  launchTickets.set(crypto.createHash("sha256").update(ticket).digest("hex"), { userId, tenantId, product, expiresAt: Date.now() + 120000, ...(hubSessionId ? { hubSessionId } : {}) });
   return ticket;
 }
 function posUserId(userId: string, organizationId: string) {
@@ -1673,6 +1675,38 @@ app.post("/api/platform/entitlement/check", (req, res) => {
   res.json(result);
 });
 
+// Product-only HMAC endpoint. Session IDs are non-bearer SHA-256 references,
+// never browser cookies, and do not authorize a request without the shared secret.
+// OFF by default, fail closed during an isolated Tiquet-bound logout rehearsal.
+app.post("/api/platform/session/status", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!tiquetSessionBinding) return res.status(404).json({ active: false });
+  const pathname = "/api/platform/session/status";
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  const secret = process.env.V79_TIQUET_LAUNCH_SECRET || "";
+  if (req.get("x-v79-service-id") !== "v79-tiquet" ||
+      !verifyPlatformRequest({ method: "POST", pathname, body,
+        timestamp: req.get("x-v79-timestamp") || "",
+        signature: req.get("x-v79-signature") || "", secret })) {
+    return res.status(401).json({ active: false });
+  }
+  const { product, hubSessionId, organizationId, scopedUserId } = req.body || {};
+  if (product !== "tiquet" || typeof hubSessionId !== "string" || !/^[a-f0-9]{64}$/.test(hubSessionId) ||
+      typeof organizationId !== "string" || organizationId.length < 5 || organizationId.length > 180 ||
+      typeof scopedUserId !== "string" || scopedUserId.length < 5 || scopedUserId.length > 180) {
+    return res.status(400).json({ active: false });
+  }
+  const session = sessions.get(hubSessionId);
+  const membership = session ? activeMembership(store, session.userId, session.organizationId) : null;
+  const active = Boolean(session && session.expiresAt > Date.now() &&
+    session.organizationId === organizationId && membership &&
+    (membership.role === "owner" || tiquetTeamRole(membership.role)) &&
+    membershipCanAccessApp(membership, "app-tiquet") &&
+    organizationCanAccessApp(store, organizationId, "app-tiquet", posIdentity.organizationId) &&
+    posUserId(session.userId, session.organizationId) === scopedUserId);
+  return res.json({ active });
+});
+
 app.post("/api/platform/session/consume", (req, res) => {
   const body = (req as any).rawBody?.toString("utf8") || "";
   const source = req.get("x-v79-service-id") || "";
@@ -1715,6 +1749,10 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry &&
     entry.product === "tiquet" &&
     entry.expiresAt >= Date.now() &&
+    (!tiquetSessionBinding || Boolean(entry.hubSessionId &&
+      sessions.get(entry.hubSessionId)?.userId === entry.userId &&
+      sessions.get(entry.hubSessionId)?.organizationId === entry.tenantId &&
+      (sessions.get(entry.hubSessionId)?.expiresAt || 0) > Date.now())) &&
     (tiquetTicketMembership?.role === "owner" || tiquetTeamRole(tiquetTicketMembership?.role)) &&
     membershipCanAccessApp(tiquetTicketMembership, "app-tiquet") &&
     organizationCanAccessApp(store, entry.tenantId, "app-tiquet", posIdentity.organizationId) &&
@@ -1768,6 +1806,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     organization: { id: organization.id, name: organization.name, slug: organization.slug },
     role: consumedRole, plan: "beta", accessMode: "beta",
     entitlement: { product, enabled: true, access: consumedRole === "owner" ? "owner" : "team" },
+    ...(tiquetSessionBinding && product === "tiquet" && entry.hubSessionId ? { hubSessionId: entry.hubSessionId } : {}),
     assignedProducts: enabledAppIds(store, entry.tenantId, posIdentity.organizationId)
       .map((appId: string) => ({ "app-ffpro": "ffpro", "app-tiquet": "tiquet", "app-marketing": "marketing" } as Record<string,string>)[appId])
       .filter(Boolean),
@@ -5359,7 +5398,14 @@ app.get("/api/apps/:product/launch", async (req, res) => {
     if (target.protocol !== "https:" || target.username || target.password || !target.hostname.endsWith(".v79sl.com")) throw new Error("Invalid app URL");
   } catch { return res.status(503).json({ error: `${product} public URL is invalid.` }); }
 
-  target.searchParams.set("ticket", launchTicket(session.userId, session.organizationId, product));
+  const rawSessionToken = req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.slice(7) : cookieToken(req.headers.cookie);
+  const lineage = product === "tiquet" && tiquetSessionBinding ? sessionKey(rawSessionToken) : undefined;
+  if (product === "tiquet" && tiquetSessionBinding &&
+      (!rawSessionToken || sessions.get(lineage!) !== session)) {
+    return res.status(401).json({ error: "Hub session lineage is unavailable." });
+  }
+  target.searchParams.set("ticket", launchTicket(session.userId, session.organizationId, product, lineage));
   res.setHeader("Cache-Control", "no-store");
   res.redirect(302, target.toString());
 });
