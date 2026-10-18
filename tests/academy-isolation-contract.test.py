@@ -108,6 +108,19 @@ class ContractTests(unittest.TestCase):
             row = fixture('running'); row['State'][field] = True
             self.assertEqual(c.validate(row, IMAGE, TOKEN, PUBLIC), 'STATE_INCONSISTENT')
 
+    def test_live_mountinfo_and_stat_prove_size_owner_and_flags(self):
+        evidence={'mountinfo':'10 9 0:1 / /app/data rw,nosuid,nodev - tmpfs tmpfs rw,size=65536k\n11 9 0:2 / /tmp rw,nosuid,nodev - tmpfs tmpfs rw,size=16384k',
+                  'stats':{p:{'uid':1000,'gid':1000,'mode':448,'directory':True} for p in c.TMPFS}}
+        self.assertEqual(len(c.realized_tmpfs(evidence)),2)
+        for old,new in [('size=65536k','size=1g'),('rw,nosuid,nodev','rw'),('tmpfs tmpfs','ext4 /dev/private')]:
+            changed=copy.deepcopy(evidence);changed['mountinfo']=changed['mountinfo'].replace(old,new)
+            self.assertIsNone(c.realized_tmpfs(changed))
+        changed=copy.deepcopy(evidence);changed['stats']['/tmp']['uid']=0
+        self.assertIsNone(c.realized_tmpfs(changed))
+        changed=copy.deepcopy(evidence);changed['mountinfo']+='\n'+changed['mountinfo'].splitlines()[0]
+        self.assertIsNone(c.realized_tmpfs(changed))
+        self.assertIsNone(c.realized_tmpfs({}))
+
     def test_purity_no_docker_network_file_or_dynamic_execution(self):
         tree = ast.parse(PATH.read_text())
         imports = [n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]

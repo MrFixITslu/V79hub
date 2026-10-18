@@ -159,6 +159,35 @@ def validate(row, image, token, public_image_env):
         return _validate(row, image, token, public_image_env)
     except (TypeError, ValueError, AttributeError, KeyError):
         return 'INVALID_INPUT'
+
+
+def realized_tmpfs(evidence):
+    """Validate captured in-container mountinfo/stat evidence; no host operations."""
+    try:
+        info=evidence['mountinfo'];stats=evidence['stats']
+        if not isinstance(info,str) or not isinstance(stats,dict):return None
+        found={}
+        for line in info.splitlines():
+            fields=line.split();separator=fields.index('-')
+            if len(fields)<separator+4:return None
+            path=fields[4]
+            if path not in TMPFS:continue
+            if path in found:return None
+            if fields[separator+1:separator+3]!=['tmpfs','tmpfs']:return None
+            if not {'rw','nosuid','nodev'}<=set(fields[5].split(',')):return None
+            options=fields[separator+3].split(',')
+            sizes=[x[5:] for x in options if x.startswith('size=')]
+            if len(sizes)!=1:return None
+            match=re.fullmatch(r'(\d+)([kKmM]?)',sizes[0])
+            if not match:return None
+            size=int(match[1])*{'':1,'k':1024,'m':1024**2}[match[2].lower()]
+            expected=64*1024**2 if path=='/app/data' else 16*1024**2
+            if size!=expected:return None
+            if stats.get(path)!={'uid':1000,'gid':1000,'mode':448,'directory':True}:return None
+            found[path]={'Type':'tmpfs','Destination':path,'RW':True,'Source':''}
+        if set(found)!=set(TMPFS):return None
+        return list(found.values())
+    except (TypeError,ValueError,KeyError,IndexError,AttributeError):return None
 # END PURE CONTRACT
 PUBLIC_ENV = {}
 EXPECTED_CONFIG = {}
@@ -254,9 +283,20 @@ def isolated(row,image,token,cleanup_mode=False):
     # An exited probe is eligible only for cleanup, never startup acceptance.
     if cleanup_mode and state.get('Status')=='exited':
         check=dict(row);check['State']=dict(state)
-        never_started=state.get('StartedAt','').startswith('0001-01-01')
-        check['State'].update(Status='created' if never_started else 'running',
-                              Running=not never_started,OOMKilled=False)
+        check['State'].update(Status='created',Running=False,OOMKilled=False)
+    if state.get('Status')=='running' and row.get('Mounts')==[]:
+        # Establish all non-mount guards before executing a bounded read-only
+        # probe inside this exact isolated container. Docker --tmpfs can remain
+        # absent from inspect.Mounts even after start.
+        check=dict(row);check['State']=dict(state,Status='created',Running=False)
+        if validate(check,image,token,PUBLIC_ENV)!='PASS_CREATED':return False
+        evidence=command(['docker','exec','--user','1000:1000',row['Id'],'node','-e',
+            "const fs=require('fs');const stats={};for(const p of ['/app/data','/tmp']){const s=fs.statSync(p);stats[p]={uid:s.uid,gid:s.gid,mode:s.mode&511,directory:s.isDirectory()}}process.stdout.write(JSON.stringify({mountinfo:fs.readFileSync('/proc/self/mountinfo','utf8'),stats}))"],seconds=12)
+        if evidence.returncode!=0:return False
+        try:mounts=realized_tmpfs(json.loads(evidence.stdout))
+        except (ValueError,TypeError):return False
+        if mounts is None:return False
+        check=dict(row);check['Mounts']=mounts
     if not validate(check,image,token,PUBLIC_ENV).startswith('PASS_'):return False
     conf=row['Config']
     if any(conf.get(k)!=EXPECTED_CONFIG.get(k) for k in ('Cmd','Entrypoint','WorkingDir')):return False

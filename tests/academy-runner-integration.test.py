@@ -31,7 +31,9 @@ class WiringTests(unittest.TestCase):
     def test_created_and_running_pass_but_running_without_mounts_fails(self):
         self.assertTrue(r.isolated(self.fixture(),t.IMAGE,t.TOKEN))
         row=self.fixture('running');self.assertTrue(r.isolated(row,t.IMAGE,t.TOKEN))
-        row['Mounts']=[];self.assertFalse(r.isolated(row,t.IMAGE,t.TOKEN))
+        row['Mounts']=[]
+        with patch.object(r,'command',return_value=SimpleNamespace(returncode=1)):
+            self.assertFalse(r.isolated(row,t.IMAGE,t.TOKEN))
 
     def test_command_and_healthcheck_drift_rejected(self):
         for field,value in [('Cmd',['sh']),('Entrypoint',['sh']),('WorkingDir','/'),('Healthcheck',{'Test':['CMD','true']})]:

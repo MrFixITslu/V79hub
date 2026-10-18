@@ -16,7 +16,11 @@ operations and authorizes no lifecycle actions. Its CI uses only synthetic data.
 Three alternatives were reviewed: globally relaxing mounts (rejected), starting
 before isolation checks (rejected), and state-specific declarations/realizations
 (selected). CREATED may have no realized mounts only with exact bounded tmpfs
-declarations. RUNNING requires exactly two writable tmpfs mounts. Root, extra
+declarations. RUNNING requires exactly two writable realized tmpfs mounts. Docker CI proved
+inspect.Mounts may remain empty after start: in that case, after all declaration
+and security checks pass, the runner reads mountinfo and stat evidence inside the
+exact probe and requires tmpfs type, size, rw/nosuid/nodev, uid/gid and mode.
+An empty inspect field alone never establishes running mount acceptance. Root, extra
 privileges, host namespaces, bind storage, published ports, resource-limit drift,
 credentials, unknown environment keys and duplicate environment keys fail closed.
 Image environment defaults require an independently reviewed pinned allowlist;

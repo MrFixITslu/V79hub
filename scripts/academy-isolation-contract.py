@@ -122,3 +122,32 @@ def validate(row, image, token, public_image_env):
         return _validate(row, image, token, public_image_env)
     except (TypeError, ValueError, AttributeError, KeyError):
         return 'INVALID_INPUT'
+
+
+def realized_tmpfs(evidence):
+    """Validate captured in-container mountinfo/stat evidence; no host operations."""
+    try:
+        info=evidence['mountinfo'];stats=evidence['stats']
+        if not isinstance(info,str) or not isinstance(stats,dict):return None
+        found={}
+        for line in info.splitlines():
+            fields=line.split();separator=fields.index('-')
+            if len(fields)<separator+4:return None
+            path=fields[4]
+            if path not in TMPFS:continue
+            if path in found:return None
+            if fields[separator+1:separator+3]!=['tmpfs','tmpfs']:return None
+            if not {'rw','nosuid','nodev'}<=set(fields[5].split(',')):return None
+            options=fields[separator+3].split(',')
+            sizes=[x[5:] for x in options if x.startswith('size=')]
+            if len(sizes)!=1:return None
+            match=re.fullmatch(r'(\d+)([kKmM]?)',sizes[0])
+            if not match:return None
+            size=int(match[1])*{'':1,'k':1024,'m':1024**2}[match[2].lower()]
+            expected=64*1024**2 if path=='/app/data' else 16*1024**2
+            if size!=expected:return None
+            if stats.get(path)!={'uid':1000,'gid':1000,'mode':448,'directory':True}:return None
+            found[path]={'Type':'tmpfs','Destination':path,'RW':True,'Source':''}
+        if set(found)!=set(TMPFS):return None
+        return list(found.values())
+    except (TypeError,ValueError,KeyError,IndexError,AttributeError):return None
