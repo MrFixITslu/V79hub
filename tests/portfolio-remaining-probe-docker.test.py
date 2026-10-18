@@ -49,6 +49,23 @@ try:
         s.probe_metadata=checked_metadata
         try:s.probe_image(r,run,'v79_course_builder',r.inspect(academy,image=True)['Id'],academy_old)
         finally:s.probe_metadata=metadata
+        # Regression: recreate the precise reviewed Gaming Studio J Dockerfile,
+        # including its Node file capability and non-root launch, not a toy image.
+        # This remains CI-only, disconnected at probe execution, and synthetic.
+        game=good+'-pinned-games'
+        source=root/'pinned-games'
+        source.mkdir()
+        call('git','init','-q',str(source))
+        commit='17bb9eadf44c4e2892cb4bb77810d3b7f957dea1'
+        call('git','-C',str(source),'fetch','--depth','1','--no-tags',
+             'https://github.com/MrFixITslu/Gaming-Studio-J.git',commit)
+        assert call('git','-C',str(source),'rev-parse','FETCH_HEAD').decode().strip()==commit
+        call('git','-C',str(source),'checkout','--detach','-q',commit)
+        call('docker','build','--pull=false','-t',game,str(source))
+        pinned=r.inspect(game,image=True)
+        print('PINNED_GAMES_IMAGE_BUILD=PASS',flush=True)
+        s.probe_image(r,run,'gaming-studio-j',pinned['Id'],old)
+        print('PINNED_GAMES_NONROOT_EXECUTION=PASS',flush=True)
         remaining=call('docker','container','ls','--all','--quiet','--filter','label=v79.remaining-release-probe=ABC12345')
         assert not remaining.strip(),'Probe resource leaked'
     call('docker','pull','redis:7-alpine')
@@ -64,4 +81,4 @@ try:
     print('ACTUAL_DOCKER_RELEASE_PROBE_SUCCESS_FAILURE_CLEANUP_AND_REDIS_STDOUT=PASS')
 finally:
     subprocess.run(['docker','rm','-fv',redis],capture_output=True)
-    subprocess.run(['docker','image','rm',academy,bad,good],capture_output=True)
+    subprocess.run(['docker','image','rm',academy,bad,good,good+'-pinned-games'],capture_output=True)
