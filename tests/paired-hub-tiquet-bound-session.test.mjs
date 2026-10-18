@@ -7,6 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import pg from "pg";
+import WebSocket from "ws";
 
 // Exact pinned public source checkouts; never contact an existing Hub/Tiquet server.
 const TIQUET_COMMIT = "775d9f6c9afae70760896f5ef5cf090272d6a2af";
@@ -239,6 +240,34 @@ test("Hub-bound current Hub+Tiquet full stack: global logout, read/write isolati
   assert.equal((await signedStatus(a.organization.id,hubScopedUser,false)).status,401,
     "Unsigned status requests are rejected");
 
+  // Actual staff WebSocket session: one authorized A job and a connected
+  // socket must be unsubscribed/closed on the next bounded heartbeat.
+  const createdJob=await req(tiquet,"/api/jobs",{
+    method:"POST",headers:mutationHeaders(aCookie),
+    body:JSON.stringify({title:"Synthetic bound-session socket",client:"Synthetic Alpha updated",
+      status:"request",priority:"medium"})
+  });
+  const wsJob=await readOk(createdJob,201);
+  assert.ok(wsJob.id);
+  const staffSocket=new WebSocket(
+    "ws://127.0.0.1:3000/ws?jobId="+encodeURIComponent(wsJob.id)+"&auth="+encodeURIComponent(copiedJwt)
+  );
+  t.after(()=>{try{staffSocket.terminate();}catch{}});
+  const opened=new Promise((resolve,reject)=>{
+    const deadline=setTimeout(()=>reject(Error("staff WebSocket handshake timed out")),6000);
+    staffSocket.once("open",()=>{clearTimeout(deadline);resolve();});
+    staffSocket.once("error",error=>{clearTimeout(deadline);reject(error);});
+  });
+  await opened;
+  await new Promise(r=>setTimeout(r,350));
+  assert.equal(staffSocket.readyState,WebSocket.OPEN,"valid Hub-linked staff socket attached");
+  const closedByRevocation=new Promise((resolve,reject)=>{
+    const deadline=setTimeout(()=>reject(Error("staff WebSocket did not revoke within 25 seconds")),25000);
+    staffSocket.once("close",(code)=>{
+      clearTimeout(deadline);resolve(code);
+    });
+  });
+
   // With session binding enabled, both Hub and Tiquet tokens must become
   // unusable after the parent Hub session ends.
   // A signed launch ticket minted just before logout must fail consumption
@@ -276,6 +305,9 @@ test("Hub-bound current Hub+Tiquet full stack: global logout, read/write isolati
   assert.equal((await tiqBearerAfterHub.json()).code,"HUB_SESSION_INACTIVE");
   console.log("HUB_ONLY_GLOBAL_LOGOUT_GATE=ISOLATED_PASS"+
     " HUB_COOKIE_REVOKED=YES TIQUET_COOKIE_STATUS=401 TIQUET_BEARER_STATUS=401");
+  assert.equal(await closedByRevocation,4003,
+    "existing authenticated Tiquet staff WebSocket must close on Hub logout");
+  console.log("STAFF_WS_HUB_LOGOUT_REVOKED=PASS");
   assert.equal((await req(tiquet,"/api/auth/me",{headers:{Cookie:bCookie}})).status,200,
     "Tenant B session unaffected by A Hub-only logout");
 
