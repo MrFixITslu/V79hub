@@ -1,8 +1,12 @@
 # Academy contract and focused launch deltas
 
-Status: review candidate, NOT integrated, NOT deployed, NO_GO.
+Status: draft runner integration candidate, NOT deployed, NO_GO.
 
-The previous Academy startup and cleanup runner is unchanged. The pure
+Owner explicitly authorized narrow integration after reviewing the pure contract.
+The standalone runner now includes a byte-compared copy of the pure contract.
+Local contract/wiring tests pass; actual cached-image runtime remains pending.
+
+The revised Academy startup and cleanup runner is source-only. The pure
 `academy-isolation-contract.py` accepts supplied inspection dictionaries and
 returns fixed codes. It has no process, Docker, filesystem, network or output
 operations and authorizes no lifecycle actions. Its CI uses only synthetic data.
@@ -24,16 +28,21 @@ cleanup is needed. Core application health was reported, but full fingerprint
 parity was not re-established by that listing. Do not infer startup acceptance
 from absence or from synthetic contract tests.
 
-Before any integration: review this contract against real Docker inspection
-shapes and independently pinned public image defaults; resolve the recorded
-runner-edit safety rejection. Keep runner changes separate and reviewable.
+Integration review: independently pinned image defaults must have exactly reviewed
+Node20 base environment keys and public value formats, pinned command/entrypoint
+and working directory. The explicit owner authorization follows the recorded
+prior runner-edit hold; no main merge or production change is included.
+Real Docker CI checks concrete inspection shapes before owner execution.
 Command/entrypoint, working directory, disabled baked healthcheck and full pinned
 Docker host defaults (including masked/read-only paths) require a separate exact
-configuration comparison; this pure contract is not a complete Docker fingerprint.
+configuration comparison; command/entrypoint/workdir and disabled healthcheck
+are now checked by the runner wrapper. Full protective masked/read-only path
+comparison remains a separate review requirement; do not claim complete host
+fingerprint acceptance from the pure predicate.
 Then prove no previous probes remain, validate before start AND after start,
 check actual HTTP health and unsigned admin 401, and always recheck protected
-production identities/fingerprints/health even on failure. Lifecycle integration
-and exact-image Docker acceptance have NOT been implemented or executed here.
+production identities/fingerprints/health even on failure. Runner wiring is implemented in the draft; exact cached-image Docker acceptance
+has NOT been executed here.
 
 ## P1 source reconciliation
 

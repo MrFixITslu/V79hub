@@ -41,6 +41,128 @@ MARKERS={
 'DEPLOYMENT':{'NONE'},
 'R1_CUSTOMER_RELEASE':{'NO_GO'},
 }
+# BEGIN PURE CONTRACT (byte-compared by CI; standalone source-pinned helper)
+OWNER = 'v79.private-academy-isolated'
+SYNTHETIC = {'PORT': '18081', 'NODE_ENV': 'production',
+             'ACADEMY_STANDALONE_ADMIN_ENABLED': '0',
+             'V79_PLATFORM_SHARED_SECRET': '',
+             'ACADEMY_COURSE_PUBLISH_MODE': 'disabled'}
+TMPFS = {'/app/data': '64m', '/tmp': '16m'}
+
+
+def environment(entries):
+    if not isinstance(entries, list):
+        return None
+    result = {}
+    for item in entries:
+        if not isinstance(item, str) or '=' not in item:
+            return None
+        key, value = item.split('=', 1)
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key) or key in result:
+            return None
+        result[key] = value
+    return result
+
+
+def temporary_storage(value, size):
+    if not isinstance(value, str):
+        return False
+    parts = value.split(',')
+    if len(parts) != 7 or len(set(parts)) != 7:
+        return False
+    return set(parts) == {'rw', 'nosuid', 'nodev', 'size=' + size,
+                          'uid=1000', 'gid=1000', 'mode=0700'}
+
+
+def _validate(row, image, token, public_image_env):
+    """Validate only CREATED/RUNNING. Not authorization to remove/start a resource.
+
+    public_image_env must be independently reviewed, pinned image defaults.
+    Never derive that allowlist from the container being validated.
+    """
+    if not isinstance(row, dict) or not isinstance(public_image_env, dict):
+        return 'INVALID_INPUT'
+    if not isinstance(image, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', image):
+        return 'INVALID_EXPECTED_IMAGE'
+    if not isinstance(token, str) or not re.fullmatch(r'[0-9a-f]{14}', token):
+        return 'INVALID_EXPECTED_OWNER'
+    conf = row.get('Config')
+    host = row.get('HostConfig')
+    state = row.get('State')
+    network = row.get('NetworkSettings')
+    if not all(isinstance(x, dict) for x in (conf, host, state, network)):
+        return 'INVALID_INPUT'
+    labels = conf.get('Labels')
+    if not isinstance(labels, dict):
+        return 'INVALID_INPUT'
+    if (row.get('Name') != '/v79-isolated-academy-' + token or
+            labels.get(OWNER) != token or 'com.docker.compose.project' in labels):
+        return 'OWNERSHIP_MISMATCH'
+    if row.get('Image') != image:
+        return 'IMAGE_MISMATCH'
+    if state.get('Status') not in ('created', 'running'):
+        return 'STATE_NOT_ACCEPTED'
+    if (any(state.get(k) for k in ('Paused', 'Restarting', 'Dead', 'OOMKilled')) or
+            state.get('Running') is not (state['Status'] == 'running')):
+        return 'STATE_INCONSISTENT'
+    if conf.get('User') != '1000:1000':
+        return 'USER_MISMATCH'
+    if not isinstance(network.get('Networks'), dict):
+        return 'INVALID_INPUT'
+    networks = set(network['Networks'])
+    if host.get('NetworkMode') != 'none' or networks not in (set(), {'none'}):
+        return 'NETWORK_MISMATCH'
+    if host.get('PortBindings'):
+        return 'PORTS_NOT_ACCEPTED'
+    if (host.get('Privileged') or host.get('ReadonlyRootfs') is not True or
+            host.get('Binds') or host.get('Mounts') or host.get('VolumesFrom') or
+            host.get('Devices') or host.get('DeviceRequests') or host.get('CapAdd') or
+            host.get('PidMode') or host.get('UTSMode') or host.get('IpcMode') not in ('private', '') or
+            host.get('Sysctls') or host.get('Links') or host.get('ExtraHosts') or
+            host.get('GroupAdd') or host.get('UsernsMode') or
+            host.get('CgroupnsMode') not in ('private', '')):
+        return 'HOST_ISOLATION_MISMATCH'
+    if host.get('CapDrop') != ['ALL'] or host.get('SecurityOpt') not in (
+            ['no-new-privileges:true'], ['no-new-privileges']):
+        return 'PRIVILEGE_RESTRICTION_MISMATCH'
+    if ((host.get('RestartPolicy') or {}).get('Name') != 'no' or
+            host.get('Memory') != 512 * 1024**2 or host.get('MemorySwap') != 512 * 1024**2 or
+            host.get('PidsLimit') != 64 or host.get('NanoCpus') != 750000000):
+        return 'RESOURCE_LIMIT_MISMATCH'
+    declared = host.get('Tmpfs')
+    if not isinstance(declared, dict):
+        return 'INVALID_INPUT'
+    if set(declared) != set(TMPFS) or any(
+            not temporary_storage(declared[path], size) for path, size in TMPFS.items()):
+        return 'TMPFS_DECLARATION_MISMATCH'
+    mounts = row.get('Mounts')
+    if not isinstance(mounts, list) or any(not isinstance(m, dict) for m in mounts):
+        return 'INVALID_INPUT'
+    realized = (isinstance(mounts, list) and len(mounts) == 2 and
+                {m.get('Destination') for m in mounts} == set(TMPFS) and
+                all(m.get('Type') == 'tmpfs' and m.get('RW') is True and
+                    not m.get('Source') for m in mounts))
+    if not realized and not (state['Status'] == 'created' and mounts == []):
+        return 'REALIZED_MOUNTS_MISMATCH'
+    # Only reviewed noncredential image defaults are eligible for inheritance.
+    for key, value in public_image_env.items():
+        if (not isinstance(key, str) or not isinstance(value, str) or key in SYNTHETIC or
+                re.search(r'SECRET|TOKEN|PASSWORD|API_KEY|DATABASE_URL|REDIS_URL', key, re.I)):
+            return 'IMAGE_ENV_ALLOWLIST_UNSAFE'
+    if environment(conf.get('Env')) != {**public_image_env, **SYNTHETIC}:
+        return 'SYNTHETIC_ENV_MISMATCH'
+    return 'PASS_CREATED' if state['Status'] == 'created' else 'PASS_RUNNING'
+
+
+def validate(row, image, token, public_image_env):
+    try:
+        return _validate(row, image, token, public_image_env)
+    except (TypeError, ValueError, AttributeError, KeyError):
+        return 'INVALID_INPUT'
+# END PURE CONTRACT
+PUBLIC_ENV = {}
+EXPECTED_CONFIG = {}
+
 class Stop(Exception):pass
 
 def need(ok,code):
@@ -62,7 +184,14 @@ def command(args,seconds=40):
 
 def inspect(kind,key):
     p=command(['docker',kind,'inspect',key],seconds=35)
-    if p.returncode!=0:return None
+    if p.returncode!=0:
+        need(kind=='container','IMAGE_INSPECT_FAILED')
+        result=command(['docker','container','ls','--all','--no-trunc','--format','{{.ID}}|{{.Names}}'])
+        need(result.returncode==0,'CONTAINER_ABSENCE_QUERY_FAILED')
+        rows=[line.split('|',1) for line in result.stdout.decode('ascii','replace').splitlines()]
+        need(all(len(row)==2 and re.fullmatch(r'[0-9a-f]{64}',row[0]) for row in rows),'CONTAINER_ABSENCE_QUERY_INVALID')
+        need(not any(key in row for row in rows),'CONTAINER_INSPECT_FAILED')
+        return None
     try:
         rows=json.loads(p.stdout)
         need(isinstance(rows,list) and len(rows)==1 and isinstance(rows[0],dict),
@@ -104,45 +233,66 @@ def create_args(image,token):
             '--env','ACADEMY_COURSE_PUBLISH_MODE=disabled',
             image]
 
-def isolated(row,image,token):
+def image_environment(img):
+    conf=img.get('Config') or {}
+    env=environment(conf.get('Env'))
+    need(env is not None and set(env)=={'PATH','NODE_VERSION','YARN_VERSION','NODE_ENV','PORT'},'IMAGE_ENV_DEFAULTS_UNREVIEWED')
+    need(env['NODE_ENV']=='production' and env['PORT']=='3030'
+         and re.fullmatch(r'20\.\d+\.\d+',env['NODE_VERSION'])
+         and re.fullmatch(r'\d+\.\d+\.\d+',env['YARN_VERSION'])
+         and env['PATH']=='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+         'IMAGE_ENV_DEFAULTS_UNREVIEWED')
+    need(conf.get('Cmd')==['node','dist/server.cjs'] and conf.get('WorkingDir')=='/app'
+         and conf.get('Entrypoint')==['docker-entrypoint.sh'] and not conf.get('Volumes'),
+         'IMAGE_EXECUTION_DEFAULTS_UNREVIEWED')
+    return {k:v for k,v in env.items() if k not in SYNTHETIC}
+
+def isolated(row,image,token,cleanup_mode=False):
     if not isinstance(row,dict):return False
-    conf=row.get('Config') or {}
-    host=row.get('HostConfig') or {}
-    labels=conf.get('Labels') or {}
-    if (row.get('Name')!='/v79-isolated-academy-'+token or
-        labels.get(OWNED)!=token or row.get('Image')!=image):return False
-    if 'com.docker.compose.project' in labels:return False
-    if (host.get('NetworkMode')!='none' or host.get('PortBindings') or
-        host.get('Privileged') or host.get('ReadonlyRootfs') is not True or
-        host.get('Binds') or host.get('Mounts')):return False
-    if host.get('Memory')!=512*1024**2 or host.get('PidsLimit')!=64:return False
-    if (host.get('RestartPolicy') or {}).get('Name')!='no':return False
-    if (host.get('Tmpfs') or {}).keys()!={'/app/data','/tmp'}:return False
-    if set((row.get('NetworkSettings') or {}).get('Networks',{})) not in (set(),{'none'}):return False
-    if {m.get('Destination') for m in row.get('Mounts') or []}!={'/app/data','/tmp'}:return False
-    if any(m.get('Type')!='tmpfs' for m in row.get('Mounts') or []):return False
-    env=conf.get('Env') or []
-    keys={x.partition('=')[0] for x in env}
-    if {'DATABASE_URL','REDIS_URL','POSTGRES_PASSWORD','ADMIN_PASSWORD','V79_TIQUET_LAUNCH_SECRET'}&keys:
-        return False
-    for x in env:
-        if x.startswith('V79_PLATFORM_SHARED_SECRET=') and x!='V79_PLATFORM_SHARED_SECRET=':
-            return False
+    check=row
+    state=row.get('State') or {}
+    # An exited probe is eligible only for cleanup, never startup acceptance.
+    if cleanup_mode and state.get('Status')=='exited':
+        check=dict(row);check['State']=dict(state)
+        never_started=state.get('StartedAt','').startswith('0001-01-01')
+        check['State'].update(Status='created' if never_started else 'running',
+                              Running=not never_started,OOMKilled=False)
+    if not validate(check,image,token,PUBLIC_ENV).startswith('PASS_'):return False
+    conf=row['Config']
+    if any(conf.get(k)!=EXPECTED_CONFIG.get(k) for k in ('Cmd','Entrypoint','WorkingDir')):return False
+    if (conf.get('Healthcheck') or {}).get('Test')!=['NONE']:return False
     return True
 
-def cleanup(probe,token,image):
-    row=inspect('container',probe)
+def owner_ids():
+    p=command(['docker','container','ls','--all','--no-trunc','--quiet','--filter','label='+OWNED])
+    need(p.returncode==0,'PROBE_QUERY_FAILED')
+    ids=p.stdout.decode('ascii','replace').splitlines()
+    need(all(re.fullmatch(r'[0-9a-f]{64}',x) for x in ids),'PROBE_QUERY_INVALID')
+    return ids
+
+def cleanup(probe,token,image,container_id):
+    row=inspect('container',container_id)
     if row is None:return True
-    need(isolated(row,image,token),'FOREIGN_RESOURCE_REFUSE_CLEANUP')
+    need(row.get('Id')==container_id and isolated(row,image,token,cleanup_mode=True),
+         'FOREIGN_RESOURCE_REFUSE_CLEANUP')
     try:
-        ret=command(['docker','rm','-f','-v',probe],seconds=105)
-        if ret.returncode==0 and inspect('container',probe) is None:return True
+        ret=command(['docker','rm','-f',container_id],seconds=105)
+        if ret.returncode==0 and inspect('container',container_id) is None:return True
     except Stop:pass
-    # Docker may complete daemon-side removal after the command client times out.
-    for _ in range(10):
-        if inspect('container',probe) is None:return True
+    for _ in range(5):
+        if inspect('container',container_id) is None:return True
         time.sleep(2)
     raise Stop('ISOLATED_ACADEMY_CLEANUP_UNCONFIRMED')
+
+def verify_production(r,before):
+    for name in PROTECTED:
+        now=inspect('container',name);prev=before[name]
+        need(now and now['Id']==prev['Id'] and now['Image']==prev['Image'] and
+             now['State'].get('Running') is True and r.fingerprint(now)==r.fingerprint(prev),
+             'PRODUCTION_RUNTIME_CHANGED')
+        if name!='v79-pos-worker':
+            need(now['State'].get('Health',{}).get('Status')=='healthy','PRODUCTION_HEALTH_CHANGED')
+    emit('PRODUCTION_CONTAINERS','UNCHANGED')
 
 def synthetic_health():
     return ("test \"$(wget -q -O - http://127.0.0.1:18081/healthz)\" = "
@@ -158,6 +308,7 @@ def unsigned_denial():
             "on('error',()=>{process.exitCode=4})")
 
 def server():
+    global PUBLIC_ENV,EXPECTED_CONFIG
     need(socket.gethostname()=='v79sl' and os.getuid()!=0,'SERVER_NONROOT_REQUIRED')
     os.umask(0o077)
     for p in (BASE,FAILED,CORE.parent,FAILED/'checkpoint'):privdir(p)
@@ -188,6 +339,9 @@ def server():
         need(img and img.get('Id')==image and
              (img.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')==REVISION,
              'CANDIDATE_IMAGE_INVALID')
+        PUBLIC_ENV=image_environment(img)
+        EXPECTED_CONFIG={k:img['Config'].get(k) for k in ('Cmd','Entrypoint','WorkingDir')}
+        need(not owner_ids(),'PREVIOUS_ACADEMY_PROBE_REMAINS')
         before={name:inspect('container',name) for name in PROTECTED}
         for name in PROTECTED:
             now=before[name]
@@ -201,50 +355,54 @@ def server():
                      'RECOVERY_BASELINE_DRIFT')
         emit('MODE','ISOLATED_ACADEMY_STARTUP')
         emit('ACADEMY_CANDIDATE','PINNED')
-        token=secrets.token_hex(7)
-        probe='v79-isolated-academy-'+token
-        need(inspect('container',probe) is None,'PROBE_NAME_COLLISION')
-        cleanup_ok=False
+        exercise_probe(r,before,image)
+
+def exercise_probe(r,before,image):
+    token=secrets.token_hex(7)
+    probe='v79-isolated-academy-'+token
+    need(inspect('container',probe) is None,'PROBE_NAME_COLLISION')
+    cleanup_ok=False
+    container_id=None
+    try:
+        result=command(create_args(image,token),seconds=45)
+        need(result.returncode==0,'ACADEMY_CREATE_FAILED')
+        container_id=result.stdout.decode('ascii','replace').strip()
+        need(re.fullmatch(r'[0-9a-f]{64}',container_id),'CREATE_ID_INVALID')
+        need(isolated(inspect('container',probe),image,token),
+             'ISOLATION_NOT_PROVEN')
+        emit('ACADEMY_ISOLATION','PASS')
+        started=command(['docker','start',probe],seconds=45)
+        need(started.returncode==0,'ACADEMY_START_FAILED')
+        need(isolated(inspect('container',container_id),image,token),'RUNNING_ISOLATION_NOT_PROVEN')
+        deadline=time.monotonic()+90
+        while time.monotonic()<deadline:
+            result=command(['docker','exec','--user','1000:1000',probe,
+                            '/bin/sh','-c',synthetic_health()],seconds=10)
+            if result.returncode==0:
+                emit('ACADEMY_HEALTH','PASS')
+                break
+            state=inspect('container',probe)
+            need(state and state['State'].get('Running') is True and
+                 not state['State'].get('OOMKilled'),'ACADEMY_PROCESS_EXITED')
+            time.sleep(3)
+        else:raise Stop('ACADEMY_HEALTH_TIMEOUT')
+        denied=command(['docker','exec','--user','1000:1000',probe,
+                        'node','-e',unsigned_denial()],seconds=12)
+        need(denied.returncode==0,'ACADEMY_UNSIGNED_ADMIN_NOT_DENIED')
+        emit('ACADEMY_UNSIGNED_ADMIN','DENIED')
+    except BaseException as error:
+        code=str(error) if isinstance(error,Stop) and re.fullmatch(r'[A-Z][A-Z0-9_]{2,100}',str(error)) else 'REDACTED'
+        emit('STOP','PRIMARY_'+code)
+        raise
+    finally:
         try:
-            result=command(create_args(image,token),seconds=45)
-            need(result.returncode==0,'ACADEMY_CREATE_FAILED')
-            need(isolated(inspect('container',probe),image,token),
-                 'ISOLATION_NOT_PROVEN')
-            emit('ACADEMY_ISOLATION','PASS')
-            started=command(['docker','start',probe],seconds=45)
-            need(started.returncode==0,'ACADEMY_START_FAILED')
-            deadline=time.monotonic()+90
-            while time.monotonic()<deadline:
-                result=command(['docker','exec','--user','1000:1000',probe,
-                                '/bin/sh','-c',synthetic_health()],seconds=10)
-                if result.returncode==0:
-                    emit('ACADEMY_HEALTH','PASS')
-                    break
-                state=inspect('container',probe)
-                need(state and state['State'].get('Running') is True and
-                     not state['State'].get('OOMKilled'),'ACADEMY_PROCESS_EXITED')
-                time.sleep(3)
-            else:raise Stop('ACADEMY_HEALTH_TIMEOUT')
-            denied=command(['docker','exec','--user','1000:1000',probe,
-                            'node','-e',unsigned_denial()],seconds=12)
-            need(denied.returncode==0,'ACADEMY_UNSIGNED_ADMIN_NOT_DENIED')
-            emit('ACADEMY_UNSIGNED_ADMIN','DENIED')
+            if container_id:
+                cleanup_ok=cleanup(probe,token,image,container_id)
+                if cleanup_ok:emit('ACADEMY_OWNED_CLEANUP','PASS')
         finally:
-            cleanup_ok=cleanup(probe,token,image)
-            if cleanup_ok:emit('ACADEMY_OWNED_CLEANUP','PASS')
-        for name in PROTECTED:
-            now=inspect('container',name)
-            prev=before[name]
-            need(now and now['Id']==prev['Id'] and now['Image']==prev['Image'] and
-                 now['State'].get('Running') is True and
-                 r.fingerprint(now)==r.fingerprint(prev),
-                 'PRODUCTION_RUNTIME_CHANGED')
-            if name!='v79-pos-worker':
-                need(now['State'].get('Health',{}).get('Status')=='healthy',
-                     'PRODUCTION_HEALTH_CHANGED')
-        emit('PRODUCTION_CONTAINERS','UNCHANGED')
-        emit('DEPLOYMENT','NONE')
-        emit('R1_CUSTOMER_RELEASE','NO_GO')
+            verify_production(r,before)
+    emit('DEPLOYMENT','NONE')
+    emit('R1_CUSTOMER_RELEASE','NO_GO')
 
 def self_test():
     image='sha256:'+'f'*64;token='a'*14
@@ -254,25 +412,7 @@ def self_test():
           '--cap-drop','ALL','--pids-limit','64','--user','1000:1000'))
     assert not any(x in args for x in ('--publish','-p','--volume','-v','--mount',
           '--privileged','proxy_network','DATABASE_URL','REDIS_URL'))
-    valid={'Name':'/v79-isolated-academy-'+token,'Image':image,
-      'Config':{'Labels':{OWNED:token},'Env':['PORT=18081','NODE_ENV=production']},
-      'HostConfig':{'NetworkMode':'none','PortBindings':None,'Privileged':False,
-         'ReadonlyRootfs':True,'Binds':None,'Mounts':None,'RestartPolicy':{'Name':'no'},
-         'Memory':512*1024**2,'PidsLimit':64,'Tmpfs':{'/app/data':'a','/tmp':'b'}},
-      'Mounts':[{'Type':'tmpfs','Destination':'/app/data'},
-                {'Type':'tmpfs','Destination':'/tmp'}],
-      'NetworkSettings':{'Networks':{}}}
-    assert isolated(valid,image,token)
-    changed=json.loads(json.dumps(valid));changed['HostConfig']['NetworkMode']='proxy_network'
-    assert not isolated(changed,image,token)
-    changed=json.loads(json.dumps(valid));changed['Mounts'].append({'Type':'bind','Destination':'/secret'})
-    assert not isolated(changed,image,token)
-    changed=json.loads(json.dumps(valid));changed['Config']['Env'].append('ADMIN_PASSWORD=TOPSECRET')
-    assert not isolated(changed,image,token)
-    changed=json.loads(json.dumps(valid));changed['HostConfig']['Memory']=0
-    assert not isolated(changed,image,token)
-    changed=json.loads(json.dumps(valid));changed['Config']['Labels'][OWNED]='b'*14
-    assert not isolated(changed,image,token)
+    assert validate({},image,token,{})=='INVALID_INPUT'
     assert not allowed('ENV=SECRET')
     emit('SELF_TEST','PASS')
 def acer():
@@ -280,7 +420,7 @@ def acer():
     args=['ssh','-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
           '-o','ConnectTimeout=12','firelion@v79sl','python3 -B - --server']
     response=subprocess.run(args,input=Path(__file__).read_bytes(),
-                            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=330)
+                            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=650)
     for line in response.stdout.decode('utf8','replace').splitlines():
         need(allowed(line),'REMOTE_OUTPUT_NOT_ALLOWED')
         print(line,flush=True)
@@ -301,3 +441,4 @@ if __name__=='__main__':
         print('STOP='+code,flush=True)
         print('R1_CUSTOMER_RELEASE=NO_GO',flush=True)
         sys.exit(1)
+

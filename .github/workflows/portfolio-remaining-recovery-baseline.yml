@@ -119,7 +119,7 @@ jobs:
           assert "ACADEMY_STANDALONE_ADMIN_ENABLED=0" in academy
           assert "V79_PLATFORM_SHARED_SECRET=" in academy
           assert "r.fingerprint(now)==r.fingerprint(prev)" in academy
-          assert "cleanup(probe,token,image)" in academy
+          assert "cleanup(probe,token,image,container_id)" in academy
           assert "ACADEMY_UNSIGNED_ADMIN" in academy
           assert not any(x in academy for x in (
               "['docker','compose','up'", "['systemctl'", "['docker','volume','rm'",
@@ -141,3 +141,4 @@ jobs:
           assert "R1_CUSTOMER_RELEASE','NO_GO" in src
           print('NO_SWITCH_RESTART_OR_PRIVATE_OUTPUT=PASS')
           PY
+
