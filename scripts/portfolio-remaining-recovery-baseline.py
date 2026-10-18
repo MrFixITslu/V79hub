@@ -39,7 +39,15 @@ PINNED_DETAILS={
  'v79-pos-worker':('v79pos','worker','V79POS'),
  'gaming-studio-j':('gaming-studio-j','gaming-studio-j','Gaming-Studio-J')
 }
-BASELINE_PATH=re.compile(r'^NEW_RECOVERY_BASELINE=/home/firelion/v79-recovery-replan\.[A-Za-z0-9_-]{8,16}('Dns','DnsOptions','DnsSearch')
+BASELINE_PATH=re.compile(r'NEW_RECOVERY_BASELINE=/home/firelion/v79-recovery-replan\.[A-Za-z0-9_-]{8,16}\Z')
+MARKERS={'SELF_TEST':'PASS',
+         'OLD_ENCRYPTED_CHECKPOINT':'SERVER_HASHES_PASS_RESTORE_NOT_TESTED',
+         'RESTORED_SOURCE_PARITY':'PASS','LIVE_APP_CHANGES':'NONE',
+         'PLAN_MODE':'EVIDENCE_ONLY_NOT_DEPLOYABLE',
+         'R1_CUSTOMER_RELEASE':'NO_GO'}
+RECONCILED={'RECOVERED_'+name.upper().replace('-','_') for name in
+            ('v79_course_builder','v79-pos','v79-pos-worker','gaming-studio-j')}
+DNS_FIELDS=('Dns','DnsOptions','DnsSearch')
 
 class Stop(Exception):pass
 
