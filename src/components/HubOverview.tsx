@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CreditCard,
   GraduationCap,
+  Grid3X3,
   Headphones,
   Megaphone,
   RefreshCw,
@@ -334,6 +335,8 @@ export function HubOverview({
     },
   ] as const;
   const visibleMetricCards = metricCards.filter((metric) => visibleKeys.has(metric.key));
+  const canManageApps = user.platformOperator === true || Boolean(user.permissions?.includes("connections"));
+  const appListChecking = visibleAppCards.length === 0 && (!dashboard || loading || Boolean(loadError));
 
   return (
     <div className="min-h-full bg-[#07111f] text-slate-100 pb-24 lg:pb-10">
@@ -472,11 +475,52 @@ export function HubOverview({
               <div className="text-base font-bold text-white">Your V79 ecosystem</div>
               <div className="text-[10px] text-slate-500 mt-0.5">Only the V79 modules enabled for this workspace appear here</div>
             </div>
-            <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff] hover:text-white">
-              Manage apps
-            </button>
+            {canManageApps && (
+              <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#55c7ff]">
+                Manage apps
+              </button>
+            )}
           </div>
-          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+          <div className={visibleAppCards.length ? "p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3" : "p-4"}>
+            {visibleAppCards.length === 0 && (
+              <div className="hub-empty-apps relative isolate overflow-hidden rounded-[20px] border border-[#234463] bg-[#0b1a2c] px-5 py-7 sm:px-8 sm:py-8" role="status" aria-live="polite">
+                <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-[#0A86FF]/10 blur-3xl" aria-hidden="true" />
+                <div className="relative grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,1fr)_180px] md:items-center">
+                  <div className="max-w-xl">
+                    <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-[#55c7ff]/25 bg-[#0A86FF]/15">
+                      <Grid3X3 className="h-6 w-6 text-[#55c7ff]" aria-hidden="true" />
+                    </div>
+                    <h3 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+                      {appListChecking ? "Checking your applications" : "Your workspace is ready for apps"}
+                    </h3>
+                    <p className="mt-2 max-w-lg text-sm leading-6 text-slate-400">
+                      {appListChecking
+                        ? "We cannot confirm your available apps yet. Refresh the dashboard to check again."
+                        : "No applications are currently shown for this account. Apps appear here when your workspace enables them and you have access."}
+                    </p>
+                    {canManageApps ? (
+                      <button type="button" onClick={() => onNavigate("connections")} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#0A86FF] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(10,134,255,0.16)] transition-colors hover:bg-[#167cff] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#55c7ff]">
+                        View app access <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <p className="mt-5 text-sm font-medium text-[#65c9ff]">
+                        Ask your workspace administrator to assign an app to your account.
+                      </p>
+                    )}
+                  </div>
+                  <div className="hidden justify-center md:flex" aria-hidden="true">
+                    <div className="grid grid-cols-2 gap-3 rotate-[-9deg]">
+                      {["01", "02", "03", "04"].map((slot) => (
+                        <div key={slot} className="flex h-20 w-20 flex-col justify-between rounded-2xl border border-[#2a5073] bg-[#07111f]/80 p-3 shadow-xl">
+                          <div className="h-7 w-7 rounded-lg bg-[#0A86FF]/20 ring-1 ring-[#55c7ff]/20" />
+                          <div className="h-1.5 w-10 rounded-full bg-[#55c7ff]/20" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             {visibleAppCards.map((card) => {
               const app = appFor(card.id, card.shortName);
               const summary = summaries?.[card.key];
