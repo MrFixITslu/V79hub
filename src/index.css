@@ -379,3 +379,49 @@ textarea.admin-input {
 @media (prefers-reduced-motion: reduce) {
   .hub-login-reference .hub-login-submit { transition-duration: 0.01ms; }
 }
+
+
+/* Isolated accessibility correction: the shared light-mode bridge must not
+   turn nav text dark against the intentionally navy enterprise sidebar.
+   Do not affect customer auth, platform controls or dark-theme styling. */
+html .hub-theme-light .hub-sidebar .text-white:not([class*="bg-"]) {
+  color: #f8fafc !important;
+}
+.hub-theme-light .hub-sidebar .hub-nav-item {
+  color: #cbd5e1 !important;
+}
+.hub-theme-light .hub-sidebar .hub-nav-item[class*="bg-gradient-to-r"] {
+  color: #ffffff !important;
+}
+.hub-theme-light .hub-sidebar .text-slate-400 {
+  color: #b9c8dc !important;
+}
+.hub-theme-light .hub-sidebar .text-slate-500,
+.hub-theme-light .hub-sidebar .text-slate-600 {
+  color: #9aacc5 !important;
+}
+.hub-theme-light nav[aria-label="Mobile workspace navigation"] .text-slate-400 {
+  color: #cbd5e1 !important;
+}
+
+/* The dashboard changes to light surfaces; dark-theme text tokens previously
+   remained near-white, hiding action headings and some availability labels. */
+.hub-theme-light .hub-dashboard .text-slate-100 {
+  color: #17324e !important;
+}
+.hub-theme-light .hub-dashboard .text-slate-200 {
+  color: #1e334d !important;
+}
+.hub-theme-light .hub-dashboard .text-slate-300 {
+  color: #334155 !important;
+}
+.hub-theme-light .hub-dashboard .text-emerald-300 {
+  color: #047857 !important;
+}
+.hub-theme-light .hub-dashboard .text-amber-300 {
+  color: #92400e !important;
+}
+.hub-theme-light .hub-dashboard [class*="text-[#55c7ff]"],
+.hub-theme-light .hub-dashboard [class*="text-[#65c9ff]"] {
+  color: #075db8 !important;
+}
