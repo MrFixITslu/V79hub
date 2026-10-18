@@ -388,7 +388,7 @@ class CachedGamesTests(unittest.TestCase):
                 'STOP=CANDIDATE_EXECUTION_PROBE_FAILED'])
             if failure=='cutover':records.append('PHASE=SWITCH_GAMING_STUDIO_J')
             if failure=='proof':records.remove('RESULT=v79-pos-worker_PUBLIC_EXECUTION_AND_PROBE_CLEANUP_PASS')
-            (old/'progress.log').write_text('\\n'.join(records))
+            (old/'progress.log').write_text('\n'.join(records))
             r.private_json(plan/'plan-summary.json',{})
             r.private_json(old/'plan-reference.json',{'directory':str(plan),'sources':p.SOURCES,
                 'summary_sha256':r.sha_file(plan/'plan-summary.json')})
@@ -414,10 +414,10 @@ class CachedGamesTests(unittest.TestCase):
                 if 'ls-files' in args and failure=='untracked':return b'PRIVATE_CONTEXT'
                 return b''
             with patch.object(s,'FAILED_GAMES_RUN',old),patch.object(s,'FAILED_GAMES_HELPER_BLOB',
-                       '0'*40 if failure=='helper' else s.blob(helper.read_bytes())), \\
-                 patch.object(s,'PLAN',plan),patch.object(s,'load_modules'), \\
-                 patch.object(s,'recover_academy_pos_builds',return_value={k:images[k] for k in ('V79acaedmy','V79POS')}), \\
-                 patch.object(r,'inspect',side_effect=inspect),patch.object(r,'call',side_effect=call), \\
+                       '0'*40 if failure=='helper' else s.blob(helper.read_bytes())), \
+                 patch.object(s,'PLAN',plan),patch.object(s,'load_modules'), \
+                 patch.object(s,'recover_academy_pos_builds',return_value={k:images[k] for k in ('V79acaedmy','V79POS')}), \
+                 patch.object(r,'inspect',side_effect=inspect),patch.object(r,'call',side_effect=call), \
                  patch.object(s,'cleanup_probe') as cleanup,patch.object(r,'emit'):
                 if failure:
                     with self.assertRaises(s.Stop):s.recover_all_builds(r,p,run)
@@ -443,7 +443,7 @@ class CachedGamesTests(unittest.TestCase):
                 return {'Id':image,'Config':{'User':'node','Env':[],
                     'Labels':{'org.opencontainers.image.revision':p.SOURCES[repo]}}}
             approved=('v79_course_builder','v79-pos','v79-pos-worker')
-            with patch.object(r,'inspect',side_effect=inspect),patch.object(r,'call') as call, \\
+            with patch.object(r,'inspect',side_effect=inspect),patch.object(r,'call') as call, \
                  patch.object(s,'probe_image') as probe,patch.object(r,'emit'):
                 result=s.build_images(r,p,root,before,cached=cached,skip_cached_probes=approved)
             self.assertEqual(len(result),4)
@@ -468,9 +468,9 @@ class FilecapProbeSafetyTests(unittest.TestCase):
                 return type('P',(),{'returncode':0,
                     'stdout':b'PUBLIC_EXECUTION_FILES_READABLE' if args[1]=='logs' else b'',
                     'stderr':b''})()
-            with patch.object(r,'call',side_effect=lambda args,**kw:calls.append(args) or b''), \\
-                 patch.object(s,'probe_metadata',return_value=metadata), \\
-                 patch.object(s,'probe_call',side_effect=probe_call), \\
+            with patch.object(r,'call',side_effect=lambda args,**kw:calls.append(args) or b''), \
+                 patch.object(s,'probe_metadata',return_value=metadata), \
+                 patch.object(s,'probe_call',side_effect=probe_call), \
                  patch.object(s,'cleanup_probe'),patch.object(r,'emit'):
                 s.probe_image(r,run,'gaming-studio-j','sha256:'+'c'*64,old)
             self.assertIn('--entrypoint',calls[0])
