@@ -85,7 +85,7 @@ def docker_inspect(kind,name):
 def isolated_command(candidate,identity,probe):
     return ['docker','create','--name',probe,
             '--label',OWNERSHIP+'='+identity,
-            '--pull','never','--network','none',
+            '--pull','never','--network','none','--no-healthcheck',
             '--read-only','--cap-drop','ALL','--cap-add','NET_BIND_SERVICE',
             '--memory','256m','--memory-swap','256m','--pids-limit','64',
             '--cpus','0.5',
@@ -223,7 +223,7 @@ def self_test():
     im='sha256:'+'a'*64;idx='b'*14
     args=isolated_command(im,idx,'v79-isolated-games-'+idx)
     assert args[0:2]==['docker','create']
-    for token in ('--network','none','--read-only','--pull','never','--cap-drop',
+    for token in ('--network','none','--read-only','--no-healthcheck','--pull','never','--cap-drop',
                   'ALL','--cap-add','NET_BIND_SERVICE','--pids-limit','64'):
         assert token in args
     assert not any(a in args for a in ('--publish','--volume','-v','--mount','--privileged',
