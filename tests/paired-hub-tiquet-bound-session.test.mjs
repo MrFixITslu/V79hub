@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
+import { createHash, createHmac } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -212,9 +213,34 @@ test("Hub-bound current Hub+Tiquet full stack: global logout, read/write isolati
   assert.match(copiedJwt,/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
   assert.equal((await req(tiquet,"/api/auth/me",{headers:{Authorization:"Bearer "+copiedJwt}})).status,200);
 
-  // Observe but do NOT silently accept cross-app global logout as proven.
-  // Hub revokes its own session; current Tiquet tokens carry a separate 30m JWT.
-  // Explicitly record the release gate as NO_GO if either Tiquet token survives.
+  // Even a product with the legitimate service HMAC cannot invent an
+  // alternate org/user scope for this exact Hub session.
+  const hubClaims=jwt.verify(copiedJwt,jwtSecret);
+  assert.match(hubClaims.hub_session_id,/^[a-f0-9]{64}$/);
+  const linked=await pool.query("SELECT hub_user_id FROM users WHERE account_id=$1 LIMIT 1",[a.accountId]);
+  assert.equal(linked.rowCount,1);
+  const hubScopedUser=linked.rows[0].hub_user_id;
+  const signedStatus=async(organizationId,scopedUserId,authorization=true)=>{
+    const pathname="/api/platform/session/status";
+    const body=JSON.stringify({product:"tiquet",hubSessionId:hubClaims.hub_session_id,
+      organizationId,scopedUserId});
+    const timestamp=String(Date.now());
+    const h=createHash("sha256").update(body).digest("hex");
+    const signature=createHmac("sha256",launchSecret).update(["POST",pathname,timestamp,h].join("\n")).digest("hex");
+    return req(hub,pathname,{method:"POST",headers:{
+      "content-type":"application/json",
+      ...(authorization?{"x-v79-service-id":"v79-tiquet","x-v79-timestamp":timestamp,"x-v79-signature":signature}:{}),
+    },body});
+  };
+  assert.equal((await readOk(await signedStatus(a.organization.id,hubScopedUser),200)).active,true);
+  assert.equal((await readOk(await signedStatus(b.organization.id,hubScopedUser),200)).active,false,
+    "A session cannot authorize another tenant");
+  assert.equal((await readOk(await signedStatus(a.organization.id,"wrong-scoped-user"),200)).active,false);
+  assert.equal((await signedStatus(a.organization.id,hubScopedUser,false)).status,401,
+    "Unsigned status requests are rejected");
+
+  // With session binding enabled, both Hub and Tiquet tokens must become
+  // unusable after the parent Hub session ends.
   // A signed launch ticket minted just before logout must fail consumption
   // once Hub removes the exact session that authorized its creation.
   const pendingLaunch=await req(hub,"/api/apps/tiquet/launch",{headers:{Cookie:a.hubCookie}});
@@ -236,6 +262,8 @@ test("Hub-bound current Hub+Tiquet full stack: global logout, read/write isolati
   assert.doesNotMatch(lateAttempt.headers.get("set-cookie")||"",/tiquet_session=[A-Za-z0-9._-]{30,}/);
   assert.equal((await req(hub,"/api/auth/me",{headers:{Cookie:b.hubCookie}})).status,200,
     "Hub logout A does not revoke unrelated B Hub session");
+  assert.equal((await readOk(await signedStatus(a.organization.id,hubScopedUser),200)).active,false,
+    "Authoritative status denies an ended parent Hub session");
   const tiqCookieAfterHub=await req(tiquet,"/api/auth/me",{headers:{Cookie:aCookie}});
   const tiqBearerAfterHub=await req(tiquet,"/api/auth/me",{
     headers:{Authorization:"Bearer "+copiedJwt}
@@ -267,4 +295,14 @@ test("Hub-bound current Hub+Tiquet full stack: global logout, read/write isolati
     assert.equal((await blocked.json()).code,"SESSION_REVOKED");
   }
   assert.equal((await req(tiquet,"/api/auth/me",{headers:{Cookie:bCookie}})).status,200,"other tenant unaffected by logout");
+
+  // Simulate a Hub service outage only in the disposable CI stack.
+  // The unaffected tenant B must now fail closed rather than use a
+  // previously cached successful product-entitlement response.
+  hubProcess.child.kill("SIGTERM");
+  await new Promise(resolve=>hubProcess.child.once("exit",resolve));
+  const offline=await req(tiquet,"/api/auth/me",{headers:{Cookie:bCookie}});
+  assert.equal(offline.status,401,"Hub outage must not silently authorize Tiquet");
+  assert.equal((await offline.json()).code,"HUB_SESSION_INACTIVE");
+  console.log("HUB_SESSION_STATUS_HMAC_SCOPE=PASS HUB_OUTAGE_FAIL_CLOSED=PASS");
 });
