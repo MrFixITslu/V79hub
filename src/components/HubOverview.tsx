@@ -156,7 +156,7 @@ const appCards: Array<{
 ];
 
 function statusMeta(summary?: ProductSummary) {
-  if (!summary) return { label: "Loading", dot: "bg-slate-500", text: "text-slate-400", score: 35 };
+  if (!summary) return { label: "Unknown", dot: "bg-slate-500", text: "text-slate-400", score: 0 };
   if (summary.status === "ok" && hasUsableSummary(summary)) return { label: "Data available", dot: "bg-emerald-400", text: "text-emerald-300", score: 100 };
   if (summary.status === "ok") return { label: "No metrics", dot: "bg-slate-500", text: "text-slate-400", score: 0 };
   if (summary.status === "restricted") return { label: "Restricted", dot: "bg-slate-400", text: "text-slate-300", score: 55 };
@@ -287,6 +287,8 @@ export function HubOverview({
     ? "Dashboard update failed"
     : !dashboard
       ? "Checking app signals"
+      : visibleAppCards.length === 0
+        ? "No enabled applications"
       : actions.length === 0
         ? "No new action alerts"
         : `${actions.length} item${actions.length === 1 ? "" : "s"} need attention`;
@@ -453,10 +455,10 @@ export function HubOverview({
                 );
               })
             ) : (
-              <div className={`lg:col-span-2 rounded-2xl border p-4 flex items-start gap-3 ${!dashboard || loadError ? "border-slate-500/20 bg-slate-500/[0.07]" : "border-emerald-500/20 bg-emerald-500/[0.07]"}`} role="status">
-                {!dashboard || loadError ? <Activity className="w-4 h-4 text-slate-400 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />}
+              <div className={`lg:col-span-2 rounded-2xl border p-4 flex items-start gap-3 ${!dashboard || loadError || availableSummaryCount === 0 ? "border-slate-500/20 bg-slate-500/[0.07]" : "border-emerald-500/20 bg-emerald-500/[0.07]"}`} role="status">
+                {!dashboard || loadError || availableSummaryCount === 0 ? <Activity className="w-4 h-4 text-slate-400 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />}
                 <div>
-                  <div className={`text-xs font-bold ${!dashboard || loadError ? "text-slate-200" : "text-emerald-200"}`}>{!dashboard || loadError ? "Action insights are not available yet" : "No action alerts reported by available sources"}</div>
+                  <div className={`text-xs font-bold ${!dashboard || loadError || availableSummaryCount === 0 ? "text-slate-200" : "text-emerald-200"}`}>{!dashboard || loadError || availableSummaryCount === 0 ? "No verified action insights available" : "No action alerts reported by available sources"}</div>
                   <div className="text-[10px] text-slate-500 mt-1">Only connected apps with available data contribute alerts. Check your apps for complete activity.</div>
                 </div>
               </div>
@@ -540,7 +542,7 @@ export function HubOverview({
               <ShieldCheck className="w-5 h-5 text-[#55c7ff]" />
             </div>
             <div>
-              <div className="text-[11px] font-bold text-white">System status</div>
+              <div className="text-[11px] font-bold text-white">Application data availability</div>
               <div className="text-[9px] text-slate-500 mt-1">
                 {connectionCopy(visibleAppCards.length, availableSummaryCount, Boolean(dashboard), Boolean(loadError))}
               </div>
