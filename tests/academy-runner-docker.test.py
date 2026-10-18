@@ -25,7 +25,11 @@ try:
     cid=created.stdout.decode().strip()
     before=r.inspect('container',cid);assert r.isolated(before,image,token),'Created contract failed'
     assert r.command(['docker','start',cid]).returncode==0
-    running=r.inspect('container',cid);assert r.isolated(running,image,token),'Running contract failed'
+    running=r.inspect('container',cid)
+    print('RUNNING_CONTRACT_CODE='+r.validate(running,image,token,r.PUBLIC_ENV),flush=True)
+    print('FIXTURE_STATE='+running['State']['Status'],flush=True)
+    print('FIXTURE_REALIZED_MOUNTS='+str(len(running.get('Mounts') or [])),flush=True)
+    assert r.isolated(running,image,token),'Running contract failed'
     for _ in range(30):
         result=r.command(['docker','exec',cid,'sh','-c',r.synthetic_health()])
         if result.returncode==0:break
