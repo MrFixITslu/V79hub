@@ -59,6 +59,18 @@ test("no-app, failed, and partial states cannot show an all-clear", () => {
   assert.match(connectionCopy(3, 0, false, false), /Checking/);
 });
 
+test("stale summary fetches cannot overwrite newer data, hidden tabs do not poll", async () => {
+  const { readFileSync } = await import("node:fs");
+  const dashboard = readFileSync(new URL("../src/components/HubOverview.tsx", import.meta.url), "utf8");
+  assert.match(dashboard, /activeRequest\.current\?\.abort\(\)/);
+  assert.match(dashboard, /controller\.signal\.aborted \|\| activeRequest\.current !== controller/);
+  assert.match(dashboard, /visibilityState === "hidden"/);
+  assert.match(dashboard, /visibilitychange/);
+  assert.match(dashboard, /setDashboard\(null\)/);
+  assert.match(dashboard, /Hub checked/);
+  assert.match(dashboard, /Product source timestamp unavailable/);
+});
+
 // Only a source-contract test: full network/browser/auth acceptance is separate.
 test("customer component still delegates launch and authentication to existing Hub code", async () => {
   const { readFileSync } = await import("node:fs");
