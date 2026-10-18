@@ -7,6 +7,7 @@ on:
       - scripts/portfolio-recovery-candidate-inventory.py
       - scripts/portfolio-isolated-games-startup.py
       - scripts/portfolio-games-cleanup-readonly.py
+      - scripts/portfolio-isolated-academy-startup.py
       - tests/portfolio-remaining-recovery-baseline.test.py
       - .github/workflows/portfolio-remaining-recovery-baseline.yml
   pull_request:
@@ -16,6 +17,7 @@ on:
       - scripts/portfolio-recovery-candidate-inventory.py
       - scripts/portfolio-isolated-games-startup.py
       - scripts/portfolio-games-cleanup-readonly.py
+      - scripts/portfolio-isolated-academy-startup.py
       - tests/portfolio-remaining-recovery-baseline.test.py
       - .github/workflows/portfolio-remaining-recovery-baseline.yml
 permissions:
@@ -38,6 +40,8 @@ jobs:
           python3 -B scripts/portfolio-isolated-games-startup.py --self-test
           python3 -m py_compile scripts/portfolio-games-cleanup-readonly.py
           python3 -B scripts/portfolio-games-cleanup-readonly.py --self-test
+          python3 -m py_compile scripts/portfolio-isolated-academy-startup.py
+          python3 -B scripts/portfolio-isolated-academy-startup.py --self-test
       - name: Verify script cannot deploy, restart, or alter application containers
         run: |
           python3 - <<'PY'
@@ -98,6 +102,24 @@ jobs:
               "['docker','create'", "['docker','run'", "['docker','exec'",
               "['docker','logs'", "['docker','compose','up'",
               "['systemctl'", "['gpg'"
+          ))
+          academy=Path('scripts/portfolio-isolated-academy-startup.py').read_text()
+          ast.parse(academy)
+          assert "['docker','create'" in academy
+          assert "'--network','none','--no-healthcheck'" in academy
+          assert "'--cap-drop','ALL'" in academy
+          assert "'--security-opt','no-new-privileges:true'" in academy
+          assert "'--read-only'" in academy
+          assert "'--tmpfs','/app/data:" in academy
+          assert "'--tmpfs','/tmp:" in academy
+          assert "ACADEMY_STANDALONE_ADMIN_ENABLED=0" in academy
+          assert "V79_PLATFORM_SHARED_SECRET=" in academy
+          assert "r.fingerprint(now)==r.fingerprint(prev)" in academy
+          assert "cleanup(probe,token,image)" in academy
+          assert "ACADEMY_UNSIGNED_ADMIN" in academy
+          assert not any(x in academy for x in (
+              "['docker','compose','up'", "['systemctl'", "['docker','volume','rm'",
+              "['docker','image','rm'", "['gpg'"
           ))
           assert "'RECOVERY_BASELINE_PREPARED_NOT_DEPLOYABLE'" in src
           assert "R1_CUSTOMER_RELEASE','NO_GO" in src
