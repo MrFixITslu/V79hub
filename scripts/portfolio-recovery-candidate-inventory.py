@@ -6,6 +6,7 @@ deployment, restoration or output of secret values. NO_GO always.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,8 @@ import sys
 
 ROOT=Path('/home/firelion')
 BASE=ROOT/'v79-recovery-replan.2prajz9h'
+ACCEPTED=ROOT/'v79-portfolio-rollout.6kvFDd5e'
+CORE_BLOB='6a3a5bd30f4e66b3415891f654a7e142d04dbd79'
 FAILED=ROOT/'v79-remaining-rollout.GCIN6i1p'
 SOURCE={'V79acaedmy':'584e07c9f5186e4aa10e87f931b2ea7194db93d4',
         'V79POS':'e4bf7620f5e6c5cc2e3a6c12d14bb441bf15de37',
@@ -66,6 +69,19 @@ def hashfile(path):
     with path.open('rb') as f:
         for chunk in iter(lambda:f.read(1024*1024),b''):digest.update(chunk)
     return digest.hexdigest()
+def trusted_fingerprint_helper():
+    core_path=ACCEPTED/'rollout.py'
+    need(core_path.is_file() and not core_path.is_symlink()
+         and core_path.stat().st_uid==os.getuid()
+         and core_path.stat().st_mode & 0o077==0,'PRIVATE_CORE_CHANGED')
+    raw=core_path.read_bytes()
+    blob=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+    need(blob==CORE_BLOB,'ACCEPTED_CORE_BLOB_CHANGED')
+    spec=importlib.util.spec_from_file_location('v79_inspect_only_core',core_path)
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 def docker(kind,identifier):
     if kind=='image':command=['docker','image','inspect',identifier]
     else:command=['docker','container','inspect',identifier]
@@ -94,7 +110,8 @@ def image_candidate_ok(img,id,revision,original):
 
 def inspect():
     need(socket.gethostname()=='v79sl' and os.getuid()!=0,'RUN_ON_V79SL_NONROOT')
-    for folder in (BASE,FAILED):check_directory(folder)
+    for folder in (BASE,FAILED,ACCEPTED):check_directory(folder)
+    trusted=trusted_fingerprint_helper()
     report=read_private(BASE/'plan-summary.json')
     baseline=read_private(BASE/'runtime-before.json')
     manifest=read_private(FAILED/'checkpoint/manifest.json')
@@ -121,7 +138,9 @@ def inspect():
         current[name]=docker('container',name)
         old=baseline[name];live=current[name]
         need(live['Id']==old['Id'] and live['Image']==old['Image']==OLD_IMAGES[name]
-             and live['State'].get('Running') is True,'CURRENT_RUNTIME_IDENTITY_CHANGED')
+             and live['State'].get('Running') is True
+             and trusted.fingerprint(live)==trusted.fingerprint(old),
+             'CURRENT_RUNTIME_IDENTITY_OR_CONFIGURATION_CHANGED')
         if name!='v79-pos-worker':
             need(live['State'].get('Health',{}).get('Status')=='healthy','CURRENT_HEALTH_CHANGED')
     emit('RECOVERY_BASELINE','UNCHANGED')
@@ -141,7 +160,9 @@ def inspect():
     for name in APP:
         now=docker('container',name)
         need(now['Id']==current[name]['Id'] and now['Image']==current[name]['Image']
-             and now['State'].get('Running') is True,'RUNTIME_CHANGED_DURING_INSPECTION')
+             and now['State'].get('Running') is True
+             and trusted.fingerprint(now)==trusted.fingerprint(current[name]),
+             'RUNTIME_CHANGED_DURING_INSPECTION')
     emit('ALL_CANDIDATES','PINNED_PROVENANCE_PASS')
     emit('ISOLATED_APP_RUNTIME','NOT_RUN')
     emit('NEW_RELEASE_DEPLOYMENT','NOT_AUTHORIZED')
