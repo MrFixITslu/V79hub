@@ -73,7 +73,7 @@ try:
         # Controlled ablation: same fully built image, remove only the Node
         # file capability; retain the non-root user and isolation flags.
         nocap=root/'no-filecap';nocap.mkdir()
-        (nocap/'Dockerfile').write_text('FROM '+game+'\\nUSER root\\nRUN setcap -r "$(readlink -f "$(which node)")"\\nUSER node\\n')
+        (nocap/'Dockerfile').write_text('FROM '+game+'\nUSER root\nRUN setcap -r "$(readlink -f "$(which node)")"\nUSER node\n')
         game_nocap=game+'-nocap'
         call('docker','build','--pull=false','-t',game_nocap,str(nocap))
         s.probe_image(r,run,'gaming-studio-j',r.inspect(game_nocap,image=True)['Id'],old)
