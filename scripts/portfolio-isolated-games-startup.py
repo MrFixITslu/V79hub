@@ -108,7 +108,8 @@ def isolated(row,identity,image):
     if (host.get('Tmpfs') or {}).get('/app/runtime') is None:return False
     if any(m.get('Type')!='tmpfs' or m.get('Destination')!='/app/runtime'
            for m in (row.get('Mounts') or [])):return False
-    if set(row.get('NetworkSettings',{}).get('Networks',{})):return False
+    networks=set(row.get('NetworkSettings',{}).get('Networks',{}))
+    if networks not in (set(),{'none'}):return False
     return True
 
 def cleanup(probe,identity,image):
@@ -179,7 +180,6 @@ def server():
         probe='v79-isolated-games-'+identity
         need(docker_inspect('container',probe) is None,'OWNED_PROBE_NAME_COLLISION')
         cleaned=False
-        started=False
         try:
             result=run(isolated_command(candidate,identity,probe),timeout=45)
             need(result.returncode==0,'ISOLATED_GAMES_CREATE_FAILED')
@@ -188,7 +188,6 @@ def server():
             emit('GAMES_ISOLATION','VERIFIED')
             result=run(['docker','start',probe],timeout=40)
             need(result.returncode==0,'ISOLATED_GAMES_START_FAILED')
-            started=True
             deadline=time.monotonic()+75
             health_cmd=['docker','exec','--user','1000:1000',probe,'/bin/sh','-c',
                         'test "$(wget -q -O - http://127.0.0.1:18080/healthz)" = "ok"']
@@ -235,6 +234,11 @@ def self_test():
                        'RestartPolicy':{'Name':'no'},'Tmpfs':{'/app/runtime':'synthetic'}},
          'Mounts':[],'NetworkSettings':{'Networks':{}}}
     assert isolated(row,idx,im)
+    row['NetworkSettings']['Networks']={'none':{}}
+    assert isolated(row,idx,im)
+    row['NetworkSettings']['Networks']={'proxy_network':{}}
+    assert not isolated(row,idx,im)
+    row['NetworkSettings']['Networks']={'none':{}}
     row['HostConfig']['NetworkMode']='proxy_network'
     assert not isolated(row,idx,im)
     row['HostConfig']['NetworkMode']='none'
