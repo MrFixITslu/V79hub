@@ -210,6 +210,36 @@ test("current pinned Hub+Tiquet full stack: replay, cross-tenant read/write and 
   assert.match(copiedJwt,/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
   assert.equal((await req(tiquet,"/api/auth/me",{headers:{Authorization:"Bearer "+copiedJwt}})).status,200);
 
+  // Observe but do NOT silently accept cross-app global logout as proven.
+  // Hub revokes its own session; current Tiquet tokens carry a separate 30m JWT.
+  // Explicitly record the release gate as NO_GO if either Tiquet token survives.
+  const hubLogout=await req(hub,"/api/auth/logout",{
+    method:"POST",headers:{Cookie:a.hubCookie,Origin:hub}
+  });
+  assert.equal(hubLogout.status,200,"Hub synthetic owner logged out");
+  assert.equal((await req(hub,"/api/auth/me",{headers:{Cookie:a.hubCookie}})).status,401,
+    "Hub invalidates reused Hub owner cookie after logout");
+  assert.equal((await req(hub,"/api/apps/tiquet/launch",{headers:{Cookie:a.hubCookie}})).status,401,
+    "Hub refuses further Tiquet launches after Hub logout");
+  assert.equal((await req(hub,"/api/auth/me",{headers:{Cookie:b.hubCookie}})).status,200,
+    "Hub logout A does not revoke unrelated B Hub session");
+  const tiqCookieAfterHub=await req(tiquet,"/api/auth/me",{headers:{Cookie:aCookie}});
+  const tiqBearerAfterHub=await req(tiquet,"/api/auth/me",{
+    headers:{Authorization:"Bearer "+copiedJwt}
+  });
+  for (const status of [tiqCookieAfterHub.status,tiqBearerAfterHub.status]) {
+    assert.ok([200,401,403].includes(status),
+      "Unexpected Tiquet state after Hub-only logout; release acceptance requires investigation");
+  }
+  const survivesHubLogout=[tiqCookieAfterHub.status,tiqBearerAfterHub.status].includes(200);
+  console.log("HUB_ONLY_GLOBAL_LOGOUT_GATE="+
+    (survivesHubLogout?"NO_GO_TIQUET_TOKEN_SURVIVES":"CANDIDATE_PASS_REQUIRES_INDEPENDENT_REVIEW")+
+    " HUB_COOKIE_REVOKED=YES"+
+    " TIQUET_COOKIE_STATUS="+tiqCookieAfterHub.status+
+    " TIQUET_BEARER_STATUS="+tiqBearerAfterHub.status);
+  assert.equal((await req(tiquet,"/api/auth/me",{headers:{Cookie:bCookie}})).status,200,
+    "Tenant B session unaffected by A Hub-only logout");
+
   // Tiquet logout must durably revoke copied bearer and cookie variants.
   const logout=await req(tiquet,"/api/auth/logout",{
     method:"POST",headers:{Cookie:aCookie,Origin:tiquet}
