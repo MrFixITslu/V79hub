@@ -28,6 +28,8 @@ FAILED_BUILD_RUN=Path('/home/firelion/v79-remaining-rollout.T2HHBqwg')
 FAILED_HELPER_BLOB='b0fb7386d4b71db54421f81dd517df1af04c3d7d'
 FAILED_POS_RUN=Path('/home/firelion/v79-remaining-rollout.uQ1BertQ')
 FAILED_POS_HELPER_BLOB='31e574568aafee30b9a2cd90e1ec9a16190d4317'
+FAILED_GAMES_RUN=Path('/home/firelion/v79-remaining-rollout.pu2FVF7b')
+FAILED_GAMES_HELPER_BLOB='e464d72a57b83a96eaa086af84eb2f6c77ef2581'
 RUN_RE=r'/home/firelion/v79-remaining-rollout\.[A-Za-z0-9]{8}'
 STOP_ORDER=('v79-pos-worker','v79-pos','v79_course_builder','gaming-studio-j')
 SWITCH_ORDER=('v79-pos','v79-pos-worker','v79_course_builder','gaming-studio-j')
@@ -161,6 +163,24 @@ def cleanup_probe(r,name,identity,image=None):
     need(optional_container(r,name) is None,'PROBE_CLEANUP_NOT_PROVEN')
 
 
+# Node in the pinned Games image has cap_net_bind_service on its executable.
+# Executing that binary inside a cap-drop ALL / no-new-privileges probe can fail
+# despite readable application source. Verify from the same non-root user using
+# a minimal POSIX shell, without executing the file-capability-bearing binary.
+# No application process, mount, network, or production credential is involved.
+GAME_READABILITY_PROBE=(
+    'for f do '
+    'if [ ! -e "$f" ]; then echo PUBLIC_EXECUTION_ENOENT; exit 2; fi; '
+    'if [ ! -r "$f" ]; then echo PUBLIC_EXECUTION_EACCES; exit 2; fi; '
+    'done; '
+    'if ! command -v node >/dev/null 2>&1; then echo PUBLIC_EXECUTION_ENOENT; exit 2; fi; '
+    'case "$0" in '
+    '  */*) if [ ! -e "$0" ]; then echo PUBLIC_EXECUTION_ENOENT; exit 2; fi; '
+    '       if [ ! -x "$0" ]; then echo PUBLIC_EXECUTION_EACCES; exit 2; fi ;; '
+    '  *) if ! command -v "$0" >/dev/null 2>&1; then echo PUBLIC_EXECUTION_ENOENT; exit 2; fi ;; '
+    'esac; echo PUBLIC_EXECUTION_FILES_READABLE'
+)
+
 def probe_image(r,run,name,image,old):
     # No production environment, credentials, data mounts or network enter this probe.
     identity=run.name.split('.')[-1]
@@ -180,13 +200,16 @@ def probe_image(r,run,name,image,old):
         code+="const entry="+json.dumps(executable)+";const paths=entry.includes('/')?[entry]:(process.env.PATH||'').split(':').map(p=>p+'/'+entry);if(!paths.some(p=>{try{fs.accessSync(p,fs.constants.X_OK);return true}catch{return false}}))process.exit(2);"
     code+="console.log('PUBLIC_EXECUTION_FILES_READABLE')"
     code="try{"+code+"}catch(e){console.log('PUBLIC_EXECUTION_'+(['EACCES','EPERM','ENOENT'].includes(e.code)?e.code:'UNCLASSIFIED'));process.exitCode=2}"
+    is_games=name=='gaming-studio-j'
+    execution_entry='/bin/sh' if is_games else 'node'
+    execution_args=['-c',GAME_READABILITY_PROBE,executable or 'node',*paths] if is_games else ['-e',code]
     args=['docker','create','--name',probe,'--label',label+'='+identity,'--pull','never','--network','none',
           '--no-healthcheck','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--memory','128m',
-          '--memory-swap','128m','--pids-limit','48','--entrypoint','node']
+          '--memory-swap','128m','--pids-limit','48','--entrypoint',execution_entry]
     if old['Config'].get('User'):args+=['--user',old['Config']['User']]
     r.emit('PHASE','PROBE_'+name.upper().replace('-','_'))
     try:
-        r.call([*args,image,'-e',code])
+        r.call([*args,image,*execution_args])
         row=probe_metadata(r,probe)
         need(not row['Mounts'] and row['HostConfig']['NetworkMode']=='none'
              and not row['HostConfig'].get('PortBindings'),'PROBE_ISOLATION_INVALID')
@@ -302,7 +325,68 @@ def recover_academy_pos_builds(r,p,run):
     return cached
 
 
-def build_images(r,p,run,before,cached=None):
+def recover_all_builds(r,p,run):
+    """Reuse three immutable candidates only after exact failed-run provenance."""
+    old=FAILED_GAMES_RUN
+    need(old.is_dir() and not old.is_symlink() and old.stat().st_uid==os.getuid()
+         and old.stat().st_mode & 0o077==0,'FAILED_GAMES_DIRECTORY_UNSAFE')
+    helper=old/'rollout.py'
+    need(helper.is_file() and not helper.is_symlink() and blob(helper.read_bytes())==FAILED_GAMES_HELPER_BLOB,
+         'FAILED_GAMES_HELPER_INTEGRITY_CHANGED')
+    load_modules(old)
+    need((old/'exit-code').read_text().strip()=='1' and not (old/'checkpoint').exists(),
+         'FAILED_GAMES_RUN_NOT_PREDEPLOY_COMPLETE')
+    lines=(old/'progress.log').read_text().splitlines()
+    for name in ('v79_course_builder','v79-pos','v79-pos-worker'):
+        need('RESULT='+name+'_PUBLIC_EXECUTION_AND_PROBE_CLEANUP_PASS' in lines,
+             'PRIOR_SUCCESSFUL_EXECUTION_NOT_PROVEN')
+    need('PHASE=BUILD_GAMING_STUDIO_J' in lines
+         and 'RESULT=gaming-studio-j_PUBLIC_EXECUTION_UNCLASSIFIED' in lines
+         and 'PHASE=PROBE_CLEANUP_GAMING_STUDIO_J' in lines
+         and 'STOP=CANDIDATE_EXECUTION_PROBE_FAILED' in lines
+         and not any(line.startswith(('PHASE=SWITCH_','PHASE=QUIESCE_','DEPLOYED='))
+                     for line in lines),'FAILED_GAMES_PHASE_NOT_ACCEPTED')
+    reference=private_read(old/'plan-reference.json')
+    need(reference['directory']==str(PLAN) and reference['sources']==p.SOURCES
+         and reference['summary_sha256']==r.sha_file(PLAN/'plan-summary.json'),
+         'FAILED_GAMES_PLAN_REFERENCE_CHANGED')
+    baseline=private_read(old/'runtime-before.json')
+    for name,pin in p.PINS.items():
+        current=r.inspect(name)
+        need(current['Id']==baseline[name]['Id'] and current['Image']==pin['image_id']
+             and r.fingerprint(current)==r.fingerprint(baseline[name]),'FAILED_GAMES_RUNTIME_DRIFT')
+    cached=recover_academy_pos_builds(r,p,run)
+    for repo in ('V79acaedmy','V79POS'):
+        record=private_read(old/(repo+'-built-image.json'))
+        need(record=={'repo':repo,'source_commit':p.SOURCES[repo],'image_id':cached[repo]},
+             'PRIOR_CACHED_IMAGE_RECEIPT_CHANGED')
+    repo='Gaming-Studio-J';revision=p.SOURCES[repo];stage=old/repo
+    need(r.call(['git','-C',str(stage),'rev-parse','HEAD']).decode().strip()==revision,
+         'CACHED_GAMES_SOURCE_CHANGED')
+    r.call(['git','-C',str(stage),'diff','--exit-code','HEAD','--'])
+    need(not r.call(['git','-C',str(stage),'ls-files','--others','-z']),
+         'CACHED_GAMES_UNTRACKED_CONTEXT')
+    record=private_read(old/(repo+'-built-image.json'))
+    need(record.get('repo')==repo and record.get('source_commit')==revision
+         and r.IMAGE.fullmatch(record.get('image_id','')),'CACHED_GAMES_RECEIPT_INVALID')
+    image=r.inspect(record['image_id'],image=True)
+    need(image['Id']==record['image_id']
+         and (image['Config'].get('Labels') or {}).get('org.opencontainers.image.revision')==revision,
+         'CACHED_GAMES_IMAGE_SOURCE_CHANGED')
+    created=datetime.fromisoformat(image['Created'].replace('Z','+00:00')).timestamp()
+    need(helper.stat().st_mtime-2<=created<=(old/'exit-code').stat().st_mtime+2,
+         'CACHED_GAMES_BUILD_TIME_NOT_PROVEN')
+    identity=old.name.split('.')[-1]
+    cleanup_probe(r,'v79-release-probe-'+identity+'-3',identity,image['Id'])
+    cached[repo]=image['Id']
+    r.private_json(run/'cached-all-builds-proof.json',{'prior_run':str(old),
+        'helper_blob':FAILED_GAMES_HELPER_BLOB,'sources':p.SOURCES,'images':cached,
+        'scope':'THREE_VERIFIED_CANDIDATES_GAMES_REPROBE_REQUIRED'})
+    r.emit('RESULT','CACHED_ACADEMY_POS_GAMES_BUILDS_VERIFIED_NO_REBUILD')
+    return cached
+
+
+def build_images(r,p,run,before,cached=None,skip_cached_probes=()):
     images={}
     for repo,revision in p.SOURCES.items():
         if cached and repo in cached:
@@ -329,7 +413,10 @@ def build_images(r,p,run,before,cached=None):
                 if not before[name]['Config'].get(field):
                     need(not candidate['Config'].get(field),'CANDIDATE_NEW_'+field.upper()+'_DEFAULT')
             need(set(r.envmap(candidate['Config'].get('Env')))<=set(r.envmap(before[name]['Config'].get('Env'))),'CANDIDATE_NEW_ENVIRONMENT_DEFAULT')
-            probe_image(r,run,name,candidate['Id'],before[name])
+            if cached and repo in cached and name in skip_cached_probes:
+                r.emit('RESULT',name+'_PRIOR_EXECUTION_AND_PROBE_CLEANUP_ACCEPTED_NO_REPROBE')
+            else:
+                probe_image(r,run,name,candidate['Id'],before[name])
             images[name]=candidate['Id']
     return images
 
@@ -444,7 +531,7 @@ def checkpoint_and_switch(r,p,run,before,models,images,key,all_before):
         if timers:
             r.call(['systemctl','--user','start',*timers]);r.emit('PRESERVED','ORIGINALLY_ACTIVE_USER_TIMERS_RESUMED')
 
-def server(run,key,r,p,continue_academy=False,continue_pos=False):
+def server(run,key,r,p,continue_academy=False,continue_pos=False,continue_games=False):
     need(socket.gethostname()=='v79sl' and os.getuid()!=0,'RUN_ON_V79SL_NON_ROOT')
     signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(Stop('TERMINATED')))
     os.umask(0o077)
@@ -463,12 +550,15 @@ def server(run,key,r,p,continue_academy=False,continue_pos=False):
         r.emit('PHASE','REVALIDATE_ACCEPTED_PRIVATE_PLAN')
         before,models=check_plan(r,p)
         check_pos_environment(before['v79-pos']);check_pos_environment(before['v79-pos-worker'])
-        cached=recover_academy_pos_builds(r,p,run) if continue_pos else recover_academy_build(r,p,run) if continue_academy else None
+        cached=(recover_all_builds(r,p,run) if continue_games else
+                recover_academy_pos_builds(r,p,run) if continue_pos else
+                recover_academy_build(r,p,run) if continue_academy else None)
         names=r.call(['docker','ps','--all','--format','{{.Names}}']).decode().splitlines()
         all_before={x['Name'].lstrip('/'):x for x in json.loads(r.call(['docker','inspect',*names]))}
         r.private_json(run/'runtime-before.json',all_before)
         r.private_json(run/'plan-reference.json',{'directory':str(PLAN),'summary_sha256':r.sha_file(PLAN/'plan-summary.json'),'sources':p.SOURCES})
-        images=build_images(r,p,run,before,cached=cached)
+        skip=('v79_course_builder','v79-pos','v79-pos-worker') if continue_games else ()
+        images=build_images(r,p,run,before,cached=cached,skip_cached_probes=skip)
         # Expensive builds do not authorize stale runtime/config or new migrations.
         check_plan(r,p);r.same_others(all_before,set())
         checkpoint_and_switch(r,p,run,before,models,images,key,all_before)
@@ -495,18 +585,19 @@ def acer(args):
         launch_args=['python3','-B','-u',directory+'/rollout.py','--server',directory,base64.b64encode(key).decode()]
         if args.continue_built_academy:launch_args.append('--continue-built-academy')
         if args.continue_built_academy_pos:launch_args.append('--continue-built-academy-pos')
+        if args.continue_built_academy_pos_games:launch_args.append('--continue-built-academy-pos-games')
         launch=shlex.join(launch_args)
         r.call([*r.SSH,'umask 077; nohup '+launch+' > '+shlex.quote(directory+'/progress.log')+' 2>&1 < /dev/null &'])
         return r.monitor(directory)
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--server',nargs=2);parser.add_argument('--resume');parser.add_argument('--continue-built-academy',action='store_true');parser.add_argument('--continue-built-academy-pos',action='store_true');args=parser.parse_args()
-    need(not(args.server and args.resume) and not(args.resume and (args.continue_built_academy or args.continue_built_academy_pos)) and not(args.continue_built_academy and args.continue_built_academy_pos),'CONFLICTING_MODES')
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--server',nargs=2);parser.add_argument('--resume');parser.add_argument('--continue-built-academy',action='store_true');parser.add_argument('--continue-built-academy-pos',action='store_true');parser.add_argument('--continue-built-academy-pos-games',action='store_true');args=parser.parse_args()
+    need(not(args.server and args.resume) and not(args.resume and (args.continue_built_academy or args.continue_built_academy_pos or args.continue_built_academy_pos_games)) and sum((args.continue_built_academy,args.continue_built_academy_pos,args.continue_built_academy_pos_games))<=1,'CONFLICTING_MODES')
     if not args.server:return acer(args) or 0
     run=Path(args.server[0]);need(re.fullmatch(RUN_RE,str(run)) and run==Path(__file__).resolve().parent,'REMOTE_DIRECTORY_INVALID')
     code=1;r=p=None
     try:
-        r,p=load_modules(run);server(run,args.server[1],r,p,continue_academy=args.continue_built_academy,continue_pos=args.continue_built_academy_pos);code=0
+        r,p=load_modules(run);server(run,args.server[1],r,p,continue_academy=args.continue_built_academy,continue_pos=args.continue_built_academy_pos,continue_games=args.continue_built_academy_pos_games);code=0
     except BaseException as error:
         trusted=isinstance(error,Stop) or r is not None and isinstance(error,r.Stop) or p is not None and isinstance(error,p.Stop)
         message=str(error)
