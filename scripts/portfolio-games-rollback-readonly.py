@@ -125,6 +125,7 @@ def present(name,old,row,game_candidate=None):
     if old is None:
         emit(tag+'_BASELINE','NOT_PRESENT');return False
     emit(tag+'_ORIGINAL_IMAGE','MATCH' if old.get('Image')==row.get('Image') else 'DIFFERENT')
+    emit(tag+'_CONTAINER_ID','MATCH' if old.get('Id') and old.get('Id')==row.get('Id') else 'RECREATED_OR_CHANGED')
     if tag=='GAMES':
         category=('ORIGINAL' if row.get('Image')==old.get('Image') else
                   'CANDIDATE' if game_candidate and row.get('Image')==game_candidate else 'OTHER')
@@ -171,11 +172,25 @@ def server():
         return error('RUN_EVIDENCE_UNAVAILABLE')
     emit('MODE','READ_ONLY_NO_LOGS_NO_MUTATIONS')
     all_good=True
+    recovery_compatible=True
+    exact_preflight_identities=True
     for name in (*APPS,*SHARED):
         try:
             row=inspect(name)
             good=present(name,before.get(name),row,game_candidate)
-            if name in APPS:all_good=all_good and good
+            if name in APPS:
+                all_good=all_good and good
+                exact_preflight_identities=exact_preflight_identities and bool(row and
+                    before.get(name,{}).get('Id')==row.get('Id'))
+                if name=='gaming-studio-j' and row and before.get(name):
+                    games_recovered=(good or
+                        (row['Image']==before[name]['Image'] and
+                         row['State'].get('Running') is True and
+                         (row['State'].get('Health') or {}).get('Status')=='healthy' and
+                         dns_representation_only(before[name],row)))
+                    recovery_compatible=recovery_compatible and games_recovered
+                else:
+                    recovery_compatible=recovery_compatible and good
         except Exception:
             emit('STOP','INSPECT_OR_DIFF_FAILED')
             return 1
@@ -189,6 +204,9 @@ def server():
     except Exception:
         emit('GAMES_FAILED_CANDIDATE_LOG_CATEGORY','UNAVAILABLE')
     emit('REMAINING_ORIGINALS_VERIFIED_NOW','YES' if all_good else 'NO')
+    emit('REMAINING_RECOVERY_COMPATIBLE_NOW','YES' if recovery_compatible else 'NO')
+    emit('EXACT_PREFAILURE_CONTAINER_IDENTITIES_MATCH','YES' if exact_preflight_identities else 'NO')
+    emit('FROZEN_PLAN_IDENTITY_GATE','PASS' if exact_preflight_identities and all_good else 'FAIL_REPLAN_REQUIRED')
     emit('CUSTOMER_RELEASE','NO_GO')
     return 0
 
@@ -237,6 +255,8 @@ def self_test():
     assert not dns_representation_only(base,changed)
     assert dns_shape(['PRIVATE_VALUE'])=='CONFIGURED'
     assert 'PRIVATE_SECRET' not in str(differences(base,live))
+    assert base.get('Id')==live.get('Id') and not base.get('Id')
+    assert not (base.get('Id') and base.get('Id')==live.get('Id'))
     emit('SELF_TEST','PASS')
     return 0
 
