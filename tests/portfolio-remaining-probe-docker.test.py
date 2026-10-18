@@ -64,12 +64,11 @@ try:
         call('docker','build','--pull=false','-t',game,str(source))
         pinned=r.inspect(game,image=True)
         print('PINNED_GAMES_IMAGE_BUILD=PASS',flush=True)
-        try:
-            s.probe_image(r,run,'gaming-studio-j',pinned['Id'],old)
-        except (s.Stop,r.Stop):
-            print('PINNED_GAMES_NODE_ENTRY_PROBE=REPRODUCED_FAILURE',flush=True)
-        else:
-            raise AssertionError('Pinned Games failure was not reproduced')
+        # The original Node -e probe failed on this exact filecap-bearing
+        # image (reproduced by prior CI). The same-UID, no-network shell
+        # readability check must accept the original image unchanged.
+        s.probe_image(r,run,'gaming-studio-j',pinned['Id'],old)
+        print('PINNED_GAMES_FILECAP_SAFE_PROBE=PASS',flush=True)
         # Controlled ablation: same fully built image, remove only the Node
         # file capability; retain the non-root user and isolation flags.
         nocap=root/'no-filecap';nocap.mkdir()
