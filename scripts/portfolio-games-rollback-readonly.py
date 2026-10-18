@@ -181,7 +181,7 @@ def self_test():
     changed['HostConfig']['NetworkMode']='new'
     result=differences(row,changed)
     assert result[0] is False and result[2]==(0,0,1) and result[3]==['NETWORKMODE']
-    assert not SAFE.fullmatch('ENV=PRIVATE_SECRET')
+    assert 'PRIVATE_SECRET' not in str(result) and 'NEW_PRIVATE_SECRET' not in str(result)
     emit('SELF_TEST','PASS')
     return 0
 
