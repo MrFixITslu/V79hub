@@ -1697,8 +1697,10 @@ app.post("/api/platform/session/status", (req, res) => {
     return res.status(400).json({ active: false });
   }
   const session = sessions.get(hubSessionId);
-  const membership = session ? activeMembership(store, session.userId, session.organizationId) : null;
-  const active = Boolean(session && session.expiresAt > Date.now() &&
+  const activeUser = session ? store.users.find(user => user.id === session.userId) : null;
+  const membership = activeUser && session ? activeMembership(store, activeUser.id, session.organizationId) : null;
+  const organization = store.organizations.find(org => org.id === organizationId && org.status === "active");
+  const active = Boolean(session && activeUser && organization && session.expiresAt > Date.now() &&
     session.organizationId === organizationId && membership &&
     (membership.role === "owner" || tiquetTeamRole(membership.role)) &&
     membershipCanAccessApp(membership, "app-tiquet") &&
