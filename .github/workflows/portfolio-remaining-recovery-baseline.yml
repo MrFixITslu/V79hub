@@ -8,6 +8,7 @@ on:
       - scripts/portfolio-isolated-games-startup.py
       - scripts/portfolio-games-cleanup-readonly.py
       - scripts/portfolio-isolated-academy-startup.py
+      - scripts/portfolio-academy-probe-readonly.py
       - tests/portfolio-remaining-recovery-baseline.test.py
       - .github/workflows/portfolio-remaining-recovery-baseline.yml
   pull_request:
@@ -18,6 +19,7 @@ on:
       - scripts/portfolio-isolated-games-startup.py
       - scripts/portfolio-games-cleanup-readonly.py
       - scripts/portfolio-isolated-academy-startup.py
+      - scripts/portfolio-academy-probe-readonly.py
       - tests/portfolio-remaining-recovery-baseline.test.py
       - .github/workflows/portfolio-remaining-recovery-baseline.yml
 permissions:
@@ -42,6 +44,8 @@ jobs:
           python3 -B scripts/portfolio-games-cleanup-readonly.py --self-test
           python3 -m py_compile scripts/portfolio-isolated-academy-startup.py
           python3 -B scripts/portfolio-isolated-academy-startup.py --self-test
+          python3 -m py_compile scripts/portfolio-academy-probe-readonly.py
+          python3 -B scripts/portfolio-academy-probe-readonly.py --self-test
       - name: Verify script cannot deploy, restart, or alter application containers
         run: |
           python3 - <<'PY'
@@ -120,6 +124,18 @@ jobs:
           assert not any(x in academy for x in (
               "['docker','compose','up'", "['systemctl'", "['docker','volume','rm'",
               "['docker','image','rm'", "['gpg'"
+          ))
+          acadprobe=Path('scripts/portfolio-academy-probe-readonly.py').read_text()
+          ast.parse(acadprobe)
+          assert "'--filter','label='+OWNER" in acadprobe
+          assert "PRODUCTION_CHANGED_DURING_AUDIT" in acadprobe
+          assert "STRICT_FAILURE_ONLY_MOUNTS" in acadprobe
+          assert "ACADEMY_CLEANUP_READ_ONLY" in acadprobe
+          assert not any(x in acadprobe for x in (
+              "['docker','rm'", "['docker','start'", "['docker','stop'",
+              "['docker','create'", "['docker','run'", "['docker','exec'",
+              "['docker','logs'", "['docker','compose','up'",
+              "['systemctl'", "['gpg'"
           ))
           assert "'RECOVERY_BASELINE_PREPARED_NOT_DEPLOYABLE'" in src
           assert "R1_CUSTOMER_RELEASE','NO_GO" in src
