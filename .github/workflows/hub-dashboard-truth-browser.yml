@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "src/components/HubOverview.tsx"
+      - "src/index.css"
       - "src/lib/dashboardTruth.ts"
       - "tests/hub-dashboard-truth.test.mjs"
       - ".github/workflows/hub-dashboard-truth-browser.yml"
