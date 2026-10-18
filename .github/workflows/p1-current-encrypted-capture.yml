@@ -1,0 +1,30 @@
+name: P1 current encrypted capture safety (no server access)
+on:
+  push:
+    paths:
+      - scripts/p1-current-encrypted-capture.py
+      - tests/p1-current-encrypted-capture.test.py
+      - .github/workflows/p1-current-encrypted-capture.yml
+  pull_request:
+    paths:
+      - scripts/p1-current-encrypted-capture.py
+      - tests/p1-current-encrypted-capture.test.py
+      - .github/workflows/p1-current-encrypted-capture.yml
+permissions:
+  contents: read
+jobs:
+  synthetic-lifecycle-and-encryption:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch exact reviewed utility for integration contract
+        run: |
+          git fetch --no-tags --depth=1 origin ff575e62697638cedeee65591518318569d6155a
+          git show FETCH_HEAD:scripts/portfolio-pinned-rollout.py > /tmp/p1-reviewed-capture-utility.py
+      - run: python3 -B scripts/p1-current-encrypted-capture.py --self-test
+      - run: python3 -B tests/p1-current-encrypted-capture.test.py
+        env:
+          P1_TEST_UTILITY_PATH: /tmp/p1-reviewed-capture-utility.py
