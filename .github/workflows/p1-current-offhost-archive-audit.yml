@@ -6,6 +6,7 @@ on:
       - scripts/p1-current-offhost-archive-audit-guard.sh
       - tests/p1-current-offhost-archive-audit.test.py
       - tests/p1-current-offhost-audit-guard.test.py
+      - tests/p1-current-offhost-docker-format.test.py
       - .github/workflows/p1-current-offhost-archive-audit.yml
   pull_request:
     paths:
@@ -13,6 +14,7 @@ on:
       - scripts/p1-current-offhost-archive-audit-guard.sh
       - tests/p1-current-offhost-archive-audit.test.py
       - tests/p1-current-offhost-audit-guard.test.py
+      - tests/p1-current-offhost-docker-format.test.py
       - .github/workflows/p1-current-offhost-archive-audit.yml
 permissions:
   contents: read
@@ -25,3 +27,6 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -B tests/p1-current-offhost-archive-audit.test.py
+      - run: bash -n scripts/p1-current-offhost-archive-audit-guard.sh
+      - run: python3 -B tests/p1-current-offhost-audit-guard.test.py
+      - run: python3 -B tests/p1-current-offhost-docker-format.test.py
