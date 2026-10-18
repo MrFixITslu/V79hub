@@ -1,0 +1,40 @@
+name: Recovery-anchored baseline safety
+on:
+  push:
+    paths:
+      - scripts/portfolio-remaining-recovery-baseline.py
+      - tests/portfolio-remaining-recovery-baseline.test.py
+      - .github/workflows/portfolio-remaining-recovery-baseline.yml
+  pull_request:
+    paths:
+      - scripts/portfolio-remaining-recovery-baseline.py
+      - tests/portfolio-remaining-recovery-baseline.test.py
+      - .github/workflows/portfolio-remaining-recovery-baseline.yml
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test fail-closed baseline
+        run: |
+          python3 -m py_compile scripts/portfolio-remaining-recovery-baseline.py
+          python3 -B tests/portfolio-remaining-recovery-baseline.test.py
+      - name: Verify script cannot deploy, restart, or alter application containers
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          src=Path('scripts/portfolio-remaining-recovery-baseline.py').read_text()
+          ast.parse(src)
+          assert not any(x in src for x in (
+              "['docker','stop'", "['docker','start'", "['docker','rm'",
+              "['docker','exec'", "['docker','logs'", "'up','-d'",
+              "['docker','compose','up'", "['systemctl'", "['gpg','--decrypt'"
+          ))
+          assert "'RECOVERY_BASELINE_PREPARED_NOT_DEPLOYABLE'" in src
+          assert "R1_CUSTOMER_RELEASE','NO_GO" in src
+          print('NO_SWITCH_RESTART_OR_PRIVATE_OUTPUT=PASS')
+          PY
