@@ -5,6 +5,7 @@ on:
       - scripts/portfolio-remaining-recovery-baseline.py
       - scripts/portfolio-existing-recovery-baseline-inspect.py
       - scripts/portfolio-recovery-candidate-inventory.py
+      - scripts/portfolio-isolated-games-startup.py
       - tests/portfolio-remaining-recovery-baseline.test.py
       - .github/workflows/portfolio-remaining-recovery-baseline.yml
   pull_request:
@@ -12,6 +13,7 @@ on:
       - scripts/portfolio-remaining-recovery-baseline.py
       - scripts/portfolio-existing-recovery-baseline-inspect.py
       - scripts/portfolio-recovery-candidate-inventory.py
+      - scripts/portfolio-isolated-games-startup.py
       - tests/portfolio-remaining-recovery-baseline.test.py
       - .github/workflows/portfolio-remaining-recovery-baseline.yml
 permissions:
@@ -30,6 +32,8 @@ jobs:
           python3 -B scripts/portfolio-existing-recovery-baseline-inspect.py --self-test
           python3 -m py_compile scripts/portfolio-recovery-candidate-inventory.py
           python3 -B scripts/portfolio-recovery-candidate-inventory.py --self-test
+          python3 -m py_compile scripts/portfolio-isolated-games-startup.py
+          python3 -B scripts/portfolio-isolated-games-startup.py --self-test
       - name: Verify script cannot deploy, restart, or alter application containers
         run: |
           python3 - <<'PY'
@@ -58,6 +62,24 @@ jobs:
               "['docker','stop'", "['docker','start'", "['docker','rm'",
               "['docker','exec'", "['docker','logs'", "['docker','compose','up'",
               "['systemctl'", "['gpg'", "docker create"
+          ))
+          games=Path('scripts/portfolio-isolated-games-startup.py').read_text()
+          ast.parse(games)
+          assert "['docker','create'" in games
+          assert "'--network','none'" in games
+          assert "'--read-only'" in games
+          assert "'--tmpfs','/app/runtime:" in games
+          assert "'--cap-drop','ALL','--cap-add','NET_BIND_SERVICE'" in games
+          assert "'--memory','256m'" in games
+          assert "'--pids-limit','64'" in games
+          assert "OWNERSHIP+'='+identity" in games
+          assert "['docker','rm','-fv',probe]" in games
+          assert "cleanup(probe,identity,candidate)" in games
+          assert "r.fingerprint(now)==r.fingerprint(before)" in games
+          assert "'PRODUCTION_CONTAINERS','UNCHANGED'" in games
+          assert not any(x in games for x in (
+              "['docker','compose','up'", "['docker','exec'", "['systemctl'",
+              "['docker','image','rm'", "['docker','volume','rm'", "'proxy_network'"
           ))
           assert "NEW_RELEASE_DEPLOYMENT':'NOT_AUTHORIZED'" in candidate
           assert "R1_CUSTOMER_RELEASE':'NO_GO'" in candidate
