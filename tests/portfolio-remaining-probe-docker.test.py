@@ -64,8 +64,20 @@ try:
         call('docker','build','--pull=false','-t',game,str(source))
         pinned=r.inspect(game,image=True)
         print('PINNED_GAMES_IMAGE_BUILD=PASS',flush=True)
-        s.probe_image(r,run,'gaming-studio-j',pinned['Id'],old)
-        print('PINNED_GAMES_NONROOT_EXECUTION=PASS',flush=True)
+        try:
+            s.probe_image(r,run,'gaming-studio-j',pinned['Id'],old)
+        except (s.Stop,r.Stop):
+            print('PINNED_GAMES_NODE_ENTRY_PROBE=REPRODUCED_FAILURE',flush=True)
+        else:
+            raise AssertionError('Pinned Games failure was not reproduced')
+        # Controlled ablation: same fully built image, remove only the Node
+        # file capability; retain the non-root user and isolation flags.
+        nocap=root/'no-filecap';nocap.mkdir()
+        (nocap/'Dockerfile').write_text('FROM '+game+'\\nUSER root\\nRUN setcap -r "$(readlink -f "$(which node)")"\\nUSER node\\n')
+        game_nocap=game+'-nocap'
+        call('docker','build','--pull=false','-t',game_nocap,str(nocap))
+        s.probe_image(r,run,'gaming-studio-j',r.inspect(game_nocap,image=True)['Id'],old)
+        print('PINNED_GAMES_SAME_IMAGE_WITHOUT_FILECAP=PASS',flush=True)
         remaining=call('docker','container','ls','--all','--quiet','--filter','label=v79.remaining-release-probe=ABC12345')
         assert not remaining.strip(),'Probe resource leaked'
     call('docker','pull','redis:7-alpine')
@@ -81,4 +93,4 @@ try:
     print('ACTUAL_DOCKER_RELEASE_PROBE_SUCCESS_FAILURE_CLEANUP_AND_REDIS_STDOUT=PASS')
 finally:
     subprocess.run(['docker','rm','-fv',redis],capture_output=True)
-    subprocess.run(['docker','image','rm',academy,bad,good,good+'-pinned-games'],capture_output=True)
+    subprocess.run(['docker','image','rm',academy,bad,good,good+'-pinned-games',good+'-pinned-games-nocap'],capture_output=True)
