@@ -36,6 +36,7 @@ class LifecycleTests(unittest.TestCase):
     def test_plan_output_contract_rejects_unbounded_or_secret_values(self):
         self.assertTrue(c.plan_safe('P1_CAPTURE_PLAN_SHA256='+'a'*64))
         self.assertTrue(c.plan_safe('CAPTURE_TIMER_1=v79-workforce-task.timer'))
+        self.assertTrue(c.plan_safe('R1_CUSTOMER_RELEASE=NO_GO'))
         self.assertFalse(c.plan_safe('CAPTURE_TIMER_1=PRIVATE_MARKER'))
         self.assertFalse(c.plan_safe('ENV=PRIVATE_MARKER'))
 

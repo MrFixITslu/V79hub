@@ -48,7 +48,7 @@ def plan_safe(line):
     if key in ('TIMER_PAUSE_COUNT','HUB_MOUNT_COUNT','TIQUET_MOUNT_COUNT'):return bool(re.fullmatch(r'[0-9]{1,3}',value))
     return (key,value) in {('PAUSE_REQUIRED','HUB_AND_TIQUET_AND_LISTED_TIMERS'),('PLAN','READ_ONLY_READY'),
         ('DATABASES_REMAIN_RUNNING','YES'),('DATA_CAPTURE_BUDGET_SECONDS','600'),
-        ('PRODUCTION_CHANGES','NONE'),('CUSTOMER_RELEASE','NO_GO')} or bool(key=='STOP' and re.fullmatch(r'[A-Z0-9_]+',value))
+        ('PRODUCTION_CHANGES','NONE'),('CUSTOMER_RELEASE','NO_GO'),('R1_CUSTOMER_RELEASE','NO_GO')} or bool(key=='STOP' and re.fullmatch(r'[A-Z0-9_]+',value))
 
 def plan_emit(key,value):
     line=key+'='+str(value);need(plan_safe(line),'PLAN_OUTPUT_INVALID');print(line,flush=True)
