@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -176,25 +176,50 @@ export function HubOverview({
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const activeRequest = useRef<AbortController | null>(null);
 
   const loadDashboard = useCallback(async () => {
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    setLoading(true);
     try {
-      setLoading(true);
-      const response = await fetch("/api/dashboard/summary", { cache: "no-store" });
-      if (!response.ok) throw new Error(`Dashboard request failed (${response.status})`);
-      setDashboard(await response.json());
+      const response = await fetch("/api/dashboard/summary", { cache: "no-store", signal: controller.signal });
+      if (!response.ok) throw new Error("Dashboard data unavailable");
+      const data = await response.json();
+      if (controller.signal.aborted || activeRequest.current !== controller) return;
+      setDashboard(data);
       setLoadError("");
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Dashboard unavailable");
+    } catch {
+      if (controller.signal.aborted || activeRequest.current !== controller) return;
+      setDashboard(null); // A failed refresh must not display an old result as live.
+      setLoadError("Current dashboard data is unavailable. Try refreshing.");
     } finally {
-      setLoading(false);
+      if (activeRequest.current === controller) {
+        activeRequest.current = null;
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    void loadDashboard();
-    const timer = window.setInterval(loadDashboard, 60000);
-    return () => window.clearInterval(timer);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "hidden") {
+        activeRequest.current?.abort();
+        return;
+      }
+      void loadDashboard();
+    };
+    refreshWhenVisible();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void loadDashboard();
+    }, 60000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      activeRequest.current?.abort();
+    };
   }, [loadDashboard]);
 
   const appFor = (id: string, shortName: string) =>
