@@ -145,6 +145,10 @@ try {
         }
         if (scenario.id === "owner-b-no-apps") {
           await page.getByText("No applications are enabled for this workspace.", { exact: true }).waitFor();
+          assert.equal(await page.getByText("Performance overview", { exact: true }).count(), 0,
+            "Empty workspace should not render an empty KPI section");
+          assert.equal(await page.getByText("Needs your attention", { exact: true }).count(), 0,
+            "Empty workspace should not render an empty attention section");
           await page.getByRole("heading", { name: "Your workspace is ready for apps" }).waitFor();
           assert.equal(await page.getByRole("button", { name: /View app access/ }).count(), 1,
             "Authorized customer receives a real permitted access-management action");
@@ -154,6 +158,8 @@ try {
         }
         if (scenario.id === "staff-c-no-access") {
           await page.getByRole("heading", { name: "Your workspace is ready for apps" }).waitFor();
+          assert.equal(await page.getByText("Performance overview", { exact: true }).count(), 0);
+          assert.equal(await page.getByText("Needs your attention", { exact: true }).count(), 0);
           await page.getByText("Ask your workspace administrator to assign an app to your account.").waitFor();
           assert.equal(await page.getByRole("button", { name: /View app access/ }).count(), 0,
             "Unprivileged staff cannot click access-management CTA");
