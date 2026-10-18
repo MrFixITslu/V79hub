@@ -1,0 +1,35 @@
+name: Games rollback read-only diagnostic safety
+on:
+  push:
+    paths:
+      - scripts/portfolio-games-rollback-readonly.py
+      - .github/workflows/portfolio-games-rollback-readonly.yml
+  pull_request:
+    paths:
+      - scripts/portfolio-games-rollback-readonly.py
+      - .github/workflows/portfolio-games-rollback-readonly.yml
+permissions:
+  contents: read
+jobs:
+  static-no-mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and synthetic secret-redaction test
+        run: |
+          python3 -m py_compile scripts/portfolio-games-rollback-readonly.py
+          python3 -B scripts/portfolio-games-rollback-readonly.py --self-test
+      - name: Assert diagnostic has no Docker mutation or raw log execution
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          path=Path('scripts/portfolio-games-rollback-readonly.py')
+          src=path.read_text()
+          ast.parse(src)
+          assert "['docker','container','inspect',name]" in src
+          assert not any(x in src for x in ("['docker','stop'", "['docker','start'", "['docker','rm'",
+                                           "['docker','logs'", "['docker','compose'", "['docker','exec'"))
+          print("READONLY_DOCKER_INSPECT_ONLY_AND_NO_RAW_LOGS=PASS")
+          PY
