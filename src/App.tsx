@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { ViewState, User, EcosystemApp } from "./types";
+import { readHubView, canAccessHubView, hubViewUrl } from "./lib/hubNavigation";
 import { Sidebar } from "./components/Sidebar";
 import { Login } from "./components/Login";
 import { InviteAcceptance } from "./components/InviteAcceptance";
@@ -31,7 +32,28 @@ export default function App() {
   const [isVerifyingSession, setIsVerifyingSession] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [ecosystemApps, setEcosystemApps] = useState<EcosystemApp[]>([]);
-  const [currentView, setCurrentView] = useState<ViewState>(() => searchParams.get("payment") ? "billing" : "overview");
+  const [currentView, setCurrentViewState] = useState<ViewState>(() => readHubView(window.location.search));
+
+  // Browser reload and Back/Forward must restore the intended page without
+  // storing authorization or private session data outside the server cookie.
+  useEffect(() => {
+    const onPopState = () => setCurrentViewState(readHubView(window.location.search));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const setCurrentView = (view: ViewState) => {
+    if (!canAccessHubView(view, user)) return;
+    setCurrentViewState(view);
+    const url = hubViewUrl(window.location.href, view);
+    window.history.pushState(window.history.state, "", url);
+  };
+
+  useEffect(() => {
+    if (!user || isVerifyingSession || canAccessHubView(currentView, user)) return;
+    setCurrentViewState("overview");
+    window.history.replaceState(window.history.state, "", hubViewUrl(window.location.href, "overview"));
+  }, [currentView, user, isVerifyingSession]);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     try { return (localStorage.getItem("v79-hub-theme") as "light" | "dark") || "dark"; }
     catch { return "dark"; }
@@ -142,7 +164,10 @@ export default function App() {
   const handleLoginSuccess = (authenticatedUser: User, _token: string) => {
     setAuthToken("cookie");
     setUser(authenticatedUser);
-    setCurrentView("overview");
+    const requested = readHubView(window.location.search);
+    const authorizedView = canAccessHubView(requested, authenticatedUser) ? requested : "overview";
+    setCurrentViewState(authorizedView);
+    window.history.replaceState(window.history.state, "", hubViewUrl(window.location.href, authorizedView));
     showToast(`Welcome back, ${authenticatedUser.fullName || authenticatedUser.username}!`);
   };
 
@@ -156,7 +181,8 @@ export default function App() {
     setUser(null);
     setOrganizationName("V79 Digital");
     setUsers([]);
-    setCurrentView("overview");
+    setCurrentViewState("overview");
+    window.history.replaceState(window.history.state, "", hubViewUrl(window.location.href, "overview"));
   };
 
   const handleAddUser = async (userData: any) => {
@@ -234,16 +260,7 @@ export default function App() {
   if (!user) return <Login onLoginSuccess={handleLoginSuccess} />;
 
   const isAdmin = user.platformOperator === true;
-  const canView = (view: ViewState) =>
-    view === "overview" ||
-    view === "dashboard" ||
-    (view === "admin"
-      ? isAdmin
-      : view === "assistant"
-        ? user.ownerAgent === true
-        : isAdmin && ["connections", "team", "security", "billing"].includes(view)
-          ? true
-          : Boolean(user.permissions?.includes(view)));
+  const canView = (view: ViewState) => canAccessHubView(view, user);
 
   const viewLabel: Record<string, string> = {
     overview: "Overview",

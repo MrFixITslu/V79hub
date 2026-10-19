@@ -36,7 +36,10 @@ test("status route is authenticated and no global permission exception is added"
   assert.ok(source.includes("function isPlatformOperatorIdentity(userId: string, organizationId: string)"));
 });
 test("browser My Apps visibility and status URL remain unchanged", () => {
-  assert.ok(frontend.includes('isAdmin && ["connections", "team", "security", "billing"].includes(view)'));
+  const navigation = readFileSync(new URL("../src/lib/hubNavigation.ts", import.meta.url), "utf8");
+  assert.ok(frontend.includes("const canView = (view: ViewState) => canAccessHubView(view, user)"));
+  assert.ok(navigation.includes('user.platformOperator === true &&'));
+  assert.ok(navigation.includes('["connections", "team", "security", "billing"].includes(view)'));
   assert.ok(sidebar.includes('user.platformOperator === true && ["connections", "team", "security", "billing"].includes(view)'));
   assert.ok(connections.includes('fetch("/api/connections/status"'));
 });
