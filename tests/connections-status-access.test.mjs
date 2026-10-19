@@ -26,15 +26,17 @@ test("status route is authenticated and no global permission exception is added"
   const route = source.indexOf('app.get("/api/connections/status",');
   assert.ok(auth > 0 && route > auth, "session authentication must precede route");
   const scoped = source.slice(route, route + 1000);
-  assert.match(scoped, /canReadConnectionsStatus\\(\\{/);
-  assert.match(scoped, /assigned: hasHubPermission\\(session\\.userId, session\\.organizationId, "connections"\\)/);
-  assert.match(scoped, /verifiedPlatformOwner: isPlatformOperatorIdentity\\(session\\.userId, session\\.organizationId\\)/);
-  assert.match(scoped, /return res\\.status\\(403\\)\\.json\\(\\{ error: "Permission denied" \\}\\)/);
-  assert.doesNotMatch(scoped, /requirePermission\\("connections"\\)/);
-  assert.match(source, /function isPlatformOperatorIdentity\\(userId: string, organizationId: string\\)/);
+  for (const marker of [
+    'canReadConnectionsStatus({',
+    'assigned: hasHubPermission(session.userId, session.organizationId, "connections")',
+    'verifiedPlatformOwner: isPlatformOperatorIdentity(session.userId, session.organizationId)',
+    'return res.status(403).json({ error: "Permission denied" })',
+  ]) assert.ok(scoped.includes(marker), marker);
+  assert.ok(!scoped.includes('requirePermission("connections")'));
+  assert.ok(source.includes("function isPlatformOperatorIdentity(userId: string, organizationId: string)"));
 });
 test("browser My Apps visibility and status URL remain unchanged", () => {
-  assert.match(frontend, /isAdmin && \\["connections", "team", "security", "billing"\\]\\.includes\\(view\\)/);
-  assert.match(sidebar, /user\\.platformOperator === true && \\["connections", "team", "security", "billing"\\]\\.includes\\(view\\)/);
-  assert.match(connections, /fetch\\("\\/api\\/connections\\/status"/);
+  assert.ok(frontend.includes('isAdmin && ["connections", "team", "security", "billing"].includes(view)'));
+  assert.ok(sidebar.includes('user.platformOperator === true && ["connections", "team", "security", "billing"].includes(view)'));
+  assert.ok(connections.includes('fetch("/api/connections/status"'));
 });
