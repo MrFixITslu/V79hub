@@ -39,6 +39,18 @@ async function session(user) {
       return route.fulfill({status:200,contentType:"application/json",
         body:JSON.stringify({checkedAt:new Date().toISOString(),apps:{}})});
     }
+    if (path === "/api/billing/summary") {
+      // Complete fake response prevents a mock-only render exception.
+      // Payments are disabled: no checkout, invoices or customer records.
+      return route.fulfill({status:200,contentType:"application/json",
+        body:JSON.stringify({
+          organization:"Synthetic Workspace",planName:"Synthetic Trial",
+          status:"trial",accessStatus:"trial_active",trialEndsAt:null,
+          renewalDate:null,enabledApps:[],pricing:{currency:"XCD",monthly:0,annual:0},
+          selfServicePaymentsEnabled:false,sandboxTestPaymentsEnabled:false,
+          manualPaymentAvailable:false,supportEmail:"preview@example.invalid",
+        })});
+    }
     return route.fulfill({status:200,contentType:"application/json",body:
       JSON.stringify(path === "/api/ecosystem/apps" ? [] : {})});
   });
