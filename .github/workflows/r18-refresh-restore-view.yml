@@ -30,5 +30,18 @@ jobs:
           node --test tests/hub-navigation-refresh.test.mjs tests/connections-status-access.test.mjs
           npm run lint
           npm run build
+      - name: Install disposable headless browser
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser reload, history and permission regression
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4178 --bind 127.0.0.1 --directory dist > "$RUNNER_TEMP/r18-refresh-browser.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4178/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/r18-navigation-browser-check.mjs
 
 # No deployment, registry push, production endpoints, secrets or remote execution.
