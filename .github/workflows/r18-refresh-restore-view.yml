@@ -1,0 +1,34 @@
+name: R18 Hub Refresh View Deep-Link Isolation (Nondeploying)
+
+on:
+  pull_request:
+    branches:
+      - fix/r18-my-apps-status-owner-permission-20261019
+    paths:
+      - "src/App.tsx"
+      - "src/lib/hubNavigation.ts"
+      - "tests/hub-navigation-refresh.test.mjs"
+      - ".github/workflows/r18-refresh-restore-view.yml"
+permissions:
+  contents: read
+jobs:
+  refresh-deeplink-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install and validate in isolated CI only
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          node --test tests/hub-navigation-refresh.test.mjs tests/connections-status-access.test.mjs
+          npm run lint
+          npm run build
+
+# No deployment, registry push, production endpoints, secrets or remote execution.
