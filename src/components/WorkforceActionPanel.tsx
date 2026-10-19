@@ -3,12 +3,13 @@ import { Check, ChevronRight, ClipboardCheck, Plus, RefreshCcw, Search } from "l
 import type { CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
 
 type Job = { id: string; operation: string; system: string; summary: string;
-  payload: { detail?: string; commitSha?: string; manifestSha256?: string };
+  payload: { detail?: string; commitSha?: string; manifestSha256?: string; to?: string; subject?: string; body?: string; start?: string; end?: string; attendees?: string[]; eventId?: string; etag?: string; threadId?: string; messageId?: string; summary?: string };
   digest: string; revision: number; status: string; approval: { expiresAt: string } | null;
   result: { taskId?: string; receiptSha256?: string } | null };
 type QueueFilter = "all" | "review" | "active" | "history";
 const systems = ["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag"];
 const operations: Record<string, string> = { create_work_item: "Create work item", validate_release: "Test exact release", deploy_release: "Deploy tested release", rollback_release: "Roll back exact release" };
+const googleOperations: Record<string,string> = {create_email_draft:'Save Gmail reply draft',create_calendar_event:'Create appointment',update_calendar_event:'Change appointment',delete_calendar_event:'Cancel appointment'};
 const priority: Record<string, number> = { pending: 0, uncertain: 1, failed: 2, approved: 3, running: 4 };
 function expired(job: Job) {
   return job.status === "approved" && !(Date.parse(job.approval?.expiresAt || "") > Date.now());
@@ -165,9 +166,16 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
           {checkedAt && !visibleJobs.length && <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center"><p className="font-medium text-slate-200">{jobs.length ? "No matching actions" : "No actions queued yet"}</p><p className="mt-2 text-sm text-slate-400">{jobs.length ? "Try another filter or search term." : "Describe a task, then queue it for your review."}</p></div>}
           <div className="space-y-3">{visibleJobs.map(job => <article key={job.id} aria-label={job.summary} className="space-y-3 rounded-xl border border-slate-700 bg-slate-900/50 p-4">
             <div className="flex flex-wrap items-start justify-between gap-2"><h4 className="min-w-0 break-words font-semibold">{job.summary}</h4><span className={"rounded-full border px-2.5 py-1 text-xs " + statusStyle(job)}>{statusLabel(job)}</span></div>
-            <p className="text-xs text-slate-400">{job.system} · {operations[job.operation] || job.operation.replaceAll("_", " ")}</p>
+            <p className="text-xs text-slate-400">{job.system} · {operations[job.operation] || googleOperations[job.operation] || job.operation.replaceAll("_", " ")}</p>
             {job.payload.detail && <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">{job.payload.detail}</p>}
-            {job.operation !== "create_work_item" && <dl className="space-y-1 break-all text-xs text-slate-300"><dt className="text-slate-400">Reviewed commit</dt><dd className="font-mono">{job.payload.commitSha}</dd><dt className="pt-1 text-slate-400">Manifest SHA-256</dt><dd className="font-mono">{job.payload.manifestSha256}</dd></dl>}
+            {googleOperations[job.operation] ? <div className="space-y-2 rounded-lg border border-slate-700 p-3 text-sm">
+              {job.payload.to&&<p>To: {job.payload.to}</p>}{job.payload.subject&&<p>Subject: {job.payload.subject}</p>}
+              {job.payload.body&&<p className="whitespace-pre-wrap break-words">{job.payload.body}</p>}
+              {job.payload.summary&&<p>{job.payload.summary}</p>}
+              {job.payload.start&&job.payload.end&&<p>{new Intl.DateTimeFormat('en-LC',{timeZone:'America/St_Lucia',dateStyle:'medium',timeStyle:'short'}).format(new Date(job.payload.start))} – {new Intl.DateTimeFormat('en-LC',{timeZone:'America/St_Lucia',dateStyle:'medium',timeStyle:'short'}).format(new Date(job.payload.end))} · Saint Lucia</p>}
+              {job.payload.attendees&&<p>Attendees: {job.payload.attendees.join(', ')||'Only you'}</p>}
+              <p className="text-amber-200">{job.operation==='create_email_draft'?'Saves a Gmail draft. You review and send it.':'This action can notify appointment attendees.'}</p>
+            </div> : job.operation !== "create_work_item" && <dl className="space-y-1 break-all text-xs text-slate-300"><dt className="text-slate-400">Reviewed commit</dt><dd className="font-mono">{job.payload.commitSha}</dd><dt className="pt-1 text-slate-400">Manifest SHA-256</dt><dd className="font-mono">{job.payload.manifestSha256}</dd></dl>}
             {job.status === "pending" && <p className="text-xs text-amber-200">Next: review the scope above, then approve or reject this exact action.</p>}
             {job.status === "approved" && <p className="text-xs text-amber-200">{expired(job) ? "Approval has expired. This action cannot execute; cancel it and queue a fresh review if still needed." : "Waiting for an eligible worker or manual execution. Approval expires " + new Date(job.approval!.expiresAt).toLocaleString() + "."}</p>}
             {job.status === "uncertain" && <p className="text-xs text-amber-200">Execution outcome is uncertain. An operator must reconcile the result before any retry.</p>}

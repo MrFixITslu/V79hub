@@ -65,8 +65,26 @@ export function googleWorkforceClient({ getAccessToken, fetchImpl = fetch }) {
       throw new GoogleWorkforceError(code, method !== 'GET' && response.status >= 500);
     }
     if (response.status === 204) return {};
-    try { return await response.json(); }
-    catch { throw new GoogleWorkforceError('GOOGLE_RESPONSE_INVALID', method !== 'GET'); }
+    const maxBytes=4*1024*1024;
+    if (Number(response.headers.get('content-length')||0)>maxBytes) {
+      await response.body?.cancel();
+      throw new GoogleWorkforceError('GOOGLE_RESPONSE_TOO_LARGE',method!=='GET');
+    }
+    const reader=response.body?.getReader();
+    if(!reader) throw new GoogleWorkforceError('GOOGLE_RESPONSE_INVALID',method!=='GET');
+    let size=0;const chunks=[];
+    try {
+      while(true) {
+        const {done,value}=await reader.read();if(done) break;
+        size+=value.byteLength;
+        if(size>maxBytes) {await reader.cancel();throw new GoogleWorkforceError('GOOGLE_RESPONSE_TOO_LARGE',method!=='GET');}
+        chunks.push(value);
+      }
+      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch(error) {
+      if(error instanceof GoogleWorkforceError) throw error;
+      throw new GoogleWorkforceError('GOOGLE_RESPONSE_INVALID', method !== 'GET');
+    }
   }
   async function assertAccount(service) {
     const p = await request(service, service === 'gmail' ? '/profile' : '/calendars/primary');
@@ -87,7 +105,19 @@ export function googleWorkforceClient({ getAccessToken, fetchImpl = fetch }) {
     async listEmails(query = 'in:inbox newer_than:7d', pageToken = '') {
       if (!string(query, 300) || typeof pageToken !== 'string' || pageToken.length > 2000) reject();
       await assertAccount('gmail');
-      return request('gmail', `/messages?${new URLSearchParams({q:query,maxResults:'25',...(pageToken?{pageToken}:{})})}`);
+      const listing=await request('gmail', `/messages?${new URLSearchParams({q:query,maxResults:'25',...(pageToken?{pageToken}:{})})}`);
+      if ((!Array.isArray(listing.messages) && listing.messages!==undefined) || (listing.messages?.length??0)>25) throw new GoogleWorkforceError('GOOGLE_RESPONSE_INVALID');
+      const messages=[];
+      for(let offset=0;offset<(listing.messages??[]).length;offset+=5) {
+        const batch=await Promise.all(listing.messages.slice(offset,offset+5).map(async item=>{
+          if(!validId(item.id)) throw new GoogleWorkforceError('GOOGLE_RESPONSE_INVALID');
+          const metadata=await request('gmail', `/messages/${item.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`);
+          const header=name=>String(metadata.payload?.headers?.find(h=>h.name?.toLowerCase()===name)?.value??'').replace(/[\r\n]/g,' ').slice(0,500);
+          return {id:item.id,threadId:metadata.threadId,subject:header('subject'),from:header('from')};
+        }));
+        messages.push(...batch);
+      }
+      return {messages,nextPageToken:listing.nextPageToken??null};
     },
     async readThread(threadId) {
       if (!validId(threadId)) reject();

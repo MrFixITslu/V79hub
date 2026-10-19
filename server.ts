@@ -20,6 +20,9 @@ import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.m
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
+import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
+import { googleWorkforceClient } from "./server/workforce-google.mjs";
+import { workforceGoogleRouter } from "./server/workforce-google-routes.mjs";
 import { prepareReviewedHandoff } from "./server/agent-reviewed-handoff.mjs";
 import { prepareSupervisedMarketingDraft } from "./server/agent-supervised-marketing.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
@@ -4777,6 +4780,7 @@ const workforceRouters = workforceActionRouters({
   ledger: workforceLedger,
   enabled: () => process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
   ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
+  googleEnabled: () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1",
   workerToken: readWorkforceToken,
   ownerOrganizationId: () => posIdentity.organizationId,
   ownerReady: () => {
@@ -4789,6 +4793,18 @@ const workforceRouters = workforceActionRouters({
 });
 app.use("/api/agent/work-actions", workforceRouters.owner);
 app.use("/internal/workforce", workforceRouters.worker);
+// Owner-only Google boundary. Tokens remain in Hub, never in the model service.
+const googleEnabled = () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1";
+const googleCredentials = googleCredentialBroker({
+  file: process.env.V79_GOOGLE_CREDENTIAL_FILE || "/run/secrets/v79-google-credentials.json",
+  enabled: googleEnabled,
+});
+const googleClient = googleWorkforceClient({ getAccessToken: googleCredentials.getAccessToken });
+app.use("/api/agent/google", workforceGoogleRouter({
+  ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
+  enabled: googleEnabled, client: googleClient, ledger: workforceLedger,
+  receiptDirectory: path.join(DATA_DIR, "google-workforce-receipts"),
+}));
 app.use("/api/agent/marketing-production", marketingProductionRouter({
   ownerContext: (req: Request) => {
     const context = ownerApprovalContext(req);

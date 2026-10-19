@@ -52,3 +52,13 @@ Desktop Commander listed v79sl online, but the first read-only host command was 
 Local full Hub suite: **553 tests, 549 passed, 4 skipped, 0 failed**. TypeScript lint and production build passed. After the final default-disabled route change, focused Google/G2/tenant regressions passed **22/22**. Separate source-only specialist/evidence/reliability tests passed **69/69**. These counts include synthetic HTTP/provider tests, not real Google or live-server tests.
 
 Google references: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/create ; https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/send ; https://developers.google.com/calendar/api/guides/version-resources ; https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query .
+
+## Follow-up after owner preflight — supersedes initial missing-source items
+
+Owner supplied healthy Hub/Agent evidence and existing timer trigger times; see [authorization runbook](workforce-google-authorization-20261019.md). Google environment configuration was not observed in the two inspected containers; files and existing OAuth projects were not inspected.
+
+Now implemented in source: private Desktop OAuth consent helper (PKCE/state/account/scope checks), Hub-side credential broker with automatic access-token refresh, owner-MFA read routes, private durable receipt writer, supervised execution route, owner email/calendar proposal panel and exact Google approval details. Default remains disabled. No deployment or real-account authorization took place.
+
+Remaining: owner OAuth client/consent, isolated build/mount/runtime rehearsal, exact live-source/image reconciliation and guarded cutover, real-account lifecycle acceptance, automatic draft generation, bounded unattended triage and source-message deduplication, reminders, model evaluation and inherited workforce acceptance. An authorized Google connection alone will not complete these.
+
+Follow-up local full suite: 560 tests, 556 passed, 4 skipped, zero failures. Final response-size hardening and metadata/partial-content cases: 31 focused Google/G2/tenant tests passed, five separate Python OAuth tests passed, TypeScript lint and production build passed. Google HTTP and credential tests are synthetic; no live OAuth or Google writes occurred.

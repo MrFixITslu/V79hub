@@ -5,6 +5,7 @@ import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
 import { WorkforceBriefingHistory } from "./WorkforceBriefingHistory";
 import { MarketingProductionPanel } from "./MarketingProductionPanel";
+import { GoogleWorkforcePanel } from "./GoogleWorkforcePanel";
 import { WorkforceActionPanel } from "./WorkforceActionPanel";
 import { OwnerCooWorkboardPanel, type CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
 
@@ -310,7 +311,7 @@ export function OwnerAssistant() {
           {visited.has("briefings") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Reports & executive review</h2><p className="mt-1 text-sm text-slate-400">Read scheduled briefings or request an executive review of available evidence.</p></div><WorkforceBriefingHistory /><ExecutiveReviewPanel /></>}
         </section>
         <section id="workspace-tools" aria-label="More tools" hidden={view !== "tools"}>
-          {visited.has("tools") && <><div className="px-5 py-5"><h2 className="text-lg font-semibold">Specialist tools</h2><p className="mt-1 text-sm text-slate-400">Planning proposals, Marketing production, and signed Tiquet evidence each keep their own review requirements.</p></div><AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} /><MarketingProductionPanel /><SignedTiquetEvidencePanel /></>}
+          {visited.has("tools") && <><div className="px-5 py-5"><h2 className="text-lg font-semibold">Specialist tools</h2><p className="mt-1 text-sm text-slate-400">Review email, appointments, planning proposals, Marketing production and signed Tiquet evidence.</p></div><div className="px-5 pb-5"><GoogleWorkforcePanel /></div><AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} /><MarketingProductionPanel /><SignedTiquetEvidencePanel /></>}
         </section>
       </div>
     </div>

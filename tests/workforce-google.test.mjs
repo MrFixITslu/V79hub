@@ -23,6 +23,16 @@ const profile={emailAddress:GOOGLE_OWNER}, calendar={id:GOOGLE_OWNER};
 const metadata={threadId:'thread1',payload:{headers:[{name:'Message-ID',value:'<original@example.com>'}]}};
 const availability={calendars:{[GOOGLE_OWNER]:{busy:[]}}};
 const event={id:'event1',etag:'"old"',organizer:{email:GOOGLE_OWNER}};
+test('inbox metadata uses bounded fixed endpoints and returns no raw message payload',async()=>{
+  const f=fake([profile,{messages:[{id:'message1'}]}, {threadId:'thread1',payload:{headers:[{name:'Subject',value:'Client request'},{name:'From',value:'client@example.com'}]}}]);
+  const result=await f.client.listEmails();
+  assert.deepEqual(result.messages,[{id:'message1',threadId:'thread1',subject:'Client request',from:'client@example.com'}]);
+  assert.equal(f.calls.length,3);assert.ok(f.calls[2].url.includes('format=metadata'));
+});
+test('oversized provider response is rejected before JSON parsing',async()=>{
+  const client=googleWorkforceClient({getAccessToken:async()=>'synthetic',fetchImpl:async()=>new Response('{}',{headers:{'content-length':'99999999'}})});
+  await assert.rejects(client.status(),e=>e.code==='GOOGLE_RESPONSE_TOO_LARGE');
+});
 test('Google requests reject header injection, URL traversal, foreign systems and impossible dates',()=>{
   for(const p of [{...draft,to:'x@example.com\r\nBcc: x@example.com'}, {...draft,subject:'Hi\r\nBcc: x'}, {...draft,threadId:'../send'}, {...draft,body:'x\u0000'}]) assert.throws(()=>validateGooglePayload('create_email_draft','gmail',p));
   for(const p of [{...appointment,start:'2026-02-30T14:00:00.000Z'}, {...appointment,end:appointment.start}, {...appointment,attendees:['x@example.com','X@example.com']}, {...appointment,calendarId:'family'}]) assert.throws(()=>validateGooglePayload('create_calendar_event','calendar',p));

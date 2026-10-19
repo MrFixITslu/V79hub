@@ -16,6 +16,11 @@ on:
       - 'server/workforce-action-routes.mjs'
       - 'server/workforce-google*.mjs'
       - 'tests/workforce-google.test.mjs'
+      - 'tests/workforce-google*.test.mjs'
+      - 'tests/workforce-google-authorize.test.py'
+      - 'scripts/workforce-google-authorize.py'
+      - 'src/components/GoogleWorkforcePanel.tsx'
+      - 'server.ts'
       - 'tests/workforce-briefing-reliability.test.mjs'
       - '.github/workflows/workforce-specialist-gates-isolated.yml'
   workflow_dispatch:
@@ -36,6 +41,8 @@ jobs:
           node --check workforce/quality/briefing-reliability.mjs
           node --check server/workforce-google.mjs
           node --check server/workforce-google-worker.mjs
+          node --check server/workforce-google-credentials.mjs
+          node --check server/workforce-google-routes.mjs
       - name: Safety and package contract regressions
         run: node --test tests/workforce-evidence-gates.test.mjs tests/workforce-skill-packages.test.mjs tests/workforce-task-delivery-gates.test.mjs tests/workforce-briefing-reliability.test.mjs tests/workforce-g2-real-contract.test.mjs tests/workforce-google.test.mjs
 
@@ -50,6 +57,8 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Existing G2 owner security and G3 UI/report regression
         run: |
+          node --test tests/workforce-google*.test.mjs
+          python3 -B tests/workforce-google-authorize.test.py
           node --test tests/workforce-actions.test.mjs tests/workforce-action-routes.test.mjs tests/workforce-report-http.test.mjs tests/owner-coo-workboard.test.mjs tests/owner-workspace-ui.test.mjs tests/workforce-a07-tenant-boundary.test.mjs
       - name: TypeScript and production build only, no deploy
         run: |
