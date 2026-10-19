@@ -11,6 +11,7 @@ import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
+import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
 import { acceptInvitationState, invitationStatus } from "./server/onboarding-store.mjs";
 import { registerSentinelQaRoutes } from "./server/sentinel-qa-routes.mjs";
 import { createSentinelWriteFence } from "./server/sentinel-write-fence.mjs";
@@ -4476,7 +4477,14 @@ function connectionProductsForSession(userId: string, organizationId: string) {
   });
 }
 
-app.get("/api/connections/status", requirePermission("connections"), async (req, res) => {
+app.get("/api/connections/status", (req, res, next) => {
+  const session = (req as any).user;
+  if (!canReadConnectionsStatus({
+    assigned: hasHubPermission(session.userId, session.organizationId, "connections"),
+    verifiedPlatformOwner: isPlatformOperatorIdentity(session.userId, session.organizationId),
+  })) return res.status(403).json({ error: "Permission denied" });
+  next();
+}, async (req, res) => {
   const session = (req as any).user;
   const products = connectionProductsForSession(session.userId, session.organizationId);
   const results = await Promise.all(products.map(async product => {
