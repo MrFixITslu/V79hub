@@ -1,12 +1,13 @@
 import express from "express";
 import { timingSafeEqual } from "node:crypto";
+import { GOOGLE_OPERATIONS } from './workforce-google.mjs';
 import { WORK_OPERATIONS, WORK_SYSTEMS, proposeWork, decideWork, cancelWork, claimWork,
   finishWork, createApprovedWorkItem, pauseWork, publicWorkJob } from "./workforce-actions.mjs";
 
 const exact = (body, fields) => body && typeof body === "object" && !Array.isArray(body) &&
   Object.keys(body).sort().join(",") === fields.slice().sort().join(",");
 export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrigin, workerToken,
-  ownerOrganizationId, ownerReady, now = Date.now }) {
+  ownerOrganizationId, ownerReady, googleEnabled = () => false, now = Date.now }) {
   const owner = express.Router(), worker = express.Router();
   const wrap = fn => async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -29,11 +30,13 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
   owner.get("/", wrap(async (req, res) => {
     const state = await ledger.read(), org = req.workOwner.organizationId;
     return res.json({ mode: "owner-approved-actions", enabled: enabled(), paused: state.paused,
-      operations: WORK_OPERATIONS, systems: WORK_SYSTEMS,
+      operations: WORK_OPERATIONS.filter(op=>googleEnabled() || !GOOGLE_OPERATIONS.includes(op)),
+      systems: WORK_SYSTEMS.filter(system=>googleEnabled() || !['gmail','calendar'].includes(system)),
       jobs: state.jobs.filter(j => j.organizationId === org).slice(-200).reverse().map(publicWorkJob),
       tasks: state.tasks.filter(j => j.organizationId === org).slice(-200).reverse() });
   }));
   owner.post("/", wrap(async (req, res) => {
+    if (GOOGLE_OPERATIONS.includes(req.body?.operation) && !googleEnabled()) return res.status(503).json({ error: "Google workforce integration is disabled" });
     const job = await ledger.transact(s => proposeWork(s, req.body, {
       organizationId: req.workOwner.organizationId, actor: req.workOwner.userId, now: now() }));
     return res.status(201).json({ job: publicWorkJob(job) });
@@ -45,9 +48,13 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
   }));
   owner.post("/:id/decision", wrap(async (req, res) => {
     if (!exact(req.body, ["decision", "expectedRevision", "digest"])) return res.status(400).json({ error: "Invalid action decision" });
-    const job = await ledger.transact(s => decideWork(s, req.params.id, req.body.decision, {
+    const job = await ledger.transact(s => {
+      const existing = s.jobs.find(j=>j.id===req.params.id && j.organizationId===req.workOwner.organizationId);
+      if (req.body.decision === 'approve' && GOOGLE_OPERATIONS.includes(existing?.operation) && !googleEnabled()) throw new Error('Google integration disabled');
+      return decideWork(s, req.params.id, req.body.decision, {
       organizationId: req.workOwner.organizationId, actor: req.workOwner.userId,
-      expectedRevision: req.body.expectedRevision, digest: req.body.digest, now: now() }));
+      expectedRevision: req.body.expectedRevision, digest: req.body.digest, now: now() });
+    });
     return res.json({ job: publicWorkJob(job) });
   }));
   owner.post("/:id/cancel", wrap(async (req, res) => {
@@ -75,6 +82,7 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
     next();
   });
   worker.post("/propose", wrap(async (req, res) => {
+    if (GOOGLE_OPERATIONS.includes(req.body?.operation)) return res.status(403).json({ error: "Google proposals require the owner session" });
     const job = await ledger.transact(s => proposeWork(s, req.body, {
       organizationId: ownerOrganizationId(), actor: "coo-worker", now: now() }));
     return res.status(201).json({ job: publicWorkJob(job) });
