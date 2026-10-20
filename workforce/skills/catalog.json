@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "mode": "analysis-and-draft",
   "ownerFinalAuthority": true,
   "commercialScope": [
@@ -27,9 +27,24 @@
     "technical-security",
     "sales",
     "ceo",
-    "coo"
+    "coo",
+    "email-assistant",
+    "calendar-assistant"
   ],
   "modelBudgetUsd30d": 20,
   "allowedEffects": [],
-  "requiresIndependentRuntimeAcceptance": true
+  "requiresIndependentRuntimeAcceptance": true,
+  "assistants": [
+    "email-assistant",
+    "calendar-assistant"
+  ],
+  "googleExecution": {
+    "defaultEnabled": false,
+    "requiresG2OwnerApproval": true,
+    "emailSendEnabled": false,
+    "calendarScope": "primary",
+    "timezone": "America/St_Lucia",
+    "requiresServerOAuth": true
+  }
 }
+

@@ -9,10 +9,10 @@ const evals = JSON.parse(await load('adversarial-evals.json'));
 
 test('specialist and CEO/COO skills are versioned, distinct and draft-only', async()=>{
   assert.equal(catalog.schema,1);
-  assert.equal(catalog.version,'1.0.0');
+  assert.equal(catalog.version,'1.1.0');
   assert.equal(catalog.specialists.length,6);
   assert.equal(catalog.orchestrators.length,2);
-  assert.equal(new Set(catalog.allSkills).size,8);
+  assert.equal(new Set(catalog.allSkills).size,10);
   assert.deepEqual(catalog.allowedEffects,[]);
   assert.deepEqual(catalog.commercialScope,['hub','tiquet']);
   assert.equal(catalog.ownerFinalAuthority,true);
@@ -49,3 +49,4 @@ test('catalog does not introduce external side-effect permissions',()=>{
   assert.ok(catalog.modelBudgetUsd30d<=20);
   assert.equal(JSON.stringify(catalog).includes('password'),false);
 });
+
