@@ -92,12 +92,12 @@ test('calendar creation is reviewed and completed inline with exact dates and se
   throw Error('Unexpected request');
  });await h.click('Check Google connection');assert.match(h.box.textContent,/Starts:/);assert.match(h.box.textContent,/Attendees: None/);await h.click('Approve & create appointment');assert.match(h.box.textContent,/Appointment action completed/);
 });
-test('MFA failure clears private review and exposes no execution control',async t=>{
+test('invalid owner session clears private review and exposes no execution control',async t=>{
  let reads=0;const h=await mount(t,async url=>{
   if(url.endsWith('/status'))return {connected:true,enabled:true};
   if(++reads===1)return queue([job()]);
   return {ok:false,status:403,json:async()=>({error:'Fresh MFA required'})};
- });await h.click('Check Google connection');await h.click('Approve & save draft');assert.match(h.box.textContent,/fresh owner MFA/);assert.doesNotMatch(h.box.textContent,/Exact reviewed reply/);assert.equal(h.calls.some(c=>c.opts.method==='POST'),false);
+ });await h.click('Check Google connection');await h.click('Approve & save draft');assert.match(h.box.textContent,/owner session is unavailable/);assert.doesNotMatch(h.box.textContent,/Exact reviewed reply/);assert.equal(h.calls.some(c=>c.opts.method==='POST'),false);
 });
 test('uncertain execution response is reconciled with GET and never automatically posted again',async t=>{
  let saved=job('approved');const h=await mount(t,async(url,opts)=>{

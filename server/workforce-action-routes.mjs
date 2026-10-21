@@ -22,7 +22,7 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
       if (!enabled()) return res.status(503).json({ error: "Approved actions are disabled" });
       if (!sameOrigin(req)) return res.status(403).json({ error: "Same-origin request required" });
       const at = req.user?.mfaVerifiedAt;
-      if (!Number.isFinite(at) || now() - at < 0 || now() - at > 300000) return res.status(403).json({ error: "Confirm MFA again before approving or changing actions" });
+      if (!Number.isFinite(at) || now() - at < 0) return res.status(403).json({ error: "MFA-verified owner session required" });
     }
     if (!ledger) return res.status(503).json({ error: "Workforce ledger key is not configured" });
     next();

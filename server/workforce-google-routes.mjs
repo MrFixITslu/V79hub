@@ -40,7 +40,7 @@ export function workforceGoogleRouter({ownerContext,sameOrigin,enabled,client,le
     req.googleOwner=owner;
     if(req.method!=='GET') {
       const mfa=req.user?.mfaVerifiedAt;
-      if(!sameOrigin(req) || !Number.isFinite(mfa) || now()-mfa<0 || now()-mfa>300000) return res.status(403).json({error:'Fresh owner MFA and same origin required'});
+      if(!sameOrigin(req) || !Number.isFinite(mfa) || now()-mfa<0) return res.status(403).json({error:'MFA-verified owner session and same origin required'});
     }
     next();
   });

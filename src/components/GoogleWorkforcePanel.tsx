@@ -14,7 +14,7 @@ const utc=(value:string)=>new Date(value+':00-04:00').toISOString();
 async function api(route:string,body?:unknown) {
   const response=await fetch(route,{credentials:'same-origin',cache:'no-store',...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})});
   const result=await response.json();
-  if(!response.ok) throw Object.assign(new Error(response.status===403?'Sign in with fresh owner MFA to continue.':result.error||'Google connection unavailable'),{status:response.status});
+  if(!response.ok) throw Object.assign(new Error(response.status===403?'Your owner session is unavailable. Sign in again to continue.':result.error||'Google connection unavailable'),{status:response.status});
   return result;
 }
 

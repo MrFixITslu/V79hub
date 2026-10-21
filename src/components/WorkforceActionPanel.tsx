@@ -29,7 +29,7 @@ async function request(suffix = "", body?: unknown) {
   const res = await fetch("/api/agent/work-actions" + suffix, { credentials: "same-origin", cache: "no-store",
     ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
   const data = await res.json();
-  if (!res.ok) throw new Error(res.status === 403 ? "Sign in with fresh owner MFA to view or change actions." : data.error || "Approved actions unavailable");
+  if (!res.ok) throw new Error(res.status === 403 ? "Sign in with your owner account to view or change actions." : data.error || "Approved actions unavailable");
   return data;
 }
 export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embedded = false, active = true }: {
@@ -82,7 +82,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
     setOpen(true); setOperation("create_work_item"); setSystem(preparedTask.system);
     setSummary(preparedTask.summary.slice(0, 180)); setDetail(preparedTask.detail.slice(0, 2000));
     setCommitSha(""); setManifestSha256("");
-    setNotice("Draft prepared only. Review it and choose Queue for review; fresh owner MFA approval is still required.");
+    setNotice("Draft prepared only. Review it and choose Queue for review; your approval is still required.");
     onPreparedTaskApplied?.();
   }, [preparedTask, onPreparedTaskApplied]);
   const perform = async (fn: () => Promise<void>) => {
@@ -130,7 +130,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
         </div>
       </div>
       <ol aria-label="Task workflow" className="grid gap-2 sm:grid-cols-3">
-        {[{ title: "1. Describe the task", text: "Choose the app and define the outcome." }, { title: "2. Review & approve", text: "Check the exact scope. Fresh owner MFA is required." }, { title: "3. Track the result", text: "Approval, execution and delivery are separate stages." }].map(step => <li key={step.title} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3"><p className="font-medium text-slate-100">{step.title}</p><p className="mt-1 text-xs leading-5 text-slate-400">{step.text}</p></li>)}
+        {[{ title: "1. Describe the task", text: "Choose the app and define the outcome." }, { title: "2. Review & approve", text: "Check the exact scope. Your signed-in owner session is required." }, { title: "3. Track the result", text: "Approval, execution and delivery are separate stages." }].map(step => <li key={step.title} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3"><p className="font-medium text-slate-100">{step.title}</p><p className="mt-1 text-xs leading-5 text-slate-400">{step.text}</p></li>)}
       </ol>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
         <span>{!checkedAt ? loading ? "Checking action queue…" : "Queue status unverified" : !enabled ? "Actions disabled" : paused ? "Queue paused" : "Owner approval required"}</span>
@@ -144,7 +144,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
           <fieldset disabled={busy} className="min-w-0 space-y-4 disabled:opacity-60">
           <legend className="sr-only">Describe a work item for owner review</legend>
           <div><h3 className="flex items-center gap-2 text-base font-semibold"><Plus className="h-4 w-4 text-cyan-300" aria-hidden="true" />New work item</h3><p className="mt-1 text-xs leading-5 text-slate-400">Describe the assignment first. Queueing it later requires a verified owner session; opening this form changes nothing on the server.</p></div>
-          {(!enabled || !checkedAt) && <p role="status" aria-live="polite" className="rounded-lg border border-amber-700/60 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">{loading ? "Checking owner-approved task access. You can prepare a draft; submitting is disabled until verification succeeds." : error ? "The owner action queue could not be verified. Drafting is available, but no task can be queued. Refresh status or sign in again with owner MFA." : checkedAt ? "Task actions are disabled on the server. You may prepare a draft, but no task can be queued." : "Waiting for verified owner action queue access. No task will be queued."}</p>}
+          {(!enabled || !checkedAt) && <p role="status" aria-live="polite" className="rounded-lg border border-amber-700/60 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">{loading ? "Checking owner-approved task access. You can prepare a draft; submitting is disabled until verification succeeds." : error ? "The owner action queue could not be verified. Drafting is available, but no task can be queued. Refresh status. If your owner session has ended, sign in again." : checkedAt ? "Task actions are disabled on the server. You may prepare a draft, but no task can be queued." : "Waiting for verified owner action queue access. No task will be queued."}</p>}
           <label className="block text-sm font-medium">App<select value={system} onChange={e => setSystem(e.target.value)} className={field}>{systems.map(s => <option key={s}>{s}</option>)}</select></label>
           <label className="block text-sm font-medium">Task title<input value={summary} onChange={e => setSummary(e.target.value)} maxLength={180} minLength={8} required placeholder="e.g. Review Sentinel monitoring gaps" className={field} /></label>
           {operation === "create_work_item" ? <label className="block text-sm font-medium">Work to complete<textarea value={detail} onChange={e => setDetail(e.target.value)} maxLength={2000} minLength={8} required rows={5} placeholder="Describe the outcome, scope, and evidence you expect." className={field + " resize-y"} /></label> : <>
@@ -156,7 +156,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
           </details>
           {operation !== "create_work_item" && <p role="status" className="text-sm font-medium text-amber-200">You are queueing: {operations[operation]}. This is a release action.</p>}
           <button type="submit" disabled={!enabled || !checkedAt || busy || summary.trim().length < 8 || (operation === "create_work_item" && detail.trim().length < 8)} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-3 font-semibold text-slate-950 hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40">Queue for review<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
-          <p className="text-xs leading-5 text-slate-400">Queueing saves a proposal. You approve it separately below. Sign in with MFA again if your five-minute approval window has expired.</p>
+          <p className="text-xs leading-5 text-slate-400">Queueing saves a proposal. You approve it separately below using your signed-in owner session.</p>
           </fieldset>
         </form>
         <div className={enabled ? "min-w-0 space-y-3" : "min-w-0 space-y-3 xl:col-span-2"}>

@@ -23,9 +23,9 @@ test('A07 owner MFA, tenant fence, separate worker token and rejected task path'
   const app=express();
   app.use(express.json());
   // Test-only identity injection. Live server must use its actual session,
-  // founder allowlist, recent MFA, origin checks and authenticated HMAC ledger.
+  // founder allowlist, session MFA, origin checks and authenticated HMAC ledger.
   app.use((req,_res,next)=>{
-    req.user={mfaVerifiedAt:req.get('x-test-stale-mfa') ? NOW-300001 : NOW};
+    req.user={mfaVerifiedAt:req.get('x-test-missing-mfa') ? undefined : NOW-7200000};
     next();
   });
   const routes=workforceActionRouters({
@@ -67,13 +67,13 @@ test('A07 owner MFA, tenant fence, separate worker token and rejected task path'
     idempotencyKey:key,
   });
 
-  // An unauthenticated/cross-origin/stale-MFA client cannot propose or read.
+  // An unauthenticated/cross-origin/unverified-session client cannot propose or read.
   assert.equal((await call('/owner')).status,403);
   assert.equal((await call('/owner',input('Synthetic alpha task','a07-alpha-key-20261017'))).status,403);
   assert.equal((await call('/owner',input('Synthetic alpha task','a07-alpha-key-20261017'),
     {...owner('alpha'),origin:'https://evil.synthetic.test'})).status,403);
   assert.equal((await call('/owner',input('Synthetic alpha task','a07-alpha-key-20261017'),
-    {...owner('alpha'),'x-test-stale-mfa':'1'})).status,403);
+    {...owner('alpha'),'x-test-missing-mfa':'1'})).status,403);
 
   const proposed=await call('/owner',input('Synthetic alpha task','a07-alpha-key-20261017'),owner('alpha'));
   assert.equal(proposed.status,201);
