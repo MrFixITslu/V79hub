@@ -9,7 +9,7 @@ import { isValidOwnerContext, type AgentContext } from "./context.js";
 import { agentModelRuntime } from "./model-runtime.js";
 import { readBusinessSnapshot } from "./tools.js";
 import { compactOwnerSnapshot, deterministicFactAnswer, formatPriorityBrief, isPriorityBriefRequest } from "./grounding.js";
-import { prewarmOllamaOwnerAssistant, runOllamaOwnerAssistant } from "./ollama-native.js";
+import { prewarmOllamaOwnerAssistant } from "./ollama-native.js";
 import { buildEvidenceLedger, compactFromEvidence } from "./evidence.js";
 import { buildInvestigationBrief } from "./investigations.js";
 import { getWorkforceSpecialist } from "./workforce.js";
@@ -20,6 +20,8 @@ import { runReadOnlyExecutiveCycle } from "./executive-cycle.js";
 import { createLocalExecutiveSelector } from "./ollama-executive.js";
 import { generateDevelopmentReview, InvalidDevelopmentOrder } from "./development-worker.js";
 import { createLocalDevelopmentProposer } from "./ollama-development.js";
+
+import { runEvidenceBoundOwnerAssistant } from "./evidence-answer.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -296,7 +298,7 @@ app.post("/api/agent/chat", async (req, res) => {
           domain: factual.domain,
         });
       }
-      const result = await runOllamaOwnerAssistant(groundedMessage, {
+      const result = await runEvidenceBoundOwnerAssistant(message, evidence, {
         specialistInstructions: specialistInstructions(chosenSpecialist),
       });
       return res.json({
@@ -305,9 +307,10 @@ app.post("/api/agent/chat", async (req, res) => {
         investigation,
         specialist: chosenSpecialist.name,
         mode: "read-only",
-        modelProvider: result.provider,
-        model: result.model,
-        responseMode: "ollama",
+        modelProvider: "ollama",
+        model: agentModelRuntime.model,
+        responseMode: result.responseMode,
+        selectionOutcome: result.selectionOutcome,
       });
     }
 

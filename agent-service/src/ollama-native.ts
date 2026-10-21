@@ -74,6 +74,7 @@ export async function runOllamaOwnerAssistant(
     env?: NodeJS.ProcessEnv;
     fetchImpl?: typeof fetch;
     specialistInstructions?: string;
+    responseFormat?: "json";
   } = {},
 ) {
   const runtime = resolveOllamaNativeRuntime(options.env);
@@ -83,6 +84,7 @@ export async function runOllamaOwnerAssistant(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       model: runtime.model,
+      ...(options.responseFormat ? { format: options.responseFormat } : {}),
       stream: false,
       keep_alive: runtime.keepAlive,
       options: {
