@@ -5,11 +5,11 @@ import { GOOGLE_OPERATIONS } from './workforce-google.mjs';
 /** Host-only entry point; no HTTP mount or scheduler is enabled by importing it.
  * ledger must be the existing durable G2 ledger; context comes from host config,
  * never from email, model output, or browser parameters. */
-export async function runGoogleWorkOnce({ ledger, client, enabled, ownerOrganizationId, storeReceipt, now = Date.now }) {
+export async function runGoogleWorkOnce({ ledger, client, enabled, ownerOrganizationId, storeReceipt, jobId = null, now = Date.now }) {
   if (!enabled() || !ownerOrganizationId || typeof storeReceipt !== 'function') return { status:'disabled' };
   const worker = 'v79-google-worker';
   const job = await ledger.transact(state => claimWork(state, {
-    organizationId:ownerOrganizationId, worker, operations:GOOGLE_OPERATIONS, systems:['gmail','calendar'], now:now(),
+    organizationId:ownerOrganizationId, worker, operations:GOOGLE_OPERATIONS, systems:['gmail','calendar'], jobId, now:now(),
   }));
   if (!job) return {status:'idle'};
   let status = 'failed', providerReceipt = null, code = 'GOOGLE_AUTHORIZATION_EXPIRED';

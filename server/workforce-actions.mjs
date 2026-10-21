@@ -78,10 +78,10 @@ function approved(job, now) {
   return job.status === "approved" && job.approval?.digest === job.digest &&
     job.digest === workDigest(jobRequest(job)) && Date.parse(job.approval.expiresAt) > now;
 }
-export function claimWork(state, { organizationId, worker, operations, systems, now = Date.now() }) {
+export function claimWork(state, { organizationId, worker, operations, systems, jobId = null, now = Date.now() }) {
   if (state.paused) return null;
   if (!worker || !Array.isArray(operations) || !Array.isArray(systems)) fail("Trusted worker required");
-  const job = state.jobs.find(j => j.organizationId === organizationId && operations.includes(j.operation) &&
+  const job = state.jobs.find(j => (!jobId || j.id === jobId) && j.organizationId === organizationId && operations.includes(j.operation) &&
     systems.includes(j.system) && approved(j, now) &&
     (j.operation !== "deploy_release" || state.jobs.some(v => v.organizationId === organizationId &&
       v.operation === "validate_release" && v.status === "succeeded" && v.system === j.system &&

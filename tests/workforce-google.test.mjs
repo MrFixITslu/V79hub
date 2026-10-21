@@ -136,3 +136,18 @@ test('disabled worker does not touch ledger or Google',async()=>{
   assert.equal((await runGoogleWorkOnce(f.options)).status,'disabled'); assert.equal(f.effects(),0);
 });
 
+
+test('selected Google job executes without claiming an earlier approved job',async()=>{
+ const f=fixture();
+ const second=proposeWork(f.state,{operation:'create_email_draft',system:'gmail',summary:'Second selected draft',payload:{...draft,body:'Second exact draft'},idempotencyKey:'second-selected-google'}, {organizationId:'owner-org',actor:'owner',now:at});
+ decideWork(f.state,second.id,'approve',{organizationId:'owner-org',actor:'owner',expectedRevision:second.revision,digest:second.digest,now:at});
+ const result=await runGoogleWorkOnce({...f.options,jobId:second.id});
+ assert.equal(result.jobId,second.id);assert.equal(result.status,'succeeded');assert.equal(f.queued.status,'approved');assert.equal(f.effects(),1);
+ assert.equal((await runGoogleWorkOnce({...f.options,jobId:second.id})).status,'idle');assert.equal(f.effects(),1);
+ assert.equal((await runGoogleWorkOnce({...f.options,jobId:'missing'})).status,'idle');assert.equal(f.queued.status,'approved');
+});
+test('selected job still enforces organization, approval, expiry and pause',async()=>{
+ for(const mutate of [f=>{f.queued.status='pending'},f=>{f.queued.status='rejected'},f=>{f.queued.approval.expiresAt=new Date(at-1).toISOString()},f=>{f.state.paused=true},f=>{f.options.ownerOrganizationId='foreign'}]){
+  const f=fixture();mutate(f);assert.equal((await runGoogleWorkOnce({...f.options,jobId:f.queued.id})).status,'idle');assert.equal(f.effects(),0);
+ }
+});

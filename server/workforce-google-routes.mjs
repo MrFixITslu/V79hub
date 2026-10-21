@@ -72,8 +72,9 @@ export function workforceGoogleRouter({ownerContext,sameOrigin,enabled,client,le
     }))});
   }));
   router.post('/run-once',wrap(async(req,res)=>{
-    if(!req.body || Object.keys(req.body).length || !ledger || !receiptDirectory) throw new Error();
-    const result=await runGoogleWorkOnce({ledger,client,enabled,ownerOrganizationId:req.googleOwner.organizationId,now,
+    if(!req.body || Array.isArray(req.body) || Object.keys(req.body).some(k=>k!=='jobId') ||
+        ('jobId' in req.body && (typeof req.body.jobId!=='string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(req.body.jobId))) || !ledger || !receiptDirectory) throw new Error();
+    const result=await runGoogleWorkOnce({ledger,client,enabled,ownerOrganizationId:req.googleOwner.organizationId,jobId:req.body.jobId??null,now,
       storeReceipt:async receipt=>{
         if(!/^[a-f0-9-]{36}$/.test(receipt.jobId)) throw new Error();
         await fs.mkdir(receiptDirectory,{recursive:true,mode:0o700});
