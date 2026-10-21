@@ -8,7 +8,7 @@ test("native Ollama defaults to the responsive local model", () => {
     model: "qwen2.5:1.5b",
     timeoutMs: 90000,
     keepAlive: -1,
-    maxTokens: 80,
+    maxTokens: -1,
     contextSize: 2048,
   });
 });

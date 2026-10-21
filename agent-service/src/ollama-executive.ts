@@ -31,7 +31,7 @@ export function createLocalExecutiveSelector(
         format: "json",
         options: {
           temperature: 0,
-          num_predict: Math.min(runtime.maxTokens > 0 ? runtime.maxTokens : 120, 180),
+          num_predict: runtime.maxTokens,
           num_ctx: Math.min(runtime.contextSize, 3072),
         },
         messages: [

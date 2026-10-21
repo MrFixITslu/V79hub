@@ -12,6 +12,11 @@ function positiveInteger(value: string | undefined, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function outputTokens(value: string | undefined) {
+  if (value === undefined || value.trim() === '' || value.trim() === '-1') return -1;
+  return positiveInteger(value, -1);
+}
+
 function parseKeepAlive(value: string | undefined): string | number {
   const normalized = String(value || "-1").trim();
   if (/^-?\d+$/.test(normalized)) return Number(normalized);
@@ -24,7 +29,7 @@ export function resolveOllamaNativeRuntime(env: NodeJS.ProcessEnv = process.env)
     model: String(env.OLLAMA_AGENT_MODEL || "qwen2.5:1.5b").trim(),
     timeoutMs: positiveInteger(env.OLLAMA_REQUEST_TIMEOUT_MS, 90_000),
     keepAlive: parseKeepAlive(env.OLLAMA_KEEP_ALIVE),
-    maxTokens: positiveInteger(env.OLLAMA_MAX_TOKENS, 80),
+    maxTokens: outputTokens(env.OLLAMA_MAX_TOKENS),
     contextSize: positiveInteger(env.OLLAMA_CONTEXT_SIZE, 2048),
   };
 }
