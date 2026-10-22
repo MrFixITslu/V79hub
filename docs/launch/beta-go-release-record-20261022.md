@@ -85,7 +85,9 @@ main-only dashboard commit were individually fetched at both immutable refs:
 all six Git blob SHAs are identical. Its source content is already included.
 
 The integration candidate preserves the complete accepted source tree and
-joins both histories, adding only this record and the read-only audit script.
+joins both histories. Its initial commit added this record and a read-only audit
+script; the follow-up also updates two obsolete R18-only test pins to the exact
+accepted release hashes, retaining all comparisons and the other eight pins.
 It is a draft review candidate, not a replacement production build. Preserve
 the original release branches and do not generic-main redeploy. Reproducing
 the Agent requires its accepted overlay; unified branch CI/rebuild validation
@@ -104,9 +106,21 @@ morning/evening report metadata for the last three completed Saint Lucia days.
 It prints no report findings, customer records, tokens or environment values.
 File ownership/privacy plus schema checks establish protected provenance;
 these Python report files are not claimed to carry cryptographic signatures.
-Missing, invalid, incomplete or late reports remain review items. Active timers
-alone never establish sustained report reliability. This audit has not yet
-been run on the server in this closeout; its output must be reviewed.
+The operator ran the read-only audit on 22 October 2026 at 18:50:15 UTC
+(14:50:15 Saint Lucia). All six AM/PM slots for 19–21 October were verified:
+no missing, invalid, incomplete, pending or unverified reports. The five pinned
+services retained the same container IDs and healthy state; all three timers
+were active, all three worker/briefing services had successful exit status 0,
+self-service signup was disabled and WiPay was sandbox. No jobs or provider
+calls were invoked and no invitations were sent.
+
+Operations proof:
+`/home/firelion/v79-beta-closeout.VKTYxRbw/beta-operations-audit-2026-10-22T185015.009349_0000.json`
+
+This establishes the bounded three-day scheduled-report reliability check,
+not indefinite future reliability, email delivery or cryptographic report
+signatures. The upcoming scheduled slots remain 08:00 and 19:00 Saint Lucia.
+Active timers alone were not used as the basis for PASS.
 
 The beta GO remains the owner's decision. Operational findings are reported
 separately and never converted into an automatic invitation or release action.

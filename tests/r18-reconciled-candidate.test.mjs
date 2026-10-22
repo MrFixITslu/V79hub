@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
-// Read-only Git object fingerprint guards: frozen security, trusted UI and test files.
+// Read-only Git object fingerprint guards: accepted security, trusted UI and tests.
+// server.ts and App.tsx are pinned to accepted source 9528f27422525ed6340c6a42e0152aa62f433fd8.
+// This supersedes the earlier R18-only hashes after reviewed Google, navigation
+// and pricing releases. Keep exact comparisons and the other eight pins unchanged.
 const frozen = {
-  "server.ts": "4d208cd2d55b2d39381c2096615d99b56f893a84",
-  "src/App.tsx": "606f46be879eca62931aec9720ac3a2d846556f8",
+  "server.ts": "6784def9a38d018f87aa85e0d73ec10d65972daf",
+  "src/App.tsx": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
   "src/components/Login.tsx": "53deeec03ba8793a2412a09ad91f7747fe442510",
   "src/components/Sidebar.tsx": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
   "src/components/AdminConsole.tsx": "a809f9bb614ff547d28eeab8d15535652c3b7d5c",
@@ -21,7 +24,7 @@ function gitBlobSha(bytes) {
   return createHash("sha1").update(prefix).update(Buffer.from([0])).update(bytes).digest("hex");
 }
 for (const [file, sha] of Object.entries(frozen)) {
-  test("R18 frozen Git blob: " + file, () => {
+  test("Accepted release Git blob: " + file, () => {
     assert.equal(gitBlobSha(readFileSync(file)), sha);
   });
 }
