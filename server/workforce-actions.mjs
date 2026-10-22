@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { GOOGLE_OPERATIONS, validateGooglePayload } from './workforce-google.mjs';
 
-export const WORK_SYSTEMS = Object.freeze(["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag"]);
-export const WORK_OPERATIONS = Object.freeze(["create_work_item", "validate_release", "deploy_release", "rollback_release"]);
+export const WORK_SYSTEMS = Object.freeze(["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag", "gmail", "calendar"]);
+export const WORK_OPERATIONS = Object.freeze(["create_work_item", "validate_release", "deploy_release", "rollback_release", ...GOOGLE_OPERATIONS]);
 const SHA = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const MAX = 2000;
@@ -18,7 +19,11 @@ export function validateWorkRequest(input) {
   if (!exact(input, ["operation", "system", "summary", "payload", "idempotencyKey"]) ||
       !WORK_OPERATIONS.includes(input.operation) || !WORK_SYSTEMS.includes(input.system) ||
       !text(input.summary, 180) || !/^[A-Za-z0-9_-]{16,96}$/.test(input.idempotencyKey)) throw new Error("Invalid action request");
-  if (input.operation === "create_work_item") {
+  if (GOOGLE_OPERATIONS.includes(input.operation)) {
+    validateGooglePayload(input.operation, input.system, input.payload);
+  } else if (["gmail", "calendar"].includes(input.system)) {
+    throw new Error("Google systems require a bounded Google operation");
+  } else if (input.operation === "create_work_item") {
     if (!exact(input.payload, ["detail"]) || !text(input.payload.detail, 2000)) throw new Error("Invalid work item");
   } else if (!exact(input.payload, ["commitSha", "manifestSha256"]) ||
       !COMMIT.test(input.payload.commitSha) || !SHA.test(input.payload.manifestSha256)) throw new Error("Immutable release manifest required");
@@ -28,7 +33,8 @@ export function workDigest(input) {
   const request = validateWorkRequest(input);
   return createHash("sha256").update(JSON.stringify([
     request.operation, request.system, request.summary,
-    request.operation === "create_work_item" ? request.payload.detail : [request.payload.commitSha, request.payload.manifestSha256],
+    GOOGLE_OPERATIONS.includes(request.operation) ? Object.keys(request.payload).sort().map(k=>[k,request.payload[k]]) :
+      request.operation === "create_work_item" ? request.payload.detail : [request.payload.commitSha, request.payload.manifestSha256],
     request.idempotencyKey,
   ])).digest("hex");
 }
@@ -72,10 +78,10 @@ function approved(job, now) {
   return job.status === "approved" && job.approval?.digest === job.digest &&
     job.digest === workDigest(jobRequest(job)) && Date.parse(job.approval.expiresAt) > now;
 }
-export function claimWork(state, { organizationId, worker, operations, systems, now = Date.now() }) {
+export function claimWork(state, { organizationId, worker, operations, systems, jobId = null, now = Date.now() }) {
   if (state.paused) return null;
   if (!worker || !Array.isArray(operations) || !Array.isArray(systems)) fail("Trusted worker required");
-  const job = state.jobs.find(j => j.organizationId === organizationId && operations.includes(j.operation) &&
+  const job = state.jobs.find(j => (!jobId || j.id === jobId) && j.organizationId === organizationId && operations.includes(j.operation) &&
     systems.includes(j.system) && approved(j, now) &&
     (j.operation !== "deploy_release" || state.jobs.some(v => v.organizationId === organizationId &&
       v.operation === "validate_release" && v.status === "succeeded" && v.system === j.system &&
@@ -124,3 +130,4 @@ export function publicWorkJob(job) {
   if (copy.claim) delete copy.claim.token;
   return copy;
 }
+

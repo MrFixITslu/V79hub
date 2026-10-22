@@ -1,0 +1,93 @@
+name: P1 Immutable Two-App Stage Candidate Archives
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/p1-immutable-stage-candidates.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p1-stage-candidates-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  image-candidate:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feature/p1-session-lineage-hub-isolated-20261018' }}
+    name: No-deploy ${{ matrix.service }} OCI image archive
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: hub
+            repo: MrFixITslu/V79hub
+            source_sha: pr-head
+            node_base: docker.io/library/node:22-alpine
+          - service: tiquet
+            repo: MrFixITslu/V79Tiquet
+            source_sha: 775d9f6c9afae70760896f5ef5cf090272d6a2af
+            node_base: docker.io/library/node:20-alpine
+    steps:
+      - name: Checkout exact candidate source with no persisted GitHub token
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.source_sha == 'pr-head' && github.event.pull_request.head.sha || matrix.source_sha }}
+          path: candidate
+          persist-credentials: false
+      - name: Verify SHA, branch and source scope
+        shell: bash
+        env:
+          SOURCE_EXPECTED: ${{ matrix.source_sha == 'pr-head' && github.event.pull_request.head.sha || matrix.source_sha }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          test "${#SOURCE_EXPECTED}" -eq 40
+          test "$(git -C candidate rev-parse HEAD)" = "$SOURCE_EXPECTED"
+          case "$SERVICE" in hub|tiquet) ;; *) exit 1;; esac
+          test ! -e candidate/.env
+          test -z "$(git -C candidate ls-files -- data uploads backups logs)"
+          test -f candidate/Dockerfile
+      - name: Build OCI locally, without publishing or touching V79 hosts
+        shell: bash
+        env:
+          SERVICE: ${{ matrix.service }}
+          SOURCE_EXPECTED: ${{ matrix.source_sha == 'pr-head' && github.event.pull_request.head.sha || matrix.source_sha }}
+          NODE_BASE: ${{ matrix.node_base }}
+        run: |
+          set -euo pipefail
+          export DOCKER_BUILDKIT=1
+          image="v79-p1-private-stage-${SERVICE}:${SOURCE_EXPECTED}"
+          docker build --build-arg "NODE_BASE=$NODE_BASE" \
+            --label "org.opencontainers.image.revision=$SOURCE_EXPECTED" \
+            --label "v79.purpose=private-stage-only" \
+            --tag "$image" --file candidate/Dockerfile candidate
+          test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_EXPECTED"
+          test "$(docker image inspect "$image" --format '{{index .Config.Labels "v79.purpose"}}')" = private-stage-only
+          mkdir -p archive
+          id="$(docker image inspect "$image" --format '{{.Id}}')"
+          test "${id#sha256:}" != "$id"
+          image_tar="v79-p1-${SERVICE}-${SOURCE_EXPECTED}.docker.tar.gz"
+          docker save "$image" | gzip -1 > "archive/$image_tar"
+          (cd archive && sha256sum "$image_tar" > "$image_tar.sha256")
+          printf 'SERVICE=%s\nSOURCE_SHA=%s\nOCI_IMAGE_ID=%s\nIMAGE_TAG=%s\nCI_STAGE_ONLY=YES\nPRODUCTION_DEPLOYED=NO\nRUNTIME_RECOVERY_ACCEPTED=NO\n' \
+            "$SERVICE" "$SOURCE_EXPECTED" "$id" "$image" > "archive/candidate-manifest.txt"
+          (cd archive && sha256sum --check "$image_tar.sha256")
+          printf 'CANDIDATE_SERVICE=%s\nCANDIDATE_SOURCE=%s\nCANDIDATE_IMAGE_ID=%s\nPRODUCTION_CHANGES=NONE\n' \
+            "$SERVICE" "$SOURCE_EXPECTED" "$id"
+      - name: Retain independently verifiable image and hash, 5 days
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: P1-Private-Stage-Candidate-${{ matrix.service }}-${{ github.event.pull_request.head.sha }}
+          path: archive/
+          if-no-files-found: error
+          retention-days: 5
+          compression-level: 0
+
+# Strictly a source-pinned image builder, with no:
+# workflow_dispatch, production environment, Tailscale, SSH,
+# deployment tokens, persistent volumes, packages:write or app restarts.

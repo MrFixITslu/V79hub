@@ -1,3 +1,5 @@
+import { createPricingRequestStore } from "./server/pricing-request-store.mjs";
+import { pricingRequestRouter } from "./server/pricing-request-routes.mjs";
 import { marketingProductionRouter, marketingWorkerAuthorization } from "./server/marketing-production-routes.mjs";
 import express, { Request, Response } from "express";
 import { createServer } from "http";
@@ -11,6 +13,7 @@ import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
+import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
 import { acceptInvitationState, invitationStatus } from "./server/onboarding-store.mjs";
 import { registerSentinelQaRoutes } from "./server/sentinel-qa-routes.mjs";
 import { createSentinelWriteFence } from "./server/sentinel-write-fence.mjs";
@@ -20,6 +23,9 @@ import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.m
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
+import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
+import { googleWorkforceClient } from "./server/workforce-google.mjs";
+import { workforceGoogleRouter } from "./server/workforce-google-routes.mjs";
 import { prepareReviewedHandoff } from "./server/agent-reviewed-handoff.mjs";
 import { prepareSupervisedMarketingDraft } from "./server/agent-supervised-marketing.mjs";
 import { createAgentEvidenceAttestations } from "./server/agent-evidence-attestation.mjs";
@@ -1024,7 +1030,9 @@ const posPrivateKey = crypto.createPrivateKey(fs.readFileSync(posKeyPath));
 const posPublicKey = crypto.createPublicKey(posPrivateKey);
 const posKeyId = crypto.createHash("sha256").update(posPublicKey.export({ format: "der", type: "spki" })).digest("hex").slice(0, 20);
 type LaunchProduct = "pos" | "ffpro" | "tiquet" | "marketing";
-const launchTickets = new Map<string, { userId: string; tenantId: string; product: LaunchProduct; expiresAt: number }>();
+// OFF by default: only isolated coordinated Hub/Tiquet session-binding candidates use this.
+const tiquetSessionBinding = process.env.V79_HUB_TIQUET_SESSION_BINDING === "1";
+const launchTickets = new Map<string, { userId: string; tenantId: string; product: LaunchProduct; expiresAt: number; hubSessionId?: string }>();
 function pruneAuthState(now = Date.now()) {
   let sessionsChanged = false;
   for (const [key, session] of sessions) {
@@ -1047,10 +1055,10 @@ const managedLaunch = {
 function managedProduct(source: string): keyof typeof managedLaunch | null {
   return (Object.keys(managedLaunch) as (keyof typeof managedLaunch)[]).find(product => managedLaunch[product].serviceId === source) || null;
 }
-function launchTicket(userId: string, tenantId: string, product: LaunchProduct) {
+function launchTicket(userId: string, tenantId: string, product: LaunchProduct, hubSessionId?: string) {
   for (const [key, entry] of launchTickets) if (entry.expiresAt < Date.now() || (entry.userId === userId && entry.product === product)) launchTickets.delete(key);
   const ticket = crypto.randomBytes(32).toString("base64url");
-  launchTickets.set(crypto.createHash("sha256").update(ticket).digest("hex"), { userId, tenantId, product, expiresAt: Date.now() + 120000 });
+  launchTickets.set(crypto.createHash("sha256").update(ticket).digest("hex"), { userId, tenantId, product, expiresAt: Date.now() + 120000, ...(hubSessionId ? { hubSessionId } : {}) });
   return ticket;
 }
 function posUserId(userId: string, organizationId: string) {
@@ -1673,6 +1681,40 @@ app.post("/api/platform/entitlement/check", (req, res) => {
   res.json(result);
 });
 
+// Product-only HMAC endpoint. Session IDs are non-bearer SHA-256 references,
+// never browser cookies, and do not authorize a request without the shared secret.
+// OFF by default, fail closed during an isolated Tiquet-bound logout rehearsal.
+app.post("/api/platform/session/status", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!tiquetSessionBinding) return res.status(404).json({ active: false });
+  const pathname = "/api/platform/session/status";
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  const secret = process.env.V79_TIQUET_LAUNCH_SECRET || "";
+  if (req.get("x-v79-service-id") !== "v79-tiquet" ||
+      !verifyPlatformRequest({ method: "POST", pathname, body,
+        timestamp: req.get("x-v79-timestamp") || "",
+        signature: req.get("x-v79-signature") || "", secret })) {
+    return res.status(401).json({ active: false });
+  }
+  const { product, hubSessionId, organizationId, scopedUserId } = req.body || {};
+  if (product !== "tiquet" || typeof hubSessionId !== "string" || !/^[a-f0-9]{64}$/.test(hubSessionId) ||
+      typeof organizationId !== "string" || organizationId.length < 5 || organizationId.length > 180 ||
+      typeof scopedUserId !== "string" || scopedUserId.length < 5 || scopedUserId.length > 180) {
+    return res.status(400).json({ active: false });
+  }
+  const session = sessions.get(hubSessionId);
+  const activeUser = session ? store.users.find(user => user.id === session.userId) : null;
+  const membership = activeUser && session ? activeMembership(store, activeUser.id, session.organizationId) : null;
+  const organization = store.organizations.find(org => org.id === organizationId && org.status === "active");
+  const active = Boolean(session && activeUser && organization && session.expiresAt > Date.now() &&
+    session.organizationId === organizationId && membership &&
+    (membership.role === "owner" || tiquetTeamRole(membership.role)) &&
+    membershipCanAccessApp(membership, "app-tiquet") &&
+    organizationCanAccessApp(store, organizationId, "app-tiquet", posIdentity.organizationId) &&
+    posUserId(session.userId, session.organizationId) === scopedUserId);
+  return res.json({ active });
+});
+
 app.post("/api/platform/session/consume", (req, res) => {
   const body = (req as any).rawBody?.toString("utf8") || "";
   const source = req.get("x-v79-service-id") || "";
@@ -1715,6 +1757,10 @@ app.post("/api/platform/session/consume", (req, res) => {
     entry &&
     entry.product === "tiquet" &&
     entry.expiresAt >= Date.now() &&
+    (!tiquetSessionBinding || Boolean(entry.hubSessionId &&
+      sessions.get(entry.hubSessionId)?.userId === entry.userId &&
+      sessions.get(entry.hubSessionId)?.organizationId === entry.tenantId &&
+      (sessions.get(entry.hubSessionId)?.expiresAt || 0) > Date.now())) &&
     (tiquetTicketMembership?.role === "owner" || tiquetTeamRole(tiquetTicketMembership?.role)) &&
     membershipCanAccessApp(tiquetTicketMembership, "app-tiquet") &&
     organizationCanAccessApp(store, entry.tenantId, "app-tiquet", posIdentity.organizationId) &&
@@ -1768,6 +1814,7 @@ app.post("/api/platform/session/consume", (req, res) => {
     organization: { id: organization.id, name: organization.name, slug: organization.slug },
     role: consumedRole, plan: "beta", accessMode: "beta",
     entitlement: { product, enabled: true, access: consumedRole === "owner" ? "owner" : "team" },
+    ...(tiquetSessionBinding && product === "tiquet" && entry.hubSessionId ? { hubSessionId: entry.hubSessionId } : {}),
     assignedProducts: enabledAppIds(store, entry.tenantId, posIdentity.organizationId)
       .map((appId: string) => ({ "app-ffpro": "ffpro", "app-tiquet": "tiquet", "app-marketing": "marketing" } as Record<string,string>)[appId])
       .filter(Boolean),
@@ -2609,6 +2656,18 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+
+const pricingLedger = createPricingRequestStore({file:path.join(DATA_DIR,"pricing-requests-v1.json"),secret:hubSecurityKey});
+const pricingContext = (req: Request) => {
+  const session = (req as any).user;
+  return session ? {userId:session.userId,organizationId:session.organizationId,internalOwner:session.organizationId===posIdentity.organizationId} : null;
+};
+app.use("/api/billing/pricing",requireAuth,requirePermission("billing"),pricingRequestRouter({
+  readStore:()=>store,ledger:pricingLedger,sameOrigin:sameOriginMutation,context:pricingContext
+}));
+app.use("/api/admin/pricing",requireAuth,requirePlatformOperator,pricingRequestRouter({
+  readStore:()=>store,ledger:pricingLedger,sameOrigin:sameOriginMutation,context:pricingContext,isOperator:true
+}));
 
 app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req, res) => {
   const session = (req as any).user;
@@ -4435,7 +4494,14 @@ function connectionProductsForSession(userId: string, organizationId: string) {
   });
 }
 
-app.get("/api/connections/status", requirePermission("connections"), async (req, res) => {
+app.get("/api/connections/status", (req, res, next) => {
+  const session = (req as any).user;
+  if (!canReadConnectionsStatus({
+    assigned: hasHubPermission(session.userId, session.organizationId, "connections"),
+    verifiedPlatformOwner: isPlatformOperatorIdentity(session.userId, session.organizationId),
+  })) return res.status(403).json({ error: "Permission denied" });
+  next();
+}, async (req, res) => {
   const session = (req as any).user;
   const products = connectionProductsForSession(session.userId, session.organizationId);
   const results = await Promise.all(products.map(async product => {
@@ -4777,6 +4843,7 @@ const workforceRouters = workforceActionRouters({
   ledger: workforceLedger,
   enabled: () => process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
   ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
+  googleEnabled: () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1",
   workerToken: readWorkforceToken,
   ownerOrganizationId: () => posIdentity.organizationId,
   ownerReady: () => {
@@ -4789,6 +4856,18 @@ const workforceRouters = workforceActionRouters({
 });
 app.use("/api/agent/work-actions", workforceRouters.owner);
 app.use("/internal/workforce", workforceRouters.worker);
+// Owner-only Google boundary. Tokens remain in Hub, never in the model service.
+const googleEnabled = () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1";
+const googleCredentials = googleCredentialBroker({
+  file: process.env.V79_GOOGLE_CREDENTIAL_FILE || "/run/secrets/v79-google-credentials.json",
+  enabled: googleEnabled,
+});
+const googleClient = googleWorkforceClient({ getAccessToken: googleCredentials.getAccessToken });
+app.use("/api/agent/google", workforceGoogleRouter({
+  ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
+  enabled: googleEnabled, client: googleClient, ledger: workforceLedger,
+  receiptDirectory: path.join(DATA_DIR, "google-workforce-receipts"),
+}));
 app.use("/api/agent/marketing-production", marketingProductionRouter({
   ownerContext: (req: Request) => {
     const context = ownerApprovalContext(req);
@@ -5359,7 +5438,14 @@ app.get("/api/apps/:product/launch", async (req, res) => {
     if (target.protocol !== "https:" || target.username || target.password || !target.hostname.endsWith(".v79sl.com")) throw new Error("Invalid app URL");
   } catch { return res.status(503).json({ error: `${product} public URL is invalid.` }); }
 
-  target.searchParams.set("ticket", launchTicket(session.userId, session.organizationId, product));
+  const rawSessionToken = req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.slice(7) : cookieToken(req.headers.cookie);
+  const lineage = product === "tiquet" && tiquetSessionBinding ? sessionKey(rawSessionToken) : undefined;
+  if (product === "tiquet" && tiquetSessionBinding &&
+      (!rawSessionToken || sessions.get(lineage!) !== session)) {
+    return res.status(401).json({ error: "Hub session lineage is unavailable." });
+  }
+  target.searchParams.set("ticket", launchTicket(session.userId, session.organizationId, product, lineage));
   res.setHeader("Cache-Control", "no-store");
   res.redirect(302, target.toString());
 });
@@ -5794,3 +5880,4 @@ async function startServer() {
 }
 
 startServer();
+

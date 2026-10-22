@@ -1,0 +1,47 @@
+name: R18 Hub Refresh View Deep-Link Isolation (Nondeploying)
+
+on:
+  pull_request:
+    branches:
+      - fix/r18-my-apps-status-owner-permission-20261019
+    paths:
+      - "src/App.tsx"
+      - "src/lib/hubNavigation.ts"
+      - "tests/hub-navigation-refresh.test.mjs"
+      - ".github/workflows/r18-refresh-restore-view.yml"
+permissions:
+  contents: read
+jobs:
+  refresh-deeplink-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install and validate in isolated CI only
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          node --test tests/hub-navigation-refresh.test.mjs tests/connections-status-access.test.mjs
+          npm run lint
+          npm run build
+      - name: Install disposable headless browser
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser reload, history and permission regression
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4178 --bind 127.0.0.1 --directory dist > "$RUNNER_TEMP/r18-refresh-browser.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4178/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/r18-navigation-browser-check.mjs
+
+# No deployment, registry push, production endpoints, secrets or remote execution.

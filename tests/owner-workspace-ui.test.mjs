@@ -99,7 +99,7 @@ test('MFA failure clears private actions and controls; an outdated response cann
  const timer=[...h.timers.values()][0];
  await act(async()=>{void timer.fn();});
  await act(async()=>timer.fn());
- assert.match(h.box.textContent,/fresh owner MFA/);assert.equal(h.box.querySelectorAll('article').length,0);
+ assert.match(h.box.textContent,/Sign in with your owner account/);assert.equal(h.box.querySelectorAll('article').length,0);
  assert.equal(h.box.querySelectorAll('form').length,1,'Draft editor remains visible to explain unavailable task creation');
  assert.equal(h.box.querySelector('form button[type="submit"]').disabled,true,'MFA denial disables task submission');
  await act(async()=>resolveOld(queue([job()])));

@@ -1,0 +1,35 @@
+name: R18 My Apps 403 Owner-Scope Hotfix (Nondeploying)
+
+on:
+  pull_request:
+    branches:
+      - candidate/r18-hub-pinned-security-dashboard-truth-20261019
+    paths:
+      - "server.ts"
+      - "server/connections-status-access.mjs"
+      - "tests/connections-status-access.test.mjs"
+      - ".github/workflows/r18-my-apps-403-isolated.yml"
+permissions:
+  contents: read
+jobs:
+  exact-source-isolated-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies (CI only)
+        run: npm ci --no-audit --no-fund
+      - name: Enforce least-privilege guard and compile source
+        run: |
+          set -euo pipefail
+          node --test tests/connections-status-access.test.mjs
+          npm run lint
+          npm run build
+
+# No workflow_dispatch, production host, secrets, registry publishing or deploy.

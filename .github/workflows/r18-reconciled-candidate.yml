@@ -1,0 +1,72 @@
+name: R18 P1 Reconciled Hub Candidate (Nondeploying)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tests/r18-reconciled-candidate.test.mjs"
+      - ".github/workflows/r18-reconciled-candidate.yml"
+      - "src/components/HubOverview.tsx"
+      - "src/index.css"
+      - "src/lib/dashboardTruth.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-source-and-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install immutable dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify frozen security and truthful dashboard source
+        run: |
+          set -euo pipefail
+          node --test tests/r18-reconciled-candidate.test.mjs tests/hub-dashboard-truth.test.mjs
+          npm run lint
+          npm run build
+      - name: Install pinned browser tooling outside the app dependency tree
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser_deps="$(mktemp -d "$RUNNER_TEMP/v79-browser.XXXXXXXX")"
+          npm install --prefix "$browser_deps" --no-save --package-lock=false --ignore-scripts \
+            --no-audit --no-fund --fetch-timeout=45000 --fetch-retries=1 playwright@1.56.1
+          test ! -e node_modules/playwright
+          ln -s "$browser_deps/node_modules/playwright" node_modules/playwright
+          printf 'V79_BROWSER_DEPS=%s\n' "$browser_deps" >> "$GITHUB_ENV"
+      - name: Install Chromium and its operating-system dependencies
+        timeout-minutes: 8
+        shell: bash
+        run: '"$V79_BROWSER_DEPS/node_modules/.bin/playwright" install --with-deps chromium'
+      - name: Serve candidate frontend on loopback
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4178 --bind 127.0.0.1 --directory dist > "${RUNNER_TEMP}/r18-ui-preview.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4178/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Browser smoke/screenshots using synthetic data only
+        run: node scripts/hub-isolated-browser-preview.mjs
+      - name: Upload screenshots for owner review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R18-Hub-Security-Dashboard-Preview
+          path: preview-artifacts/
+          retention-days: 14
+          if-no-files-found: warn
+
+# Only CI loopback/static build and synthetic API fixtures. Never connect to
+# production, require production secrets, SSH, deploy or publish artifacts.

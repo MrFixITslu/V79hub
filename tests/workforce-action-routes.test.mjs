@@ -14,7 +14,7 @@ test("HTTP owner approval flow and separate worker boundary fail closed", async 
   const now = Date.now(), token = "SYNTHETIC-SEPARATE-WORKER-TOKEN-123456";
   let active = true;
   const app = express(); app.use(express.json());
-  app.use((req, _res, next) => { req.user = { mfaVerifiedAt: req.get("x-test-stale") ? now - 300001 : now }; next(); });
+  app.use((req, _res, next) => { req.user = { mfaVerifiedAt: req.get("x-test-missing-mfa") ? undefined : req.get("x-test-stale") ? now - 7200000 : now }; next(); });
   const routers = workforceActionRouters({ ledger, enabled: () => active,
     ownerContext: req => req.get("x-test-owner") === "owner" ? { userId: "founder", organizationId: "owner-org" } : null,
     sameOrigin: req => req.get("origin") === "https://hub.synthetic.test", workerToken: () => token,
@@ -26,13 +26,18 @@ test("HTTP owner approval flow and separate worker boundary fail closed", async 
   const call = (route, body, headers = {}) => fetch(base + route, { method: body === undefined ? "GET" : "POST", headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const owner = { "x-test-owner": "owner", origin: "https://hub.synthetic.test" }, worker = { "x-v79-workforce-token": token };
   const input = { operation: "create_work_item", system: "hub", summary: "Build approved Hub enhancement", payload: { detail: "Implement and test the requested Hub enhancement." }, idempotencyKey: "synthetic-api-task-key-1234" };
+  const google = { ...input, operation:'create_email_draft', system:'gmail',payload:{threadId:'thread1',messageId:'message1',to:'client@example.com',subject:'Re: Request',body:'Thank you for your request.'} };
+  assert.equal((await call('/owner',google,owner)).status,503);
+  assert.equal((await call('/worker/propose',google,worker)).status,403);
+  const operations = (await (await call('/owner',undefined,owner)).json()).operations;
+  assert.equal(operations.includes('create_email_draft'),false);
   assert.equal((await call("/owner")).status, 403);
-  assert.equal((await call("/owner", input, { ...owner, "x-test-stale": "1" })).status, 403);
+  assert.equal((await call("/owner", input, { ...owner, "x-test-missing-mfa": "1" })).status, 403);
   assert.equal((await call("/owner", input, { ...owner, origin: "https://attacker.test" })).status, 403);
-  const j = (await (await call("/owner", input, owner)).json()).job;
+  const j = (await (await call("/owner", input, { ...owner, "x-test-stale": "1" })).json()).job;
   const decision = { decision: "approve", expectedRevision: 1, digest: j.digest };
   assert.equal((await call("/owner/" + j.id + "/decision", { ...decision, digest: "0".repeat(64) }, owner)).status, 409);
-  const approved = (await (await call("/owner/" + j.id + "/decision", decision, owner)).json()).job;
+  const approved = (await (await call("/owner/" + j.id + "/decision", decision, { ...owner, "x-test-stale": "1" })).json()).job;
   assert.equal(approved.status, "approved");
   assert.equal((await call("/owner/" + j.id + "/execute", { expectedRevision: 2 }, owner)).status, 200);
   assert.equal((await call("/owner/" + j.id + "/execute", { expectedRevision: 3 }, owner)).status, 409);
@@ -58,3 +63,4 @@ test("HTTP owner approval flow and separate worker boundary fail closed", async 
   assert.equal((await call("/worker/" + claim.id + "/receipt", receipt, worker)).status, 409);
   active = false; assert.equal((await call("/worker/claim", scope, worker)).status, 503);
 });
+

@@ -9,7 +9,7 @@ import { isValidOwnerContext, type AgentContext } from "./context.js";
 import { agentModelRuntime } from "./model-runtime.js";
 import { readBusinessSnapshot } from "./tools.js";
 import { compactOwnerSnapshot, deterministicFactAnswer, formatPriorityBrief, isPriorityBriefRequest } from "./grounding.js";
-import { prewarmOllamaOwnerAssistant, runOllamaOwnerAssistant } from "./ollama-native.js";
+import { prewarmOllamaOwnerAssistant } from "./ollama-native.js";
 import { buildEvidenceLedger, compactFromEvidence } from "./evidence.js";
 import { buildInvestigationBrief } from "./investigations.js";
 import { getWorkforceSpecialist } from "./workforce.js";
@@ -20,6 +20,10 @@ import { runReadOnlyExecutiveCycle } from "./executive-cycle.js";
 import { createLocalExecutiveSelector } from "./ollama-executive.js";
 import { generateDevelopmentReview, InvalidDevelopmentOrder } from "./development-worker.js";
 import { createLocalDevelopmentProposer } from "./ollama-development.js";
+
+import { runEvidenceBoundOwnerAssistant } from "./evidence-answer.js";
+
+import { resolveChatRole, chatRoleRoster } from "./chat-roles.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -61,7 +65,7 @@ app.use("/api", (req, res, next) => {
 
 app.get("/api/agent/specialists", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json({ mode: "read-only", specialists: workforceRoster() });
+  res.json({ mode: "read-only", specialists: workforceRoster(), chatRoles: agentModelRuntime.provider === "ollama" ? chatRoleRoster() : [] });
 });
 
 // G1 only: role mapping metadata. No write tools or policy bypass.
@@ -76,8 +80,9 @@ app.get("/api/agent/capabilities", (_req, res) => {
     ownerOnly: true,
     modelProvider: agentModelRuntime.provider,
     model: agentModelRuntime.model,
-    routing: "deterministic-specialist",
+    routing: agentModelRuntime.provider === "ollama" ? "canonical-role-with-legacy-evidence-scope" : "deterministic-specialist",
     specialists: workforceRoster(),
+    chatRoles: agentModelRuntime.provider === "ollama" ? chatRoleRoster() : [],
     can: [
       "answer business questions",
       "route work to specialist agents",
@@ -238,7 +243,8 @@ app.post("/api/agent/chat", async (req, res) => {
   try {
     const snapshot = await readBusinessSnapshot(context);
     const localFastPath = agentModelRuntime.provider === "ollama";
-    const chosenSpecialist = routeWorkforceRequest(message);
+    const chatRole = localFastPath ? resolveChatRole(message) : null;
+    const chosenSpecialist = chatRole?.specialist || routeWorkforceRequest(message);
     const evidence = buildEvidenceLedger(snapshot, chosenSpecialist);
     const investigation = buildInvestigationBrief(evidence);
     const grounding = compactFromEvidence(evidence);
@@ -276,6 +282,9 @@ app.post("/api/agent/chat", async (req, res) => {
           evidence,
           investigation,
           specialist: chosenSpecialist.name,
+          roleId: chatRole?.id,
+          skillSha: chatRole?.skillSha,
+          evidenceScopeId: chosenSpecialist.id,
           mode: "read-only",
           modelProvider: "ollama",
           model: agentModelRuntime.model,
@@ -289,6 +298,9 @@ app.post("/api/agent/chat", async (req, res) => {
           evidence,
           investigation,
           specialist: chosenSpecialist.name,
+          roleId: chatRole?.id,
+          skillSha: chatRole?.skillSha,
+          evidenceScopeId: chosenSpecialist.id,
           mode: "read-only",
           modelProvider: "ollama",
           model: agentModelRuntime.model,
@@ -296,18 +308,22 @@ app.post("/api/agent/chat", async (req, res) => {
           domain: factual.domain,
         });
       }
-      const result = await runOllamaOwnerAssistant(groundedMessage, {
-        specialistInstructions: specialistInstructions(chosenSpecialist),
+      const result = await runEvidenceBoundOwnerAssistant(message, evidence, {
+        specialistInstructions: chatRole?.instructions || specialistInstructions(chosenSpecialist),
       });
       return res.json({
         output: result.output,
         evidence,
         investigation,
         specialist: chosenSpecialist.name,
+        roleId: chatRole?.id,
+        skillSha: chatRole?.skillSha,
+        evidenceScopeId: chosenSpecialist.id,
         mode: "read-only",
-        modelProvider: result.provider,
-        model: result.model,
-        responseMode: "ollama",
+        modelProvider: "ollama",
+        model: agentModelRuntime.model,
+        responseMode: result.responseMode,
+        selectionOutcome: result.selectionOutcome,
       });
     }
 
