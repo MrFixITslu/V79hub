@@ -33,10 +33,21 @@ jobs:
           node --test tests/r18-reconciled-candidate.test.mjs tests/hub-dashboard-truth.test.mjs
           npm run lint
           npm run build
-      - name: Install isolated browser
+      - name: Install pinned browser tooling outside the app dependency tree
+        timeout-minutes: 3
+        shell: bash
         run: |
-          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
-          npx playwright install --with-deps chromium
+          set -euo pipefail
+          browser_deps="$(mktemp -d "$RUNNER_TEMP/v79-browser.XXXXXXXX")"
+          npm install --prefix "$browser_deps" --no-save --package-lock=false --ignore-scripts \
+            --no-audit --no-fund --fetch-timeout=45000 --fetch-retries=1 playwright@1.56.1
+          test ! -e node_modules/playwright
+          ln -s "$browser_deps/node_modules/playwright" node_modules/playwright
+          printf 'V79_BROWSER_DEPS=%s\n' "$browser_deps" >> "$GITHUB_ENV"
+      - name: Install Chromium and its operating-system dependencies
+        timeout-minutes: 8
+        shell: bash
+        run: '"$V79_BROWSER_DEPS/node_modules/.bin/playwright" install --with-deps chromium'
       - name: Serve candidate frontend on loopback
         run: |
           set -euo pipefail
