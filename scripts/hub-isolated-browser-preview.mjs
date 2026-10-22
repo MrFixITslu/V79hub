@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pricingCatalog } from "../shared/pricing-catalog.mjs";
 
 // Static Vite build + loopback API mocks; no V79 production backend, secrets or accounts.
 const root = "http://127.0.0.1:4178";
@@ -32,6 +33,10 @@ const summary={generatedAt:"2026-10-15T16:00:00-04:00",apps:{
 }};
 const report={screens:[],errors:[],blockedExternal:[]};
 function api(path,auth){
+  if(path==="/api/billing/pricing/catalog")return [200,pricingCatalog()];
+  if(path==="/api/billing/pricing/requests"||path==="/api/admin/pricing/requests")return [200,{requests:[]}];
+  if(path==="/api/billing/orders"||path==="/api/admin/billing/manual/orders")return [200,{orders:[]}];
+  if(path==="/api/admin/customers")return [200,{customers:[],invited:[],assignableApps:apps}];
   if(path==="/api/auth/me")return [auth?200:401,auth?{user,organization:{name:"V79 Demo Workspace"}}:{error:"Not authenticated"}];
   if(path==="/api/auth/recovery-status")return [200,{emailRecoveryEnabled:false,supportEmail:"preview@example.invalid"}];
   if(path==="/api/ecosystem/apps")return [200,apps];
