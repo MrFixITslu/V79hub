@@ -107,3 +107,52 @@ test('uncertain execution response is reconciled with GET and never automaticall
   throw Error('Unexpected request');
  });await h.click('Check Google connection');await h.click('save draft');assert.match(h.box.textContent,/Outcome needs checking — do not retry/);assert.equal(h.calls.filter(c=>c.url.endsWith('/run-once')).length,1);assert.equal([...h.box.querySelectorAll('button')].some(b=>b.textContent==='save draft'),false);
 });
+
+const appointment=(etag='"v1"')=>({id:'event-test-123',etag,summary:'V79 acceptance test',start:{dateTime:'2026-10-23T14:00:00Z'},end:{dateTime:'2026-10-23T14:10:00Z'},attendees:[],organizer:'vision79slu@gmail.com',recurring:false});
+async function calendarHarness(t,operation,{refreshFailure=false,outcome='succeeded'}={}){
+ let saved={...job('approved'),operation,system:'calendar',summary:'Calendar action',payload:{eventId:'event-test-123',etag:'"v1"'}};
+ let agendaReads=0,executed=false,proposal;
+ const h=await mount(t,async(url,opts)=>{
+  if(url.endsWith('/status'))return {connected:true,enabled:true};
+  if(url==='/api/agent/work-actions'){
+   if(opts.method==='POST'){proposal=JSON.parse(opts.body);saved={...job(),...proposal,revision:1};return {job:saved}}
+   return queue([saved]);
+  }
+  if(url.includes('/appointments?')){
+   agendaReads++;
+   if(executed&&refreshFailure)throw Error('Offline agenda');
+   return {items:executed&&operation==='delete_calendar_event'?[]:[appointment(executed?'"v2"':'"v1"')]};
+  }
+  if(url.endsWith('/run-once')){executed=true;saved={...saved,status:outcome};return {jobId:id,status:outcome}}
+  throw Error('Unexpected request');
+ });
+ await h.click('Check Google connection');await h.type('Agenda from','2026-10-23T00:00');await h.type('Agenda until','2026-10-24T00:00');await h.click('Review appointments');
+ const select=async()=>{const b=[...h.box.querySelectorAll('button')].find(b=>b.textContent.startsWith('V79 acceptance test'));assert.ok(b);await act(async()=>b.click())};
+ await select();
+ return {...h,select,reads:()=>agendaReads,proposal:()=>proposal};
+}
+for(const [operation,label] of [['create_calendar_event','create appointment'],['update_calendar_event','update appointment'],['delete_calendar_event','cancel appointment']]){
+ test(operation+' reloads agenda and clears stale selection after success',async t=>{
+  const h=await calendarHarness(t,operation);await h.click(label);assert.equal(h.reads(),2);
+  assert.equal([...h.box.querySelectorAll('button')].some(b=>b.textContent==='Cancel appointment'),false);
+  assert.equal(h.box.querySelectorAll('input')[3].value,'','selected title cleared');
+  if(operation==='delete_calendar_event')assert.equal([...h.box.querySelectorAll('button')].some(b=>b.textContent.startsWith('V79 acceptance test')),false);
+  else {await h.select();await h.click('Review change');assert.equal(h.proposal().payload.etag,'"v2"','next action uses fresh event version')}
+  assert.equal(h.calls.filter(c=>c.url.endsWith('/run-once')).length,1);
+ });
+}
+test('successful cancellation with agenda outage keeps completion and offers read-only refresh',async t=>{
+ const h=await calendarHarness(t,'delete_calendar_event',{refreshFailure:true});await h.click('cancel appointment');
+ assert.match(h.box.textContent,/action completed, but the agenda could not refresh/);
+ assert.match(h.box.textContent,/Appointment action completed/);assert.equal(h.reads(),2);
+ assert.equal([...h.box.querySelectorAll('button')].some(b=>b.textContent.startsWith('V79 acceptance test')),false);
+ assert.equal(h.calls.filter(c=>c.url.endsWith('/run-once')).length,1);
+});
+test('uncertain calendar execution never claims success or automatically reloads or retries',async t=>{
+ const h=await calendarHarness(t,'delete_calendar_event',{outcome:'uncertain'});await h.click('cancel appointment');assert.equal(h.reads(),1);
+ assert.match(h.box.textContent,/Outcome needs checking/);assert.equal(h.calls.filter(c=>c.url.endsWith('/run-once')).length,1);
+});
+test('manual agenda refresh clears the old selected version',async t=>{
+ const h=await calendarHarness(t,'update_calendar_event');await h.click('Review appointments');
+ assert.equal([...h.box.querySelectorAll('button')].some(b=>b.textContent==='Cancel appointment'),false);
+});

@@ -58,8 +58,9 @@ export function GoogleWorkforcePanel() {
   };
   const loadAppointments=async(pageToken='')=>{
     const result=await api('/api/agent/google/appointments?'+new URLSearchParams({start:utc(rangeStart),end:utc(rangeEnd),...(pageToken?{pageToken}:{})}));
-    setAppointments(result.items??[]);setEventNext(result.nextPageToken??'');
+    setAppointments(result.items??[]);setEventNext(result.nextPageToken??'');clearAppointment();
   };
+  const clearAppointment=()=>{setSelected(null);setSummary('');setStart('');setEnd('');setAttendees('')};
   const queue=async(operation:string,payload:unknown,title:string)=>{
     const fresh=await refreshJobs();
     if(!fresh.enabled||fresh.paused)throw new Error('The action queue is unavailable or paused. Your text has not been submitted.');
@@ -86,6 +87,16 @@ export function GoogleWorkforcePanel() {
     const result=await api('/api/agent/google/run-once',{jobId:current.id});
     await refreshJobs();
     setNotice(result.status==='succeeded'?(current.operation==='create_email_draft'?'Draft saved in Gmail. Email was not sent.':'Appointment action completed. Check your Google Calendar.'):result.status==='idle'?'This action is no longer eligible. Its status has been refreshed.':'Outcome needs checking. Review the status below before taking another action.');
+    if(result.status==='succeeded'&&current.system==='calendar'){
+      clearAppointment();setAppointments([]);setEventNext('');retry.current=null;
+      if(rangeStart&&rangeEnd){
+        try{await loadAppointments()}
+        catch(e){
+          if((e as {status?:number})?.status===403)throw e;
+          setError('The appointment action completed, but the agenda could not refresh. Click Review appointments to reload it.');
+        }
+      }
+    }
   };
   const draftReason=busy?'Another request is in progress.':!queueReady?'Refresh action status before preparing a proposal.':queuePaused?'The queue is paused. Resume it in Tasks & approvals before preparing an action.':!thread?'Open a message to prepare a reply.':thread.partial?'This thread is incomplete. Open another plain-text message or review it in Gmail.':!thread.messages.length?'This thread has no readable messages.':!recipient.trim()?'Enter the verified recipient email.':!reply.trim()?'Write the reply you want saved.':'';
   const choose=(event:Appointment)=>{
@@ -136,7 +147,7 @@ export function GoogleWorkforcePanel() {
         <button className={button} disabled={busy||!rangeStart||!rangeEnd} onClick={()=>void work(()=>loadAppointments())}>Review appointments</button>
         {appointments.map(event=><button key={event.id} disabled={busy} className="block w-full rounded-lg border border-slate-700 p-3 text-left" onClick={()=>choose(event)}><strong>{event.summary||'(Untitled appointment)'}</strong><span className="block text-slate-400">{event.start.dateTime?format(event.start.dateTime):event.start.date} {event.recurring?'· Recurring':''}</span></button>)}
         {eventNext&&<button className={button} disabled={busy} onClick={()=>void work(()=>loadAppointments(eventNext))}>Next agenda page</button>}
-        <button className={button} disabled={busy} onClick={()=>{setSelected(null);setSummary('');setStart('');setEnd('');setAttendees('')}}>New appointment</button>
+        <button className={button} disabled={busy} onClick={clearAppointment}>New appointment</button>
         <label>Appointment title<input className={field} value={summary} onChange={e=>setSummary(e.target.value)}/></label>
         <div className="grid gap-3 sm:grid-cols-2"><label>Starts · Saint Lucia<input type="datetime-local" className={field} value={start} onChange={e=>setStart(e.target.value)}/></label><label>Ends · Saint Lucia<input type="datetime-local" className={field} value={end} onChange={e=>setEnd(e.target.value)}/></label></div>
         <label>Verified attendee emails, separated by commas<input className={field} value={attendees} onChange={e=>setAttendees(e.target.value)}/></label>
@@ -144,10 +155,11 @@ export function GoogleWorkforcePanel() {
         <div className="flex flex-wrap gap-3"><button className={button} disabled={busy||!summary||!start||!end||Boolean(selected&&(selected.recurring||selected.organizer!==owner))} onClick={()=>void work(()=>queue(selected?'update_calendar_event':'create_calendar_event',selected?{...eventPayload(),eventId:selected.id,etag:selected.etag}:eventPayload(),selected?'Review appointment rescheduling':'Review new appointment'))}>Review {selected?'change':'appointment'}</button>
         {selected&&<button className={button} disabled={busy||selected.recurring||selected.organizer!==owner} onClick={()=>{
           if(window.confirm('Queue cancellation of '+selected.summary+'? Approved cancellation can notify its attendees.')) void work(()=>queue('delete_calendar_event',{eventId:selected.id,etag:selected.etag},('Cancel appointment: '+selected.summary).slice(0,180)));
-        }}>Queue cancellation</button>}</div>
+        }}>Cancel appointment</button>}</div>
       </div>
 
     </>}
   </section>;
 }
+
 
