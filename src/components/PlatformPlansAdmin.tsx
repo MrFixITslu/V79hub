@@ -1,3 +1,4 @@
+import { PricingRequestsAdmin } from "./PricingRequestsAdmin";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, CreditCard, Loader2, PackageCheck, RefreshCw, Search } from "lucide-react";
 import { PlatformManualPaymentsAdmin } from "./PlatformManualPaymentsAdmin";
@@ -239,6 +240,7 @@ export function PlatformPlansAdmin() {
           )}
         </section>
       </div>
+      <PricingRequestsAdmin />
       <PlatformManualPaymentsAdmin />
     </div>
   );

@@ -1,3 +1,5 @@
+import { createPricingRequestStore } from "./server/pricing-request-store.mjs";
+import { pricingRequestRouter } from "./server/pricing-request-routes.mjs";
 import { marketingProductionRouter, marketingWorkerAuthorization } from "./server/marketing-production-routes.mjs";
 import express, { Request, Response } from "express";
 import { createServer } from "http";
@@ -2654,6 +2656,18 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+
+const pricingLedger = createPricingRequestStore({file:path.join(DATA_DIR,"pricing-requests-v1.json"),secret:hubSecurityKey});
+const pricingContext = (req: Request) => {
+  const session = (req as any).user;
+  return session ? {userId:session.userId,organizationId:session.organizationId,internalOwner:session.organizationId===posIdentity.organizationId} : null;
+};
+app.use("/api/billing/pricing",requireAuth,requirePermission("billing"),pricingRequestRouter({
+  readStore:()=>store,ledger:pricingLedger,sameOrigin:sameOriginMutation,context:pricingContext
+}));
+app.use("/api/admin/pricing",requireAuth,requirePlatformOperator,pricingRequestRouter({
+  readStore:()=>store,ledger:pricingLedger,sameOrigin:sameOriginMutation,context:pricingContext,isOperator:true
+}));
 
 app.get("/api/billing/summary", requireAuth, requirePermission("billing"), (req, res) => {
   const session = (req as any).user;

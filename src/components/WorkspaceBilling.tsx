@@ -1,3 +1,6 @@
+import { PricingConfigurator } from "./PricingConfigurator";
+import { BillingHistory } from "./BillingHistory";
+import { displayPrice } from "../../shared/pricing-catalog.mjs";
 import { useEffect, useMemo, useState } from "react";
 import { CreditCard, CheckCircle2, ArrowLeft, Mail, PackageCheck, CalendarDays, WalletCards, Loader2, ShieldCheck, FlaskConical } from "lucide-react";
 import { ViewState } from "../types";
@@ -72,6 +75,8 @@ function submitHostedCheckout(checkout: CheckoutResponse["checkout"]) {
 }
 
 export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState) => void }) {
+  const [displayCurrency,setDisplayCurrency]=useState<"XCD"|"USD">("XCD");
+  const [invoiceRefresh,setInvoiceRefresh]=useState(0);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [error, setError] = useState("");
   const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -161,6 +166,7 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not request invoice.");
+      setInvoiceRefresh(n=>n+1);
       setManualMessage(`Manual invoice ${data.order.id} requested for EC$ ${Number(data.order.amount).toFixed(2)}. Contact V79 Digital for verified bank instructions. Paid access begins only after funds are independently confirmed.`);
     } catch (err) {
       setManualError(err instanceof Error ? err.message : "Could not request invoice.");
@@ -196,6 +202,7 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
           </div>
         </section>
 
+        <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-sm text-slate-400">Display currency · invoices remain in XCD</span><div className="flex gap-2" role="group" aria-label="Display currency">{(["XCD","USD"] as const).map(c=><button type="button" key={c} aria-pressed={displayCurrency===c} onClick={()=>setDisplayCurrency(c)} className={"min-h-11 rounded-lg border px-3 py-2 text-sm "+(displayCurrency===c?"border-sky-400 bg-sky-600 text-white":"border-slate-600 text-slate-300")}>{c==="XCD"?"EC$ XCD":"US$ USD"}</button>)}</div></div>
         {paymentResult?.status === "success" && (
           <div role="status" className={`rounded-xl border px-4 py-3 text-xs ${verifiedReturn === "live"
             ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-100"
@@ -222,8 +229,8 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
           <>
             <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <InfoCard icon={WalletCards} label="Current plan" value={summary.planName} detail={summary.organization} />
-              <InfoCard icon={CreditCard} label="Monthly price" value={money(summary.pricing.monthly, summary.pricing.currency)} detail="V79 plan price" />
-              <InfoCard icon={CreditCard} label="Annual price" value={money(summary.pricing.annual, summary.pricing.currency)} detail="V79 plan price" />
+              <InfoCard icon={CreditCard} label="Monthly price" value={summary.pricing.monthly===null?"Not configured":displayPrice(summary.pricing.monthly,displayCurrency)} detail="V79 plan price" />
+              <InfoCard icon={CreditCard} label="Annual price" value={summary.pricing.annual===null?"Not configured":displayPrice(summary.pricing.annual,displayCurrency)} detail="V79 plan price" />
               <InfoCard icon={CalendarDays} label={summary.status === "trial" ? "Trial expires" : "Renewal"} value={summary.status === "trial" ? (summary.trialEndsAt ? new Date(summary.trialEndsAt).toLocaleString() : "Not configured") : (summary.renewalDate ? new Date(summary.renewalDate + "T00:00:00").toLocaleDateString() : "Managed by V79")} detail={summary.status === "trial" ? (summary.accessStatus === "trial_expired" ? "Trial ended — paid app access restricted" : "14-day V79 pilot trial") : "Updated only after verified payment"} />
             </div>
 
@@ -291,6 +298,10 @@ export function WorkspaceBilling({ onNavigate }: { onNavigate: (view: ViewState)
               </div>
             </section>
 
+            {summary.status==="trial"&&<p className="text-sm text-slate-300">Your current trial remains unchanged. Package prices below are proposed post-trial subscriptions and do not trigger a charge.</p>}
+            <PricingConfigurator currency={displayCurrency} internalOwner={summary.accessStatus==="internal_owner"}/>
+            <BillingHistory currency={displayCurrency} refreshKey={invoiceRefresh}/>
+            {!summary.manualPaymentAvailable&&<section className="rounded-xl border border-[#1a3854] bg-[#091728] p-5"><h2 className="font-bold text-white">Bank-transfer payment instructions</h2><p className="mt-2 text-sm text-slate-400">{summary.accessStatus==="internal_owner"?"This is an internal owner workspace; customer subscription invoicing is not applicable.":"A positive monthly or annual price must be agreed and configured before requesting a bank-transfer invoice. Submit your package selection for V79 review above. A pricing request does not change your current trial or create an invoice."}</p><a className="mt-3 inline-block text-sm text-sky-300 underline" href={"mailto:"+summary.supportEmail+"?subject=V79%20Billing%20Instructions"}>Contact V79 Digital for official payment instructions</a></section>}
             {summary.manualPaymentAvailable && (
               <section className="rounded-xl border border-[#1a3854] bg-[#091728] px-5 py-4 space-y-3">
                 <h2 className="text-sm font-bold text-white">Pay by verified bank transfer</h2>
