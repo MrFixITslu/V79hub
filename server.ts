@@ -3155,11 +3155,15 @@ app.post("/api/billing/internal/capabilities", (req, res) => {
   });
 });
 
-app.post("/api/billing/internal/status", (req, res) => {
+app.post("/api/billing/internal/status", async (req, res) => {
   const service = billingServiceFromRequest(req);
   if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
   const orderId = String(req.body?.orderId || "").trim();
   if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return res.status(400).json({ error: "Invalid billing order." });
+  if (storePersistence.mode === "postgres") {
+    try { store = normalizeLoadedStore(await storePersistence.refresh()); }
+    catch { return res.status(503).json({ error: "Current payment status is unavailable. Check the ledger before retrying." }); }
+  }
   const order = (store.billingOrders || []).find(item => item.id === orderId && item.sourceApp === service.sourceApp);
   if (!order) return res.status(404).json({ error: "Billing order not found." });
   res.setHeader("Cache-Control", "no-store");
@@ -3180,8 +3184,12 @@ app.post("/api/billing/internal/status", (req, res) => {
   });
 });
 
-app.get("/api/billing/orders", requireAuth, requirePermission("billing"), (req, res) => {
+app.get("/api/billing/orders", requireAuth, requirePermission("billing"), async (req, res) => {
   const session = (req as any).user;
+  if (storePersistence.mode === "postgres") {
+    try { store = normalizeLoadedStore(await storePersistence.refresh()); }
+    catch { return res.status(503).json({ error: "Current billing history is unavailable. Check the ledger." }); }
+  }
   const orders = (store.billingOrders || [])
     .filter(order => order.organizationId === session.organizationId)
     .slice(-25)
