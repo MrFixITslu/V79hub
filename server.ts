@@ -3365,10 +3365,9 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   if (nextStore.billingPaymentEvents.length > 5000) nextStore.billingPaymentEvents = nextStore.billingPaymentEvents.slice(-5000);
 
   if (!verified) {
-    if (["failed", "error"].includes(String(req.query.status || "").toLowerCase())) {
-      order.status = "failed";
-      order.updatedAt = now;
-    }
+    // Browser/provider returns with a failed/error status are NOT cryptographically
+    // authenticated by this success-only contract. Never mutate a pending order
+    // to terminal 'failed' based on untrusted query parameters.
     onboardingAudit(nextStore, "billing_payment_rejected", { orderId: order.id, reason }, order.createdByUserId, order.organizationId);
     await commitStore(nextStore);
     return redirect("failed", reason, order);
