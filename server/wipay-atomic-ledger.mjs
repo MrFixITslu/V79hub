@@ -13,6 +13,16 @@ import { assessWipayCallback } from "./wipay-callback-guard.mjs";
  * This is an isolated integration building block until the HTTP handler and
  * ALL competing store writers are reconciled and tested together.
  */
+/**
+ * @param {{
+ *   repository?: { transact: (mutator: (state: any) => any, options?: any) => Promise<any> },
+ *   orderId?: string,
+ *   query?: Record<string, unknown>,
+ *   config?: any,
+ *   now?: () => string,
+ *   applyEntitlement?: (state: any, order: any, when: string) => void
+ * }} [args]
+ */
 export async function reconcileWipayInPostgres({
   repository,
   orderId,
