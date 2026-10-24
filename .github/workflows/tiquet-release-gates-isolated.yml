@@ -1,0 +1,47 @@
+name: Hub Tiquet Default-OFF Release Gate (Isolated)
+on:
+  push:
+    branches:
+      - feature/tiquet-release-gates-20261024
+    paths:
+      - docker-compose.yml
+      - tests/tiquet-release-gates-compose.test.mjs
+      - .github/workflows/tiquet-release-gates-isolated.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Assert exact authorized branch, no production data
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/feature/tiquet-release-gates-20261024
+          test -z "$(git ls-files -- data uploads .env backups)"
+          test ! -e .env
+      - name: Run source default-OFF and compatibility contracts
+        run: node --test tests/tiquet-release-gates-compose.test.mjs
+      - name: Audit changed file paths against approved whitelist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin ee79ec9353ee4248eb8276fee2e6c3476b3af491
+          git diff --name-only ee79ec9353ee4248eb8276fee2e6c3476b3af491 "$GITHUB_SHA" |
+            sort > "$RUNNER_TEMP/changed-paths"
+          printf '%s\n' \
+            '.github/workflows/tiquet-release-gates-isolated.yml' \
+            'docker-compose.yml' \
+            'tests/tiquet-release-gates-compose.test.mjs' |
+            sort > "$RUNNER_TEMP/allowed-paths"
+          diff -u "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/changed-paths"
+          echo "HUB_RELEASE_GATES=PASS_BRANCH_ONLY_DEFAULT_OFF"
+          echo "HUB_MAIN_AND_LIVE=UNTOUCHED"
