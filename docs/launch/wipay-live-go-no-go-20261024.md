@@ -2,6 +2,8 @@
 
 **Mode:** planning and isolated verification only. **No provider activation, live environment change, customer charges, rollout or production deployment authorized by this document.** Hub and Tiquet controlled beta remains intact with WiPay sandbox. From Idea to Advantage is owner-approved at **EC$249 one-time**; Academy PR #29 is review-ready with all four GitHub PR workflows passing at its latest recorded SHA.
 
+**Timing:** Owner anticipates WiPay merchant activation soon; the exact date is unverified. This checklist is not tied to an assumed onboarding day or week.
+
 ## Chosen option and /REDTEAM
 Considered three approaches:
 1. **Wait for WiPay before doing any work**: rejected because course publication, lead capture, current application QA and source reconciliation can proceed without live payments.
