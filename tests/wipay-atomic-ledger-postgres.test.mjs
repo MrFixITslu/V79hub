@@ -6,6 +6,8 @@ import { Pool } from "pg";
 import { PostgresStoreRepository, StoreRevisionConflictError } from "../server/postgres-store.mjs";
 import { reconcileWipayInPostgres } from "../server/wipay-atomic-ledger.mjs";
 import { createHubStorePersistence } from "../server/runtime-store.mjs";
+import { dispatchTransactionalTrialReminders } from "../server/trial-reminder-postgres.mjs";
+import { beginTrial } from "../server/subscription-access.mjs";
 import { getWipayConfig, createWipayCheckout } from "../server/wipay-provider.mjs";
 import { wipayResponseHash } from "../server/billing-contract.mjs";
 
@@ -275,6 +277,94 @@ if (!databaseUrl) {
     assert.equal(outcome.skipped, true);
     assert.equal(outcome.revision, 1);
     assert.equal((await repository.load()).revision, 1);
+  });
+
+  async function reminderFixture(t) {
+    const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+    t.after(() => pool.end());
+    const key = "trial_reminder_" + randomUUID();
+    const repository = new PostgresStoreRepository(pool, { storeKey: key });
+    await repository.ensureSchema();
+    const activated = Date.parse("2026-10-01T09:00:00Z");
+    const now = activated + 7 * 86400000;
+    const initial = {
+      organizations: [{ id: "trial-client", status: "active" }],
+      organizationPlans: [{ organizationId: "trial-client", ...beginTrial(activated) }],
+      users: [{ id: "trial-owner", email: "synthetic@example.test" }],
+      memberships: [{ organizationId: "trial-client", userId: "trial-owner", role: "owner", status: "active" }],
+      trialReminderEvents: [],
+      billingOrders: [{ id: "v79_paid_protected", provider: "wipay", status: "paid", providerTransactionId: "SYNTHETIC-PROTECTED" }],
+      billingPaymentEvents: [{ orderId: "v79_paid_protected", provider: "wipay", verified: true }],
+      auditEvents: [],
+    };
+    assert.equal((await repository.initialize(initial)).initialized, true);
+    const makePersistence = async () => {
+      const separate = new Pool({ connectionString: databaseUrl, max: 3 });
+      t.after(() => separate.end());
+      const persistence = createHubStorePersistence({
+        backend: "postgres", pool: separate, storeFile: "/unused-reminder-test.json", storeKey: key,
+      });
+      await persistence.load(x => structuredClone(x), () => ({}));
+      return persistence;
+    };
+    return { repository, now, makePersistence };
+  }
+
+  test("two PostgreSQL trial-reminder leaders claim before sending, exactly once, without overwriting a paid order", async t => {
+    const { repository, now, makePersistence } = await reminderFixture(t);
+    const a = await makePersistence(), b = await makePersistence();
+    let deliveries = 0;
+    const options = { ownerOrganizationId: "vision79-internal", now,
+      send: async reminder => {
+        assert.equal(reminder.email, "synthetic@example.test");
+        deliveries++;
+        return true;
+      },
+    };
+    const [first, second] = await Promise.all([
+      dispatchTransactionalTrialReminders({ persistence: a, ...options }),
+      dispatchTransactionalTrialReminders({ persistence: b, ...options }),
+    ]);
+    assert.equal(first.length + second.length, 1);
+    assert.equal(deliveries, 1);
+    const saved = (await repository.load()).state;
+    assert.equal(saved.trialReminderEvents.length, 1);
+    assert.equal(saved.trialReminderEvents[0].status, "sent");
+    assert.equal(saved.billingOrders[0].status, "paid");
+    assert.equal(saved.billingPaymentEvents.length, 1);
+    assert.equal((await dispatchTransactionalTrialReminders({ persistence: a, ...options })).length, 0);
+    assert.equal(deliveries, 1);
+  });
+
+  test("crash after durable claim never resends a trial-reminder email automatically", async t => {
+    const { repository, now, makePersistence } = await reminderFixture(t);
+    const worker = await makePersistence();
+    let commits = 0, sends = 0;
+    const interrupted = {
+      mode: "postgres",
+      refresh: () => worker.refresh(),
+      transact: async (mutator, options) => {
+        commits++;
+        if (commits === 2) throw new Error("synthetic process lost after send");
+        return worker.transact(mutator, options);
+      },
+    };
+    await assert.rejects(dispatchTransactionalTrialReminders({
+      persistence: interrupted, ownerOrganizationId: "vision79-internal", now,
+      send: async () => { sends++; return true; },
+    }), /synthetic process lost/);
+    assert.equal(sends, 1);
+    const stored = (await repository.load()).state;
+    assert.equal(stored.trialReminderEvents[0].status, "sending");
+    const restarted = await makePersistence();
+    assert.deepEqual(await dispatchTransactionalTrialReminders({
+      persistence: restarted, ownerOrganizationId: "vision79-internal", now,
+      send: async () => { sends++; return true; },
+    }), []);
+    assert.equal(sends, 1, "no duplicate email after unconfirmed completion");
+    const final = (await repository.load()).state;
+    assert.equal(final.billingOrders[0].status, "paid");
+    assert.equal(final.billingPaymentEvents.length, 1);
   });
 
   test("environment mismatches fail closed without a stored payment", async t => {
