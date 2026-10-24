@@ -17,6 +17,8 @@ test("actual Hub return handler uses PostgreSQL row-locked transaction for settl
   const localClone = callback.indexOf('const nextStore = cloneStore()', pg);
   assert.ok(pg >= 0 && transact > pg && localClone > transact);
   assert.match(callback, /repository: storePersistence/);
+  assert.match(callback, /sentinelWriteFence\.beginStoreSave\(\)/);
+  assert.match(callback, /finally \{\s*releasePaymentWrite\(\)/);
   assert.match(callback, /store = normalizeLoadedStore\(outcome\.state\)/);
   assert.match(callback, /applyEntitlement: \(state: AppStore, paidOrder: BillingOrder, when: string\)/);
   assert.match(callback, /paidOrder\.billingCycleAtOrder/);
