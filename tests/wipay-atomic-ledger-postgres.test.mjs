@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { Pool } from "pg";
 import { PostgresStoreRepository, StoreRevisionConflictError } from "../server/postgres-store.mjs";
 import { reconcileWipayInPostgres } from "../server/wipay-atomic-ledger.mjs";
+import { createHubStorePersistence } from "../server/runtime-store.mjs";
 import { getWipayConfig, createWipayCheckout } from "../server/wipay-provider.mjs";
 import { wipayResponseHash } from "../server/billing-contract.mjs";
 
@@ -164,6 +165,95 @@ if (!databaseUrl) {
     const final = (await repository.load()).state;
     assert.equal(final.billingPaymentEvents.length, 1);
     assert.equal(final.organizationPlans[0].status, "active");
+  });
+
+  test("Hub transactional callback updates revision and blocks an older ordinary Hub writer", async t => {
+    const a = order("v79_synthetic_stalewriter");
+    const { repository, key } = await fixture(t, [a]);
+    const pool = new Pool({ connectionString: databaseUrl, max: 3 });
+    t.after(() => pool.end());
+    const persistence = createHubStorePersistence({
+      backend: "postgres", storeFile: "/unused/synthetic-store.json",
+      pool, storeKey: key,
+    });
+    const olderState = await persistence.load(state => structuredClone(state), () => ({}));
+    const competingWriterState = structuredClone(olderState);
+    const result = await reconcileWipayInPostgres({
+      repository: persistence, orderId: a.id, query: queryFor(a, "LC-STALE-CAS"),
+      config, applyEntitlement: (state, paidOrder) => {
+        state.organizationPlans[0].status = "active";
+        state.organizationPlans[0].paidThroughAt = "2026-11-24T14:30:00.000Z";
+      },
+    });
+    assert.equal(result.result.decision, "accepted");
+    assert.equal(persistence.revision(), 2);
+    await assert.rejects(persistence.save(competingWriterState), /Stale|revision conflict/);
+    const current = (await repository.load()).state;
+    assert.equal(current.billingOrders[0].status, "paid");
+    assert.equal(current.billingPaymentEvents.length, 1);
+
+    // A second Hub worker loaded revision one: its old ordinary store save
+    // must fail the database CAS rather than overwrite that paid state.
+    const otherPool = new Pool({ connectionString: databaseUrl, max: 2 });
+    t.after(() => otherPool.end());
+    const other = createHubStorePersistence({
+      backend: "postgres", storeFile: "/unused/synthetic-2.json",
+      pool: otherPool, storeKey: key,
+    });
+    const newer = await other.load(x => structuredClone(x), () => ({}));
+    // Server-side revision is 2, so an intentionally old snapshot must have
+    // been acquired before another transaction below.
+    await repository.transact(next => { next.auditEvents.push({ type: "synthetic-commit" }); });
+    await assert.rejects(other.save(newer), /revision conflict|Stale/);
+    assert.equal((await repository.load()).state.billingOrders[0].status, "paid");
+  });
+
+  test("pending save queued during Hub payment settlement cannot overwrite confirmed funds", async t => {
+    const a = order("v79_synthetic_queuedsave");
+    const { repository, key } = await fixture(t, [a]);
+    const pool = new Pool({ connectionString: databaseUrl, max: 3 });
+    t.after(() => pool.end());
+    const persistence = createHubStorePersistence({
+      backend: "postgres", storeFile: "/unused/synthetic-3.json",
+      pool, storeKey: key,
+    });
+    const initial = await persistence.load(x => structuredClone(x), () => ({}));
+    let unblock;
+    let transactionEntered;
+    const entered = new Promise(resolve => { transactionEntered = resolve; });
+    const gate = new Promise(resolve => { unblock = resolve; });
+    const payment = persistence.transact(async state => {
+      transactionEntered();
+      await gate;
+      state.billingOrders[0].status = "paid";
+      state.billingOrders[0].providerTransactionId = "LC-QUEUED-TEST";
+      state.billingPaymentEvents.push({ orderId: a.id, transactionId: "LC-QUEUED-TEST" });
+      return { decision: "accepted" };
+    });
+    await entered;
+    // A normal Hub handler captured an out-of-date clone before commit.
+    const stale = persistence.save({ ...initial, auditEvents: [{ type: "stale" }] });
+    unblock();
+    assert.equal((await payment).result.decision, "accepted");
+    await assert.rejects(stale, /Stale/);
+    const final = (await repository.load()).state;
+    assert.equal(final.billingOrders[0].status, "paid");
+    assert.equal(final.billingPaymentEvents.length, 1);
+    assert.equal(final.auditEvents.length, 0);
+  });
+
+  test("invalid payment return remains read-only with no PostgreSQL revision increment", async t => {
+    const a = order("v79_synthetic_no_write");
+    const { repository, key } = await fixture(t, [a]);
+    const q = queryFor(a, "LC-INVALID");
+    const outcome = await reconcileWipayInPostgres({
+      repository, orderId: a.id,
+      query: { ...q, hash: "0".repeat(32) }, config,
+    });
+    assert.equal(outcome.result.decision, "reject");
+    assert.equal(outcome.skipped, true);
+    assert.equal(outcome.revision, 1);
+    assert.equal((await repository.load()).revision, 1);
   });
 
   test("environment mismatches fail closed without a stored payment", async t => {
