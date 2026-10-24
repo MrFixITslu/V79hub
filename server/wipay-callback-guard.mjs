@@ -1,4 +1,14 @@
 /**
+ * No JSON-only live checkouts. PostgreSQL's revision/CAS protection prevents
+ * a stale multi-process write from silently overwriting a newer payment.
+ * It is necessary, NOT sufficient: callback/recovery and all store writers
+ * must still pass production acceptance before enabling real transactions.
+ */
+export function liveWipayStoreSupported(environment, backend) {
+  return environment !== "live" || backend === "postgres";
+}
+
+/**
  * Local-only exclusion for the WiPay return handler's read/verify/commit window.
  *
  * Limits: applies to one Node.js process. It does NOT serialize other store
