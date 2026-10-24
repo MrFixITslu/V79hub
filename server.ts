@@ -3361,7 +3361,12 @@ app.get("/api/billing/wipay/return", async (req, res) => {
     // For PostgreSQL use the row-locked transaction over the LATEST durable
     // state, not the in-memory clone. Every competing old snapshot is rejected
     // by the runtime persistence revision/CAS gate.
-    const outcome = await reconcileWipayInPostgres({
+    const outcome = await (async () => {
+      // Preserve Sentinel maintenance exclusivity for transactional payment
+      // writes, just as commitStore does for ordinary Hub mutations.
+      const releasePaymentWrite = sentinelWriteFence.beginStoreSave();
+      try {
+        return await reconcileWipayInPostgres({
       repository: storePersistence,
       orderId,
       query: req.query as Record<string, unknown>,
@@ -3400,7 +3405,11 @@ app.get("/api/billing/wipay/return", async (req, res) => {
           providerEnvironment: paidOrder.providerEnvironment,
         }, paidOrder.createdByUserId, paidOrder.organizationId);
       },
-    });
+        });
+      } finally {
+        releasePaymentWrite();
+      }
+    })();
     // PostgreSQL state and local revision now refer to the same commit.
     store = normalizeLoadedStore(outcome.state);
     const persistedOrder = store.billingOrders.find(item => item.id === orderId);
