@@ -45,7 +45,13 @@ test("manual settlement requires separate platform owner, fresh MFA, same-origin
 test("WiPay return can never settle a manual order and existing Sentinel G1.2 boundaries remain",()=>{
   const p=server.indexOf('app.get("/api/billing/wipay/return"');
   assert(p>0);
-  assert.match(server.slice(p,p+1900),/if \(order\.provider !== "wipay"\)/);
+  const end=server.indexOf('app.get("/api/security/mfa/status"',p);
+  assert(end>p,"must identify entire WiPay callback handler");
+  const route=server.slice(p,end);
+  assert.match(route,/reconcileWipayInPostgres/,"PostgreSQL payments must use transactional reconciliation");
+  assert.match(route,/if \(order\.provider !== "wipay"\)/,"sandbox JSON fallback cannot settle manual payments");
+  const atomic=fs.readFileSync(new URL("../server/wipay-atomic-ledger.mjs",import.meta.url),"utf8");
+  assert.match(atomic,/order\.provider !== "wipay"/,"PostgreSQL transaction cannot settle manual payments");
   assert.match(server,/sentinelServiceGrants: validateSentinelGrantCollection/);
   assert.match(server,/app\.get\("\/api\/agent\/executive-structure"/);
   assert.match(server,/app\.post\("\/api\/agent\/executive-handoff"/);

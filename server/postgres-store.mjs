@@ -91,7 +91,7 @@ export class PostgresStoreRepository {
       client.release();
     }
   }
-  async transact(mutator) {
+  async transact(mutator, { skipWriteWhen = null } = {}) {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -103,6 +103,12 @@ export class PostgresStoreRepository {
       const current = locked.rows[0];
       const nextState = structuredClone(current.state);
       const result = await mutator(nextState, Number(current.revision));
+      if (typeof skipWriteWhen === "function" && skipWriteWhen(result)) {
+        // Rejecting a forged/replayed return is a read-only decision. Do not
+        // rewrite the ledger or advance revision for invalid browser traffic.
+        await client.query("COMMIT");
+        return { result, revision: Number(current.revision), state: structuredClone(current.state), skipped: true };
+      }
       const updated = await client.query(
         `UPDATE v79_hub_state
          SET state = $2::jsonb, revision = revision + 1, updated_at = NOW()

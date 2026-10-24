@@ -4,7 +4,7 @@ import { normalizeMoney, verifyWipayResponse } from "./billing-contract.mjs";
 const SANDBOX_DEFAULTS = Object.freeze({
   accountNumber: "1234567890",
   apiKey: "123",
-  endpoint: "https://tt.wipayfinancial.com/plugins/payments/request",
+  endpoint: "https://ttsb.wipayfinancial.com/plugins/payments/request",
   countryCode: "TT",
   currency: "TTD",
 });
@@ -105,6 +105,11 @@ export function createWipayCheckout({ order, config }) {
   const amount = normalizeMoney(order?.amount);
   if (!order?.id || amount === null || amount <= 0) throw new Error("A valid positive billing order is required.");
   if (String(order.currency || "").toUpperCase() !== config.currency) throw new Error("Billing order currency does not match WiPay configuration.");
+  if (order.providerEnvironment !== config.environment) throw new Error("Billing order provider environment does not match WiPay configuration.");
+  const payerEmail = clean(order.payerEmail).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payerEmail) || payerEmail.length > 50) {
+    throw new Error("A valid payer email (maximum 50 characters) is required.");
+  }
 
   const state = signBillingOrderState({
     orderId: order.id,
@@ -132,7 +137,8 @@ export function createWipayCheckout({ order, config }) {
       }),
       environment: config.environment,
       fee_structure: config.feeStructure,
-      method: "credit_card",
+      email: payerEmail,
+      method: "credit_card_co",
       order_id: order.id,
       origin: "V79-Hub",
       response_url: config.responseUrl,
@@ -153,7 +159,8 @@ export function verifyWipayReturn({ query, expectedOrder, config }) {
 
   if (!config?.ready) return { ok: false, reason: "wipay_not_ready", status, transactionId, orderId };
   if (status !== "success") return { ok: false, reason: "provider_status_not_success", status, transactionId, orderId };
-  if (!verifyWipayResponse({ transactionId, total: totalRaw, apiKey: config.apiKey, hash })) {
+  if (expectedOrder?.providerEnvironment !== config.environment) return { ok: false, reason: "environment_mismatch", status, transactionId, orderId };
+  if (expectedAmount === null || !verifyWipayResponse({ transactionId, total: expectedAmount.toFixed(2), apiKey: config.apiKey, hash })) {
     return { ok: false, reason: "provider_hash_invalid", status, transactionId, orderId };
   }
   if (!expectedOrder?.id || orderId !== expectedOrder.id) {
