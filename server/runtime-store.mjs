@@ -61,11 +61,10 @@ export function createHubStorePersistence({
     return initial;
   }
 
-  async function save(nextStore) {
+  async function save(nextStore, { expectedRevision = revision } = {}) {
     const snapshot = structuredClone(nextStore);
-    // Capture revision BEFORE queueing: a concurrent payment transaction must
-    // not be overwritten by an older caller snapshot queued behind it.
-    const expectedRevision = revision;
+    // The Hub supplies the revision from when the snapshot/request was made.
+    // Default to the current revision only for legacy direct test callers.
     persistChain = persistChain.catch(() => {}).then(async () => {
       const persisted = { ...envelope, ...snapshot };
       if (mode === "postgres") {
