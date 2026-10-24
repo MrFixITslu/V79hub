@@ -1,0 +1,30 @@
+name: WiPay v1 request and return contract (isolated, no deployment)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/wipay-provider.mjs'
+      - 'server/billing-contract.mjs'
+      - 'server.ts'
+      - 'tests/wipay-provider.test.mjs'
+      - '.github/workflows/wipay-v1-payment-contract-isolated.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Strict offline WiPay request/response contract
+        run: node --test tests/wipay-provider.test.mjs tests/billing-contract.test.mjs
+      - name: Full application TypeScript check
+        run: npm run lint
+      - name: Frontend build (no publish)
+        run: npm run build
