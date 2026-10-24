@@ -3237,7 +3237,7 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
     organizationId: session.organizationId,
     sourceApp: "hub",
     kind: "subscription",
-    billingCycleAtOrder: plan.billingCycle,
+    billingCycleAtOrder: plan.billingCycle as "monthly" | "annual",
     payerEmail,
     description: `${plan.planName} ${plan.billingCycle} renewal`,
     amount,
