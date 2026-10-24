@@ -46,7 +46,7 @@ test("checkout binds the order to V79 state and never sends the API key", () => 
     V79_BILLING_STATE_SECRET: secret,
   });
   const checkout = createWipayCheckout({
-    order: { id: "order_123", amount: 29.99, currency: "TTD" },
+    order: { id: "order_123", amount: 29.99, currency: "TTD", payerEmail: "payer@example.com", providerEnvironment: "sandbox" },
     config,
   });
   assert.equal(checkout.fields.total, "29.99");
@@ -65,7 +65,7 @@ test("verified return rejects order tampering even when the WiPay hash is valid"
     APP_URL: "https://hub.example.com",
     V79_BILLING_STATE_SECRET: secret,
   });
-  const order = { id: "order_123", amount: 29.99, currency: "TTD" };
+  const order = { id: "order_123", amount: 29.99, currency: "TTD", payerEmail: "payer@example.com", providerEnvironment: "sandbox" };
   const checkout = createWipayCheckout({ order, config });
   const transactionId = "SB-12-1-order_123-20261007120000";
   const total = "29.99";
@@ -92,7 +92,7 @@ test("hosted checkout uses supported WiPay method and a validated payer email", 
   // The provider requires a real payer email, which must not be substituted with the merchant account email.
   assert.throws(() => createWipayCheckout({ order, config }), /payer email/i);
   assert.throws(() => createWipayCheckout({ order: { ...order, payerEmail: "invalid" }, config }), /payer email/i);
-  assert.throws(() => createWipayCheckout({ order: { ...order, payerEmail: "abc@example.test" }, config, }), /payer email/i);
+  assert.throws(() => createWipayCheckout({ order: { ...order, payerEmail: "x".repeat(45) + "@example.com" }, config }), /payer email/i);
   const withPayer = createWipayCheckout({ order: { ...order, payerEmail: "real.learner@example.com" }, config });
   assert.equal(withPayer.fields.method, "credit_card_co");
   assert.equal(withPayer.fields.email, "real.learner@example.com");
