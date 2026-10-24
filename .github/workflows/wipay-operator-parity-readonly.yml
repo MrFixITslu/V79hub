@@ -1,0 +1,26 @@
+name: WiPay operator parity source checks (offline, never deploy)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/wipay-runtime-parity-readonly.mjs'
+      - 'tests/wipay-runtime-parity-readonly.test.mjs'
+      - 'docs/launch/wipay-owner-cutover-evidence-20261024.md'
+      - '.github/workflows/wipay-operator-parity-readonly.yml'
+permissions:
+  contents: read
+jobs:
+  no-production-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check inspection script against synthetic Docker fixtures only
+        run: node --test tests/wipay-runtime-parity-readonly.test.mjs
+# Does not call Docker, read GitHub secrets, access production, connect to
+# any external service, send email, merge, publish an image or deploy.
