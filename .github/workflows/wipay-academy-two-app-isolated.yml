@@ -22,18 +22,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Checkout exact Academy authenticated-payer branch commit
+      - name: Checkout exact Academy combined PR #32 commit (pricing + billing boundary + payer identity)
         uses: actions/checkout@v4
         with:
           repository: MrFixITslu/V79acaedmy
-          ref: d3dbfdfc2d2e4d147cd49608ad81a1ccfc85e2c9
+          ref: c748e3ecc3dfe94d8a15fe0a6015870aac498132
           path: academy-checkout
           persist-credentials: false
       - name: Verify exact immutable Academy source
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C academy-checkout rev-parse HEAD)" = d3dbfdfc2d2e4d147cd49608ad81a1ccfc85e2c9
+          test "$(git -C academy-checkout rev-parse HEAD)" = c748e3ecc3dfe94d8a15fe0a6015870aac498132
           test ! -e academy-checkout/.env
           test ! -e .env
       - uses: actions/setup-node@v4
