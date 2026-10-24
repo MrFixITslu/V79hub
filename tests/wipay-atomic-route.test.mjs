@@ -57,6 +57,24 @@ test("cross-process signed order status and billing history refresh durable Post
   assert.match(history, /Current billing history is unavailable/);
 });
 
+test("scheduled trial reminders use serialized PostgreSQL claim and never send on failed claim", () => {
+  const marker = server.indexOf("async function dispatchTrialReminders()");
+  assert.ok(marker > 0);
+  const segment = server.slice(marker, marker + 1550);
+  assert.match(segment, /if \(storePersistence\.mode === "postgres"\)/);
+  assert.match(segment, /await dispatchTransactionalTrialReminders\(/);
+  assert.match(segment, /persistence: storePersistence/);
+  assert.match(segment, /await storePersistence\.refresh\(\)/);
+  assert.match(segment, /snapshotRevision\.set\(store, storePersistence\.revision\(\)\)/);
+  assert.match(segment, /else \{\s*await dispatchDueTrialReminders\(/);
+  const worker = fs.readFileSync(new URL("../server/trial-reminder-postgres.mjs", import.meta.url), "utf8");
+  assert.match(worker, /await persistence\.transact\(state =>/);
+  assert.match(worker, /if \(!claimed\.result\.claimed\) continue/);
+  assert.ok(worker.indexOf("if (!claimed.result.claimed) continue") <
+    worker.indexOf("await send(claimed.result.reminder)"), "send only after a committed claim");
+  assert.match(worker, /skipWriteWhen: decision => !decision\.claimed/);
+});
+
 test("no unverified callback cancellation and no process-local lock as sole live defense", () => {
   assert.doesNotMatch(callback, /order\.status\s*=\s*"failed"/);
   assert.match(callback, /if \(!liveWiPayLedgerReady\(config\)\)/);
