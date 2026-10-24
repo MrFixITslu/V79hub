@@ -3869,6 +3869,26 @@ function customerAdminRecord(currentStore: AppStore, organization: Organization)
   };
 }
 
+/**
+ * Tenant activation helpers return a new immutable Hub store object. Because
+ * a single platform-admin request may provision several products sequentially,
+ * each new object must inherit the exact revision of the source store it
+ * transformed—not the request's initial revision.
+ *
+ * Payment safety: only commit with source revision provenance; a concurrent
+ * settlement or another instance's write still triggers PostgreSQL CAS failure.
+ */
+async function commitProvisionedTenantMapping(nextStore: AppStore, sourceStore: AppStore) {
+  const originatingRevision = snapshotRevision.get(sourceStore);
+  if (storePersistence.mode === "postgres" && originatingRevision === undefined) {
+    throw new Error("Cannot persist tenant provisioning without the source-store revision.");
+  }
+  if (originatingRevision !== undefined) {
+    snapshotRevision.set(nextStore, originatingRevision);
+  }
+  await commitStore(nextStore);
+}
+
 async function provisionCustomerProduct(product: CustomerProvisionProduct, organizationId: string, actorUserId: string) {
   const appId = customerProvisionProducts[product];
   const existing = store.appTenantMappings.find(mapping => mapping.organizationId === organizationId && mapping.appId === appId);
@@ -3878,22 +3898,22 @@ async function provisionCustomerProduct(product: CustomerProvisionProduct, organ
     const target = posProvisioningTarget(store, organizationId);
     const provisioned = await provisionPosWorkspace(target.organization, target.owner.id);
     if (!provisioned.ok) throw new Error(provisioned.error);
-    await commitStore(activatePosTenantMapping(store, organizationId, provisioned.organizationId, actorUserId, new Date().toISOString()) as AppStore);
+    await commitProvisionedTenantMapping(activatePosTenantMapping(store, organizationId, provisioned.organizationId, actorUserId, new Date().toISOString()) as AppStore, store);
   } else if (product === "ffpro") {
     const target = ffproProvisioningTarget(store, organizationId);
     const provisioned = await provisionFfproWorkspace(target.organization, target.owner);
     if (!provisioned.ok) throw new Error(provisioned.error);
-    await commitStore(activateFfproTenantMapping(store, organizationId, provisioned.organizationId, provisioned.financeUserId, actorUserId, new Date().toISOString()) as AppStore);
+    await commitProvisionedTenantMapping(activateFfproTenantMapping(store, organizationId, provisioned.organizationId, provisioned.financeUserId, actorUserId, new Date().toISOString()) as AppStore, store);
   } else if (product === "tiquet") {
     const target = tiquetProvisioningTarget(store, organizationId);
     const provisioned = await provisionTiquetWorkspace(target.organization, target.owner);
     if (!provisioned.ok) throw new Error(provisioned.error);
-    await commitStore(activateTiquetTenantMapping(store, organizationId, provisioned.organizationId, provisioned.accountId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore);
+    await commitProvisionedTenantMapping(activateTiquetTenantMapping(store, organizationId, provisioned.organizationId, provisioned.accountId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore, store);
   } else {
     const target = marketingProvisioningTarget(store, organizationId);
     const provisioned = await provisionMarketingWorkspace(target.organization, target.owner);
     if (!provisioned.ok) throw new Error(provisioned.error);
-    await commitStore(activateMarketingTenantMapping(store, organizationId, provisioned.organizationId, provisioned.businessId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore);
+    await commitProvisionedTenantMapping(activateMarketingTenantMapping(store, organizationId, provisioned.organizationId, provisioned.businessId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore, store);
   }
 
   return { product, appId, status: "active" as const, skipped: false };
