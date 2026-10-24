@@ -3342,7 +3342,7 @@ app.get("/api/billing/wipay/return", async (req, res) => {
     return res.redirect(302, url.toString());
   };
 
-  if (!orderId || orderId.length > 64) return redirect("error", "invalid_order");
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return redirect("error", "invalid_order");
   const releaseCallback = wipayCallbackGuard.tryAcquire();
   if (!releaseCallback) {
     res.setHeader("Retry-After", "2");
