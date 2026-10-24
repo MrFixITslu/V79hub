@@ -38,7 +38,7 @@ if (!databaseUrl) {
       data: form.fields.data, ...extras,
     };
   }
-  function child(storeKey, orderId, query) {
+  function child(storeKey, orderId, query, options = {}) {
     return new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ["tests/wipay-atomic-ledger-child.mjs"], {
         cwd: process.cwd(),
@@ -53,7 +53,7 @@ if (!databaseUrl) {
         if (code !== 0) return reject(new Error("Synthetic child failed with exit " + code + ": " + error));
         try { resolve(JSON.parse(out)); } catch (err) { reject(err); }
       });
-      child.stdin.end(JSON.stringify({ storeKey, orderId, query, config }));
+      child.stdin.end(JSON.stringify({ storeKey, orderId, query, config, ...options }));
     });
   }
   async function fixture(t, orders) {
@@ -146,6 +146,24 @@ if (!databaseUrl) {
     saved = (await repository.load()).state;
     assert.equal(saved.billingOrders[0].status, "paid");
     assert.equal(saved.billingPaymentEvents.length, 1);
+  });
+
+  test("abrupt process death mid-transaction rolls back and a new process can safely reconcile", async t => {
+    const a = order("v79_synthetic_crash");
+    const { repository, key } = await fixture(t, [a]);
+    const query = queryFor(a, "LC-SYNTHETIC-CRASH-RECOVER");
+    await assert.rejects(child(key, a.id, query, { crashBeforeCommit: true }), /exit 52/);
+    const afterCrash = (await repository.load()).state;
+    assert.equal(afterCrash.billingOrders[0].status, "pending");
+    assert.equal(afterCrash.billingPaymentEvents.length, 0);
+    assert.equal(afterCrash.organizationPlans[0].status, "trial");
+    const recovered = await child(key, a.id, query);
+    assert.equal(recovered.decision, "accepted");
+    const repeat = await child(key, a.id, query);
+    assert.equal(repeat.decision, "already_paid");
+    const final = (await repository.load()).state;
+    assert.equal(final.billingPaymentEvents.length, 1);
+    assert.equal(final.organizationPlans[0].status, "active");
   });
 
   test("environment mismatches fail closed without a stored payment", async t => {
