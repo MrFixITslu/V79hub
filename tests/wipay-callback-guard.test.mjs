@@ -1,12 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { assessWipayCallback, createWipayCallbackGuard } from "../server/wipay-callback-guard.mjs";
+import { assessWipayCallback, createWipayCallbackGuard, liveWipayStoreSupported } from "../server/wipay-callback-guard.mjs";
 
 const pending = (id, status = "pending") => ({
   id, provider: "wipay", status, providerEnvironment: "sandbox", currency: "TTD", amount: 10,
 });
 const valid = (transactionId = "SB-SYNTHETIC-123") => ({ ok: true, transactionId, reason: "verified" });
+
+test("live merchant order/return is blocked on JSON persistence; sandbox remains available", () => {
+  assert.equal(liveWipayStoreSupported("live", "json"), false);
+  assert.equal(liveWipayStoreSupported("live", "postgres"), true);
+  assert.equal(liveWipayStoreSupported("sandbox", "json"), true);
+  assert.equal(liveWipayStoreSupported("sandbox", "postgres"), true);
+});
 
 test("two simultaneous callbacks cannot both enter one process read-to-commit window", async () => {
   const guard = createWipayCallbackGuard();
@@ -89,6 +96,7 @@ test("Hub handler acquires guard before snapshot, returns 503 while busy, and re
   const last = source.indexOf('app.get("/api/security/mfa/status"', first);
   assert.ok(first > 0 && last > first);
   const callback = source.slice(first, last);
+  assert.match(callback, /if \(!liveWiPayLedgerReady\(config\)\)/);
   assert.ok(callback.indexOf("wipayCallbackGuard.tryAcquire()") < callback.indexOf("const nextStore = cloneStore()"));
   assert.match(callback, /return res\.status\(503\)\.send\(/);
   assert.match(callback, /assessWipayCallback\(\{ order, verification, orders:/);
