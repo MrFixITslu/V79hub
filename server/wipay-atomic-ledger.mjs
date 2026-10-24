@@ -19,7 +19,7 @@ export async function reconcileWipayInPostgres({
   query,
   config,
   now = () => new Date().toISOString(),
-  applyEntitlement = () => {},
+  applyEntitlement = (_state, _order, _when) => {},
 } = {}) {
   if (!repository || typeof repository.transact !== "function") {
     throw new Error("A transactional PostgreSQL repository is required.");
