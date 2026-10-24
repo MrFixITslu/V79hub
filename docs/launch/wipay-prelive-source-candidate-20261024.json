@@ -25,7 +25,15 @@
       "tests/wipay-atomic-route.test.mjs": "e4508bc9a2e9715ce72826f55521f5c73ee70f1b",
       "tests/wipay-atomic-ledger-child.mjs": "81bf1e9e075ae424a8896cf8d7bdc23197d225dd",
       "tests/g12-full-internal-billing-integration.test.mjs": "40db64126bcb51062d8da1535493a68871a1dd8a",
-      ".github/workflows/wipay-v1-payment-contract-isolated.yml": "7f441f1912188878372d6effe24731ef7517f59e"
+      ".github/workflows/wipay-v1-payment-contract-isolated.yml": "7f441f1912188878372d6effe24731ef7517f59e",
+      "tests/wipay-academy-two-app-http.test.mjs": "67bebc6f5bf40e18f778c2b4f4bde94160316a83",
+      ".github/workflows/wipay-academy-two-app-isolated.yml": "bdeb73cecb52933ef2e30c50cfc4504cf331373c"
+    },
+    "cross_repo_academy_source": {
+      "repository": "MrFixITslu/V79acaedmy",
+      "review_pr": 31,
+      "commit": "d3dbfdfc2d2e4d147cd49608ad81a1ccfc85e2c9",
+      "scope": "SIGNED_PAYER_EMAIL_ONLY_NOT_MERGED_PR29_OR_PR30"
     }
   },
   "release_gates": {
@@ -39,5 +47,5 @@
     "installed_server_parity_verified": false,
     "real_provider_transaction_performed": false
   },
-  "notes": "Reviewed source fingerprint inventory only. Subsequent code changes MUST refresh this candidate document in reviewed PR. This does not substitute for historical R18 check, exact image digest, restoration, account/endpoint confirmation, live payment reconciliation or a new explicitly approved production release."
+  "notes": "Reviewed source fingerprint inventory only. Subsequent code changes MUST refresh this candidate document in reviewed PR. This does not substitute for historical R18 check, exact image digest, restoration, account/endpoint confirmation, live payment reconciliation or a new explicitly approved production release. The two-app test uses a pinned Academy PR31 source checkout; it does not automatically combine unmerged Academy pricing PR29 and additional isolated tests PR30. It uses a synthetic provider callback only and cannot establish actual WiPay settlement."
 }
