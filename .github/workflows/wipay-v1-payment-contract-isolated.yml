@@ -8,11 +8,13 @@ on:
       - 'server/wipay-atomic-ledger.mjs'
       - 'server/postgres-store.mjs'
       - 'server/runtime-store.mjs'
+      - 'server/postgres-store.mjs'
       - 'server/billing-contract.mjs'
       - 'server.ts'
       - 'tests/wipay-provider.test.mjs'
       - 'tests/wipay-callback-guard.test.mjs'
       - 'tests/wipay-atomic-ledger-postgres.test.mjs'
+      - 'tests/wipay-atomic-route.test.mjs'
       - 'tests/wipay-atomic-ledger-child.mjs'
       - '.github/workflows/wipay-v1-payment-contract-isolated.yml'
 permissions:
@@ -30,7 +32,7 @@ jobs:
           node-version: '24'
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Strict offline WiPay request/response contract
-        run: node --test tests/wipay-provider.test.mjs tests/billing-contract.test.mjs tests/wipay-callback-guard.test.mjs
+        run: node --test tests/wipay-provider.test.mjs tests/billing-contract.test.mjs tests/wipay-callback-guard.test.mjs tests/wipay-atomic-route.test.mjs
       - name: Full application TypeScript check
         run: npm run lint
       - name: Frontend build (no publish)
