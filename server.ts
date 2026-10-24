@@ -54,6 +54,7 @@ import { registerSentinelGrant, revokeSentinelGrant, validateSentinelGrantCollec
 import { validateSentinelOwnerGrantRequest, validateSentinelOwnerRevocation } from "./server/sentinel-grant-operator.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
 import { assessWipayCallback, createWipayCallbackGuard, liveWipayStoreSupported } from "./server/wipay-callback-guard.mjs";
+import { reconcileWipayInPostgres } from "./server/wipay-atomic-ledger.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3220,6 +3221,7 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
     organizationId: session.organizationId,
     sourceApp: "hub",
     kind: "subscription",
+    billingCycleAtOrder: plan.billingCycle,
     payerEmail,
     description: `${plan.planName} ${plan.billingCycle} renewal`,
     amount,
@@ -3331,7 +3333,67 @@ app.get("/api/billing/wipay/return", async (req, res) => {
     return res.status(503).send("Payment verification is in progress. Check order status before retrying.");
   }
   try {
-  // Read the order only after acquiring the guard, never before.
+  if (storePersistence.mode === "postgres") {
+    // For PostgreSQL use the row-locked transaction over the LATEST durable
+    // state, not the in-memory clone. Every competing old snapshot is rejected
+    // by the runtime persistence revision/CAS gate.
+    const outcome = await reconcileWipayInPostgres({
+      repository: storePersistence,
+      orderId,
+      query: req.query as Record<string, unknown>,
+      config,
+      applyEntitlement: (state: AppStore, paidOrder: BillingOrder, when: string) => {
+        if (paidOrder.sourceApp === "hub" && paidOrder.kind === "subscription") {
+          const organizationId = paidOrder.organizationId;
+          const cycle = paidOrder.billingCycleAtOrder;
+          if (!organizationId || (cycle !== "monthly" && cycle !== "annual")) {
+            throw new Error("Live subscription order lacks original organization or cycle.");
+          }
+          let plan = state.organizationPlans.find(item => item.organizationId === organizationId);
+          if (!plan) {
+            const fallback = organizationPlanFor(state, organizationId);
+            plan = { ...fallback, createdAt: when, updatedAt: when };
+            state.organizationPlans.push(plan);
+          }
+          if (plan.billingCycle !== cycle) {
+            throw new Error("Order billing cycle differs from current plan; manual reconciliation required.");
+          }
+          const prior = plan.accessPolicyType === "paid" && plan.paidThroughAt
+            ? new Date(plan.paidThroughAt) : null;
+          const paidThroughBase = prior && Number.isFinite(prior.getTime()) &&
+            prior.getTime() > Date.parse(when) ? prior : new Date(when);
+          const paidThroughAt = addBillingPeriod(paidThroughBase, cycle).toISOString();
+          plan.renewalDate = paidThroughAt.slice(0, 10);
+          plan.paidThroughAt = paidThroughAt;
+          plan.accessPolicyType = "paid";
+          plan.status = "active";
+          plan.updatedAt = when;
+        }
+        onboardingAudit(state, "billing_payment_verified", {
+          orderId: paidOrder.id,
+          transactionId: paidOrder.providerTransactionId,
+          amount: paidOrder.amount, currency: paidOrder.currency,
+          providerEnvironment: paidOrder.providerEnvironment,
+        }, paidOrder.createdByUserId, paidOrder.organizationId);
+      },
+    });
+    // PostgreSQL state and local revision now refer to the same commit.
+    store = normalizeLoadedStore(outcome.state);
+    const persistedOrder = store.billingOrders.find(item => item.id === orderId);
+    const decision = outcome.result;
+    if (decision.decision === "accepted") {
+      if (persistedOrder?.providerEnvironment === "sandbox") {
+        return redirect("success", "sandbox_verified_no_entitlement_change", persistedOrder);
+      }
+      return redirect("success", "", persistedOrder);
+    }
+    if (decision.decision === "already_paid") {
+      return redirect("success", "already_processed", persistedOrder);
+    }
+    return redirect("failed", decision.reason || "payment_not_verified", persistedOrder);
+  }
+  // JSON is retained for sandbox-only compatibility and cannot accept live
+  // checkouts. Read its order only after acquiring the process-local guard.
   const nextStore = cloneStore();
   const order = nextStore.billingOrders.find(item => item.id === orderId);
   if (!order) return redirect("error", "order_not_found");
