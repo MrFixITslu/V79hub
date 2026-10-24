@@ -100,7 +100,7 @@ if (!academyRoot) {
         ...process.env, NODE_ENV: "production", PORT: String(hubPort),
         DATA_DIR: join(directory, "hub"), APP_URL: hub, V79_HUB_STORE_BACKEND: "json",
         V79_HUB_ADMIN_PASSWORD: "synthetic-only-owner-password-123456",
-        V79_HUB_ADMIN_EMAIL: "owner@example.test",
+        V79_HUB_ADMIN_EMAIL: "vision79slu@gmail.com",
         V79_HUB_SECURITY_KEY: "synthetic-hub-security-unique-32-char-2026",
         V79_PLATFORM_SHARED_SECRET: "synthetic-platform-shared-secret-unique-2026",
         V79_BILLING_STATE_SECRET: stateSecret,
