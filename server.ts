@@ -740,6 +740,7 @@ let store = await storePersistence.load(normalizeLoadedStore, initialStore) as A
 // that started before an accepted payment may NEVER submit a newer revision
 // while carrying an old state clone.
 const snapshotRevision = new WeakMap<AppStore, number>();
+snapshotRevision.set(store, storePersistence.revision());
 const hubRequestRevision = new AsyncLocalStorage<{ revision: number }>();
 app.use((_req, _res, next) => {
   hubRequestRevision.run({ revision: storePersistence.revision() }, next);
@@ -751,8 +752,12 @@ async function saveStore(nextStore: AppStore, sentinel = false): Promise<void> {
     throw new Error("Cannot commit Hub PostgreSQL state without an originating snapshot revision.");
   }
   const endWrite = sentinelWriteFence.beginStoreSave({ sentinel });
-  try { await storePersistence.save(nextStore, { expectedRevision }); }
-  finally { endWrite(); }
+  try {
+    await storePersistence.save(nextStore, { expectedRevision });
+    // The same startup root state is legitimately updated in sequence.
+    // Only refresh its origin after a successful durable CAS.
+    snapshotRevision.set(nextStore, storePersistence.revision());
+  } finally { endWrite(); }
 }
 
 async function commitStore(nextStore: AppStore) {
@@ -3412,6 +3417,7 @@ app.get("/api/billing/wipay/return", async (req, res) => {
     })();
     // PostgreSQL state and local revision now refer to the same commit.
     store = normalizeLoadedStore(outcome.state);
+    snapshotRevision.set(store, storePersistence.revision());
     const persistedOrder = store.billingOrders.find(item => item.id === orderId);
     const decision = outcome.result;
     if (decision.decision === "accepted") {
