@@ -242,6 +242,27 @@ if (!databaseUrl) {
     assert.equal(final.auditEvents.length, 0);
   });
 
+  test("another Hub process refreshes paid Academy/Hub order status after settlement", async t => {
+    const a = order("v79_synthetic_refresh");
+    const { repository, key } = await fixture(t, [a]);
+    const separatePool = new Pool({ connectionString: databaseUrl, max: 2 });
+    t.after(() => separatePool.end());
+    const observer = createHubStorePersistence({
+      backend: "postgres", storeFile: "/unused/synthetic-observer.json",
+      pool: separatePool, storeKey: key,
+    });
+    const initial = await observer.load(state => structuredClone(state), () => ({}));
+    assert.equal(initial.billingOrders[0].status, "pending");
+    assert.equal(observer.revision(), 1);
+    const settled = await child(key, a.id, queryFor(a, "LC-OBSERVER-TX"));
+    assert.equal(settled.decision, "accepted");
+    const fresh = await observer.refresh();
+    assert.equal(fresh.billingOrders[0].status, "paid");
+    assert.equal(fresh.billingPaymentEvents.length, 1);
+    assert.equal(observer.revision(), 2);
+    assert.equal((await repository.load()).revision, 2);
+  });
+
   test("invalid payment return remains read-only with no PostgreSQL revision increment", async t => {
     const a = order("v79_synthetic_no_write");
     const { repository, key } = await fixture(t, [a]);
