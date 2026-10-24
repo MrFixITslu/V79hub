@@ -53,6 +53,7 @@ import { SERVICE_PATH as SENTINEL_SERVICE_PATH, sentinelServiceRouter } from "./
 import { registerSentinelGrant, revokeSentinelGrant, validateSentinelGrantCollection } from "./server/sentinel-service-grants.mjs";
 import { validateSentinelOwnerGrantRequest, validateSentinelOwnerRevocation } from "./server/sentinel-grant-operator.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
+import { assessWipayCallback, createWipayCallbackGuard } from "./server/wipay-callback-guard.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,6 +61,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = createServer(app);
 const sentinelWriteFence = createSentinelWriteFence();
+// Process-local protection only; durable cross-process finance acceptance remains a separate GO/NO-GO gate.
+const wipayCallbackGuard = createWipayCallbackGuard();
 app.use(sentinelWriteFence.middleware);
 sentinelWriteFence.installHandlerTracking(app);
 const wss = new WebSocketServer({ noServer: true });
@@ -3311,6 +3314,13 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   };
 
   if (!orderId || orderId.length > 64) return redirect("error", "invalid_order");
+  const releaseCallback = wipayCallbackGuard.tryAcquire();
+  if (!releaseCallback) {
+    res.setHeader("Retry-After", "2");
+    return res.status(503).send("Payment verification is in progress. Check order status before retrying.");
+  }
+  try {
+  // Read the order only after acquiring the guard, never before.
   const nextStore = cloneStore();
   const order = nextStore.billingOrders.find(item => item.id === orderId);
   if (!order) return redirect("error", "order_not_found");
@@ -3320,16 +3330,13 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   const verification = verifyWipayReturn({ query, expectedOrder: order, config });
   const now = new Date().toISOString();
 
-  if (order.status === "paid") {
-    const sameTransaction = Boolean(order.providerTransactionId && order.providerTransactionId === verification.transactionId);
-    return redirect(sameTransaction ? "success" : "error", sameTransaction ? "already_processed" : "order_already_paid", order);
+  const assessment = assessWipayCallback({ order, verification, orders: nextStore.billingOrders });
+  if (assessment.decision === "already_paid") return redirect("success", "already_processed", order);
+  if (order.status === "paid" || order.status === "cancelled" || order.status === "failed") {
+    return redirect("error", assessment.reason, order);
   }
-
-  const replay = verification.ok && nextStore.billingOrders.some(
-    item => item.id !== order.id && item.providerTransactionId && item.providerTransactionId === verification.transactionId,
-  );
-  const verified = Boolean(verification.ok && !replay);
-  const reason = replay ? "transaction_replay" : verification.reason;
+  const verified = assessment.decision === "accept";
+  const reason = assessment.reason;
 
   nextStore.billingPaymentEvents.push({
     id: crypto.randomUUID(),
@@ -3412,6 +3419,15 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   }, order.createdByUserId, order.organizationId);
   await commitStore(nextStore);
   return redirect("success", "", order);
+  } catch {
+    // A failed or interrupted commit may have an uncertain persisted outcome.
+    // Do not manufacture success or re-run the charge from an error handler.
+    if (res.headersSent) return;
+    res.setHeader("Retry-After", "3");
+    return res.status(503).send("Payment status is uncertain. Check the payment ledger before retrying.");
+  } finally {
+    releaseCallback();
+  }
 });
 
 app.get("/api/security/mfa/status", requireAuth, (req, res) => {
