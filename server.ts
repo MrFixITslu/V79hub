@@ -53,7 +53,7 @@ import { SERVICE_PATH as SENTINEL_SERVICE_PATH, sentinelServiceRouter } from "./
 import { registerSentinelGrant, revokeSentinelGrant, validateSentinelGrantCollection } from "./server/sentinel-service-grants.mjs";
 import { validateSentinelOwnerGrantRequest, validateSentinelOwnerRevocation } from "./server/sentinel-grant-operator.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
-import { assessWipayCallback, createWipayCallbackGuard } from "./server/wipay-callback-guard.mjs";
+import { assessWipayCallback, createWipayCallbackGuard, liveWipayStoreSupported } from "./server/wipay-callback-guard.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2977,9 +2977,7 @@ app.post("/api/admin/billing/manual/orders/:orderId/reject", requireAuth, requir
 });
 
 function liveWiPayLedgerReady(config: { environment: string }) {
-  // JSON replacement is not a cross-process financial transaction protocol.
-  // PostgreSQL revision conflicts fail closed instead of silently overwriting a paid order.
-  return config.environment !== "live" || storePersistence.mode === "postgres";
+  return liveWipayStoreSupported(config.environment, storePersistence.mode);
 }
 
 function billingServiceFromRequest(req: Request) {
