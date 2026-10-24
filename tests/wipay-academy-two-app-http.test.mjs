@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { createHmac, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 
@@ -71,6 +71,7 @@ if (!academyRoot) {
       const academyFile = resolve(academyRoot, "dist/server.cjs");
       const directory = await mkdtemp(join(tmpdir(), "vision79-cross-app-synthetic-"));
       t.after(() => rm(directory, { recursive: true, force: true }));
+      await mkdir(join(directory, "academy"), { recursive: true });
       const hubPort = await port(), academyPort = await port();
       const hub = "http://127.0.0.1:" + hubPort, academy = "http://127.0.0.1:" + academyPort;
       const programs = [];
