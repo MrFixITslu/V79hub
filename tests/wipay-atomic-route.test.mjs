@@ -40,6 +40,21 @@ test("every Hub snapshot mutation retains origin revision; stale queued writes f
   assert.match(postgres, /SELECT revision, state FROM v79_hub_state WHERE store_key = \$1 FOR UPDATE/);
 });
 
+test("cross-process signed order status and billing history refresh durable PostgreSQL state", () => {
+  assert.match(runtime, /async function refresh\(\)/);
+  assert.match(runtime, /await repository\.load\(\)/);
+  const signedStart = server.indexOf('app.post("/api/billing/internal/status"');
+  const signedEnd = server.indexOf('app.get("/api/billing/orders"', signedStart);
+  const historyEnd = server.indexOf('app.post("/api/billing/checkout"', signedEnd);
+  assert.ok(signedStart >= 0 && signedEnd > signedStart && historyEnd > signedEnd);
+  const signed = server.slice(signedStart, signedEnd);
+  const history = server.slice(signedEnd, historyEnd);
+  assert.match(signed, /await storePersistence\.refresh\(\)/);
+  assert.match(history, /await storePersistence\.refresh\(\)/);
+  assert.match(signed, /Current payment status is unavailable/);
+  assert.match(history, /Current billing history is unavailable/);
+});
+
 test("no unverified callback cancellation and no process-local lock as sole live defense", () => {
   assert.doesNotMatch(callback, /order\.status\s*=\s*"failed"/);
   assert.match(callback, /if \(!liveWiPayLedgerReady\(config\)\)/);
