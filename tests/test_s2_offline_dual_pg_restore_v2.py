@@ -31,7 +31,7 @@ class TestS2PodmanMountSafety(unittest.TestCase):
             m.inspect_container('synthetic')
             self.assertEqual(runner.call_count, 3)
             for a in runner.call_args_list:
-                self.assertEqual(a.args[0][0:2], ('podman', '--remote=false'))
+                self.assertEqual(a.args[0][0:2], ['podman', '--remote=false'])
                 self.assertEqual(a.args[0][2:4], ['exec', 'synthetic'])
                 self.assertEqual(a.args[0][4:8], ['stat', '-f', '-c', '%T'])
 
