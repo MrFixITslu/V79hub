@@ -102,5 +102,6 @@ test("Hub handler acquires guard before snapshot, returns 503 while busy, and re
   assert.match(callback, /assessWipayCallback\(\{ order, verification, orders:/);
   assert.match(callback, /catch \{[\s\S]*?Payment status is uncertain/);
   assert.match(callback, /finally \{\s*releaseCallback\(\)/);
+  assert.doesNotMatch(callback, /order\.status\s*=\s*"failed"/, "unauthenticated failed redirect must not cancel order");
   assert.doesNotMatch(callback, /return redirect\(sameTransaction \? "success"/);
 });
