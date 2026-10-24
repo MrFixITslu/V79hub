@@ -28,7 +28,11 @@
       ".github/workflows/wipay-v1-payment-contract-isolated.yml": "7f441f1912188878372d6effe24731ef7517f59e",
       "tests/wipay-academy-two-app-http.test.mjs": "67bebc6f5bf40e18f778c2b4f4bde94160316a83",
       ".github/workflows/wipay-academy-two-app-isolated.yml": "5bd5d037c8e8cb77b6221480052dc32933582e60",
-      "tests/tenant-provisioning-revision.test.mjs": "619a3f4f401f839bf47a3f9653454792f3dd861f"
+      "tests/tenant-provisioning-revision.test.mjs": "619a3f4f401f839bf47a3f9653454792f3dd861f",
+      "scripts/wipay-runtime-parity-readonly.mjs": "d058f91c317b6d0ba3ead2cf0080699f667739da",
+      "tests/wipay-runtime-parity-readonly.test.mjs": "29bbc9458be9182937596f93e715863e01ed9056",
+      "docs/launch/wipay-owner-cutover-evidence-20261024.md": "a9292eb31df270701c97cf7a10e5d09e587ad3d6",
+      ".github/workflows/wipay-operator-parity-readonly.yml": "7c3c03b53b90d7033d9aa1a62ff41f864c5ba9f1"
     },
     "cross_repo_academy_source": {
       "repository": "MrFixITslu/V79acaedmy",
@@ -48,5 +52,5 @@
     "installed_server_parity_verified": false,
     "real_provider_transaction_performed": false
   },
-  "notes": "Reviewed source-fingerprint inventory only. The two-app test pins Academy draft PR #32 combining exact PR #29 pricing UI, PR #30 boundary tests and PR #31 authenticated payer billing. Existing R18 acceptance remains unchanged. Synthetic hosted checkout points to an .invalid domain and never contacts WiPay. No deployment, merchant integration, real settlement, price-table migration or owner commercial release is authorized. Added source-revision carry-forward to four sequential external provisioning paths after isolated five-app staging exposed expected stale request revision conflict (HTTP 207); PostgreSQL CAS remains enabled; staging must pass at exact new head before treating this resolved."
+  "notes": "Reviewed source-fingerprint inventory only. The two-app test pins Academy draft PR #32 combining exact PR #29 pricing UI, PR #30 boundary tests and PR #31 authenticated payer billing. Existing R18 acceptance remains unchanged. Synthetic hosted checkout points to an .invalid domain and never contacts WiPay. No deployment, merchant integration, real settlement, price-table migration or owner commercial release is authorized. Added source-revision carry-forward to four sequential external provisioning paths after isolated five-app staging exposed expected stale request revision conflict (HTTP 207); PostgreSQL CAS remains enabled; staging must pass at exact new head before treating this resolved. Operator-only read-only local Docker parity script and synthetic-only tests/checklist added. These observe configuration presence and image labels without printing secrets and must NEVER authorize merchant live activation. No real host inspected."
 }
