@@ -9,6 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import crypto from "crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
@@ -735,9 +736,22 @@ const storePersistence = createHubStorePersistence({
 
 let store = await storePersistence.load(normalizeLoadedStore, initialStore) as AppStore;
 
+// PostgreSQL writes must retain their original snapshot revision. A request
+// that started before an accepted payment may NEVER submit a newer revision
+// while carrying an old state clone.
+const snapshotRevision = new WeakMap<AppStore, number>();
+const hubRequestRevision = new AsyncLocalStorage<{ revision: number }>();
+app.use((_req, _res, next) => {
+  hubRequestRevision.run({ revision: storePersistence.revision() }, next);
+});
+
 async function saveStore(nextStore: AppStore, sentinel = false): Promise<void> {
+  const expectedRevision = snapshotRevision.get(nextStore) ?? hubRequestRevision.getStore()?.revision;
+  if (storePersistence.mode === "postgres" && expectedRevision === undefined) {
+    throw new Error("Cannot commit Hub PostgreSQL state without an originating snapshot revision.");
+  }
   const endWrite = sentinelWriteFence.beginStoreSave({ sentinel });
-  try { await storePersistence.save(nextStore); }
+  try { await storePersistence.save(nextStore, { expectedRevision }); }
   finally { endWrite(); }
 }
 
@@ -752,7 +766,9 @@ async function commitSentinelStore(nextStore: AppStore) {
 }
 
 function cloneStore() {
-  return structuredClone(store) as AppStore;
+  const snapshot = structuredClone(store) as AppStore;
+  snapshotRevision.set(snapshot, storePersistence.revision());
+  return snapshot;
 }
 
 const knownDemoPasswords = new Set(["password123", "manager123", "viewer123"]);
