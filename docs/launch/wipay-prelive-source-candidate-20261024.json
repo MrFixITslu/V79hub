@@ -1,0 +1,43 @@
+{
+  "schema": "vision79.hub.wipay.source_candidate.v1",
+  "decision": "DRAFT_SOURCE_ATTESTATION_NOT_PRODUCTION_APPROVAL",
+  "created_utc": "2026-10-24",
+  "accepted_previous": {
+    "source_commit": "9528f27422525ed6340c6a42e0152aa62f433fd8",
+    "server_git_blob": "6784def9a38d018f87aa85e0d73ec10d65972daf",
+    "immutable_test": "tests/r18-reconciled-candidate.test.mjs",
+    "immutable_test_git_blob": "7f62f3a6be56fdbd060b4c44bf1240db9231ad1e"
+  },
+  "candidate": {
+    "branch": "feature/wipay-response-contract-prelive-20261024",
+    "files": {
+      "server.ts": "a435a1c41db0fd99904ede0cc0422a6478325776",
+      "server/wipay-provider.mjs": "86f89bc9d81a79d6d7905161c1f45621b397a3b3",
+      "server/wipay-callback-guard.mjs": "86d489dee6e21d59ab0edea8279d197bb8ae7453",
+      "server/wipay-atomic-ledger.mjs": "58e741e08d939696bbdafd9ee631b900ac0cde4b",
+      "server/runtime-store.mjs": "73ffe887f4d90209c3f0ac4be3281649337f0b3d",
+      "server/postgres-store.mjs": "a40cb0753479921d4e11f6c52f78cc1dd9b1870d",
+      "server/trial-reminder-postgres.mjs": "9d06dbec0677a739f52d209b857398e6ad989580",
+      "server/billing-contract.mjs": "777ef93b5132e54ee6ace7bb88ba2a43e10d6eb1",
+      "tests/wipay-provider.test.mjs": "a9f75005bb1f10122acccb09a7b85fa887ecc5b4",
+      "tests/wipay-atomic-ledger-postgres.test.mjs": "037a86d9ed9ce1af73ce41d1baf6a2b951c5ac40",
+      "tests/wipay-callback-guard.test.mjs": "e20c978132401ab27d6d92d57fbe392401a9eab6",
+      "tests/wipay-atomic-route.test.mjs": "e4508bc9a2e9715ce72826f55521f5c73ee70f1b",
+      "tests/wipay-atomic-ledger-child.mjs": "81bf1e9e075ae424a8896cf8d7bdc23197d225dd",
+      "tests/g12-full-internal-billing-integration.test.mjs": "40db64126bcb51062d8da1535493a68871a1dd8a",
+      ".github/workflows/wipay-v1-payment-contract-isolated.yml": "7f441f1912188878372d6effe24731ef7517f59e"
+    }
+  },
+  "release_gates": {
+    "immutable_r18_test_must_remain_unchanged": true,
+    "full_existing_ci_must_not_be_relabelled_pass": true,
+    "owner_approval_required": true,
+    "live_payment_activation_authorized": false,
+    "merge_authorized": false,
+    "production_deployment_authorized": false,
+    "merchant_endpoint_xcd_settlement_verified": false,
+    "installed_server_parity_verified": false,
+    "real_provider_transaction_performed": false
+  },
+  "notes": "Reviewed source fingerprint inventory only. Subsequent code changes MUST refresh this candidate document in reviewed PR. This does not substitute for historical R18 check, exact image digest, restoration, account/endpoint confirmation, live payment reconciliation or a new explicitly approved production release."
+}
