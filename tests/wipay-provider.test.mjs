@@ -81,3 +81,47 @@ test("verified return rejects order tampering even when the WiPay hash is valid"
   assert.equal(verifyWipayReturn({ query: { ...base, order_id: "order_999" }, expectedOrder: order, config }).reason, "order_mismatch");
   assert.equal(verifyWipayReturn({ query: { ...base, order_id: order.id, total: "39.99", hash: wipayResponseHash(transactionId, "39.99", config.apiKey) }, expectedOrder: order, config }).reason, "amount_mismatch");
 });
+
+
+test("hosted checkout uses supported WiPay method and a validated payer email", () => {
+  const config = getWipayConfig({
+    WIPAY_ENABLED: "1", WIPAY_ENV: "sandbox",
+    APP_URL: "https://hub.example.com", V79_BILLING_STATE_SECRET: secret,
+  });
+  const order = { id: "order_payer_1", amount: 249, currency: "TTD", providerEnvironment: "sandbox" };
+  // The provider requires a real payer email, which must not be substituted with the merchant account email.
+  assert.throws(() => createWipayCheckout({ order, config }), /payer email/i);
+  assert.throws(() => createWipayCheckout({ order: { ...order, payerEmail: "invalid" }, config }), /payer email/i);
+  assert.throws(() => createWipayCheckout({ order: { ...order, payerEmail: "abc@example.test" }, config, }), /payer email/i);
+  const withPayer = createWipayCheckout({ order: { ...order, payerEmail: "real.learner@example.com" }, config });
+  assert.equal(withPayer.fields.method, "credit_card_co");
+  assert.equal(withPayer.fields.email, "real.learner@example.com");
+  assert.equal("api_key" in withPayer.fields, false);
+  assert.equal(withPayer.fields.environment, "sandbox");
+});
+
+test("transaction hash uses original two-decimal order amount and enforces environment parity", () => {
+  const config = getWipayConfig({
+    WIPAY_ENABLED: "1", WIPAY_ENV: "sandbox", APP_URL: "https://hub.example.com",
+    V79_BILLING_STATE_SECRET: secret,
+  });
+  const order = { id: "order_env_1", amount: 29.99, currency: "TTD", providerEnvironment: "sandbox", payerEmail: "test@example.com" };
+  const checkout = createWipayCheckout({ order, config });
+  const transactionId = "SB-12-1-order_env_1-20261007120000";
+  const hash = wipayResponseHash(transactionId, "29.99", config.apiKey);
+  const query = { status: "success", transaction_id: transactionId, order_id: order.id,
+    currency: "TTD", total: "29.99", hash, data: checkout.fields.data };
+  assert.equal(verifyWipayReturn({ query, expectedOrder: order, config }).ok, true);
+  assert.equal(verifyWipayReturn({ query, expectedOrder: { ...order, providerEnvironment: "live" }, config }).reason, "environment_mismatch");
+  assert.equal(verifyWipayReturn({ query: { ...query, total: "39.99" }, expectedOrder: order, config }).reason, "amount_mismatch");
+  assert.equal(verifyWipayReturn({ query: { ...query, hash: wipayResponseHash(transactionId, "39.99", config.apiKey) }, expectedOrder: order, config }).reason, "provider_hash_invalid");
+  assert.equal(verifyWipayReturn({ query: { ...query, data: '{"bogus":true}' }, expectedOrder: order, config }).reason, "state_signature_invalid");
+});
+
+test("public sandbox defaults use the documented sandbox endpoint", () => {
+  const config = getWipayConfig({
+    WIPAY_ENABLED: "1", WIPAY_ENV: "sandbox",
+    APP_URL: "https://hub.example.com", V79_BILLING_STATE_SECRET: secret,
+  });
+  assert.equal(config.endpoint, "https://ttsb.wipayfinancial.com/plugins/payments/request");
+});
