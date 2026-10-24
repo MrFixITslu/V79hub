@@ -2976,6 +2976,12 @@ app.post("/api/admin/billing/manual/orders/:orderId/reject", requireAuth, requir
   }
 });
 
+function liveWiPayLedgerReady(config: { environment: string }) {
+  // JSON replacement is not a cross-process financial transaction protocol.
+  // PostgreSQL revision conflicts fail closed instead of silently overwriting a paid order.
+  return config.environment !== "live" || storePersistence.mode === "postgres";
+}
+
 function billingServiceFromRequest(req: Request) {
   const source = String(req.get("x-v79-service-id") || "");
   const entries: Record<string, { sourceApp: "academy" | "tiquet"; secret: string }> = {
@@ -3022,6 +3028,7 @@ app.post("/api/billing/internal/order", async (req, res) => {
 
   const config = getWipayConfig(process.env);
   if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+  if (!liveWiPayLedgerReady(config)) return res.status(503).json({ error: "Live WiPay requires the PostgreSQL Hub billing store.", code: "BILLING_LIVE_STORE_NOT_READY" });
 
   const kind = String(req.body?.kind || "");
   const externalReference = String(req.body?.externalReference || "").trim();
@@ -3112,15 +3119,17 @@ app.post("/api/billing/internal/capabilities", (req, res) => {
   const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
   const currencyCompatible = /^[A-Z]{3}$/.test(sourceCurrency) &&
     (provider.environment !== "live" || sourceCurrency === provider.currency);
+  const liveLedgerReady = liveWiPayLedgerReady(provider);
   const checkoutAvailable = service.sourceApp === "tiquet"
-    ? Boolean(provider.ready && currencyCompatible && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
-    : Boolean(provider.ready && currencyCompatible);
+    ? Boolean(provider.ready && currencyCompatible && liveLedgerReady && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
+    : Boolean(provider.ready && currencyCompatible && liveLedgerReady);
 
   res.setHeader("Cache-Control", "no-store");
   res.json({
     sourceApp: service.sourceApp,
     checkoutAvailable,
     currencyCompatible,
+    liveLedgerReady,
     provider: {
       provider: provider.provider,
       environment: provider.environment,
@@ -3184,6 +3193,7 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
   const session = (req as any).user;
   const config = getWipayConfig(process.env);
   if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+  if (!liveWiPayLedgerReady(config)) return res.status(503).json({ error: "Live WiPay requires the PostgreSQL Hub billing store.", code: "BILLING_LIVE_STORE_NOT_READY" });
 
   if (config.environment !== "live") {
     return res.status(409).json({ error: "Use the dedicated sandbox test checkout while WiPay is in sandbox mode." });
@@ -3303,6 +3313,9 @@ app.post("/api/billing/sandbox-test", requireAuth, requirePermission("billing"),
 
 app.get("/api/billing/wipay/return", async (req, res) => {
   const config = getWipayConfig(process.env);
+  if (!liveWiPayLedgerReady(config)) {
+    return res.status(503).send("Live payment verification requires the PostgreSQL Hub store. No payment status was changed.");
+  }
   const orderId = String(req.query.order_id || "").trim();
   const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
   const redirect = (status: string, reason = "", order?: BillingOrder) => {
