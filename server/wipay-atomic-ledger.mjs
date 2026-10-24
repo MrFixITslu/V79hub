@@ -79,5 +79,5 @@ export async function reconcileWipayInPostgres({
     }
     return { decision: "accepted", reason: "verified", orderId: order.id,
       providerEnvironment: order.providerEnvironment };
-  });
+  }, { skipWriteWhen: result => result?.decision !== "accepted" });
 }
