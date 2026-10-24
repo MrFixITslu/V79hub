@@ -187,7 +187,7 @@ if (!databaseUrl) {
     });
     assert.equal(result.result.decision, "accepted");
     assert.equal(persistence.revision(), 2);
-    await assert.rejects(persistence.save(competingWriterState), /Stale|revision conflict/);
+    await assert.rejects(persistence.save(competingWriterState, { expectedRevision: 1 }), /Stale|revision conflict/);
     const current = (await repository.load()).state;
     assert.equal(current.billingOrders[0].status, "paid");
     assert.equal(current.billingPaymentEvents.length, 1);
@@ -204,7 +204,7 @@ if (!databaseUrl) {
     // Server-side revision is 2, so an intentionally old snapshot must have
     // been acquired before another transaction below.
     await repository.transact(next => { next.auditEvents.push({ type: "synthetic-commit" }); });
-    await assert.rejects(other.save(newer), /revision conflict|Stale/);
+    await assert.rejects(other.save(newer, { expectedRevision: 2 }), /revision conflict|Stale/);
     assert.equal((await repository.load()).state.billingOrders[0].status, "paid");
   });
 
@@ -232,7 +232,7 @@ if (!databaseUrl) {
     });
     await entered;
     // A normal Hub handler captured an out-of-date clone before commit.
-    const stale = persistence.save({ ...initial, auditEvents: [{ type: "stale" }] });
+    const stale = persistence.save({ ...initial, auditEvents: [{ type: "stale" }] }, { expectedRevision: 1 });
     unblock();
     assert.equal((await payment).result.decision, "accepted");
     await assert.rejects(stale, /Stale/);
