@@ -17,6 +17,9 @@ try {
     config: input.config,
     now: () => "2026-10-24T14:30:00.000Z",
     applyEntitlement: (state, order) => {
+      // Synthetic crash injection: terminate mid-transaction after the order has
+      // been marked paid in the uncommitted snapshot; PostgreSQL must roll back.
+      if (input.crashBeforeCommit === true) process.exit(52);
       if (order.kind === "subscription") {
         const plan = state.organizationPlans.find(item => item.organizationId === order.organizationId);
         if (!plan) throw new Error("Missing matching organization plan");
