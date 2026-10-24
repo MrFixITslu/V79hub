@@ -27,13 +27,13 @@
       "tests/g12-full-internal-billing-integration.test.mjs": "40db64126bcb51062d8da1535493a68871a1dd8a",
       ".github/workflows/wipay-v1-payment-contract-isolated.yml": "7f441f1912188878372d6effe24731ef7517f59e",
       "tests/wipay-academy-two-app-http.test.mjs": "67bebc6f5bf40e18f778c2b4f4bde94160316a83",
-      ".github/workflows/wipay-academy-two-app-isolated.yml": "bdeb73cecb52933ef2e30c50cfc4504cf331373c"
+      ".github/workflows/wipay-academy-two-app-isolated.yml": "5bd5d037c8e8cb77b6221480052dc32933582e60"
     },
     "cross_repo_academy_source": {
       "repository": "MrFixITslu/V79acaedmy",
-      "review_pr": 31,
-      "commit": "d3dbfdfc2d2e4d147cd49608ad81a1ccfc85e2c9",
-      "scope": "SIGNED_PAYER_EMAIL_ONLY_NOT_MERGED_PR29_OR_PR30"
+      "review_pr": 32,
+      "commit": "c748e3ecc3dfe94d8a15fe0a6015870aac498132",
+      "scope": "COMBINED_REVIEW_ONLY_EXACT_PR29_PLUS_PR30_PLUS_PR31_UNMERGED"
     }
   },
   "release_gates": {
@@ -47,5 +47,5 @@
     "installed_server_parity_verified": false,
     "real_provider_transaction_performed": false
   },
-  "notes": "Reviewed source fingerprint inventory only. Subsequent code changes MUST refresh this candidate document in reviewed PR. This does not substitute for historical R18 check, exact image digest, restoration, account/endpoint confirmation, live payment reconciliation or a new explicitly approved production release. The two-app test uses a pinned Academy PR31 source checkout; it does not automatically combine unmerged Academy pricing PR29 and additional isolated tests PR30. It uses a synthetic provider callback only and cannot establish actual WiPay settlement."
+  "notes": "Reviewed source-fingerprint inventory only. The two-app test pins Academy draft PR #32 combining exact PR #29 pricing UI, PR #30 boundary tests and PR #31 authenticated payer billing. Existing R18 acceptance remains unchanged. Synthetic hosted checkout points to an .invalid domain and never contacts WiPay. No deployment, merchant integration, real settlement, price-table migration or owner commercial release is authorized."
 }
