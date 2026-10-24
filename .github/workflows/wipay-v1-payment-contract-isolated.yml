@@ -5,10 +5,15 @@ on:
     paths:
       - 'server/wipay-provider.mjs'
       - 'server/wipay-callback-guard.mjs'
+      - 'server/wipay-atomic-ledger.mjs'
+      - 'server/postgres-store.mjs'
+      - 'server/runtime-store.mjs'
       - 'server/billing-contract.mjs'
       - 'server.ts'
       - 'tests/wipay-provider.test.mjs'
       - 'tests/wipay-callback-guard.test.mjs'
+      - 'tests/wipay-atomic-ledger-postgres.test.mjs'
+      - 'tests/wipay-atomic-ledger-child.mjs'
       - '.github/workflows/wipay-v1-payment-contract-isolated.yml'
 permissions:
   contents: read
@@ -30,3 +35,33 @@ jobs:
         run: npm run lint
       - name: Frontend build (no publish)
         run: npm run build
+
+  postgres-races:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: v79_synthetic
+          POSTGRES_PASSWORD: synthetic_test_only
+          POSTGRES_DB: wipay_isolated
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U v79_synthetic -d wipay_isolated"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      WIPAY_TEST_DATABASE_URL: postgresql://v79_synthetic:synthetic_test_only@127.0.0.1:5432/wipay_isolated
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Independent-process PostgreSQL callback collision, replay and rollback
+        run: node --test tests/wipay-atomic-ledger-postgres.test.mjs
