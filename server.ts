@@ -48,6 +48,7 @@ import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs"
 import { manualInvoiceEligibility, manualReceiptDecision, recentManualPaymentMfa } from "./server/manual-payment-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
 import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
+import { dispatchTransactionalTrialReminders } from "./server/trial-reminder-postgres.mjs";
 import { createResendTransactionalSender } from "./server/resend-transactional.mjs";
 import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
 import { SERVICE_PATH as SENTINEL_SERVICE_PATH, sentinelServiceRouter } from "./server/sentinel-service-entitlement.mjs";
@@ -2587,14 +2588,35 @@ async function dispatchTrialReminders() {
   if (!trialReminderLeader || !recoveryEmailEnabled || reminderBusy) return;
   reminderBusy=true;
   try {
-    await dispatchDueTrialReminders({
-      ownerOrganizationId:posIdentity.organizationId,
-      getStore:()=>store,
-      commit:async (next: AppStore)=>commitStore(next),
-      send:dispatchTrialReminderEmail,
-    });
-  } catch {console.warn("[Hub Trial] Review stuck notification claims before next attempt");}
-  finally {reminderBusy=false;}
+    if (storePersistence.mode === "postgres") {
+      await dispatchTransactionalTrialReminders({
+        persistence: storePersistence,
+        ownerOrganizationId: posIdentity.organizationId,
+        send: dispatchTrialReminderEmail,
+      });
+      // A completed claim advances the durable revision. Rebase the root
+      // snapshot; request-level snapshots still fail closed if they predate it.
+      store = normalizeLoadedStore(await storePersistence.refresh());
+      snapshotRevision.set(store, storePersistence.revision());
+    } else {
+      await dispatchDueTrialReminders({
+        ownerOrganizationId:posIdentity.organizationId,
+        getStore:()=>store,
+        commit:async (next: AppStore)=>commitStore(next),
+        send:dispatchTrialReminderEmail,
+      });
+    }
+  } catch {
+    console.warn("[Hub Trial] Review stuck notification claims before next attempt");
+    // Even if email delivery failed after a durable claim, never reuse stale
+    // Hub state or infer that a retry is safe.
+    if (storePersistence.mode === "postgres") {
+      try {
+        store = normalizeLoadedStore(await storePersistence.refresh());
+        snapshotRevision.set(store, storePersistence.revision());
+      } catch { console.warn("[Hub Trial] PostgreSQL reminder recovery needs operator review"); }
+    }
+  } finally {reminderBusy=false;}
 }
 
 async function deliverPasswordReset(email: string, resetUrl: string) {
