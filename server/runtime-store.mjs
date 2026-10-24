@@ -102,6 +102,20 @@ export function createHubStorePersistence({
     return persistChain;
   }
 
+  async function refresh() {
+    if (mode !== "postgres" || !repository) return structuredClone(envelope);
+    // Service-to-service order status must read the durable DB after another
+    // Hub process receives the provider callback. Serialize with local writes.
+    persistChain = persistChain.catch(() => {}).then(async () => {
+      const current = await repository.load();
+      if (!current) throw new Error("Hub PostgreSQL state disappeared; fail closed.");
+      revision = current.revision;
+      envelope = current.state;
+      return structuredClone(current.state);
+    });
+    return persistChain;
+  }
+
   async function close() {
     await persistChain.catch(() => {});
     if (ownsPool) await activePool.end();
@@ -112,6 +126,7 @@ export function createHubStorePersistence({
     load,
     save,
     transact,
+    refresh,
     close,
     revision: () => revision,
     envelope: () => structuredClone(envelope),
