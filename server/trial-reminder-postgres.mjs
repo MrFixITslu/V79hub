@@ -11,6 +11,14 @@ import { planTrialReminders, claimTrialReminder, completeTrialReminder } from ".
  * This is for the existing single nominated leader, with DB row-lock safety.
  * Real email dispatch only occurs when explicitly enabled by the owner.
  */
+/**
+ * @param {{
+ *   persistence?: any,
+ *   ownerOrganizationId?: string,
+ *   send?: (reminder: any) => Promise<boolean>,
+ *   now?: number,
+ * }} [args]
+ */
 export async function dispatchTransactionalTrialReminders({
   persistence,
   ownerOrganizationId,
