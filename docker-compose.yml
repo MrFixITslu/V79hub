@@ -47,6 +47,8 @@ services:
       GAMES_INTERNAL_URL: ${GAMES_INTERNAL_URL:-http://gaming-studio-j:80}
       V79_FFPRO_LAUNCH_SECRET: ${V79_FFPRO_LAUNCH_SECRET:-}
       V79_TIQUET_LAUNCH_SECRET: ${V79_TIQUET_LAUNCH_SECRET:-}
+      # OFF by default. Enable only with simultaneously approved Tiquet entitlement/session gates.
+      V79_HUB_TIQUET_SESSION_BINDING: ${V79_HUB_TIQUET_SESSION_BINDING:-0}
       V79_MARKETING_LAUNCH_SECRET: ${V79_MARKETING_LAUNCH_SECRET:-}
       V79_POS_ORG_ID: ${V79_POS_ORG_ID:-}
       V79_POS_OWNER_USER_ID: ${V79_POS_OWNER_USER_ID:-}
