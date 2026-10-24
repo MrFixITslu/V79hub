@@ -79,7 +79,9 @@ test("verified return rejects order tampering even when the WiPay hash is valid"
   };
   assert.equal(verifyWipayReturn({ query: { ...base, order_id: order.id }, expectedOrder: order, config }).ok, true);
   assert.equal(verifyWipayReturn({ query: { ...base, order_id: "order_999" }, expectedOrder: order, config }).reason, "order_mismatch");
-  assert.equal(verifyWipayReturn({ query: { ...base, order_id: order.id, total: "39.99", hash: wipayResponseHash(transactionId, "39.99", config.apiKey) }, expectedOrder: order, config }).reason, "amount_mismatch");
+  assert.equal(verifyWipayReturn({ query: { ...base, order_id: order.id, total: "39.99", hash: wipayResponseHash(transactionId, "39.99", config.apiKey) }, expectedOrder: order, config }).reason, "provider_hash_invalid");
+  // A valid hash over the actual original amount still cannot authorize a tampered displayed total.
+  assert.equal(verifyWipayReturn({ query: { ...base, order_id: order.id, total: "39.99" }, expectedOrder: order, config }).reason, "amount_mismatch");
 });
 
 
