@@ -154,6 +154,7 @@ interface BillingOrder {
   id: string;
   organizationId?: string;
   subjectReference?: string;
+  payerEmail?: string;
   sourceApp: "hub" | "academy" | "tiquet";
   kind: "subscription" | "course" | "invoice";
   externalReference?: string;
@@ -3026,6 +3027,7 @@ app.post("/api/billing/internal/order", async (req, res) => {
   const returnPath = validBillingReturnPath(req.body?.returnPath);
   const amount = normalizeMoney(req.body?.amount);
   const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
+  const payerEmail = normalizeEmail(req.body?.payerEmail);
 
   if ((service.sourceApp === "academy" && kind !== "course") ||
       (service.sourceApp === "tiquet" && kind !== "invoice") ||
@@ -3034,7 +3036,8 @@ app.post("/api/billing/internal/order", async (req, res) => {
       !description || description.length > 220 ||
       !returnPath ||
       amount === null || amount <= 0 || amount > 1_000_000 ||
-      !/^[A-Z]{3}$/.test(sourceCurrency)) {
+      !/^[A-Z]{3}$/.test(sourceCurrency) ||
+      payerEmail.length > 50 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payerEmail)) {
     return res.status(400).json({ error: "Valid billing order details are required." });
   }
   if (config.environment === "live" && sourceCurrency !== config.currency) {
@@ -3056,6 +3059,7 @@ app.post("/api/billing/internal/order", async (req, res) => {
     subjectReference,
     sourceApp: service.sourceApp,
     kind: kind as BillingOrder["kind"],
+    payerEmail,
     externalReference,
     returnPath,
     description,
@@ -3194,6 +3198,10 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
   }
   const amount = normalizeMoney(plan.priceXcd);
   if (amount === null || amount <= 0) return res.status(409).json({ error: "A positive workspace plan price must be configured before checkout." });
+  const payerEmail = normalizeEmail(store.users.find(user => user.id === session.userId)?.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payerEmail) || payerEmail.length > 50) {
+    return res.status(409).json({ error: "A valid billing email is required on your Hub account before checkout." });
+  }
 
   const now = new Date().toISOString();
   const order: BillingOrder = {
@@ -3201,6 +3209,7 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
     organizationId: session.organizationId,
     sourceApp: "hub",
     kind: "subscription",
+    payerEmail,
     description: `${plan.planName} ${plan.billingCycle} renewal`,
     amount,
     currency: config.currency,
@@ -3244,6 +3253,10 @@ app.post("/api/billing/sandbox-test", requireAuth, requirePermission("billing"),
     return res.status(409).json({ error: "WiPay sandbox testing is not enabled." });
   }
 
+  const payerEmail = normalizeEmail(store.users.find(user => user.id === session.userId)?.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payerEmail) || payerEmail.length > 50) {
+    return res.status(409).json({ error: "A valid billing email is required on your Hub account before sandbox checkout." });
+  }
   const amount = 10;
   const now = new Date().toISOString();
   const order: BillingOrder = {
@@ -3252,6 +3265,7 @@ app.post("/api/billing/sandbox-test", requireAuth, requirePermission("billing"),
     sourceApp: "hub",
     kind: "subscription",
     description: "WiPay sandbox integration test",
+    payerEmail,
     amount,
     currency: config.currency,
     provider: "wipay",
