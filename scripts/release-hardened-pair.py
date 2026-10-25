@@ -69,7 +69,18 @@ def module(name,root=None):
 def call(args,*,data=None,timeout=120):
     try:p=subprocess.run(args,input=data,capture_output=True,timeout=timeout)
     except (OSError,subprocess.TimeoutExpired):raise Refused('COMMAND_OR_MONITOR_UNAVAILABLE') from None
-    need(p.returncode==0,'COMMAND_FAILED_REDACTED');return p.stdout
+    if p.returncode:
+        # Preserve only our remote runner's structured safe refusal. Raw SSH,
+        # Docker and application output must never become an error message.
+        try:
+            error=json.loads(p.stdout)
+            if error.get('status')=='BLOCKED' and isinstance(error.get('reason'),str):
+                reason=safe_reason(Refused(error['reason']))
+                if reason!='RELEASE_BLOCKED_REDACTED':raise Refused('REMOTE_'+reason)
+        except Refused:raise
+        except (ValueError,AttributeError):pass
+        raise Refused('COMMAND_FAILED_REDACTED')
+    return p.stdout
 
 
 def timestamp(value):
