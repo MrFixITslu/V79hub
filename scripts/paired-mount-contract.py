@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare Docker storage semantics and every remaining HostConfig field.
 
-Pure validation only. Recognized Binds/Mounts encodings may differ, but source,
+Pure validation only. Recognized Binds/Mounts and empty-collection encodings may differ, but source,
 access, propagation, creation/copy behavior and every supported option may not.
 Unsupported options reject; no runtime mutation or release authorization exists.
 """
@@ -19,6 +19,11 @@ RUNTIME_KEYS = {'Type', 'Name', 'Source', 'Destination', 'Driver', 'Mode', 'RW',
 MOUNT_KEYS = {'Type', 'Source', 'Target', 'ReadOnly', 'Consistency', 'BindOptions', 'VolumeOptions'}
 BIND_KEYS = {'Propagation', 'NonRecursive', 'CreateMountpoint', 'ReadOnlyNonRecursive', 'ReadOnlyForceRecursive'}
 VOLUME_KEYS = {'NoCopy', 'Labels', 'Subpath', 'DriverConfig'}
+EMPTY_LIST_FIELDS = {
+    'BlkioDeviceReadBps', 'BlkioDeviceReadIOps', 'BlkioDeviceWriteBps',
+    'BlkioDeviceWriteIOps', 'BlkioWeightDevice', 'Devices', 'Dns', 'DnsOptions',
+    'DnsSearch', 'ExtraHosts', 'Ulimits',
+}
 
 
 def absolute(value):
@@ -45,6 +50,11 @@ def boolean(value):
 
 def canonical_host_storage(row, *, selinux_enabled=True):
     host = copy.deepcopy(row.get('HostConfig') or {})
+    # These optional lists represent no entries as either null or []. Never
+    # discard a nonempty device/DNS/limit setting or normalize unknown fields.
+    for field in EMPTY_LIST_FIELDS:
+        if host.get(field) is None or host.get(field) == []:
+            host[field] = []
     actual = {}
     for mount in row.get('Mounts') or []:
         if set(mount) - RUNTIME_KEYS or mount.get('Type') not in ('bind', 'volume'):
