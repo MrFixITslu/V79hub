@@ -8,6 +8,7 @@ rollback image on Dell; CI uses Alpine. This is not an application rollback.
 import argparse
 import copy
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ import socket
 import stat
 import subprocess
 import tempfile
+import urllib.parse
 import uuid
 
 MOUNT_CONTRACT_SOURCE = '#!/usr/bin/env python3\n"""Compare Docker storage semantics and every remaining HostConfig field.\n\nPure validation only. Recognized Binds/Mounts encodings may differ, but source,\naccess, propagation, creation/copy behavior and every supported option may not.\nUnsupported options reject; no runtime mutation or release authorization exists.\n"""\nimport copy\nimport posixpath\n\n\nclass Refused(ValueError):\n    pass\n\n\nPROPAGATIONS = {\'private\', \'rprivate\', \'shared\', \'rshared\', \'slave\', \'rslave\'}\nCONSISTENCIES = {\'consistent\', \'cached\', \'delegated\', \'default\'}\nRUNTIME_KEYS = {\'Type\', \'Name\', \'Source\', \'Destination\', \'Driver\', \'Mode\', \'RW\', \'Propagation\'}\nMOUNT_KEYS = {\'Type\', \'Source\', \'Target\', \'ReadOnly\', \'Consistency\', \'BindOptions\', \'VolumeOptions\'}\nBIND_KEYS = {\'Propagation\', \'NonRecursive\', \'CreateMountpoint\', \'ReadOnlyNonRecursive\', \'ReadOnlyForceRecursive\'}\nVOLUME_KEYS = {\'NoCopy\', \'Labels\', \'Subpath\', \'DriverConfig\'}\n\n\ndef absolute(value):\n    if not isinstance(value, str) or not value.startswith(\'/\') or posixpath.normpath(value) != value:\n        raise Refused(\'NONCANONICAL_MOUNT_PATH\')\n    if any(ord(char) < 32 for char in value) or \':\' in value:\n        raise Refused(\'UNSUPPORTED_MOUNT_PATH\')\n    return value\n\n\ndef consistency(value):\n    if value in (None, \'\', \'default\'):\n        return \'consistent\'\n    if value not in CONSISTENCIES:\n        raise Refused(\'UNSUPPORTED_MOUNT_CONSISTENCY\')\n    return value\n\n\ndef boolean(value):\n    if not isinstance(value, bool):\n        raise Refused(\'INVALID_MOUNT_BOOLEAN\')\n    return value\n\n\ndef canonical_host_storage(row):\n    host = copy.deepcopy(row.get(\'HostConfig\') or {})\n    actual = {}\n    for mount in row.get(\'Mounts\') or []:\n        if set(mount) - RUNTIME_KEYS or mount.get(\'Type\') not in (\'bind\', \'volume\'):\n            raise Refused(\'UNSUPPORTED_RUNTIME_MOUNT_FIELDS\')\n        target = absolute(mount.get(\'Destination\'))\n        if target in actual:\n            raise Refused(\'DUPLICATE_RUNTIME_MOUNT_TARGET\')\n        source = mount.get(\'Name\') if mount[\'Type\'] == \'volume\' else absolute(mount.get(\'Source\'))\n        if not isinstance(source, str) or not source:\n            raise Refused(\'MOUNT_SOURCE_IDENTITY_MISSING\')\n        mode = set(filter(None, mount.get(\'Mode\', \'\').split(\',\')))\n        if mode - ({\'ro\', \'rw\', \'nocopy\', \'z\', \'Z\'} | PROPAGATIONS | CONSISTENCIES):\n            raise Refused(\'UNSUPPORTED_RUNTIME_MOUNT_MODE\')\n        actual[target] = {\n            \'type\': mount[\'Type\'], \'source\': source,\n            \'resolved_source\': absolute(mount.get(\'Source\')),\n            \'driver\': mount.get(\'Driver\') or \'\',\n            \'read_only\': not boolean(mount.get(\'RW\')),\n            \'propagation\': (mount.get(\'Propagation\') or \'rprivate\') if mount[\'Type\'] == \'bind\' else (mount.get(\'Propagation\') or \'\'),\n            \'selinux\': sorted(mode & {\'z\', \'Z\'}),\n        }\n    declarations = {}\n\n    def add(kind, source, target, read_only, options):\n        if target not in actual or target in declarations:\n            raise Refused(\'MOUNT_DECLARATION_TARGET_MISMATCH\')\n        runtime = actual[target]\n        if kind != runtime[\'type\'] or source != runtime[\'source\'] or read_only != runtime[\'read_only\']:\n            raise Refused(\'MOUNT_DECLARATION_RUNTIME_MISMATCH\')\n        if kind == \'bind\' and options[\'propagation\'] != runtime[\'propagation\']:\n            raise Refused(\'BIND_PROPAGATION_RUNTIME_MISMATCH\')\n        if options.get(\'selinux\', []) != runtime[\'selinux\']:\n            raise Refused(\'SELINUX_RUNTIME_MISMATCH\')\n        declarations[target] = {\'runtime\': runtime, \'options\': options}\n\n    binds = host.pop(\'Binds\', None) or []\n    typed = host.pop(\'Mounts\', None) or []\n    if not isinstance(binds, list) or not isinstance(typed, list):\n        raise Refused(\'MOUNT_DECLARATIONS_INVALID\')\n    for bind in binds:\n        if not isinstance(bind, str) or len(bind.split(\':\')) not in (2, 3):\n            raise Refused(\'UNSUPPORTED_BIND_ENCODING\')\n        parts = bind.split(\':\')\n        source, target = parts[:2]\n        target = absolute(target)\n        flags = parts[2].split(\',\') if len(parts) == 3 else []\n        if len(flags) != len(set(flags)) or set(flags) - ({\'ro\', \'rw\', \'nocopy\', \'z\', \'Z\'} | PROPAGATIONS | CONSISTENCIES):\n            raise Refused(\'UNSUPPORTED_BIND_MODE\')\n        flags = set(flags)\n        if {\'ro\', \'rw\'} <= flags or len(flags & PROPAGATIONS) > 1 or len(flags & CONSISTENCIES) > 1 or {\'z\', \'Z\'} <= flags:\n            raise Refused(\'CONTRADICTORY_BIND_MODE\')\n        if target not in actual:\n            raise Refused(\'MOUNT_DECLARATION_TARGET_MISMATCH\')\n        kind = actual[target][\'type\']\n        common = {\'consistency\': consistency(next(iter(flags & CONSISTENCIES), \'\')),\n                  \'selinux\': sorted(flags & {\'z\', \'Z\'})}\n        if kind == \'bind\':\n            absolute(source)\n            if \'nocopy\' in flags:\n                raise Refused(\'INVALID_BIND_NOCOPY\')\n            options = {**common, \'propagation\': next(iter(flags & PROPAGATIONS), \'rprivate\'),\n                       \'create_mountpoint\': True, \'non_recursive\': False,\n                       \'read_only_non_recursive\': False, \'read_only_force_recursive\': False}\n        else:\n            if flags & (PROPAGATIONS | {\'z\', \'Z\'}):\n                raise Refused(\'UNSUPPORTED_VOLUME_BIND_FLAGS\')\n            options = {**common, \'no_copy\': \'nocopy\' in flags, \'subpath\': \'\',\n                       \'driver\': actual[target][\'driver\'], \'driver_options\': {}, \'labels\': {}}\n        add(kind, source, target, \'ro\' in flags, options)\n    for mount in typed:\n        if not isinstance(mount, dict) or set(mount) - MOUNT_KEYS:\n            raise Refused(\'UNSUPPORTED_TYPED_MOUNT_FIELDS\')\n        kind, source, target = mount.get(\'Type\'), mount.get(\'Source\'), absolute(mount.get(\'Target\'))\n        read_only = boolean(mount.get(\'ReadOnly\', False))\n        common = {\'consistency\': consistency(mount.get(\'Consistency\')), \'selinux\': []}\n        if kind == \'bind\':\n            absolute(source)\n            opts = mount.get(\'BindOptions\') or {}\n            if set(opts) - BIND_KEYS or mount.get(\'VolumeOptions\'):\n                raise Refused(\'UNSUPPORTED_TYPED_BIND_OPTIONS\')\n            propagation = opts.get(\'Propagation\') or \'rprivate\'\n            if propagation not in PROPAGATIONS:\n                raise Refused(\'UNSUPPORTED_BIND_PROPAGATION\')\n            options = {**common, \'propagation\': propagation,\n                       \'create_mountpoint\': boolean(opts.get(\'CreateMountpoint\', False)),\n                       \'non_recursive\': boolean(opts.get(\'NonRecursive\', False)),\n                       \'read_only_non_recursive\': boolean(opts.get(\'ReadOnlyNonRecursive\', False)),\n                       \'read_only_force_recursive\': boolean(opts.get(\'ReadOnlyForceRecursive\', False))}\n        elif kind == \'volume\':\n            opts = mount.get(\'VolumeOptions\') or {}\n            if set(opts) - VOLUME_KEYS or mount.get(\'BindOptions\') or target not in actual:\n                raise Refused(\'UNSUPPORTED_TYPED_VOLUME_OPTIONS\')\n            driver = opts.get(\'DriverConfig\') or {}\n            if set(driver) - {\'Name\', \'Options\'}:\n                raise Refused(\'UNSUPPORTED_VOLUME_DRIVER_FIELDS\')\n            options = {**common, \'no_copy\': boolean(opts.get(\'NoCopy\', False)),\n                       \'subpath\': opts.get(\'Subpath\') or \'\', \'labels\': opts.get(\'Labels\') or {},\n                       \'driver\': driver.get(\'Name\') or actual[target][\'driver\'],\n                       \'driver_options\': driver.get(\'Options\') or {}}\n        else:\n            raise Refused(\'UNSUPPORTED_TYPED_MOUNT_TYPE\')\n        add(kind, source, target, read_only, options)\n    if set(declarations) != set(actual):\n        raise Refused(\'UNACCOUNTED_RUNTIME_MOUNT\')\n    # Every field outside the two encoding alternatives stays in the comparison.\n    return {\'host_config\': host, \'mount_contract\': declarations}\n\n\ndef verify_host_storage(before, after):\n    if canonical_host_storage(before) != canonical_host_storage(after):\n        raise Refused(\'HOST_CONFIGURATION_OR_STORAGE_SEMANTICS_CHANGED\')\n    return {\'host_and_storage_semantics_match\': True, \'deployment_authorized\': False}\n'
@@ -43,8 +45,70 @@ def run(args, *, cwd=None, env=None, input=None, check=True):
     if len(p.stdout) > 16 * 1024**2 or len(p.stderr) > 1024**2:
         raise Refused('COMMAND_OUTPUT_LIMIT')
     if check and p.returncode:
-        raise Refused('DOCKER_COMMAND_FAILED_REDACTED')
+        stage = '_'.join(str(v).upper().replace('-', '_') for v in args[:2] if not str(v).startswith('sha256:'))
+        if args[0] == 'create':
+            stage = 'TYPED_CREATE' if '--mount' in args else 'LEGACY_CREATE'
+        elif args[0] == 'compose':
+            stage = 'COMPOSE_CONFIG' if 'config' in args else 'COMPOSE_CREATE'
+        error = p.stderr.decode(errors='replace').lower()
+        category = 'FAILED_REDACTED'
+        for words, label in [
+            (('unexpected key', 'unknown flag'), 'OPTION_UNSUPPORTED'),
+            (('permission denied',), 'PERMISSION_DENIED'),
+            (('toomanyrequests', 'rate limit'), 'REGISTRY_RATE_LIMIT'),
+            (('no such image',), 'IMAGE_UNAVAILABLE'),
+            (('cannot connect', 'connection refused'), 'ENDPOINT_UNREACHABLE'),
+        ]:
+            if any(word in error for word in words):
+                category = label
+                break
+        raise Refused('DOCKER_' + stage + '_' + category)
     return p
+
+
+class UnixDocker(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect('/var/run/docker.sock')
+
+
+def api_json(method, path, body=None):
+    connection = UnixDocker('localhost', timeout=30)
+    try:
+        encoded = None if body is None else json.dumps(body).encode()
+        connection.request(method, path, body=encoded, headers={'Content-Type': 'application/json'})
+        response = connection.getresponse()
+        raw = response.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024 or response.status not in (200, 201):
+            raise Refused('LOCAL_DOCKER_API_REQUEST_FAILED_REDACTED')
+        return json.loads(raw)
+    finally:
+        connection.close()
+
+
+def create_typed_probe(original, name, root, volume):
+    # The Engine supports CreateMountpoint even where a CLI lacks the newer
+    # bind-create-src spelling. Verify both clients address the same local daemon.
+    cli_id = run(['info', '--format', '{{.ID}}']).stdout.decode().strip()
+    if not cli_id or api_json('GET', '/info').get('ID') != cli_id:
+        raise Refused('DOCKER_API_AND_CLI_ENDPOINTS_DIFFER')
+    version = api_json('GET', '/version').get('ApiVersion', '')
+    import re
+    if not re.fullmatch(r'1\.[0-9]{1,3}', version):
+        raise Refused('DOCKER_API_VERSION_UNSUPPORTED')
+    body = copy.deepcopy(original['Config'])
+    host = copy.deepcopy(original['HostConfig'])
+    host['Binds'] = None
+    host['Mounts'] = [
+        {'Type': 'bind', 'Source': str(root / 'proof'), 'Target': '/proof', 'ReadOnly': True,
+         'BindOptions': {'CreateMountpoint': True, 'Propagation': 'rprivate'}},
+        {'Type': 'volume', 'Source': volume, 'Target': '/data', 'VolumeOptions': {'NoCopy': True}},
+    ]
+    body['HostConfig'] = host
+    created = api_json('POST', '/v' + version + '/containers/create?' + urllib.parse.urlencode({'name': name}), body)
+    if not re.fullmatch(r'[0-9a-f]{64}', created.get('Id', '')):
+        raise Refused('TYPED_PROBE_CREATE_RECEIPT_INVALID')
 
 
 def read_context(path, checksum):
@@ -129,10 +193,7 @@ def rehearse(image, *, directory=None):
         row = json.loads(run(['inspect', names[0]]).stdout)[0]
         validate_probe(row, image, nonce)
         rows.append(row)
-        typed_args = list(args)
-        typed_args[typed_args.index('--name') + 1] = names[1]
-        run([*typed_args, '--mount', 'type=bind,source=' + str(root / 'proof') + ',target=/proof,readonly,bind-propagation=rprivate,bind-create-src',
-             '--mount', 'type=volume,source=' + volume + ',target=/data,volume-nocopy', image, '__v79_probe_never_started__'])
+        create_typed_probe(rows[0], names[1], root, volume)
         typed_row = json.loads(run(['inspect', names[1]]).stdout)[0]
         validate_probe(typed_row, image, nonce)
         if not rows[0]['HostConfig'].get('Binds') or not typed_row['HostConfig'].get('Mounts'):
