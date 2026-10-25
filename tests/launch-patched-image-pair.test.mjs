@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { createHash, createHmac } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import pg from "pg";
@@ -13,6 +13,7 @@ import WebSocket from "ws";
 const TIQUET_COMMIT = "f1c336bc4406b9c38c23df44a84609bf744512a6";
 const HUB_COMMIT = "48c3facacb049610862203535ffee54616573a81";
 const tiquetDir = resolve(".paired-tiquet");
+const hubPgUrl = "postgresql://hub_test:hub_test_password@127.0.0.1:5433/hub_test";
 const pgUrl = "postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test";
 const platformSecret="paired-ci-platform-secret-12345678901234567890";
 const launchSecret="paired-ci-launch-secret-123456789012345678901234";
@@ -28,6 +29,7 @@ function checkScope() {
   assert.equal(process.env.GITHUB_ACTIONS, "true");
   assert.equal(process.env.DATABASE_URL, pgUrl);
   assert.equal(process.env.NODE_ENV, "test");
+  assert.equal(process.env.V79_PAIR_HUB_PG_URL, hubPgUrl);
   assert.equal(process.env.WIPAY_ENABLED, "0");
   assert.equal(execFileSync("git",["-C",tiquetDir,"rev-parse","HEAD"],{encoding:"utf8"}).trim(),TIQUET_COMMIT);
 }
@@ -105,7 +107,7 @@ test("Exact patched OCI pair: SSO, dual-tenant read/write and session revocation
   const hubPort=await unusedPort();
   const hub="http://127.0.0.1:"+hubPort;
   const tiquet="http://127.0.0.1:3000";
-  const hubProcess=launchProcess(t,"Hub",process.cwd(),["--import","tsx","server.ts"],{
+  const hubEnv={
     ...process.env,
     NODE_ENV:"production",DATA_DIR:dir,PORT:String(hubPort),APP_URL:hub,
     V79_HUB_STORE_BACKEND:"json",V79_HUB_ADMIN_USERNAME:"admin",
@@ -117,6 +119,19 @@ test("Exact patched OCI pair: SSO, dual-tenant read/write and session revocation
     POS_BASE_URL:dead,FFPRO_INTERNAL_URL:dead,MARKETING_INTERNAL_URL:dead,
     ACADEMY_INTERNAL_URL:dead,LASERTAG_INTERNAL_URL:dead,OLLAMA_BASE_URL:"",
     WIPAY_ENABLED:"0",V79_MCP_READONLY_ENABLE:"0",V79_RESEND_API_KEY:"",
+  };
+  // Bootstrap only fresh synthetic JSON, then exercise the shipped PG backend.
+  const bootstrap=launchProcess(t,"Bootstrap Hub",process.cwd(),["--import","tsx","server.ts"],hubEnv);
+  await ready(hub,"/api/health",bootstrap,async()=>true);
+  await bootstrap.stop();
+  execFileSync("docker",["run","--rm","--network","host","--read-only","--cap-drop","ALL",
+    "--security-opt","no-new-privileges","--user",String(process.getuid())+":"+String(process.getgid()),
+    "--mount","type=bind,src="+dir+",dst="+dir,"--env","DATA_DIR="+dir,
+    "--env","DATABASE_URL="+hubPgUrl,"--entrypoint","node","v79-ci-patched-hub",
+    "scripts/migrate-store-to-postgres.mjs"],{stdio:"pipe",timeout:20000});
+  const seedHash=createHash("sha256").update(await readFile(join(dir,"v79_store.json"))).digest("hex");
+  const hubProcess=launchProcess(t,"Hub",process.cwd(),["--import","tsx","server.ts"],{
+    ...hubEnv,V79_HUB_STORE_BACKEND:"postgres",DATABASE_URL:hubPgUrl,
   });
   await ready(hub,"/api/health",hubProcess,async()=>true);
   const tiquetProcess=launchProcess(t,"Tiquet",tiquetDir,["server/index.js"],{
@@ -365,7 +380,7 @@ test("Exact patched OCI pair: SSO, dual-tenant read/write and session revocation
   const resumedHub=launchProcess(t,"Restarted synthetic Hub",process.cwd(),["--import","tsx","server.ts"],{
     ...process.env,
     NODE_ENV:"production",DATA_DIR:dir,PORT:String(hubPort),APP_URL:hub,
-    V79_HUB_STORE_BACKEND:"json",V79_HUB_ADMIN_USERNAME:"admin",
+    V79_HUB_STORE_BACKEND:"postgres",DATABASE_URL:hubPgUrl,V79_HUB_ADMIN_USERNAME:"admin",
     V79_HUB_ADMIN_EMAIL:"vision79slu@gmail.com",
     V79_HUB_ADMIN_PASSWORD:"paired-ci-admin-password-only-2026",
     V79_HUB_TIQUET_SESSION_BINDING:"1",
@@ -384,5 +399,7 @@ test("Exact patched OCI pair: SSO, dual-tenant read/write and session revocation
     "revoked Hub session may not reappear after restart");
   assert.equal((await req(tiquet,"/api/auth/me",{headers:{Cookie:bCookie}})).status,200,
     "unrelated linked Tiquet access can recover after Hub restarts");
-  console.log("HUB_SESSION_RESTART_DURABILITY=PASS");
+  assert.equal(createHash("sha256").update(await readFile(join(dir,"v79_store.json"))).digest("hex"),seedHash,
+    "PostgreSQL runtime never overwrites its JSON bootstrap source");
+  console.log("HUB_SESSION_RESTART_DURABILITY=PASS HUB_POSTGRES_RUNTIME=PASS JSON_SEED_PRESERVED=PASS");
 });

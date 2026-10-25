@@ -25,7 +25,18 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U tiquet_test -d tiquet_test"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      hub-postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hub_test
+          POSTGRES_USER: hub_test
+          POSTGRES_PASSWORD: hub_test_password
+        ports: [127.0.0.1:5433:5432]
+        options: >-
+          --health-cmd "pg_isready -U hub_test -d hub_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
+      V79_PAIR_HUB_PG_URL: postgresql://hub_test:hub_test_password@127.0.0.1:5433/hub_test
       V79_PAIRED_TEST_SCOPE: github-ci-disposable
       DATABASE_URL: postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test
       NODE_ENV: test
@@ -80,10 +91,17 @@ jobs:
           node --test tests/launch-patched-image-pair.test.mjs | tee pair-evidence/test.txt
           test -z "$(git -C .candidate-hub status --porcelain --untracked-files=no)"
           test -z "$(git -C .paired-tiquet status --porcelain --untracked-files=no)"
-      - name: Retain bounded evidence (no images or production data)
+      - name: Export only the exact images that passed acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save v79-ci-patched-hub v79-ci-patched-tiquet | gzip -1 > pair-evidence/patched-pair.docker.tar.gz
+          test "$(stat -c %s pair-evidence/patched-pair.docker.tar.gz)" -lt 1073741824
+          (cd pair-evidence && sha256sum patched-pair.docker.tar.gz images.txt test.txt > SHA256SUMS.txt)
+      - name: Retain acceptance evidence and clean source-only images
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: patched-pair-evidence
           path: pair-evidence/
-          retention-days: 14
+          retention-days: 3
