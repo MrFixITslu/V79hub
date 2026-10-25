@@ -24,6 +24,8 @@ on:
       - tests/resume-hardened-pair.test.py
       - scripts/continue-manifest-bound-pair.py
       - tests/manifest-bound-pair.test.py
+      - scripts/continue-frozen-metadata-pair.py
+      - tests/frozen-metadata-pair.test.py
       - .github/workflows/paired-image-release-contract.yml
 concurrency:
   group: paired-release-preparation-${{ github.event.pull_request.number }}
@@ -51,6 +53,7 @@ jobs:
           python3 tests/release-hardened-pair.test.py
           python3 tests/resume-hardened-pair.test.py
           python3 tests/manifest-bound-pair.test.py
+          python3 tests/frozen-metadata-pair.test.py
 
   synthetic-application-rollback:
     runs-on: ubuntu-24.04
