@@ -42,7 +42,8 @@ class RealCompose(unittest.TestCase):
                 services[service]={'image':old['Id'],'container_name':name,
                     'command':['sh','-c',"test -f /ledger/sentinel || printf durable > /ledger/sentinel; trap 'exit 0' TERM; while :; do sleep 1; done"],
                     'environment':{'PRICE':'$${literal} $$$$\nline two'},
-                    'volumes':[str(data)+':/data:ro','ledger:/ledger'],'read_only':True,'network_mode':'none',
+                    'volumes':[str(data)+':/data:ro','ledger:/ledger'],'read_only':True,
+                    'networks':{'isolated':{}},
                     'cap_drop':['ALL'],'security_opt':['no-new-privileges:true'],
                     'healthcheck':{'test':['CMD','test','-f','/data/sentinel'],
                                    'interval':'1s','timeout':'1s','retries':10},
@@ -50,9 +51,13 @@ class RealCompose(unittest.TestCase):
                 services[service]['secrets']=[{'source':'operator-token'}]
             services['hub']['depends_on']={'db':{'condition':'service_started'}}
             services['tiquet']['depends_on']={'db':{'condition':'service_started'}}
+            with socket.socket() as reservation:
+                reservation.bind(('127.0.0.1',0));port=reservation.getsockname()[1]
+            services['hub']['ports']=['127.0.0.1:'+str(port)+':8080']
             initial=root/'initial.json';initial.write_text(json.dumps({'services':services,
                 'volumes':{'ledger':{'name':project+'-ledger'}},
-                'secrets':{'operator-token':{'file':str(token)}}}));initial.chmod(0o600)
+                'secrets':{'operator-token':{'file':str(token)}},
+                'networks':{'isolated':{'name':project+'-network','internal':True}}}));initial.chmod(0o600)
             args=['docker','compose','--project-name',project,'--project-directory',str(root),'-f',str(initial)]
             try:
                 run([*args,'up','-d','--wait','--wait-timeout','30','--no-build','--pull','never'])
@@ -133,6 +138,12 @@ result=m.rollback(b,list(p['apps']));assert result['status']=='PASS_ORIGINAL_IMA
                     info=json.loads(result.stdout)[0]
                     self.assertEqual((info.get('Labels') or {}).get('com.docker.compose.project'),project)
                     run(['docker','volume','rm',volume])
+                network=project+'-network'
+                result=subprocess.run(['docker','network','inspect',network],capture_output=True,timeout=20)
+                if result.returncode==0:
+                    info=json.loads(result.stdout)[0]
+                    self.assertEqual((info.get('Labels') or {}).get('com.docker.compose.project'),project)
+                    run(['docker','network','rm',network])
 
 
 if __name__=='__main__':unittest.main()
