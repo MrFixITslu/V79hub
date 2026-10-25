@@ -154,6 +154,12 @@ def canonical_host_storage(row):
 
 
 def verify_host_storage(before, after):
-    if canonical_host_storage(before) != canonical_host_storage(after):
-        raise Refused('HOST_CONFIGURATION_OR_STORAGE_SEMANTICS_CHANGED')
+    first, second = canonical_host_storage(before), canonical_host_storage(after)
+    if first['host_config'] != second['host_config']:
+        keys = sorted(key for key in set(first['host_config']) | set(second['host_config'])
+                      if first['host_config'].get(key) != second['host_config'].get(key))
+        # Docker field names only; no values or storage paths are returned.
+        raise Refused('HOST_FIELDS_CHANGED:' + ','.join(keys))
+    if first['mount_contract'] != second['mount_contract']:
+        raise Refused('MOUNT_SOURCE_ACCESS_OR_OPTIONS_CHANGED')
     return {'host_and_storage_semantics_match': True, 'deployment_authorized': False}
