@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('codec',ROOT/'scripts/rehearse-image-release-codec.py')
@@ -59,6 +61,28 @@ class CodecTests(unittest.TestCase):
             elif target=='ports':row['HostConfig']['PortBindings']={'80/tcp':[{}]}
             else:row['Mounts'].append({'Destination':'/production'})
             with self.subTest(target=target),self.assertRaises(codec.Refused):codec.validate_probe(row,'fixed-image','owned-nonce')
+
+    def test_typed_api_keeps_host_settings_and_uses_explicit_mount_options(self):
+        before=self.probe();before['Config']['Env']=['PRIVATE=synthetic'];before['HostConfig']['Binds']=['legacy']
+        snapshot=copy.deepcopy(before);calls=[]
+        def api(method,path,body=None):
+            calls.append((method,path,copy.deepcopy(body)))
+            if path=='/info':return {'ID':'same-daemon'}
+            if path=='/version':return {'ApiVersion':'1.52'}
+            return {'Id':'a'*64}
+        with patch.object(codec,'api_json',side_effect=api),patch.object(codec,'run',return_value=SimpleNamespace(stdout=b'same-daemon\n')):
+            codec.create_typed_probe(before,'owned-name',Path('/tmp/owned'), 'owned-volume')
+        self.assertEqual(before,snapshot)
+        body=calls[-1][2];host=body['HostConfig']
+        self.assertIsNone(host['Binds'])
+        self.assertTrue(host['Mounts'][0]['BindOptions']['CreateMountpoint'])
+        self.assertTrue(host['Mounts'][1]['VolumeOptions']['NoCopy'])
+        self.assertEqual(host['NetworkMode'],'none');self.assertTrue(host['ReadonlyRootfs'])
+
+    def test_different_local_docker_daemon_cannot_receive_probe(self):
+        with patch.object(codec,'api_json',return_value={'ID':'different'}),patch.object(codec,'run',return_value=SimpleNamespace(stdout=b'expected\n')):
+            with self.assertRaisesRegex(codec.Refused,'ENDPOINTS_DIFFER'):
+                codec.create_typed_probe(self.probe(),'owned-name',Path('/tmp/owned'),'owned-volume')
 
 
 if __name__=='__main__':unittest.main()
