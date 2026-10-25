@@ -84,9 +84,15 @@ def verify_archive(path,expected_sha,bindings):
 def verify_loaded(m,bindings,configs):
     for name,binding in bindings.items():
         row=json.loads(m.call(['docker','image','inspect',binding['manifest']]))[0]
-        need(row['Id']==binding['manifest'] and row.get('Descriptor',{}).get('digest')==binding['manifest']
-             and row['Descriptor'].get('mediaType')=='application/vnd.oci.image.manifest.v1+json',
-             'LOADED_RUNTIME_MANIFEST_IDENTITY_CHANGED')
+        need(row['Id']==binding['manifest'],'LOADED_RUNTIME_MANIFEST_IDENTITY_CHANGED')
+        # The older containerd-backed API also uses the target manifest as Id,
+        # but may omit Descriptor. When available (including this Dell), require
+        # its exact digest/type too; no tag or config-ID fallback is permitted.
+        descriptor=row.get('Descriptor')
+        if descriptor is not None:
+            need(descriptor.get('digest')==binding['manifest'] and
+                 descriptor.get('mediaType')=='application/vnd.oci.image.manifest.v1+json',
+                 'LOADED_RUNTIME_DESCRIPTOR_CHANGED')
         config=configs[name]
         need(row.get('Os')==config['os'] and row.get('Architecture')==config['architecture'],
              'LOADED_IMAGE_PLATFORM_CHANGED')
