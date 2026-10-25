@@ -182,6 +182,8 @@ def remote_backup(backup):
 def prepare(payload,root):
     review=module('review-hardened-release',root);transaction=module('paired-compose-transaction',root)
     remote_backup(payload['backup'])
+    # Read-only private-app HTTP gate before any archive transfer or restart.
+    local_health_pair()
     need(hashlib.sha256(payload['helper'].encode()).hexdigest()==review.HELPER_SHA,'EXISTING_HELPER_CHECKSUM_CHANGED')
     ns={'__name__':'readonly_helpers'};exec(compile(payload['helper'],'<verified-helper>','exec'),ns)
     need(payload['backup']['images']==ns['PINS'],'BACKUP_DOES_NOT_MATCH_CURRENT_PINNED_RELEASE')
@@ -273,16 +275,37 @@ def timers_resume():
 
 
 def local_health_pair():
-    import urllib.request
-    for name,url,status in [('hub','http://127.0.0.1:3040/api/health','ok'),
-                            ('tiquet','http://127.0.0.1:3050/health','healthy')]:
+    """Require HTTP200+exact status inside each private app network namespace.
+
+    Neither production app publishes its HTTP port on the host. The verified
+    previous host-loopback probe would therefore falsely fail after cutover.
+    Use a read-only Node fetch from the selected running container instead.
+    No port changes, external calls, host publishing or secret output.
+    """
+    script=r"""
+const target=process.argv[1], expected=process.argv[2];
+const stop=new AbortController();
+const timeout=setTimeout(()=>stop.abort(),10000);
+try {
+  const response=await fetch(target,{signal:stop.signal,redirect:'error'});
+  if (response.status!==200) process.exitCode=2;
+  else {
+    const raw=await response.text();
+    if (raw.length>65536 || JSON.parse(raw).status!==expected) process.exitCode=2;
+  }
+} catch {process.exitCode=2;}
+finally {clearTimeout(timeout);}
+"""
+    for container,url,status in (
+        ('v79-hub','http://127.0.0.1:3040/api/health','ok'),
+        ('v79-tiquet-manager','http://127.0.0.1:3050/health','healthy')):
         try:
-            with urllib.request.urlopen(url,timeout=10) as response:
-                raw=response.read(65537)
-                need(response.status==200 and len(raw)<=65536,'SELECTED_HTTP_HEALTH_FAILED')
-                need(json.loads(raw).get('status')==status,'SELECTED_HTTP_HEALTH_FAILED')
-        except Refused:raise
-        except Exception:raise Refused('SELECTED_HTTP_HEALTH_UNAVAILABLE') from None
+            output=subprocess.run(['docker','exec',container,'node','--input-type=module',
+                                   '-e',script,url,status],
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=25)
+        except (OSError,subprocess.TimeoutExpired):
+            raise Refused('SELECTED_PRIVATE_HTTP_HEALTH_UNAVAILABLE') from None
+        need(output.returncode==0,'SELECTED_PRIVATE_HTTP_HEALTH_FAILED')
 
 
 def execute(root,pin,manual=False):
