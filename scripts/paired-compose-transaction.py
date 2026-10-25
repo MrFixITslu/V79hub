@@ -118,7 +118,9 @@ def runtime_matches(before,after,entry,which,*,selinux_enabled):
     old_labels.pop('com.docker.compose.config-hash',None)
     if not isinstance(config_hash,str) or not re.fullmatch('[0-9a-f]{64}',config_hash):
         raise Refused('COMPOSE_CONFIG_HASH_MISSING')
-    if old_labels!=new_labels:raise Refused('APPLICATION_LABELS_CHANGED')
+    if old_labels!=new_labels:
+        fields=sorted(k for k in set(old_labels)|set(new_labels) if old_labels.get(k)!=new_labels.get(k))
+        raise Refused('APPLICATION_LABELS_CHANGED:'+','.join(fields))
     if old!=new:
         fields=sorted(k for k in set(old)|set(new) if old.get(k)!=new.get(k))
         raise Refused('ACTUAL_CONFIG_FIELDS_CHANGED:'+','.join(fields))
