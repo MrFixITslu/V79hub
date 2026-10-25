@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Ambiguous-outcome, startup and rollback failure tests; no Docker required."""
 import importlib.util
+import copy
+import tempfile
 from pathlib import Path
 import unittest
 
@@ -38,6 +40,62 @@ class Backend:
 
 
 class TransactionTests(unittest.TestCase):
+    def runtime_fixture(self):
+        old_id='a'*64;new_id='b'*64
+        old_image={'Id':'sha256:'+'1'*64,'Config':{'Labels':{'org.example.revision':'before'}}}
+        new_image={'Id':'sha256:'+'2'*64,'Config':{'Labels':{'org.example.revision':'after'}}}
+        labels={'org.example.revision':'before','v79.security':'enabled',
+            'com.docker.compose.project':'fixture','com.docker.compose.service':'hub'}
+        before={'Id':old_id,'Image':old_image['Id'],'Config':{'Image':old_image['Id'],
+            'Hostname':old_id[:12],'User':'appuser','Env':['SECRET=synthetic-only'],'Labels':labels},
+            'HostConfig':{'OomKillDisable':None},'Mounts':[],
+            'NetworkSettings':{'Networks':{}},'State':{'Running':False}}
+        after=copy.deepcopy(before);after['Id']=new_id;after['Image']=new_image['Id']
+        after['Config']['Hostname']=new_id[:12];after['Config']['Image']=new_image['Id']
+        after['Config']['Labels'].update({'org.example.revision':'after',
+            'com.docker.compose.project.config_files':'/private/candidate.json',
+            'com.docker.compose.project.environment_file':'/dev/null',
+            'com.docker.compose.image':new_image['Id'],'com.docker.compose.version':'5.6.0',
+            'com.docker.compose.config-hash':'c'*64})
+        after['HostConfig']['OomKillDisable']=False
+        entry={'model':{'services':{'hub':{}}},'service':'hub','compose_version':'5.6.0',
+            'candidate_file':'/private/candidate.json','candidate_image':new_image,
+            'rollback_image':old_image}
+        return before,after,entry
+
+    def test_enabled_oom_encoding_is_equal_but_disabling_oom_is_rejected(self):
+        before,after,entry=self.runtime_fixture()
+        self.assertTrue(m.runtime_matches(before,after,entry,'candidate',selinux_enabled=False))
+        after['HostConfig']['OomKillDisable']=True
+        with self.assertRaisesRegex(ValueError,'HOST_FIELDS_CHANGED:OomKillDisable'):
+            m.runtime_matches(before,after,entry,'candidate',selinux_enabled=False)
+
+    def test_auth_env_process_and_unrecognized_label_changes_are_not_normalized(self):
+        for kind in ('env','user','label','reserved-label'):
+            before,after,entry=self.runtime_fixture()
+            if kind=='env':after['Config']['Env']=['SECRET=changed-synthetic-only']
+            elif kind=='user':after['Config']['User']='root'
+            elif kind=='label':after['Config']['Labels']['v79.security']='disabled'
+            else:after['Config']['Labels']['com.docker.compose.unknown-security-label']='disabled'
+            with self.subTest(kind=kind),self.assertRaises(ValueError) as error:
+                m.runtime_matches(before,after,entry,'candidate',selinux_enabled=False)
+            self.assertNotIn('synthetic-only',str(error.exception))
+
+    def test_replace_label_must_be_the_exact_verified_previous_container_id(self):
+        before,after,entry=self.runtime_fixture();entry['_replaced_id']=before['Id']
+        after['Config']['Labels']['com.docker.compose.replace']=before['Id']
+        self.assertTrue(m.runtime_matches(before,after,entry,'candidate',selinux_enabled=False))
+        after['Config']['Labels']['com.docker.compose.replace']='f'*64
+        with self.assertRaisesRegex(m.Refused,'REPLACED_CONTAINER_ID_CHANGED'):
+            m.runtime_matches(before,after,entry,'candidate',selinux_enabled=False)
+
+    def test_durable_plan_tamper_requires_retained_external_digest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);pin=m.seal_plan(root,{'synthetic':'original'})
+            self.assertEqual(m.load_plan(root,pin),{'synthetic':'original'})
+            (root/'transaction.json').write_text('{"synthetic":"modified"}')
+            with self.assertRaisesRegex(m.Refused,'EXTERNAL_DIGEST_MISMATCH'):m.load_plan(root,pin)
+
     def test_success_still_requires_supervised_acceptance(self):
         b=Backend();result=m.deploy(b)
         self.assertEqual(b.state,dict.fromkeys(('hub','tiquet'),'candidate'))
