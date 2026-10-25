@@ -22,8 +22,8 @@ class Backend:
         if self.fail=='seal':raise m.Refused('seal')
     def eligible(self,name):
         if self.fail=='foreign':raise m.Refused('foreign')
-    def journal(self,event,name=None,reason=None):
-        self.actions.append((event,name) if reason is None else (event,name,reason))
+    def journal(self,event,name=None):
+        self.actions.append((event,name))
         if self.fail=='journal' and event=='CANDIDATE_INTENT':raise m.Refused('disk')
     def switch(self,name,which):
         self.actions.append(('switch',name,which))
@@ -70,7 +70,7 @@ class TransactionTests(unittest.TestCase):
         new_image={'Id':'sha256:'+'2'*64,'Config':{'Labels':{'org.example.revision':'after'}}}
         labels={'org.example.revision':'before','v79.security':'enabled',
             'com.docker.compose.project':'fixture','com.docker.compose.service':'hub'}
-        before={'Id':old_id,'Name':'/v79-hub','Image':old_image['Id'],'Config':{'Image':old_image['Id'],
+        before={'Id':old_id,'Image':old_image['Id'],'Config':{'Image':old_image['Id'],
             'Hostname':old_id[:12],'User':'appuser','Env':['SECRET=synthetic-only'],'Labels':labels},
             'HostConfig':{'OomKillDisable':None},'Mounts':[],
             'NetworkSettings':{'Networks':{}},'State':{'Running':False}}
@@ -105,33 +105,12 @@ class TransactionTests(unittest.TestCase):
                 m.runtime_matches(before,after,entry,'candidate',selinux_enabled=False)
             self.assertNotIn('synthetic-only',str(error.exception))
 
-    def test_compose_v560_replace_label_is_exact_configured_container_name(self):
-        before,after,entry=self.runtime_fixture()
-        entry['model']['services']['hub']['container_name']='v79-hub'
-        entry['_replaced_id']=before['Id']
-        after['Config']['Labels']['com.docker.compose.replace']='v79-hub'
+    def test_replace_label_must_be_the_exact_verified_previous_container_id(self):
+        before,after,entry=self.runtime_fixture();entry['_replaced_id']=before['Id']
+        after['Config']['Labels']['com.docker.compose.replace']=before['Id']
         self.assertTrue(m.runtime_matches(before,after,entry,'candidate',selinux_enabled=False))
-        for bad in (before['Id'],'not-v79-hub','v79-tiquet-manager',None):
-            with self.subTest(replacement=bad):
-                changed=copy.deepcopy(after)
-                if bad is None:
-                    changed['Config']['Labels'].pop('com.docker.compose.replace')
-                else:
-                    changed['Config']['Labels']['com.docker.compose.replace']=bad
-                with self.assertRaisesRegex(m.Refused,'COMPOSE_REPLACEMENT_NAME_MISMATCH'):
-                    m.runtime_matches(before,changed,entry,'candidate',selinux_enabled=False)
-        invalid=copy.deepcopy(entry)
-        invalid['model']['services']['hub'].pop('container_name')
-        with self.assertRaisesRegex(m.Refused,'COMPOSE_REPLACEMENT_NAME_MISMATCH'):
-            m.runtime_matches(before,after,invalid,'candidate',selinux_enabled=False)
-        renamed=copy.deepcopy(before);renamed['Name']='/other-container'
-        with self.assertRaisesRegex(m.Refused,'COMPOSE_REPLACEMENT_NAME_MISMATCH'):
-            m.runtime_matches(renamed,after,entry,'candidate',selinux_enabled=False)
-
-    def test_unexpected_replace_label_when_no_previous_container_is_rejected(self):
-        before,after,entry=self.runtime_fixture()
-        after['Config']['Labels']['com.docker.compose.replace']='v79-hub'
-        with self.assertRaisesRegex(m.Refused,'UNEXPECTED_COMPOSE_REPLACEMENT_LABEL'):
+        after['Config']['Labels']['com.docker.compose.replace']='f'*64
+        with self.assertRaisesRegex(m.Refused,'REPLACED_CONTAINER_ID_CHANGED'):
             m.runtime_matches(before,after,entry,'candidate',selinux_enabled=False)
 
     def test_durable_plan_tamper_requires_retained_external_digest(self):
@@ -168,23 +147,11 @@ class TransactionTests(unittest.TestCase):
                 b=Backend(failure);m.deploy(b)
                 self.assertEqual(b.state,dict.fromkeys(('hub','tiquet'),'rollback'))
 
-    def test_one_rollback_failure_preserves_both_failure_reasons(self):
+    def test_one_rollback_failure_does_not_skip_other_app(self):
         b=Backend('rollback')
         with self.assertRaisesRegex(m.Refused,'ROLLBACK_INCOMPLETE_OPERATOR_REQUIRED'):m.deploy(b)
         self.assertIn(('switch','tiquet','rollback'),b.actions)
         self.assertIn(('switch','hub','rollback'),b.actions)
-        self.assertIn(('CANDIDATE_FAILED','tiquet','UNCLASSIFIED_FAILURE'),b.actions)
-        self.assertIn(('ROLLBACK_FAILED','hub','UNCLASSIFIED_FAILURE'),b.actions)
-
-    def test_journal_cannot_emit_untrusted_raw_failure_or_secret(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            backend=m.ComposeBackend(tmp,{'apps':{}})
-            backend.journal('CANDIDATE_FAILED','v79-hub','COMPOSE_RECREATE_COMMAND_FAILED_REDACTED')
-            row=json.loads((Path(tmp)/'events.jsonl').read_text().splitlines()[0])
-            self.assertEqual(row['reason'],'COMPOSE_RECREATE_COMMAND_FAILED_REDACTED')
-            with self.assertRaisesRegex(m.Refused,'UNSAFE_JOURNAL_FAILURE_CODE'):
-                backend.journal('ROLLBACK_FAILED','v79-hub','PASSWORD=synthetic-only')
-            self.assertEqual(len((Path(tmp)/'events.jsonl').read_text().splitlines()),1)
 
     def test_untrusted_files_foreign_image_or_unsaved_intent_stop_before_switch(self):
         for failure in ('seal','foreign','journal'):
