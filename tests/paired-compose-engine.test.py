@@ -161,6 +161,7 @@ result=m.rollback(b,list(p['apps']));assert result['status']=='PASS_ORIGINAL_IMA
                     binder.verify_loaded(api,bindings,configs)
                     legacy=copy.deepcopy(plan)
                     for name,entry in legacy['apps'].items():
+                        entry['model']=json.loads(Path(entry['candidate_file']).read_bytes())
                         entry['candidate_image']['Id']=config_id
                         entry['model']['services'][entry['service']]['image']=config_id
                     bound=binder.project_plan(legacy,root,bindings)
