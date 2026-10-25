@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +15,15 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_remote_refusal_keeps_exact_stage_without_raw_output(self):
+        result=types.SimpleNamespace(returncode=2,stdout=b'{"status":"BLOCKED","reason":"SEALED_MODEL_ROUNDTRIP_CHANGED"}',
+                                     stderr=b'synthetic-secret-must-not-print')
+        with patch.object(m.subprocess,'run',return_value=result):
+            with self.assertRaisesRegex(m.Refused,'REMOTE_SEALED_MODEL_ROUNDTRIP_CHANGED'):m.call(['synthetic'])
+        result.stdout=b'{"status":"BLOCKED","reason":"secret=synthetic-only"}'
+        with patch.object(m.subprocess,'run',return_value=result):
+            with self.assertRaisesRegex(m.Refused,'COMMAND_FAILED_REDACTED'):m.call(['synthetic'])
+
     def test_exported_sources_are_byte_identical(self):
         self.assertEqual(len(m.SOURCES),5)
         for filename,source in m.SOURCES.items():
