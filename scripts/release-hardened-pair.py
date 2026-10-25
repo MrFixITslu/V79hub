@@ -323,6 +323,8 @@ def server_main(args):
         if args.server_prepare:
             result=prepare(json.loads(sys.stdin.buffer.read(512*1024)),root)
         elif args.server_load:
+            need(bool(args.plan_sha256),'IMAGE_LOAD_REQUIRES_SEALED_RELEASE_PLAN')
+            _,plan,_=validate_plan(root,args.plan_sha256);remote_backup(plan['backup'])
             path=root/'accepted-images.tar.gz'
             fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
             h=hashlib.sha256();total=0
@@ -363,14 +365,17 @@ def remote_directory(value):
 def monitor(root):
     root=remote_directory(str(root))
     probe="""import json
-import os,time,stat
+import os,time,stat,secrets
 from pathlib import Path
 r=Path(ROOT_VALUE)
 lease=r/'supervision.json'
-fd=os.open(lease,os.O_WRONLY|os.O_CREAT|os.O_NOFOLLOW,0o600)
-s=os.fstat(fd);assert stat.S_ISREG(s.st_mode) and s.st_uid==os.geteuid() and s.st_nlink==1 and not s.st_mode&0o077
+if lease.exists() or lease.is_symlink():
+ s=lease.lstat();assert stat.S_ISREG(s.st_mode) and s.st_uid==os.geteuid() and s.st_nlink==1 and not s.st_mode&0o077
+temporary=r/('.supervision-'+secrets.token_hex(8))
+fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
 with os.fdopen(fd,'wb') as f:
- f.truncate(0);f.write(json.dumps({'monotonic':time.monotonic()}).encode());f.flush();os.fsync(f.fileno())
+ f.write(json.dumps({'monotonic':time.monotonic()}).encode());f.flush();os.fsync(f.fileno())
+os.replace(temporary,lease)
 p=r/'outcome.json';j=r/'events.jsonl';e=r/'exit-code'
 events=j.read_text().splitlines() if j.is_file() else []
 last=json.loads(events[-1]) if events else {}
@@ -442,7 +447,8 @@ print(str(run))
         h=hashlib.sha256()
         with z.open('patched-pair.docker.tar.gz') as stream:
             for block in iter(lambda:stream.read(1024**2),b''):h.update(block)
-        command=shlex.join(['python3',str(root/'release-hardened-pair.py'),'--server-load',h.hexdigest()])
+        command=shlex.join(['python3',str(root/'release-hardened-pair.py'),'--server-load',h.hexdigest(),
+                           '--plan-sha256',prepared['plan_sha256']])
         with z.open('patched-pair.docker.tar.gz') as stream:
             process=subprocess.Popen([*SSH,command],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
             try:
@@ -472,6 +478,7 @@ def main():
     modes.add_argument('--monitor')
     modes.add_argument('--server-prepare',action='store_true');modes.add_argument('--server-load')
     modes.add_argument('--server-execute');modes.add_argument('--server-rollback')
+    p.add_argument('--plan-sha256')
     args=p.parse_args()
     if args.server_prepare or args.server_load or args.server_execute or args.server_rollback:server_main(args)
     else:client_main(args)
