@@ -125,14 +125,17 @@ def server_root():
     need(root.parent==ROOT and re.fullmatch(r'pair-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}',root.name),
          'PRIVATE_RELEASE_PATH_INVALID')
     os.umask(0o077)
+    info=root.lstat()
+    need(stat.S_ISDIR(info.st_mode) and info.st_uid==os.geteuid()
+         and stat.S_IMODE(info.st_mode)==0o700,'PRIVATE_RELEASE_DIRECTORY_UNSAFE')
+    for filename,source in SOURCES.items():
+        need(private_file(root/filename)==source.encode(),'RELEASE_MODULE_CHANGED')
     fd=module('paired-release-context',root).private_directory(root);os.close(fd)
     need(not os.environ.get('DOCKER_HOST') and not os.environ.get('DOCKER_CONTEXT'),'DOCKER_OVERRIDE_REFUSED')
     ctx=json.loads(call(['docker','context','inspect']))
     need(len(ctx)==1 and ctx[0]['Endpoints']['docker']['Host'] in
          ('unix:///var/run/docker.sock','unix:///run/docker.sock'),'DOCKER_NOT_LOCAL')
     need(call(['docker','info','--format','{{.Name}}']).decode().strip()=='v79sl','DOCKER_DAEMON_HOST_MISMATCH')
-    for filename,source in SOURCES.items():
-        need(private_file(root/filename)==source.encode(),'RELEASE_MODULE_CHANGED')
     return root
 
 
@@ -299,6 +302,14 @@ def execute(root,pin,manual=False):
         if manual:call(['systemctl','--user','stop',*TIMERS])
         else:timers_stop()
         result=transaction.rollback(backend,list(plan['apps'])) if manual else transaction.deploy(backend)
+        if manual or result.get('candidate_deployment_failed'):
+            for name,entry in plan['apps'].items():
+                row=backend.inspect(name)
+                if row['Id']==entry['baseline']['Id']:
+                    need(transaction.protected_fingerprint(row)==transaction.protected_fingerprint(entry['baseline'])
+                         and row['State'].get('Health',{}).get('Status')=='healthy',
+                         'UNTOUCHED_ORIGINAL_APP_CHANGED_DURING_ROLLBACK')
+                else:backend.healthy(name,'rollback')
         try:local_health_pair()
         except Refused:
             if manual or result.get('candidate_deployment_failed'):raise
