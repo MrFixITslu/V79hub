@@ -130,7 +130,7 @@ def project_plan(old,root,bindings):
 def guard(args):
     need(socket.gethostname()=='v79sl' and os.geteuid()!=0 and Path.home()==Path('/home/firelion'),
          'RUN_SERVER_ON_V79SL_ONLY')
-    need(Path(__file__).resolve()==ROOT/'continue-manifest-bound-pair.py'
+    need(Path(__file__).resolve()==ROOT/'manifest-bound-executor.py'
          and sha(Path(__file__))==args.helper_sha256,'BINDING_HELPER_CHECKSUM_CHANGED')
     m=original(ROOT/'release-hardened-pair.py')
     m.CHECKPOINT=args.checkpoint_name
@@ -238,8 +238,11 @@ def launch(args):
             need(not (ROOT/marker).exists(),'TRANSACTION_MARKED_DO_NOT_RELAUNCH')
         fresh_originals(m,transaction,old,backend);bound_validator(m,args)
         m.write_new(ROOT/'launch-claim.json',{'original_plan_sha256':PLAN_SHA,'binding_sha256':args.binding_sha256})
-        worker=['python3','-B','-u',str(ROOT/'continue-manifest-bound-pair.py'),'--server-execute',
-            '--helper-sha256',args.helper_sha256,'--binding-sha256',args.binding_sha256]
+        worker=['python3','-B','-u',str(ROOT/'manifest-bound-executor.py'),'--server-execute',
+            '--helper-sha256',args.helper_sha256,'--binding-sha256',args.binding_sha256,
+            '--original-plan-sha256',args.original_plan_sha256,
+            '--original-runner-sha256',args.original_runner_sha256,
+            '--checkpoint-name',args.checkpoint_name]
         wrapper=("import os,subprocess;p=subprocess.run("+repr(worker)+
             ");f=os.open("+repr(str(ROOT/'exit-code'))+",os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);"
             "os.write(f,str(p.returncode).encode());os.fsync(f);os.close(f)")
