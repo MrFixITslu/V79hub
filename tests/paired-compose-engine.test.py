@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real candidate/recreated-rollback using only disposable synthetic CI apps."""
 import copy
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -123,6 +124,21 @@ result=m.rollback(b,list(p['apps']));assert result['status']=='PASS_ORIGINAL_IMA
                 self.assertEqual(json.loads(run(['docker','inspect',names['db']]))[0]['Id'],before[names['db']]['Id'])
                 self.assertEqual((data/'sentinel').read_text(),'unchanged synthetic data')
                 self.assertEqual(run(['docker','exec',names['tiquet'],'cat','/ledger/sentinel']),b'durable')
+                # Exercise the corrected transport against a real Docker image
+                # archive too, not just a synthetic byte stream.
+                resume_spec=importlib.util.spec_from_file_location('resume',
+                    Path(__file__).parents[1]/'scripts/resume-hardened-pair.py')
+                resume=importlib.util.module_from_spec(resume_spec);resume_spec.loader.exec_module(resume)
+                packed=gzip.compress(run(['docker','image','save',new['Id']]),compresslevel=1)
+                offset=max(1,len(packed)-1065038);partial=root/'synthetic-partial.tar.gz'
+                partial.write_bytes(packed[:offset]);partial.chmod(0o600)
+                import io
+                count=resume.complete_transfer(partial,io.BytesIO(packed[offset:]),
+                    expected_size=len(packed),expected_sha256=hashlib.sha256(packed).hexdigest(),
+                    offset=offset,prefix_sha256=hashlib.sha256(packed[:offset]).hexdigest())
+                self.assertEqual(count,len(packed)-offset)
+                run(['docker','image','load','--input',str(partial)])
+                self.assertEqual(json.loads(run(['docker','image','inspect',new['Id']]))[0]['Id'],new['Id'])
             finally:
                 # Only exact synthetic fixture containers; never remove volumes.
                 for name in names.values():
