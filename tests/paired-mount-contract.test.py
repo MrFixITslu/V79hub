@@ -49,6 +49,15 @@ class MountTests(unittest.TestCase):
             before,after=self.rows();after['HostConfig'][key]=value
             with self.subTest(key=key),self.assertRaises(contract.Refused):contract.verify_host_storage(before,after)
 
+    def test_only_empty_known_optional_lists_normalize(self):
+        for field in contract.EMPTY_LIST_FIELDS:
+            before,after=self.rows();before['HostConfig'][field]=None;after['HostConfig'][field]=[]
+            contract.verify_host_storage(before,after)
+            after['HostConfig'][field]=['NONEMPTY_SETTING']
+            with self.subTest(field=field),self.assertRaises(contract.Refused):contract.verify_host_storage(before,after)
+        before,after=self.rows();before['HostConfig']['FutureSecurityField']=None;after['HostConfig']['FutureSecurityField']=[]
+        with self.assertRaises(contract.Refused):contract.verify_host_storage(before,after)
+
     def test_unknown_options_and_mount_types_reject(self):
         for target in ('top','bind','volume','runtime','type'):
             before,after=self.rows()
