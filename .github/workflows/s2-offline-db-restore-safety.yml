@@ -6,6 +6,8 @@ on:
     paths:
       - scripts/v79_s2_offline_dual_pg_restore_v2.py
       - tests/test_s2_offline_dual_pg_restore_v2.py
+      - scripts/v79_s2_offline_dual_pg_restore_v3.py
+      - tests/test_s2_offline_dual_pg_restore_v3.py
       - .github/workflows/s2-offline-db-restore-safety.yml
   workflow_dispatch:
 
@@ -24,3 +26,8 @@ jobs:
           python3 -B scripts/v79_s2_offline_dual_pg_restore_v2.py --self-test
       - name: Mocked tmpfs/network/cleanup negative tests
         run: python3 -B -m unittest discover -s tests -p 'test_s2_offline_dual_pg_restore_v2.py' -v
+      - name: V3 strict PostgreSQL byte-count validation and simulated failures
+        run: |
+          python3 -m py_compile scripts/v79_s2_offline_dual_pg_restore_v3.py
+          python3 -B scripts/v79_s2_offline_dual_pg_restore_v3.py --self-test
+          python3 -B -m unittest discover -s tests -p 'test_s2_offline_dual_pg_restore_v3.py' -v
