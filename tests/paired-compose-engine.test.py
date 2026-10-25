@@ -39,16 +39,17 @@ class RealCompose(unittest.TestCase):
             services={}
             for service,name in names.items():
                 services[service]={'image':old['Id'],'container_name':name,
-                    'command':['sh','-c',"trap 'exit 0' TERM; while :; do sleep 1; done"],
+                    'command':['sh','-c',"test -f /ledger/sentinel || printf durable > /ledger/sentinel; trap 'exit 0' TERM; while :; do sleep 1; done"],
                     'environment':{'PRICE':'$${literal} $$$$\nline two'},
-                    'volumes':[str(data)+':/data:ro'],'read_only':True,'network_mode':'none',
+                    'volumes':[str(data)+':/data:ro','ledger:/ledger'],'read_only':True,'network_mode':'none',
                     'cap_drop':['ALL'],'security_opt':['no-new-privileges:true'],
                     'healthcheck':{'test':['CMD','test','-f','/data/sentinel'],
                                    'interval':'1s','timeout':'1s','retries':10},
                     'restart':'unless-stopped'}
             services['hub']['depends_on']={'db':{'condition':'service_started'}}
             services['tiquet']['depends_on']={'db':{'condition':'service_started'}}
-            initial=root/'initial.json';initial.write_text(json.dumps({'services':services}));initial.chmod(0o600)
+            initial=root/'initial.json';initial.write_text(json.dumps({'services':services,
+                'volumes':{'ledger':{'name':project+'-ledger'}}}));initial.chmod(0o600)
             args=['docker','compose','--project-name',project,'--project-directory',str(root),'-f',str(initial)]
             try:
                 run([*args,'up','-d','--wait','--wait-timeout','30','--no-build','--pull','never'])
@@ -81,6 +82,7 @@ class RealCompose(unittest.TestCase):
                 result=m.deploy(backend)
                 self.assertEqual(result['status'],'PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING')
                 self.assertEqual((data/'sentinel').read_text(),'unchanged synthetic data')
+                self.assertEqual(run(['docker','exec',names['hub'],'cat','/ledger/sentinel']),b'durable')
                 # A completely new process reads only the sealed durable plan.
                 child='''import importlib.util,sys
 from pathlib import Path
@@ -111,6 +113,7 @@ result=m.rollback(b,list(p['apps']));assert result['status']=='PASS_ORIGINAL_IMA
                     self.assertEqual(json.loads(run(['docker','inspect',name]))[0]['Image'],old['Id'])
                 self.assertEqual(json.loads(run(['docker','inspect',names['db']]))[0]['Id'],before[names['db']]['Id'])
                 self.assertEqual((data/'sentinel').read_text(),'unchanged synthetic data')
+                self.assertEqual(run(['docker','exec',names['tiquet'],'cat','/ledger/sentinel']),b'durable')
             finally:
                 # Only exact synthetic fixture containers; never remove volumes.
                 for name in names.values():
@@ -121,6 +124,12 @@ result=m.rollback(b,list(p['apps']));assert result['status']=='PASS_ORIGINAL_IMA
                     self.assertEqual(row['Config']['Labels']['com.docker.compose.project'],project)
                     subprocess.run(['docker','stop','--time','5',row['Id']],capture_output=True,timeout=15,check=True)
                     run(['docker','rm',row['Id']])
+                volume=project+'-ledger'
+                result=subprocess.run(['docker','volume','inspect',volume],capture_output=True,timeout=20)
+                if result.returncode==0:
+                    info=json.loads(result.stdout)[0]
+                    self.assertEqual((info.get('Labels') or {}).get('com.docker.compose.project'),project)
+                    run(['docker','volume','rm',volume])
 
 
 if __name__=='__main__':unittest.main()
