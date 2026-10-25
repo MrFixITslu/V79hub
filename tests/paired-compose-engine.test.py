@@ -87,6 +87,7 @@ class RealCompose(unittest.TestCase):
                 profiles=m.stopped_profiles(backend)
                 self.assertEqual(profiles['profiles_verified'],4)
                 self.assertTrue(profiles['temporary_resource_cleanup_verified'])
+                self.assertFalse(list(root.glob('v79profile*')))
                 result=m.deploy(backend)
                 self.assertEqual(result['status'],'PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING')
                 self.assertEqual((data/'sentinel').read_text(),'unchanged synthetic data')
