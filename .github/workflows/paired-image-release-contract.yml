@@ -5,6 +5,8 @@ on:
     paths:
       - scripts/paired-image-release-contract.py
       - tests/paired-image-release-contract.test.py
+      - scripts/review-hardened-release.py
+      - tests/review-hardened-release.test.py
       - .github/workflows/paired-image-release-contract.yml
 permissions:
   contents: read
@@ -17,4 +19,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Reject image-only plan and rollback drift using synthetic models
-        run: python3 tests/paired-image-release-contract.test.py
+        run: |
+          python3 tests/paired-image-release-contract.test.py
+          python3 tests/review-hardened-release.test.py
