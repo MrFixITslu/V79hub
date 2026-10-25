@@ -56,7 +56,40 @@ def expected_failure(original):
         ('TIMERS_HELD_OPERATOR_REVIEW_REQUIRED',None)],'FAILED_ATTEMPT_JOURNAL_CHANGED')
 
 
-def restore(helper):
+def health_script(port,path,expected):
+    # HTTP stays inside this exact container's network namespace. No proxy,
+    # credentials, external requests, environment dump or host-port assumption.
+    url='http://127.0.0.1:'+str(port)+path
+    return """const http=require('node:http');
+const req=http.get(URL_VALUE,res=>{let raw='';res.on('data',part=>{raw+=part;if(raw.length>65536)req.destroy();});
+res.on('end',()=>{let status;try{status=JSON.parse(raw).status;}catch{}
+const ok=res.statusCode===200&&status===STATUS_VALUE;
+console.log(JSON.stringify({http:res.statusCode,status:ok?status:'UNEXPECTED'}));process.exit(ok?0:2);});});
+req.setTimeout(6000,()=>req.destroy());req.on('error',()=>{console.log(JSON.stringify({status:'UNAVAILABLE'}));process.exit(2);});
+""".replace('URL_VALUE',json.dumps(url)).replace('STATUS_VALUE',json.dumps(expected))
+
+
+def internal_health_pair(original,backend,plan):
+    proof={}
+    for name,port,path,expected in (
+        ('v79-hub',3040,'/api/health','ok'),
+        ('v79-tiquet-manager',3050,'/health','healthy')):
+        row=backend.inspect(name)
+        need(row['Image']==plan['apps'][name]['rollback_image']['Id']
+             and row['State'].get('Running') and row['State'].get('Health',{}).get('Status')=='healthy',
+             'ORIGINAL_HEALTHY_IMAGE_REQUIRED_FOR_INTERNAL_HTTP')
+        need(str(port)+'/tcp' in (row['Config'].get('ExposedPorts') or {}),'EXPECTED_INTERNAL_PORT_NOT_DECLARED')
+        print('RECOVERY=CHECKING_INTERNAL_HTTP_'+name,flush=True)
+        try:raw=original.call(['docker','exec',row['Id'],'node','-e',health_script(port,path,expected)])
+        except Exception:raise Refused('INTERNAL_HTTP_CHECK_FAILED_'+name.upper().replace('-','_')) from None
+        result=json.loads(raw)
+        need(result=={'http':200,'status':expected},'INTERNAL_HTTP_STATUS_MISMATCH')
+        need(backend.inspect(name)['Id']==row['Id'],'CONTAINER_CHANGED_DURING_INTERNAL_HTTP_CHECK')
+        proof[name]={'container_id':row['Id'],'http':200,'status':expected,'scope':'CONTAINER_LOOPBACK'}
+    return proof
+
+
+def restore(helper,*,finish_running=False):
     args=argparse.Namespace(attempt=str(ROOT),helper_sha256=HELPER_SHA,server_rollback=True,plan_sha256=PLAN_SHA)
     _,original,transaction,plan,backend=helper.validate(args)
     result={'status':'BLOCKED','release_decision':'HOLD','hub_start_requested':False,
@@ -74,13 +107,18 @@ def restore(helper):
             for timer in original.TIMERS:
                 need(original.call(['systemctl','--user','show',timer,'--value','-p','ActiveState']).decode().strip()=='inactive',
                      'EXPECTED_HELD_TIMER_STATE_CHANGED')
-            row=backend.inspect('v79-hub');checked_entry(transaction,plan,row,before_start=True)
+            row=backend.inspect('v79-hub')
+            if finish_running:
+                need(row['State'].get('Running') and row['State'].get('Health',{}).get('Status')=='healthy',
+                     'RUNNING_HEALTHY_ORIGINAL_HUB_REQUIRED')
+            checked_entry(transaction,plan,row,before_start=not finish_running)
             target=row['Id'];fingerprint=transaction.protected_fingerprint(row)
             need(transaction.protected_fingerprint(backend.inspect(target))==fingerprint,'HUB_CHANGED_BEFORE_START')
             backend.protected();tiquet_unchanged()
-            print('RECOVERY=STARTING_VERIFIED_EXISTING_ORIGINAL_HUB_ONLY',flush=True)
-            result['hub_start_requested']=True
-            original.call(['docker','start',target])
+            if not finish_running:
+                print('RECOVERY=STARTING_VERIFIED_EXISTING_ORIGINAL_HUB_ONLY',flush=True)
+                result['hub_start_requested']=True
+                original.call(['docker','start',target])
             deadline=time.monotonic()+180
             while True:
                 current=backend.inspect(target)
@@ -90,12 +128,14 @@ def restore(helper):
                 need(time.monotonic()<deadline,'ORIGINAL_HUB_HEALTH_TIMEOUT')
                 time.sleep(2)
             checked_entry(transaction,plan,current,before_start=False)
-            backend.protected();tiquet_unchanged();original.local_health_pair()
-            print('RECOVERY=ORIGINAL_HUB_AND_BOTH_HTTP_HEALTH_CHECKS_PASS',flush=True)
+            backend.protected();tiquet_unchanged()
+            http_proof=internal_health_pair(original,backend,plan)
+            print('RECOVERY=ORIGINAL_HUB_AND_BOTH_INTERNAL_HTTP_HEALTH_CHECKS_PASS',flush=True)
             original.timers_resume()
             backend.protected();tiquet_unchanged()
-            result.update(status='PASS_ORIGINAL_HUB_STARTED_AND_TIMERS_RESUMED',hub_container_id=target,
-                hub_image=current['Image'],hub_health='healthy',local_http_health_pair=True,
+            result.update(status='PASS_ORIGINAL_SERVICES_HEALTHY_TIMERS_RESUMED',hub_container_id=target,
+                hub_image=current['Image'],hub_health='healthy',internal_http_health_pair=True,
+                internal_http_proof=http_proof,host_port_changes_made=False,
                 tiquet_unchanged=True,protected_services_unchanged=True,timers_resumed=True,
                 original_runtime_checks=True)
         except BaseException as error:
@@ -117,11 +157,14 @@ def restore(helper):
 
 def main():
     sys.dont_write_bytecode=True
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--finish-running',action='store_true')
+    mode=parser.parse_args()
     path=ROOT/'continue-frozen-metadata-pair.py'
     need(not path.is_symlink() and hashlib.sha256(path.read_bytes()).hexdigest()==HELPER_SHA,'HELPER_CHECKSUM_CHANGED')
     spec=importlib.util.spec_from_file_location('verified_recovery_helper',path)
     helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
-    return restore(helper)
+    return restore(helper,finish_running=mode.finish_running)
 
 
 if __name__=='__main__':
