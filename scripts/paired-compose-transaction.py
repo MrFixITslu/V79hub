@@ -157,7 +157,7 @@ def runtime_matches(before,after,entry,which,*,selinux_enabled):
 
 def protected_fingerprint(row):
     return digest({'Id':row['Id'],'Image':row['Image'],'Config':row['Config'],
-        'HostConfig':row['HostConfig'],'Mounts':row.get('Mounts'),
+        'HostConfig':row['HostConfig'],'Mounts':sorted(row.get('Mounts') or [],key=lambda m:m['Destination']),
         'Networks':row.get('NetworkSettings',{}).get('Networks'),
         'Status':row['State']['Status'],'StartedAt':row['State'].get('StartedAt')})
 
@@ -301,8 +301,6 @@ def stopped_profiles(backend):
                 backend.supervised()
                 model=json.loads(Path(entry[which+'_file']).read_bytes())
                 service=model['services'][entry['service']]
-                if service.get('configs') or service.get('secrets'):
-                    raise Refused('PROFILE_COMPOSE_SECRET_OR_CONFIG_CODEC_UNSUPPORTED')
                 probe=nonce+'-'+str(verified);project=probe
                 service['container_name']=probe
                 expected=copy.deepcopy(entry['baseline'])
@@ -311,17 +309,30 @@ def stopped_profiles(backend):
                 replacements={}
                 declared=service.get('volumes') or []
                 if not all(isinstance(v,dict) for v in declared):raise Refused('PROFILE_LONG_MOUNT_MODEL_REQUIRED')
-                targets={v['target']:v for v in declared}
+                targets={v['target']:(v,'source') for v in declared}
+                # Preserve Compose's own file-secret/config codec, replacing
+                # only the source. Targets follow compose v2.38.2 create.go.
+                for kind,prefix in (('secrets','/run/secrets/'),('configs','/')):
+                    for reference in service.get(kind) or []:
+                        if not isinstance(reference,dict) or 'source' not in reference:
+                            raise Refused('PROFILE_LONG_SECRET_CONFIG_MODEL_REQUIRED')
+                        definition=(model.get(kind) or {}).get(reference['source']) or {}
+                        if not definition.get('file') or definition.get('external'):
+                            raise Refused('PROFILE_FILE_SECRET_CONFIG_SOURCE_REQUIRED')
+                        target=reference.get('target') or reference['source']
+                        if not target.startswith('/'):target=prefix+target
+                        if target in targets:raise Refused('PROFILE_DUPLICATE_MOUNT_TARGET')
+                        targets[target]=(definition,'file')
                 if set(targets)!={m['Destination'] for m in expected.get('Mounts') or []}:
                     raise Refused('PROFILE_MOUNT_SCOPE_UNACCOUNTED')
                 for index,mount in enumerate(expected.get('Mounts') or []):
-                    spec=targets[mount['Destination']]
+                    spec,source_key=targets[mount['Destination']]
                     if mount['Type']=='bind':
                         original=mount['Source'];source=directory/(probe+'-bind-'+str(index))
                         if Path(original).is_dir():source.mkdir(mode=0o700)
                         elif Path(original).is_file():source.write_bytes(b'synthetic-profile-only');source.chmod(0o600)
                         else:raise Refused('PROFILE_BIND_SOURCE_TYPE_UNAVAILABLE')
-                        replacements[original]=str(source);mount['Source']=str(source);spec['source']=str(source)
+                        replacements[original]=str(source);mount['Source']=str(source);spec[source_key]=str(source)
                     elif mount['Type']=='volume':
                         if mount.get('Driver')!='local':raise Refused('PROFILE_VOLUME_DRIVER_UNSUPPORTED')
                         volume=probe+'-volume-'+str(index)
@@ -330,7 +341,8 @@ def stopped_profiles(backend):
                         metadata=json.loads(backend.call(['docker','volume','inspect',volume]))[0]
                         replacements[mount['Name']]=volume
                         mount['Name']=volume;mount['Source']=metadata['Mountpoint']
-                        key=spec['source'];model.setdefault('volumes',{})[key]={'name':volume,'external':True}
+                        if source_key!='source':raise Refused('PROFILE_VOLUME_SOURCE_CODEC_INVALID')
+                        key=spec[source_key];model.setdefault('volumes',{})[key]={'name':volume,'external':True}
                     else:raise Refused('PROFILE_MOUNT_TYPE_UNSUPPORTED')
                 host=expected['HostConfig']
                 if host.get('Binds'):
