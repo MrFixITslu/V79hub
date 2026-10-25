@@ -98,3 +98,26 @@ jobs:
       - name: Rehearse both mount encodings and file-backed rollback context without starting probes
         run: python3 scripts/rehearse-image-release-codec.py --ci
 
+  matching-compose-v560:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install checksum-pinned upstream Compose v5.6.0 on disposable runner
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$(hostname)" != v79sl
+          mkdir -p "$HOME/.docker/cli-plugins"
+          curl --fail --location --silent --show-error --retry 2 \
+            'https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64' \
+            -o "$HOME/.docker/cli-plugins/docker-compose"
+          echo '40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a  '"$HOME/.docker/cli-plugins/docker-compose" | sha256sum -c -
+          chmod 0755 "$HOME/.docker/cli-plugins/docker-compose"
+          test "$(docker compose version --short | sed 's/^v//')" = '5.6.0'
+          docker version --format '{{.Server.Version}}'
+      - name: Exercise actual Compose v5.6 replacement and both independent rollbacks
+        run: |
+          python3 tests/demo-cutover-contract.test.py
+          python3 tests/demo-compose-engine.test.py
