@@ -72,6 +72,16 @@ class MountTests(unittest.TestCase):
         before,after=self.rows();before['HostConfig']['Binds'][0]+=',z';before['Mounts'][0]['Mode']+=',z'
         with self.assertRaises(contract.Refused):contract.verify_host_storage(before,after)
 
+    def test_only_daemon_default_local_volume_z_on_selinux_disabled_can_normalize(self):
+        before,after=self.rows();after['Mounts'][1]['Mode']='z'
+        with self.assertRaises(contract.Refused):contract.verify_host_storage(before,after)
+        self.assertTrue(contract.verify_host_storage(before,after,selinux_enabled=False)['host_and_storage_semantics_match'])
+        for mode in ('Z','z,ro'):
+            before,after=self.rows();after['Mounts'][1]['Mode']=mode
+            with self.subTest(mode=mode),self.assertRaises(contract.Refused):contract.verify_host_storage(before,after,selinux_enabled=False)
+        before,after=self.rows();after['Mounts'][0]['Mode']='ro,z'
+        with self.assertRaises(contract.Refused):contract.verify_host_storage(before,after,selinux_enabled=False)
+
     def test_ambiguous_paths_and_conflicting_modes_reject(self):
         for bind in ('/existing:/app/data:ro,rw','/existing:/app/data:rprivate,rshared','/existing/../else:/app/data:ro','/existing:/app/data:unknown','/app/data'):
             before,after=self.rows();before['HostConfig']['Binds'][0]=bind
