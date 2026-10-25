@@ -183,6 +183,18 @@ class ComposeBackend:
             raise Refused('INSPECTION_FAILED_REDACTED')
         return json.loads(p.stdout)[0]
 
+    def supervised(self):
+        if not self.plan.get('requires_supervision'):return
+        try:
+            path=self.root/'supervision.json';info=path.lstat()
+            if (path.is_symlink() or not path.is_file() or info.st_uid!=os.geteuid()
+                    or info.st_nlink!=1 or info.st_mode&0o077 or info.st_size>128):
+                raise ValueError()
+            heartbeat=json.loads(path.read_bytes())['monotonic']
+            if not isinstance(heartbeat,(int,float)) or not 0<=time.monotonic()-heartbeat<=30:
+                raise ValueError()
+        except Exception:raise Refused('OWNER_SUPERVISION_LEASE_LOST') from None
+
     def protected(self):
         names=self.call(['docker','ps','--all','--format','{{.Names}}']).decode().splitlines()
         expected=self.plan['protected']
@@ -230,6 +242,7 @@ class ComposeBackend:
             raise Refused('FOREIGN_REPLACEMENT_CONTAINER_NO_MUTATION')
 
     def switch(self,name,which):
+        if which=='candidate':self.supervised()
         self.check_files();self.protected();self.eligible(name,allow_missing=which=='rollback')
         entry=self.plan['apps'][name]
         previous=self.inspect(name,allow_missing=which=='rollback')
@@ -244,9 +257,11 @@ class ComposeBackend:
         if row['State'].get('Running'):raise Refused('UNEXPECTED_START_BEFORE_RUNTIME_GATE')
         self.verify(name,which,row)
         self.protected()
+        if which=='candidate':self.supervised()
         self.call(['docker','start',row['Id']])
         deadline=time.monotonic()+180
         while time.monotonic()<deadline:
+            if which=='candidate':self.supervised()
             now=self.inspect(row['Id']);self.verify(name,which,now)
             if now['State'].get('Running') and now['State'].get('Health',{}).get('Status')=='healthy':
                 self.protected();return
@@ -261,6 +276,7 @@ class ComposeBackend:
                                selinux_enabled=self.plan['selinux_enabled'])
 
     def healthy(self,name,which):
+        if which=='candidate':self.supervised()
         row=self.inspect(name);self.verify(name,which,row)
         if not row['State'].get('Running') or row['State'].get('Health',{}).get('Status')!='healthy':
             raise Refused('EXPECTED_APP_NOT_HEALTHY')
@@ -282,6 +298,7 @@ def stopped_profiles(backend):
     try:
         for name,entry in backend.plan['apps'].items():
             for which in ('candidate','rollback'):
+                backend.supervised()
                 model=json.loads(Path(entry[which+'_file']).read_bytes())
                 service=model['services'][entry['service']]
                 if service.get('configs') or service.get('secrets'):
