@@ -86,7 +86,9 @@ def runtime_matches(before,after,entry,which,*,selinux_enabled):
     old,new=copy.deepcopy(before['Config']),copy.deepcopy(after['Config'])
     old['Image']=new['Image']=expected_id
     for config,row in ((old,before),(new,after)):
-        if config.get('Hostname')==row['Id'][:12]:config['Hostname']='<generated-container-id>'
+        if (not entry['model']['services'][entry['service']].get('hostname')
+                and config.get('Hostname')==row['Id'][:12]):
+            config['Hostname']='<generated-container-id>'
     old_env=environment(old.pop('Env',[]) or []);new_env=environment(new.pop('Env',[]) or [])
     configured=entry['model']['services'][entry['service']].get('environment') or {}
     if which=='candidate':
@@ -244,6 +246,107 @@ class ComposeBackend:
         row=self.inspect(name);self.verify(name,which,row)
         if not row['State'].get('Running') or row['State'].get('Health',{}).get('Status')!='healthy':
             raise Refused('EXPECTED_APP_NOT_HEALTHY')
+
+
+def stopped_profiles(backend):
+    """Create exact process/host profiles with synthetic sources; never start.
+
+    Published-port declarations are preserved, but no process/socket starts.
+    Every real bind/volume source is replaced before creating the container.
+    Resource deletion is limited to exact nonce-owned never-started probes.
+    """
+    import uuid
+    nonce='v79profile'+uuid.uuid4().hex[:16]
+    directory=backend.root/nonce;directory.mkdir(mode=0o700)
+    created=[];volumes=[];verified=0
+    backend.protected();backend.check_files()
+    try:
+        for name,entry in backend.plan['apps'].items():
+            for which in ('candidate','rollback'):
+                model=json.loads(Path(entry[which+'_file']).read_bytes())
+                service=model['services'][entry['service']]
+                if service.get('configs') or service.get('secrets'):
+                    raise Refused('PROFILE_COMPOSE_SECRET_OR_CONFIG_CODEC_UNSUPPORTED')
+                probe=nonce+'-'+str(verified);project=probe
+                service['container_name']=probe
+                expected=copy.deepcopy(entry['baseline'])
+                expected['Config']['Labels']['com.docker.compose.project']=project
+                expected['Name']='/'+probe
+                replacements={}
+                declared=service.get('volumes') or []
+                if not all(isinstance(v,dict) for v in declared):raise Refused('PROFILE_LONG_MOUNT_MODEL_REQUIRED')
+                targets={v['target']:v for v in declared}
+                if set(targets)!={m['Destination'] for m in expected.get('Mounts') or []}:
+                    raise Refused('PROFILE_MOUNT_SCOPE_UNACCOUNTED')
+                for index,mount in enumerate(expected.get('Mounts') or []):
+                    spec=targets[mount['Destination']]
+                    if mount['Type']=='bind':
+                        original=mount['Source'];source=directory/(probe+'-bind-'+str(index))
+                        if Path(original).is_dir():source.mkdir(mode=0o700)
+                        elif Path(original).is_file():source.write_bytes(b'synthetic-profile-only');source.chmod(0o600)
+                        else:raise Refused('PROFILE_BIND_SOURCE_TYPE_UNAVAILABLE')
+                        replacements[original]=str(source);mount['Source']=str(source);spec['source']=str(source)
+                    elif mount['Type']=='volume':
+                        if mount.get('Driver')!='local':raise Refused('PROFILE_VOLUME_DRIVER_UNSUPPORTED')
+                        volume=probe+'-volume-'+str(index)
+                        backend.call(['docker','volume','create','--label','v79.profile.scope='+nonce,volume])
+                        volumes.append(volume)
+                        metadata=json.loads(backend.call(['docker','volume','inspect',volume]))[0]
+                        replacements[mount['Name']]=volume
+                        mount['Name']=volume;mount['Source']=metadata['Mountpoint']
+                        key=spec['source'];model.setdefault('volumes',{})[key]={'name':volume,'external':True}
+                    else:raise Refused('PROFILE_MOUNT_TYPE_UNSUPPORTED')
+                host=expected['HostConfig']
+                if host.get('Binds'):
+                    host['Binds']=[replacements.get(value.split(':',1)[0],value.split(':',1)[0])+':'+value.split(':',1)[1]
+                                   for value in host['Binds']]
+                for mount in host.get('Mounts') or []:
+                    mount['Source']=replacements.get(mount['Source'],mount['Source'])
+                for key,network in list((model.get('networks') or {}).items()):
+                    if 'name' not in network:raise Refused('PROFILE_NETWORK_NAME_REQUIRED')
+                    model['networks'][key]={'name':network['name'],'external':True}
+                path=directory/(probe+'.json')
+                path.write_text(json.dumps(model));path.chmod(0o600)
+                current=copy.deepcopy(entry);current[which+'_file']=str(path)
+                current['model']=model;current['project']=project;current['baseline']=expected
+                args=['docker','compose','--env-file','/dev/null','--project-directory',entry['directory'],
+                      '--project-name',project,'-f',str(path),'up','--no-start','--no-deps',
+                      '--no-build','--pull','never',entry['service']]
+                # Remember the exact intended name before the potentially
+                # ambiguous create call, so finally can reconcile it safely.
+                created.append((probe,project,entry[which+'_image']['Id']))
+                backend.call(args,timeout=180)
+                row=backend.inspect(probe)
+                if row['State'].get('Running') or not str(row['State'].get('StartedAt','0001')).startswith('0001'):
+                    raise Refused('PROFILE_UNEXPECTED_PROCESS_START')
+                runtime_matches(expected,row,current,which,selinux_enabled=backend.plan['selinux_enabled'])
+                verified+=1
+    finally:
+        cleanup_failed=False
+        for probe,project,image in reversed(created):
+            try:
+                row=backend.inspect(probe,allow_missing=True)
+                if row is None:continue
+                if (row['Image']!=image or row['Name']!='/'+probe
+                        or row['Config']['Labels'].get('com.docker.compose.project')!=project
+                        or row['State'].get('Running')
+                        or not str(row['State'].get('StartedAt','0001')).startswith('0001')):
+                    raise Refused('PROFILE_CLEANUP_OWNERSHIP_OR_STATE_CHANGED')
+                backend.call(['docker','rm',row['Id']])
+                if backend.inspect(probe,allow_missing=True) is not None:raise Refused('PROFILE_CONTAINER_REMAINS')
+            except BaseException:cleanup_failed=True
+        for volume in reversed(volumes):
+            try:
+                info=json.loads(backend.call(['docker','volume','inspect',volume]))[0]
+                if (info['Name']!=volume or (info.get('Labels') or {}).get('v79.profile.scope')!=nonce):
+                    raise Refused('PROFILE_VOLUME_OWNERSHIP_CHANGED')
+                backend.call(['docker','volume','rm',volume])
+            except BaseException:cleanup_failed=True
+        if cleanup_failed:raise Refused('PROFILE_OWNED_CLEANUP_INCOMPLETE')
+        backend.protected()
+    return {'status':'PASS_STOPPED_EXACT_PROFILES_SYNTHETIC_MOUNTS_ONLY',
+            'profiles_verified':verified,'application_processes_started':False,
+            'live_application_data_mounted':False,'temporary_resource_cleanup_verified':True}
 
 
 def rollback(backend,names):
