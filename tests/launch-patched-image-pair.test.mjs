@@ -121,7 +121,7 @@ test("Exact patched OCI pair: SSO, dual-tenant read/write and session revocation
   await ready(hub,"/api/health",hubProcess,async()=>true);
   const tiquetProcess=launchProcess(t,"Tiquet",tiquetDir,["server/index.js"],{
     ...process.env,
-    NODE_ENV:"test",PORT:"3000",DATABASE_URL:pgUrl,
+    NODE_ENV:"production",PORT:"3000",DATABASE_URL:pgUrl,
     JWT_SECRET:jwtSecret,SUPER_ADMIN_JWT_SECRET:"paired-ci-sa-secret-12345678901234567890",
     V79_PLATFORM_SHARED_SECRET:platformSecret,V79_TIQUET_LAUNCH_SECRET:launchSecret,
     V79_HUB_INTERNAL_URL:hub,V79_HUB_PUBLIC_URL:"https://hub.example.test",

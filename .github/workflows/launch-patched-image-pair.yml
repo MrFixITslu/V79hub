@@ -5,6 +5,9 @@ on:
     paths:
       - .github/workflows/launch-patched-image-pair.yml
       - tests/launch-patched-image-pair.test.mjs
+concurrency:
+  group: patched-pair-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -58,6 +61,7 @@ jobs:
             test -z "$(git -C "$path" ls-files -- data uploads backups logs)"
           done
           npm ci --ignore-scripts --no-audit --no-fund
+          npm ci --prefix .paired-tiquet --ignore-scripts --no-audit --no-fund
           node --check tests/launch-patched-image-pair.test.mjs
       - name: Build exact source-labelled disposable images
         shell: bash
