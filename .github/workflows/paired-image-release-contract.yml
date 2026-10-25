@@ -20,6 +20,8 @@ on:
       - tests/paired-compose-engine.test.py
       - scripts/release-hardened-pair.py
       - tests/release-hardened-pair.test.py
+      - scripts/resume-hardened-pair.py
+      - tests/resume-hardened-pair.test.py
       - .github/workflows/paired-image-release-contract.yml
 concurrency:
   group: paired-release-preparation-${{ github.event.pull_request.number }}
@@ -45,6 +47,7 @@ jobs:
           python3 tests/capture-release-checkpoint.test.py
           python3 tests/paired-compose-transaction.test.py
           python3 tests/release-hardened-pair.test.py
+          python3 tests/resume-hardened-pair.test.py
 
   synthetic-application-rollback:
     runs-on: ubuntu-24.04
