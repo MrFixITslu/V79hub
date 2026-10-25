@@ -92,6 +92,23 @@ result=m.rollback(b,list(p['apps']));assert result['status']=='PASS_ORIGINAL_IMA
                 for name in app_names:
                     now=json.loads(run(['docker','inspect',name]))[0]
                     self.assertEqual(now['Image'],old['Id']);self.assertNotEqual(now['Id'],before[name]['Id'])
+                # Inject failure only AFTER the real second candidate create.
+                # Automatic rollback must recover the healthy first app and
+                # the never-started second app without changing the dependency.
+                class FailAfterSecondCreate(m.ComposeBackend):
+                    injected=False
+                    def call(self,args,**kwargs):
+                        result=super().call(args,**kwargs)
+                        if (not self.injected and 'up' in args
+                                and plan['apps'][names['tiquet']]['candidate_file'] in args):
+                            self.injected=True
+                            raise m.Refused('INJECTED_AFTER_ACTUAL_CREATION')
+                        return result
+                failure=m.deploy(FailAfterSecondCreate(root,m.load_plan(root,pin)))
+                self.assertEqual(failure['status'],'PASS_ORIGINAL_IMAGES_AND_RUNTIME_RESTORED')
+                self.assertTrue(failure['candidate_deployment_failed'])
+                for name in app_names:
+                    self.assertEqual(json.loads(run(['docker','inspect',name]))[0]['Image'],old['Id'])
                 self.assertEqual(json.loads(run(['docker','inspect',names['db']]))[0]['Id'],before[names['db']]['Id'])
                 self.assertEqual((data/'sentinel').read_text(),'unchanged synthetic data')
             finally:
