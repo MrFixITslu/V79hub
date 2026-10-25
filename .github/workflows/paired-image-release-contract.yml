@@ -13,6 +13,8 @@ on:
       - tests/rehearse-image-release-codec.test.py
       - scripts/paired-release-context.py
       - tests/paired-release-context.test.py
+      - scripts/capture-release-checkpoint.py
+      - tests/capture-release-checkpoint.test.py
       - .github/workflows/paired-image-release-contract.yml
 concurrency:
   group: paired-release-preparation-${{ github.event.pull_request.number }}
@@ -34,6 +36,8 @@ jobs:
           python3 tests/paired-mount-contract.test.py
           python3 tests/rehearse-image-release-codec.test.py
           python3 tests/paired-release-context.test.py
+          python3 scripts/capture-release-checkpoint.py --self-test
+          python3 tests/capture-release-checkpoint.test.py
 
   stopped-engine-codec:
     runs-on: ubuntu-24.04
