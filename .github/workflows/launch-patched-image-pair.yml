@@ -1,4 +1,4 @@
-name: Patched Hub Tiquet exact OCI pair (isolated)
+name: Hardened Hub Tiquet exact OCI pair (isolated)
 on:
   pull_request:
     branches: [main]
@@ -13,7 +13,7 @@ permissions:
 jobs:
   exact-images:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16-alpine
@@ -49,13 +49,13 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: MrFixITslu/V79hub
-          ref: 48c3facacb049610862203535ffee54616573a81
+          ref: c12e54bdb52f8996fae19688d74354d731e7de27
           path: .candidate-hub
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: MrFixITslu/V79Tiquet
-          ref: f1c336bc4406b9c38c23df44a84609bf744512a6
+          ref: f47bbb65d1c81918017648a0a9b0464e4c167414
           path: .paired-tiquet
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -65,8 +65,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C .candidate-hub rev-parse HEAD)" = 48c3facacb049610862203535ffee54616573a81
-          test "$(git -C .paired-tiquet rev-parse HEAD)" = f1c336bc4406b9c38c23df44a84609bf744512a6
+          test "$(git -C .candidate-hub rev-parse HEAD)" = c12e54bdb52f8996fae19688d74354d731e7de27
+          test "$(git -C .paired-tiquet rev-parse HEAD)" = f47bbb65d1c81918017648a0a9b0464e4c167414
           for path in .candidate-hub .paired-tiquet; do
             test ! -e "$path/.env"
             test -z "$(git -C "$path" ls-files -- data uploads backups logs)"
@@ -78,12 +78,66 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build --build-arg NODE_BASE=node:22-alpine --label org.opencontainers.image.revision=48c3facacb049610862203535ffee54616573a81 -t v79-ci-patched-hub .candidate-hub
-          docker build --build-arg NODE_BASE=node:20-alpine --label org.opencontainers.image.revision=f1c336bc4406b9c38c23df44a84609bf744512a6 -t v79-ci-patched-tiquet .paired-tiquet
+          docker build --build-arg NODE_BASE=node:22-alpine --label org.opencontainers.image.revision=c12e54bdb52f8996fae19688d74354d731e7de27 -t v79-ci-patched-hub .candidate-hub
+          docker build --build-arg NODE_BASE=node:22-alpine --label org.opencontainers.image.revision=f47bbb65d1c81918017648a0a9b0464e4c167414 -t v79-ci-patched-tiquet .paired-tiquet
           mkdir -p pair-evidence
           for image in v79-ci-patched-hub v79-ci-patched-tiquet; do
             docker image inspect "$image" --format '{{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}}' >> pair-evidence/images.txt
           done
+      - name: Check actual production runtime has no package manager or test toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          for image in v79-ci-patched-hub v79-ci-patched-tiquet; do
+            docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 1000:1000 --entrypoint node "$image" -e '
+              const fs=require("node:fs");
+              for(const path of ["/usr/local/bin/npm","/usr/local/lib/node_modules/npm","/usr/bin/g++","/usr/bin/make"])
+                if(fs.existsSync(path)) throw Error("Unexpected runtime build tool: "+path);
+              for(const name of ["happy-dom","typescript","pg-mem"]){
+                let found=false;try{require.resolve(name);found=true;}catch(e){if(e.code!=="MODULE_NOT_FOUND")throw e;}
+                if(found)throw Error("Unexpected runtime test dependency: "+name);
+              }
+              console.log("PRODUCTION_TOOLCHAIN_BOUNDARY=PASS");'
+          done
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 100:101 --entrypoint node v79-ci-patched-tiquet -e '
+            const fs=require("node:fs");
+            if(process.getuid()!==100||process.getgid()!==101)throw Error("User identity changed");
+            let found=false;try{require.resolve("vite");found=true;}catch(e){if(e.code!=="MODULE_NOT_FOUND")throw e;}
+            if(found)throw Error("Vite remains in Tiquet runtime");
+            console.log("TIQUET_RUNTIME_USER_AND_NO_VITE=PASS");'
+      - name: Install pinned vulnerability scanner
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
+        with:
+          version: v0.76.1
+          cache: false
+      - name: Scan both built images before acceptance and export
+        shell: bash
+        run: |
+          set -euo pipefail
+          trivy --version > pair-evidence/trivy-version.txt
+          failed=0
+          for app in hub tiquet; do
+            trivy image --image-src docker --scanners vuln --ignore-unfixed=false \
+              --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --list-all-pkgs \
+              --format json --output "pair-evidence/$app-vulnerabilities.json" --exit-code 0 \
+              --timeout 10m "v79-ci-patched-$app" || failed=1
+          done
+          python3 - <<'PYCODE'
+          import json, pathlib, subprocess
+          summary = {}
+          for app in ('hub','tiquet'):
+              report = json.loads(pathlib.Path(f'pair-evidence/{app}-vulnerabilities.json').read_text())
+              image = subprocess.check_output(['docker','image','inspect',f'v79-ci-patched-{app}','--format','{{.Id}}'],text=True).strip()
+              assert report.get('Metadata',{}).get('ImageID') == image
+              results = report.get('Results') or []
+              assert any(r.get('Class') == 'os-pkgs' for r in results)
+              assert any(r.get('Class') == 'lang-pkgs' for r in results)
+              findings = [v for r in results for v in r.get('Vulnerabilities') or []]
+              summary[app] = {'image':image,'high_critical':sum(v.get('Severity') in ('HIGH','CRITICAL') for v in findings),'all_findings':len(findings)}
+          pathlib.Path('pair-evidence/vulnerability-summary.json').write_text(json.dumps(summary,indent=2))
+          assert all(v['high_critical']==0 for v in summary.values()), 'HIGH/CRITICAL findings require remediation'
+          PYCODE
+          test "$failed" = 0
       - name: Exercise actual images with synthetic A/B tenants
         shell: bash
         run: |
@@ -98,10 +152,55 @@ jobs:
           docker save v79-ci-patched-hub v79-ci-patched-tiquet | gzip -1 > pair-evidence/patched-pair.docker.tar.gz
           test "$(stat -c %s pair-evidence/patched-pair.docker.tar.gz)" -lt 1073741824
           (cd pair-evidence && sha256sum patched-pair.docker.tar.gz images.txt test.txt > SHA256SUMS.txt)
-      - name: Retain acceptance evidence and clean source-only images
+      - name: Update antivirus signatures and scan every exported image component
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam.service
+          sudo freshclam --stdout | tee pair-evidence/antivirus-update.txt
+          clamscan --version | tee pair-evidence/antivirus-version.txt
+          python3 - <<'PYCODE' | clamscan --fail-if-cvd-older-than=2 - > pair-evidence/antivirus-positive-control.txt && status=0 || status=$?
+          import sys
+          sys.stdout.write('X5O!P%@AP[4' + chr(92) + 'PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')
+          PYCODE
+          test "$status" = 1
+          grep -Eiq 'eicar.*FOUND' pair-evidence/antivirus-positive-control.txt
+          python3 - <<'PYCODE'
+          import hashlib,json,pathlib,shutil,tarfile
+          root=pathlib.Path('antivirus-components');root.mkdir()
+          inventory=[];seen=set();total=0
+          with tarfile.open('pair-evidence/patched-pair.docker.tar.gz',mode='r|gz') as archive:
+              for member in archive:
+                  if member.isdir():continue
+                  assert member.isfile() and member.name not in seen
+                  assert len(inventory)<2000 and 0<=member.size<1800*1024**2
+                  seen.add(member.name);total+=member.size
+                  assert total<8*1024**3
+                  output=root/f'{len(inventory):06d}.bin'
+                  with archive.extractfile(member) as data,output.open('xb') as dest:shutil.copyfileobj(data,dest)
+                  with output.open('rb') as data:sha=hashlib.file_digest(data,'sha256').hexdigest()
+                  if member.name.startswith('blobs/sha256/'):assert sha==member.name.removeprefix('blobs/sha256/')
+                  inventory.append({'member':member.name,'bytes':member.size,'sha256':sha})
+          assert inventory and 'manifest.json' in seen
+          pathlib.Path('pair-evidence/antivirus-component-inventory.json').write_text(json.dumps(inventory,indent=2))
+          PYCODE
+          clamscan --recursive --infected --fail-if-cvd-older-than=2 --alert-exceeds-max=yes \
+            --max-files=2000000 --max-recursion=30 --max-filesize=1800M --max-scansize=4000M \
+            --max-scantime=900000 antivirus-components | tee pair-evidence/antivirus-scan.txt
+      - name: Retain reports even when a security gate fails
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: patched-pair-evidence
+          name: hardened-pair-reports
+          path: |
+            pair-evidence/*.txt
+            pair-evidence/*.json
+          retention-days: 14
+      - name: Retain candidate only after every security and acceptance gate passes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hardened-pair-candidate
           path: pair-evidence/
-          retention-days: 3
+          retention-days: 7
