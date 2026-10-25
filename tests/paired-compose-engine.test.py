@@ -35,6 +35,7 @@ class RealCompose(unittest.TestCase):
                 run(['docker','build','-t',tag,'-'],input=dockerfile.encode())
             old,new=[json.loads(run(['docker','image','inspect',tag]))[0] for tag in tags]
             data=root/'data';data.mkdir();(data/'sentinel').write_text('unchanged synthetic data')
+            token=root/'token';token.write_text('synthetic-file-secret-only');token.chmod(0o600)
             names={service:project+'-'+service for service in ('hub','tiquet','db')}
             services={}
             for service,name in names.items():
@@ -46,10 +47,12 @@ class RealCompose(unittest.TestCase):
                     'healthcheck':{'test':['CMD','test','-f','/data/sentinel'],
                                    'interval':'1s','timeout':'1s','retries':10},
                     'restart':'unless-stopped'}
+                services[service]['secrets']=[{'source':'operator-token'}]
             services['hub']['depends_on']={'db':{'condition':'service_started'}}
             services['tiquet']['depends_on']={'db':{'condition':'service_started'}}
             initial=root/'initial.json';initial.write_text(json.dumps({'services':services,
-                'volumes':{'ledger':{'name':project+'-ledger'}}}));initial.chmod(0o600)
+                'volumes':{'ledger':{'name':project+'-ledger'}},
+                'secrets':{'operator-token':{'file':str(token)}}}));initial.chmod(0o600)
             args=['docker','compose','--project-name',project,'--project-directory',str(root),'-f',str(initial)]
             try:
                 run([*args,'up','-d','--wait','--wait-timeout','30','--no-build','--pull','never'])
