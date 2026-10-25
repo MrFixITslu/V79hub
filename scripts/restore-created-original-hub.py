@@ -33,8 +33,8 @@ def checked_entry(transaction,plan,row,*,before_start):
              and str(row['State'].get('StartedAt','')).startswith('0001')
              and row.get('RestartCount',0)==0,'NEVER_STARTED_CREATED_HUB_REQUIRED')
     replacement=(row['Config'].get('Labels') or {}).get('com.docker.compose.replace')
-    need(replacement is None or isinstance(replacement,str) and re.fullmatch('[0-9a-f]{64}',replacement),
-         'UNEXPECTED_REPLACEMENT_BOOKKEEPING_FORMAT')
+    need(replacement is None or isinstance(replacement,str),
+         'UNEXPECTED_REPLACEMENT_BOOKKEEPING_TYPE')
     # This transient Compose label is not independent evidence of the replaced
     # container. It alone is excluded from identity proof; all effective runtime,
     # image, process, environment, security, data mounts and other labels remain
