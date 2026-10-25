@@ -100,6 +100,13 @@ class BindingTests(unittest.TestCase):
              'RootFS':{'Layers':config['rootfs']['diff_ids']},'Config':{'Labels':{'org.opencontainers.image.revision':'approved'}}}
         api=types.SimpleNamespace(call=lambda args:json.dumps([row]).encode())
         m.verify_loaded(api,binding,{'app':config})
+        descriptor=row.pop('Descriptor');m.verify_loaded(api,binding,{'app':config})
+        row['Id']='sha256:'+'a'*64
+        with self.assertRaisesRegex(m.Refused,'MANIFEST_IDENTITY_CHANGED'):m.verify_loaded(api,binding,{'app':config})
+        row['Id']=binding['app']['manifest'];row['Descriptor']=descriptor
+        row['Descriptor']['digest']='sha256:'+'d'*64
+        with self.assertRaisesRegex(m.Refused,'DESCRIPTOR_CHANGED'):m.verify_loaded(api,binding,{'app':config})
+        row['Descriptor']['digest']=binding['app']['manifest']
         row['RootFS']['Layers']=['sha256:'+'d'*64]
         with self.assertRaisesRegex(m.Refused,'FILESYSTEM_LAYER_IDENTITIES_CHANGED'):
             m.verify_loaded(api,binding,{'app':config})
