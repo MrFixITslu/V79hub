@@ -39,8 +39,9 @@ async function unusedPort() {
   return p;
 }
 function launchProcess(t,label,cwd,argv,env) {
-  const image=label==="Hub" ? "v79-ci-patched-hub" : "v79-ci-patched-tiquet";
-  const name="v79-ci-patched-"+label.toLowerCase()+"-"+process.pid;
+  const isHub=label.includes("Hub");
+  const image=isHub ? "v79-ci-patched-hub" : "v79-ci-patched-tiquet";
+  const name="v79-ci-patched-"+label.toLowerCase().replace(/[^a-z0-9-]/g,"-")+"-"+process.pid;
   const dockerArgs=["run","--rm","--name",name,"--network","host","--read-only",
     "--cap-drop","ALL","--security-opt","no-new-privileges",
     "--user",String(process.getuid())+":"+String(process.getgid()),
@@ -48,7 +49,7 @@ function launchProcess(t,label,cwd,argv,env) {
     "--tmpfs","/app/data:rw,nosuid,nodev,size=64m,mode=1777",
     "--tmpfs","/app/uploads:rw,nosuid,nodev,size=64m,mode=1777",
     "--tmpfs","/app/logs:rw,nosuid,nodev,size=32m,mode=1777"];
-  if(label==="Hub") dockerArgs.push("--mount","type=bind,src="+env.DATA_DIR+",dst="+env.DATA_DIR);
+  if(isHub) dockerArgs.push("--mount","type=bind,src="+env.DATA_DIR+",dst="+env.DATA_DIR);
   const keys=["NODE_ENV","DATA_DIR","PORT","APP_URL","DATABASE_URL","JWT_SECRET","SUPER_ADMIN_JWT_SECRET",
     "V79_HUB_STORE_BACKEND","V79_HUB_ADMIN_USERNAME","V79_HUB_ADMIN_EMAIL","V79_HUB_ADMIN_PASSWORD",
     "V79_HUB_TIQUET_SESSION_BINDING","V79_PLATFORM_SHARED_SECRET","V79_TIQUET_LAUNCH_SECRET",
@@ -60,20 +61,16 @@ function launchProcess(t,label,cwd,argv,env) {
   for(const key of keys) if(env[key]!==undefined) dockerArgs.push("--env",key+"="+env[key]);
   dockerArgs.push("--entrypoint","node",image,...argv);
   const child=spawn("docker",dockerArgs,{stdio:["ignore","pipe","pipe"]});
-  t.after(()=>{ try { execFileSync("docker",["stop","--time","2",name],{stdio:"ignore",timeout:8000}); } catch {} });
+  const stop=async()=>{
+    if(child.exitCode!==null || child.signalCode!==null)return;
+    const exited=new Promise(resolve=>child.once("exit",resolve));
+    try { execFileSync("docker",["stop","--time","2",name],{stdio:"ignore",timeout:8000}); } catch {}
+    await Promise.race([exited,new Promise(resolve=>setTimeout(resolve,2000))]);
+  };
+  t.after(stop);
   let logs="";
   for(const stream of [child.stdout,child.stderr])stream.on("data",b=>{logs=(logs+String(b)).slice(-2200)});
-  t.after(async()=>{
-    if(child.exitCode===null && child.signalCode===null){
-      child.kill("SIGTERM");
-      await Promise.race([
-        new Promise(r=>child.once("exit",r)),
-        new Promise(r=>setTimeout(r,2000))
-      ]);
-      if(child.exitCode===null && child.signalCode===null)child.kill("SIGKILL");
-    }
-  });
-  return {child,readLogs:()=>label+" failure: "+logs.replace(/(?:Bearer|token|secret)\s+[-\w.=]+/gi,"[redacted]")};
+  return {child,stop,readLogs:()=>label+" failure: "+logs.replace(/(?:Bearer|token|secret)\s+[-\w.=]+/gi,"[redacted]")};
 }
 async function ready(origin,route,processInfo,check){
   for(let i=0;i<180;i++){
@@ -357,8 +354,7 @@ test("Exact patched OCI pair: SSO, dual-tenant read/write and session revocation
   // Simulate a Hub service outage only in the disposable CI stack.
   // The unaffected tenant B must now fail closed rather than use a
   // previously cached successful product-entitlement response.
-  hubProcess.child.kill("SIGTERM");
-  await new Promise(resolve=>hubProcess.child.once("exit",resolve));
+  await hubProcess.stop();
   const offline=await req(tiquet,"/api/auth/me",{headers:{Cookie:bCookie}});
   assert.equal(offline.status,401,"Hub outage must not silently authorize Tiquet");
   assert.equal((await offline.json()).code,"HUB_SESSION_INACTIVE");
