@@ -13,12 +13,12 @@ CURRENT = {
     'v79-tiquet-manager': 'sha256:18fc67f82ec3dc33a7b281da79d6ab8e6b17f2983f419833bd008101d5711fc3',
 }
 CANDIDATE = {
-    'v79-hub': 'sha256:6cad753945278c6757de3947692c07e87e74d9337a29e08ca182967dee132b81',
-    'v79-tiquet-manager': 'sha256:8e92b5d3a291151e8734b4128329bcfe44dbd2a99a91c46c3a0df5e241378f43',
+    'v79-hub': 'sha256:20504c556eea55af7d0f1ef85241582715e95b08fce00386335e41035decd9de',
+    'v79-tiquet-manager': 'sha256:6bb9acb1f0c8e8866082882f1cbb3d6cc9823ead559ef10a266618b013f793e1',
 }
 REVISIONS = {
-    'v79-hub': '48c3facacb049610862203535ffee54616573a81',
-    'v79-tiquet-manager': 'f1c336bc4406b9c38c23df44a84609bf744512a6',
+    'v79-hub': 'c12e54bdb52f8996fae19688d74354d731e7de27',
+    'v79-tiquet-manager': 'f47bbb65d1c81918017648a0a9b0464e4c167414',
 }
 
 
