@@ -75,6 +75,9 @@ class RealCompose(unittest.TestCase):
                     plan['apps'][name]=entry
                 pin=m.seal_plan(root,plan)
                 backend=m.ComposeBackend(root,m.load_plan(root,pin))
+                profiles=m.stopped_profiles(backend)
+                self.assertEqual(profiles['profiles_verified'],4)
+                self.assertTrue(profiles['temporary_resource_cleanup_verified'])
                 result=m.deploy(backend)
                 self.assertEqual(result['status'],'PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING')
                 self.assertEqual((data/'sentinel').read_text(),'unchanged synthetic data')
