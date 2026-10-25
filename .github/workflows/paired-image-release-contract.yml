@@ -12,6 +12,9 @@ on:
       - tests/paired-mount-contract.test.py
       - tests/rehearse-image-release-codec.test.py
       - .github/workflows/paired-image-release-contract.yml
+concurrency:
+  group: paired-release-preparation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
