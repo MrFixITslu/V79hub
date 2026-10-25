@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
 import uuid
 
@@ -33,7 +34,7 @@ class RealCompose(unittest.TestCase):
             for tag,stage in zip(tags,('old','new')):
                 dockerfile=('FROM alpine:3.24\nLABEL org.opencontainers.image.revision='+stage+'\n'
                     +('ENV NODE_VERSION=synthetic YARN_VERSION=synthetic\n' if stage=='old' else ''))
-                run(['docker','build','-t',tag,'-'],input=dockerfile.encode())
+                run(['docker','build','--provenance=false','-t',tag,'-'],input=dockerfile.encode())
             old,new=[json.loads(run(['docker','image','inspect',tag]))[0] for tag in tags]
             data=root/'data';data.mkdir();(data/'sentinel').write_text('unchanged synthetic data')
             token=root/'token';token.write_text('synthetic-file-secret-only');token.chmod(0o600)
@@ -139,6 +140,46 @@ result=m.rollback(b,list(p['apps']));assert result['status']=='PASS_ORIGINAL_IMA
                 self.assertEqual(count,len(packed)-offset)
                 run(['docker','image','load','--input',str(partial)])
                 self.assertEqual(json.loads(run(['docker','image','inspect',new['Id']]))[0]['Id'],new['Id'])
+                store=json.loads(run(['docker','info','--format','{{json .DriverStatus}}']))
+                if any('containerd' in str(item) for item in store):
+                    binder_spec=importlib.util.spec_from_file_location('binder',
+                        Path(__file__).parents[1]/'scripts/continue-manifest-bound-pair.py')
+                    binder=importlib.util.module_from_spec(binder_spec);binder_spec.loader.exec_module(binder)
+                    metadata={}
+                    with tarfile.open(fileobj=io.BytesIO(packed),mode='r|gz') as archive:
+                        for member in archive:
+                            if member.isfile() and member.name.startswith('blobs/sha256/') and member.size<1024**2:
+                                raw=archive.extractfile(member).read()
+                                try:value=json.loads(raw)
+                                except (ValueError,UnicodeError):continue
+                                metadata['sha256:'+hashlib.sha256(raw).hexdigest()]=value
+                    manifest=metadata[new['Id']];config_id=manifest['config']['digest']
+                    self.assertNotEqual(config_id,new['Id'])
+                    bindings={name:{'config':config_id,'manifest':new['Id'],'revision':'new'} for name in app_names}
+                    configs=binder.verify_archive(partial,hashlib.sha256(packed).hexdigest(),bindings)
+                    api=type('API',(),{'call':staticmethod(lambda args:run(args))})()
+                    binder.verify_loaded(api,bindings,configs)
+                    legacy=copy.deepcopy(plan)
+                    for name,entry in legacy['apps'].items():
+                        entry['candidate_image']['Id']=config_id
+                        entry['model']['services'][entry['service']]['image']=config_id
+                    bound=binder.project_plan(legacy,root,bindings)
+                    for entry in bound['apps'].values():
+                        path=Path(entry['candidate_file']);path.write_bytes(binder.model_bytes(entry['model']));path.chmod(0o600)
+                    result=m.deploy(m.ComposeBackend(root,bound))
+                    self.assertEqual(result['status'],'PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING')
+                    proof=root/'binding-plan.json';proof.write_text(json.dumps(bound));proof.chmod(0o600)
+                    bound_child='''import importlib.util,sys,json,hashlib
+from pathlib import Path
+s=importlib.util.spec_from_file_location('t',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+raw=Path(sys.argv[2]).read_bytes();assert hashlib.sha256(raw).hexdigest()==sys.argv[3]
+p=json.loads(raw);b=m.ComposeBackend(Path(sys.argv[4]),p)
+assert m.rollback(b,list(p['apps']))['status']=='PASS_ORIGINAL_IMAGES_AND_RUNTIME_RESTORED'
+'''
+                    run([sys.executable,'-c',bound_child,str(Path(m.__file__).resolve()),str(proof),
+                         hashlib.sha256(proof.read_bytes()).hexdigest(),str(root)])
+                    self.assertEqual(json.loads(run(['docker','inspect',names['db']]))[0]['Id'],before[names['db']]['Id'])
+                    self.assertEqual(run(['docker','exec',names['hub'],'cat','/ledger/sentinel']),b'durable')
             finally:
                 # Only exact synthetic fixture containers; never remove volumes.
                 for name in names.values():
