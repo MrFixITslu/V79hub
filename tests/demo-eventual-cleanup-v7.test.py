@@ -82,9 +82,8 @@ class CleanupBackend:
         model=json.loads(path.read_text())
         spec=model['services']['app']
         name=spec['container_name']
-        image=('sha256:'+'e'*64) if 'candidate' in str(path) else ('sha256:'+'f'*64)
-        # Exact return payload for this test is derived from the source's ID:
-        original=self.plan['apps']['v79-hub']['candidate_image']['Id']
+        # Only the first candidate test is exercised by this failure-case test.
+        image=self.plan['apps']['v79-hub']['candidate_image']['Id']
         if name not in self.probes:
             self.probes[name]={'Id':'container-'+name,'Name':'/'+name,
                'Image':image,'State':{'Running':False,'StartedAt':'0001-01-01'},
