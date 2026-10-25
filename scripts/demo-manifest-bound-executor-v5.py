@@ -6,6 +6,7 @@ links accepted OCI config digests to their exact loaded manifests. The original
 transaction code and every remaining guard are reused with that stricter validator.
 """
 import argparse
+import re
 import copy
 import hashlib
 import importlib.util
