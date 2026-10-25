@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import shutil
+import stat
 import time
 
 
@@ -391,6 +393,15 @@ def stopped_profiles(backend):
                 backend.call(['docker','volume','rm',volume])
             except BaseException:cleanup_failed=True
         if cleanup_failed:raise Refused('PROFILE_OWNED_CLEANUP_INCOMPLETE')
+        # Only this function's fresh nonce directory; never the release root,
+        # original inputs or any real application bind source.
+        info=directory.lstat()
+        if (directory.parent!=backend.root or directory.name!=nonce
+                or not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid()
+                or stat.S_IMODE(info.st_mode)!=0o700):
+            raise Refused('PROFILE_PRIVATE_DIRECTORY_OWNERSHIP_CHANGED')
+        shutil.rmtree(directory)
+        if directory.exists():raise Refused('PROFILE_PRIVATE_DIRECTORY_REMAINS')
         backend.protected()
     return {'status':'PASS_STOPPED_EXACT_PROFILES_SYNTHETIC_MOUNTS_ONLY',
             'profiles_verified':verified,'application_processes_started':False,
