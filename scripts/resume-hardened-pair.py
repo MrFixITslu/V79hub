@@ -142,8 +142,12 @@ def server(args):
             if not all(images.values()):load_archive(artifact)
             images=loaded_images(m,plan,require=True)
             backend.protected()
+            transaction=m.module('paired-compose-transaction',ROOT)
             for name,entry in plan['apps'].items():
-                need(backend.inspect(name)['Id']==entry['baseline']['Id'],'ORIGINAL_ID_CHANGED_DURING_LOAD')
+                row=backend.inspect(name)
+                need(transaction.protected_fingerprint(row)==transaction.protected_fingerprint(entry['baseline'])
+                     and row['State'].get('Health',{}).get('Status')=='healthy',
+                     'ORIGINAL_APP_CHANGED_DURING_LOAD')
             result={'status':'PASS_RESUMED_TRANSFER_AND_EXACT_IMAGES_LOADED','new_bytes_transferred':received,
                 'complete_archive_bytes':INNER_BYTES,'complete_archive_sha256':args.archive_sha256,
                 'candidate_images_verified':images,'application_services_changed':False,
