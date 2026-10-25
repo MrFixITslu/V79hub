@@ -110,6 +110,7 @@ def runtime_matches(before,after,entry,which,*,selinux_enabled):
         'com.docker.compose.project.config_files':str(entry[which+'_file']),
         'com.docker.compose.image':expected_id,
         'com.docker.compose.version':entry['compose_version'],
+        'com.docker.compose.project.environment_file':'/dev/null',
     }
     for key,value in generated.items():
         if new_labels.get(key)!=value:raise Refused('COMPOSE_BOOKKEEPING_IDENTITY_CHANGED')
@@ -118,6 +119,16 @@ def runtime_matches(before,after,entry,which,*,selinux_enabled):
     old_labels.pop('com.docker.compose.config-hash',None)
     if not isinstance(config_hash,str) or not re.fullmatch('[0-9a-f]{64}',config_hash):
         raise Refused('COMPOSE_CONFIG_HASH_MISSING')
+    # Compose's generated dependency label reflects --no-deps, while the sealed
+    # full model retains every dependency. Reserved labels are not app settings.
+    if new_labels.pop('com.docker.compose.depends_on',None) not in (None,''):
+        raise Refused('COMPOSE_NO_DEPS_LABEL_CHANGED')
+    old_labels.pop('com.docker.compose.depends_on',None)
+    # compose v2.38.2 convergence.go records the exact replaced container ID.
+    replacement=new_labels.pop('com.docker.compose.replace',None)
+    if replacement!=entry.get('_replaced_id'):
+        raise Refused('COMPOSE_REPLACED_CONTAINER_ID_CHANGED')
+    old_labels.pop('com.docker.compose.replace',None)
     if old_labels!=new_labels:
         fields=sorted(k for k in set(old_labels)|set(new_labels) if old_labels.get(k)!=new_labels.get(k))
         raise Refused('APPLICATION_LABELS_CHANGED:'+','.join(fields))
@@ -218,6 +229,8 @@ class ComposeBackend:
     def switch(self,name,which):
         self.check_files();self.protected();self.eligible(name,allow_missing=which=='rollback')
         entry=self.plan['apps'][name]
+        previous=self.inspect(name,allow_missing=which=='rollback')
+        entry['_replaced_id']=None if previous is None else previous['Id']
         args=['docker','compose','--env-file','/dev/null','--project-directory',
               entry['directory'],'--project-name',entry['project'],'-f',entry[which+'_file']]
         # Up supports --no-deps and --no-start. Create's dependency behavior and
@@ -259,6 +272,7 @@ def stopped_profiles(backend):
     """
     import uuid
     nonce='v79profile'+uuid.uuid4().hex[:16]
+    print('STOPPED_PROFILE_SCOPE='+nonce,flush=True)
     directory=backend.root/nonce;directory.mkdir(mode=0o700)
     created=[];volumes=[];verified=0
     backend.protected();backend.check_files()
