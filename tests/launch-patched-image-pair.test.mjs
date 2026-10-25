@@ -10,7 +10,7 @@ import pg from "pg";
 import WebSocket from "ws";
 
 // Exact pinned public source checkouts; never contact an existing Hub/Tiquet server.
-const TIQUET_COMMIT = "787f47c258f872e26247a90cf343119870933297";
+const TIQUET_COMMIT = "f1c336bc4406b9c38c23df44a84609bf744512a6";
 const HUB_COMMIT = "48c3facacb049610862203535ffee54616573a81";
 const tiquetDir = resolve(".paired-tiquet");
 const pgUrl = "postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test";

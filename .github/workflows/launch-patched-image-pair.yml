@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: MrFixITslu/V79Tiquet
-          ref: 787f47c258f872e26247a90cf343119870933297
+          ref: f1c336bc4406b9c38c23df44a84609bf744512a6
           path: .paired-tiquet
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -52,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C .candidate-hub rev-parse HEAD)" = 48c3facacb049610862203535ffee54616573a81
-          test "$(git -C .paired-tiquet rev-parse HEAD)" = 787f47c258f872e26247a90cf343119870933297
+          test "$(git -C .paired-tiquet rev-parse HEAD)" = f1c336bc4406b9c38c23df44a84609bf744512a6
           for path in .candidate-hub .paired-tiquet; do
             test ! -e "$path/.env"
             test -z "$(git -C "$path" ls-files -- data uploads backups logs)"
@@ -64,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           docker build --build-arg NODE_BASE=node:22-alpine --label org.opencontainers.image.revision=48c3facacb049610862203535ffee54616573a81 -t v79-ci-patched-hub .candidate-hub
-          docker build --build-arg NODE_BASE=node:20-alpine --label org.opencontainers.image.revision=787f47c258f872e26247a90cf343119870933297 -t v79-ci-patched-tiquet .paired-tiquet
+          docker build --build-arg NODE_BASE=node:20-alpine --label org.opencontainers.image.revision=f1c336bc4406b9c38c23df44a84609bf744512a6 -t v79-ci-patched-tiquet .paired-tiquet
           mkdir -p pair-evidence
           for image in v79-ci-patched-hub v79-ci-patched-tiquet; do
             docker image inspect "$image" --format '{{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}}' >> pair-evidence/images.txt
