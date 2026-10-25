@@ -23,6 +23,15 @@ class Refused(ValueError):
     pass
 
 
+def safe_failure(error):
+    """Only stable diagnostic identifiers; never forward raw CLI output or secrets."""
+    if isinstance(error,Refused):
+        reason=str(error)
+        if re.fullmatch(r'[A-Z][A-Za-z0-9_:,.]{0,160}',reason):
+            return reason
+    return 'UNCLASSIFIED_FAILURE'
+
+
 def module(filename):
     spec=importlib.util.spec_from_file_location(filename.replace('-','_'),Path(__file__).with_name(filename+'.py'))
     result=importlib.util.module_from_spec(spec);spec.loader.exec_module(result);return result
@@ -126,11 +135,20 @@ def runtime_matches(before,after,entry,which,*,selinux_enabled):
     if new_labels.pop('com.docker.compose.depends_on',None) not in (None,''):
         raise Refused('COMPOSE_NO_DEPS_LABEL_CHANGED')
     old_labels.pop('com.docker.compose.depends_on',None)
-    # compose v2.38.2 convergence.go records the exact replaced container ID.
+    # Compose v5.6.0 executor_ops.go sets the replacement label to the
+    # configured container name, NOT the previous container ID.
+    # This guarded fixed-name release does not support unnamed replicas.
     replacement=new_labels.pop('com.docker.compose.replace',None)
-    if replacement!=entry.get('_replaced_id'):
-        raise Refused('COMPOSE_REPLACED_CONTAINER_ID_CHANGED')
     old_labels.pop('com.docker.compose.replace',None)
+    previous_id=entry.get('_replaced_id')
+    if previous_id is None:
+        if replacement is not None:
+            raise Refused('UNEXPECTED_COMPOSE_REPLACEMENT_LABEL')
+    else:
+        model_name=entry['model']['services'][entry['service']].get('container_name')
+        if (not isinstance(model_name,str) or not model_name
+                or before.get('Name')!='/'+model_name or replacement!=model_name):
+            raise Refused('COMPOSE_REPLACEMENT_NAME_MISMATCH')
     if old_labels!=new_labels:
         fields=sorted(k for k in set(old_labels)|set(new_labels) if old_labels.get(k)!=new_labels.get(k))
         raise Refused('APPLICATION_LABELS_CHANGED:'+','.join(fields))
@@ -210,11 +228,16 @@ class ComposeBackend:
                 if now['State'].get('Health',{}).get('Status')!='healthy':
                     raise Refused('PROTECTED_CORE_HEALTH_CHANGED')
 
-    def journal(self,event,name=None):
+    def journal(self,event,name=None,reason=None):
         # Append-only intent survives ambiguous CLI failure and process restart.
-        # No configuration or secret values are written to the public journal.
-        data=json.dumps({'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                         'event':event,'app':name},sort_keys=True).encode()+b'\n'
+        # Only sanitized fixed-shape failure identifiers are allowed.
+        row={'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+             'event':event,'app':name}
+        if reason is not None:
+            if not isinstance(reason,str) or not re.fullmatch(r'[A-Z][A-Za-z0-9_:,.]{0,160}',reason):
+                raise Refused('UNSAFE_JOURNAL_FAILURE_CODE')
+            row['reason']=reason
+        data=json.dumps(row,sort_keys=True).encode()+b'\n'
         fd=os.open(self.root/'events.jsonl',os.O_WRONLY|os.O_APPEND|os.O_CREAT|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'ab') as f:f.write(data);f.flush();os.fsync(f.fileno())
         fd=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY)
@@ -253,14 +276,19 @@ class ComposeBackend:
               entry['directory'],'--project-name',entry['project'],'-f',entry[which+'_file']]
         # Up supports --no-deps and --no-start. Create's dependency behavior and
         # unsupported --no-deps spelling must not recreate a database by accident.
-        self.call([*args,'up','--no-start','--no-deps','--no-build','--pull','never',
-                   '--force-recreate',entry['service']],timeout=180)
+        try:
+            self.call([*args,'up','--no-start','--no-deps','--no-build','--pull','never',
+                       '--force-recreate',entry['service']],timeout=180)
+        except BaseException as error:
+            raise Refused('COMPOSE_RECREATE_'+safe_failure(error)) from None
         row=self.inspect(name)
         if row['State'].get('Running'):raise Refused('UNEXPECTED_START_BEFORE_RUNTIME_GATE')
         self.verify(name,which,row)
         self.protected()
         if which=='candidate':self.supervised()
-        self.call(['docker','start',row['Id']])
+        try:self.call(['docker','start',row['Id']])
+        except BaseException as error:
+            raise Refused('DOCKER_START_'+safe_failure(error)) from None
         deadline=time.monotonic()+180
         while time.monotonic()<deadline:
             if which=='candidate':self.supervised()
@@ -417,8 +445,8 @@ def rollback(backend,names):
             backend.switch(name,'rollback')
             backend.healthy(name,'rollback')
             backend.journal('ROLLBACK_HEALTHY',name)
-        except BaseException:
-            backend.journal('ROLLBACK_FAILED',name);failures.append(name)
+        except BaseException as error:
+            backend.journal('ROLLBACK_FAILED',name,safe_failure(error));failures.append(name)
     if failures:
         backend.journal('ROLLBACK_INCOMPLETE')
         raise Refused('ROLLBACK_INCOMPLETE_OPERATOR_REQUIRED')
@@ -442,9 +470,10 @@ def deploy(backend):
         return {'status':'PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING',
                 'release_decision':'HOLD','supervised_acceptance_complete':False}
     except BaseException as error:
-        backend.journal('CANDIDATE_FAILED',touched[-1] if touched else None)
+        failure=safe_failure(error)
+        # Persist the candidate reason BEFORE rollback: rollback may itself fail.
+        backend.journal('CANDIDATE_FAILED',touched[-1] if touched else None,failure)
         result=rollback(backend,touched)
         result['candidate_deployment_failed']=True
-        result['candidate_failure_reason']=(str(error) if type(error).__name__=='Refused'
-            and re.fullmatch('[A-Z][A-Za-z0-9_:,.]+',str(error)) else 'CANDIDATE_EXECUTION_INTERRUPTED_OR_FAILED')
+        result['candidate_failure_reason']=failure
         return result
