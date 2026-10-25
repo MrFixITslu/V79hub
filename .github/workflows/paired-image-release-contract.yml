@@ -11,6 +11,8 @@ on:
       - scripts/rehearse-image-release-codec.py
       - tests/paired-mount-contract.test.py
       - tests/rehearse-image-release-codec.test.py
+      - scripts/paired-release-context.py
+      - tests/paired-release-context.test.py
       - .github/workflows/paired-image-release-contract.yml
 concurrency:
   group: paired-release-preparation-${{ github.event.pull_request.number }}
@@ -31,6 +33,7 @@ jobs:
           python3 tests/review-hardened-release.test.py
           python3 tests/paired-mount-contract.test.py
           python3 tests/rehearse-image-release-codec.test.py
+          python3 tests/paired-release-context.test.py
 
   stopped-engine-codec:
     runs-on: ubuntu-24.04
@@ -41,3 +44,4 @@ jobs:
           persist-credentials: false
       - name: Rehearse both mount encodings and file-backed rollback context without starting probes
         run: python3 scripts/rehearse-image-release-codec.py --ci
+
