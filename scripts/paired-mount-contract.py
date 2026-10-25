@@ -43,7 +43,7 @@ def boolean(value):
     return value
 
 
-def canonical_host_storage(row):
+def canonical_host_storage(row, *, selinux_enabled=True):
     host = copy.deepcopy(row.get('HostConfig') or {})
     actual = {}
     for mount in row.get('Mounts') or []:
@@ -58,13 +58,21 @@ def canonical_host_storage(row):
         mode = set(filter(None, mount.get('Mode', '').split(',')))
         if mode - ({'ro', 'rw', 'nocopy', 'z', 'Z'} | PROPAGATIONS | CONSISTENCIES):
             raise Refused('UNSUPPORTED_RUNTIME_MOUNT_MODE')
+        selinux = sorted(mode & {'z', 'Z'})
+        # Moby daemon/volumes_unix.go setBindModeIfNull inserts exactly "z"
+        # for a local named-volume Mounts encoding with an empty mode. This
+        # has no relabel effect only when Docker SELinux support is disabled.
+        # Explicit Binds flags remain checked below; bind mounts never normalize.
+        if (not selinux_enabled and mount['Type'] == 'volume'
+                and mount.get('Driver') == 'local' and mount.get('Mode') == 'z'):
+            selinux = []
         actual[target] = {
             'type': mount['Type'], 'source': source,
             'resolved_source': absolute(mount.get('Source')),
             'driver': mount.get('Driver') or '',
             'read_only': not boolean(mount.get('RW')),
             'propagation': (mount.get('Propagation') or 'rprivate') if mount['Type'] == 'bind' else (mount.get('Propagation') or ''),
-            'selinux': sorted(mode & {'z', 'Z'}),
+            'selinux': selinux,
         }
     declarations = {}
 
@@ -153,8 +161,9 @@ def canonical_host_storage(row):
     return {'host_config': host, 'mount_contract': declarations}
 
 
-def verify_host_storage(before, after):
-    first, second = canonical_host_storage(before), canonical_host_storage(after)
+def verify_host_storage(before, after, *, selinux_enabled=True):
+    first = canonical_host_storage(before, selinux_enabled=selinux_enabled)
+    second = canonical_host_storage(after, selinux_enabled=selinux_enabled)
     if first['host_config'] != second['host_config']:
         keys = sorted(key for key in set(first['host_config']) | set(second['host_config'])
                       if first['host_config'].get(key) != second['host_config'].get(key))
