@@ -493,7 +493,15 @@ print(str(run))
                 for block in iter(lambda:stream.read(1024**2),b''):process.stdin.write(block)
                 process.stdin.close();process.stdin=None
                 raw,_=process.communicate(timeout=1200)
-                need(process.returncode==0,'IMAGE_TRANSFER_OR_LOAD_FAILED')
+                if process.returncode:
+                    # Only remote structured, sanitized refusal codes may escape;
+                    # never forward raw Docker/SSH stderr or application output.
+                    try:report=json.loads(raw)
+                    except (ValueError,TypeError):report={}
+                    reason=report.get('reason') if report.get('status')=='BLOCKED' else None
+                    if isinstance(reason,str) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,96}',reason):
+                        raise Refused('IMAGE_TRANSFER_'+reason)
+                    raise Refused('IMAGE_TRANSFER_OR_LOAD_FAILED')
                 need(json.loads(raw).get('status')=='PASS_IMAGE_TRANSFER_LOAD_ONLY','IMAGE_LOAD_NOT_VERIFIED')
             finally:
                 if process.poll() is None:process.kill()
