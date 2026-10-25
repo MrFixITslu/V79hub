@@ -22,6 +22,9 @@ on:
       - scripts/demo-readonly-inventory-20261025.py
       - scripts/demo-capture-checkpoint-20261025.py
       - tests/demo-checkpoint-gate.test.py
+      - scripts/demo-review-restored-hub-20261025.py
+      - scripts/release-hardened-pair-demo-v3.py
+      - tests/demo-release-fresh-checkpoint.test.py
       - tests/release-hardened-pair.test.py
       - scripts/resume-hardened-pair.py
       - tests/resume-hardened-pair.test.py
@@ -55,6 +58,7 @@ jobs:
           python3 tests/paired-compose-transaction.test.py
           python3 tests/demo-cutover-contract.test.py
           python3 tests/demo-checkpoint-gate.test.py
+          python3 tests/demo-release-fresh-checkpoint.test.py
           python3 scripts/demo-capture-checkpoint-20261025.py --self-test
           python3 tests/release-hardened-pair.test.py
           python3 tests/resume-hardened-pair.test.py
