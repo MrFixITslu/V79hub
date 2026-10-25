@@ -83,7 +83,7 @@ class ManifestBoundV5(unittest.TestCase):
     def test_helper_requires_strict_external_sealed_plan_and_lease(self):
         helper=(P/'demo-manifest-bound-executor-v5.py').read_text()
         for required in (
-            "need(Path(__file__).resolve()==ROOT/'continue-manifest-bound-pair.py'",
+            "need(Path(__file__).resolve()==ROOT/'manifest-bound-executor.py'",
             "need(m.server_root()==ROOT,'SEALED_ROOT_CHANGED')",
             "need(old['backup']['checkpoint']==args.checkpoint_name",
             "'TRANSACTION_MARKED_DO_NOT_RELAUNCH'",
@@ -93,6 +93,9 @@ class ManifestBoundV5(unittest.TestCase):
             "'CONFIG_DESCRIPTOR_SIZE_CHANGED'",
             "'MANIFEST_MODEL_ROUNDTRIP_CHANGED'",
             "'PROJECTED_PLAN_HASH_CHANGED'",
+            "'--original-plan-sha256',args.original_plan_sha256",
+            "'--original-runner-sha256',args.original_runner_sha256",
+            "'--checkpoint-name',args.checkpoint_name",
             "m.write_new(ROOT/'launch-claim.json'",
             "return m.monitor(ROOT)"):
             if required=="return m.monitor(ROOT)":
