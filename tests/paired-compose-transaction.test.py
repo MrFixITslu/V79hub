@@ -3,6 +3,8 @@
 import importlib.util
 import copy
 import tempfile
+import json
+import time
 from pathlib import Path
 import unittest
 
@@ -40,6 +42,18 @@ class Backend:
 
 
 class TransactionTests(unittest.TestCase):
+    def test_production_supervision_requires_a_fresh_private_heartbeat(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);b=m.ComposeBackend(root,{'requires_supervision':True})
+            with self.assertRaisesRegex(m.Refused,'SUPERVISION_LEASE_LOST'):b.supervised()
+            lease=root/'supervision.json'
+            lease.write_text(json.dumps({'monotonic':time.monotonic()}));lease.chmod(0o600)
+            b.supervised()
+            lease.write_text(json.dumps({'monotonic':time.monotonic()-31}))
+            with self.assertRaisesRegex(m.Refused,'SUPERVISION_LEASE_LOST'):b.supervised()
+            lease.write_text(json.dumps({'monotonic':time.monotonic()}));lease.chmod(0o644)
+            with self.assertRaisesRegex(m.Refused,'SUPERVISION_LEASE_LOST'):b.supervised()
+
     def runtime_fixture(self):
         old_id='a'*64;new_id='b'*64
         old_image={'Id':'sha256:'+'1'*64,'Config':{'Labels':{'org.example.revision':'before'}}}
