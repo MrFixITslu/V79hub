@@ -192,6 +192,9 @@ class ComposeBackend:
             now=self.inspect(row['Id'])
             if protected_fingerprint(now)!=protected_fingerprint(row):
                 raise Refused('UNRELATED_CONTAINER_RUNTIME_CHANGED')
+            if name in ('v79-business-agent','v79-hub-postgres','tiquet-postgres'):
+                if now['State'].get('Health',{}).get('Status')!='healthy':
+                    raise Refused('PROTECTED_CORE_HEALTH_CHANGED')
 
     def journal(self,event,name=None):
         # Append-only intent survives ambiguous CLI failure and process restart.
@@ -374,7 +377,8 @@ def rollback(backend,names):
             backend.switch(name,'rollback')
             backend.healthy(name,'rollback')
             backend.journal('ROLLBACK_HEALTHY',name)
-        except BaseException:failures.append(name)
+        except BaseException:
+            backend.journal('ROLLBACK_FAILED',name);failures.append(name)
     if failures:
         backend.journal('ROLLBACK_INCOMPLETE')
         raise Refused('ROLLBACK_INCOMPLETE_OPERATOR_REQUIRED')
@@ -397,7 +401,10 @@ def deploy(backend):
         backend.protected();backend.journal('PAIR_HEALTHY_ACCEPTANCE_PENDING')
         return {'status':'PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING',
                 'release_decision':'HOLD','supervised_acceptance_complete':False}
-    except BaseException:
+    except BaseException as error:
+        backend.journal('CANDIDATE_FAILED',touched[-1] if touched else None)
         result=rollback(backend,touched)
         result['candidate_deployment_failed']=True
+        result['candidate_failure_reason']=(str(error) if type(error).__name__=='Refused'
+            and re.fullmatch('[A-Z][A-Za-z0-9_:,.]+',str(error)) else 'CANDIDATE_EXECUTION_INTERRUPTED_OR_FAILED')
         return result
