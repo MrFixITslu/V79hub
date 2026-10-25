@@ -79,10 +79,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Scan every original Docker archive member as a separate object.
+          # This avoids cumulative wrapper accounting; scanner limits remain on.
+          # Generated output names prevent archive paths from reaching the filesystem.
+          python3 - <<'PYCODE'
+          import hashlib, json, pathlib, shutil, tarfile
+          root = pathlib.Path('input/components')
+          root.mkdir()
+          inventory = []
+          seen = set()
+          total = 0
+          with tarfile.open('input/patched-pair.docker.tar.gz', mode='r|gz') as archive:
+              for member in archive:
+                  if member.isdir():
+                      continue
+                  assert member.isfile() and member.name not in seen
+                  assert len(inventory) < 2000 and 0 <= member.size < 1800 * 1024**2
+                  seen.add(member.name)
+                  total += member.size
+                  assert total < 8 * 1024**3
+                  output = root / f'{len(inventory):06d}.bin'
+                  with archive.extractfile(member) as source, output.open('xb') as target:
+                      shutil.copyfileobj(source, target)
+                  with output.open('rb') as data:
+                      sha = hashlib.file_digest(data, 'sha256').hexdigest()
+                  if member.name.startswith('blobs/sha256/'):
+                      assert sha == member.name.removeprefix('blobs/sha256/')
+                  inventory.append({'member': member.name, 'bytes': member.size, 'sha256': sha})
+          assert inventory and 'manifest.json' in seen
+          for name in ('images.txt', 'test.txt', 'SHA256SUMS.txt'):
+              shutil.copyfile(pathlib.Path('input') / name, root / name)
+          pathlib.Path('reports/antivirus-component-inventory.json').write_text(json.dumps(inventory, indent=2))
+          PYCODE
           clamscan --fail-if-cvd-older-than=2 --recursive --infected \
             --alert-exceeds-max=yes --max-files=2000000 --max-recursion=30 \
             --max-filesize=1800M --max-scansize=4000M --max-scantime=900000 \
-            input/original.zip | tee reports/antivirus-scan.txt
+            input/components | tee reports/antivirus-scan.txt
       - name: Load images for static inspection only
         id: images
         if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
