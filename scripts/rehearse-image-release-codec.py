@@ -234,7 +234,9 @@ def rehearse(image, *, directory=None):
             environment = {**os.environ, **saved}
             model = json.loads(run([*command, 'config', '--format', 'json'], env=environment).stdout)
             modes.append(codec_mode(model['services']['probe']['environment'], expected))
-            run([*command, 'create', '--no-build', '--pull', 'never', '--no-deps', 'probe'], env=environment)
+            # This generated project contains one service and no dependencies.
+            # Compose create has no --no-deps option (unlike Compose up).
+            run([*command, 'create', '--no-build', '--pull', 'never', 'probe'], env=environment)
             row = json.loads(run(['inspect', name]).stdout)[0]
             validate_probe(row, image, nonce)
             env = dict(v.split('=', 1) for v in row['Config']['Env'])
