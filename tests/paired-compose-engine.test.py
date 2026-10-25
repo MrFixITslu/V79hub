@@ -34,7 +34,8 @@ class RealCompose(unittest.TestCase):
             for tag,stage in zip(tags,('old','new')):
                 dockerfile=('FROM alpine:3.24\nLABEL org.opencontainers.image.revision='+stage+'\n'
                     +('ENV NODE_VERSION=synthetic YARN_VERSION=synthetic\n' if stage=='old' else ''))
-                run(['docker','build','--provenance=false','-t',tag,'-'],input=dockerfile.encode())
+                run(['docker','build','--provenance=false','--output','type=docker,oci-mediatypes=true',
+                     '-t',tag,'-'],input=dockerfile.encode())
             old,new=[json.loads(run(['docker','image','inspect',tag]))[0] for tag in tags]
             data=root/'data';data.mkdir();(data/'sentinel').write_text('unchanged synthetic data')
             token=root/'token';token.write_text('synthetic-file-secret-only');token.chmod(0o600)
