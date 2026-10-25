@@ -42,6 +42,16 @@ class Backend:
 
 
 class TransactionTests(unittest.TestCase):
+    def test_mount_order_is_not_drift_but_source_change_is(self):
+        before,_,_=self.runtime_fixture()
+        before['State'].update({'Status':'running','StartedAt':'synthetic'})
+        before['Mounts']=[{'Destination':'/a','Source':'/first'},
+                          {'Destination':'/b','Source':'/second'}]
+        after=copy.deepcopy(before);after['Mounts'].reverse()
+        self.assertEqual(m.protected_fingerprint(before),m.protected_fingerprint(after))
+        after['Mounts'][0]['Source']='/other'
+        self.assertNotEqual(m.protected_fingerprint(before),m.protected_fingerprint(after))
+
     def test_production_supervision_requires_a_fresh_private_heartbeat(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);b=m.ComposeBackend(root,{'requires_supervision':True})
