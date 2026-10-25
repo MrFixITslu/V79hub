@@ -44,7 +44,8 @@ class RealCompose(unittest.TestCase):
             for service,name in names.items():
                 services[service]={'image':old['Id'],'container_name':name,
                     'command':['sh','-c',"test -f /ledger/sentinel || printf durable > /ledger/sentinel; trap 'exit 0' TERM; while :; do sleep 1; done"],
-                    'environment':{'PRICE':'$${literal} $$$$\nline two'},
+                    'environment':{'PRICE':'$${literal} $$$$\nline two',
+                                   'NODE_VERSION':'synthetic','YARN_VERSION':'synthetic'},
                     'volumes':[str(data)+':/data:ro','ledger:/ledger'],'read_only':True,
                     'networks':{'isolated':{}},
                     'cap_drop':['ALL'],'security_opt':['no-new-privileges:true'],
@@ -84,7 +85,25 @@ class RealCompose(unittest.TestCase):
                         path.write_text(json.dumps(rendered));path.chmod(0o600)
                         entry[which+'_file']=str(path)
                         entry[which+'_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+                    entry['model']=json.loads(Path(entry['candidate_file']).read_bytes())
                     plan['apps'][name]=entry
+                # Reproduce the owner's exact pre-cutover refusal, then narrow
+                # the exception list while retaining all configured values.
+                with self.assertRaisesRegex(m.Refused,'UNREVIEWED_IMAGE_ENVIRONMENT_CHANGE'):
+                    m.stopped_profiles(m.ComposeBackend(root,plan))
+                self.assertFalse(list(root.glob('v79profile*')))
+                frozen_spec=importlib.util.spec_from_file_location('frozen',
+                    Path(__file__).parents[1]/'scripts/continue-frozen-metadata-pair.py')
+                frozen=importlib.util.module_from_spec(frozen_spec);frozen_spec.loader.exec_module(frozen)
+                original_plan=copy.deepcopy(plan);original_root=root
+                root=original_root/'continued';root.mkdir(mode=0o700)
+                plan=frozen.frozen_projection(original_plan,root)
+                for name,entry in plan['apps'].items():
+                    self.assertEqual(entry['removed_metadata'],[])
+                    self.assertEqual(entry['model'],original_plan['apps'][name]['model'])
+                    for which in ('candidate','rollback'):
+                        source=Path(original_plan['apps'][name][which+'_file'])
+                        target=Path(entry[which+'_file']);target.write_bytes(source.read_bytes());target.chmod(0o600)
                 pin=m.seal_plan(root,plan)
                 backend=m.ComposeBackend(root,m.load_plan(root,pin))
                 profiles=m.stopped_profiles(backend)
