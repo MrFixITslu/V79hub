@@ -22,6 +22,8 @@ on:
       - tests/release-hardened-pair.test.py
       - scripts/resume-hardened-pair.py
       - tests/resume-hardened-pair.test.py
+      - scripts/continue-manifest-bound-pair.py
+      - tests/manifest-bound-pair.test.py
       - .github/workflows/paired-image-release-contract.yml
 concurrency:
   group: paired-release-preparation-${{ github.event.pull_request.number }}
@@ -48,14 +50,35 @@ jobs:
           python3 tests/paired-compose-transaction.test.py
           python3 tests/release-hardened-pair.test.py
           python3 tests/resume-hardened-pair.test.py
+          python3 tests/manifest-bound-pair.test.py
 
   synthetic-application-rollback:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [classic, containerd]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - name: Enable containerd store only on its disposable CI runner
+        if: matrix.store == 'containerd'
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$(hostname)" != v79sl
+          sudo systemctl stop docker
+          sudo python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('/etc/docker/daemon.json')
+          config=json.loads(p.read_text()) if p.exists() else {}
+          config.setdefault('features',{})['containerd-snapshotter']=True
+          p.write_text(json.dumps(config))
+          PY
+          sudo systemctl start docker
+          docker info --format '{{json .DriverStatus}}' | python3 -c 'import json,sys;assert any("containerd" in str(row) for row in json.load(sys.stdin))'
       - name: Switch synthetic image pair and recreate originals using a new rollback process
         run: python3 tests/paired-compose-engine.test.py
 
