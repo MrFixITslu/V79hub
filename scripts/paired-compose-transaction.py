@@ -74,7 +74,15 @@ def runtime_matches(before,after,entry,which,*,selinux_enabled):
     """
     expected_id=entry[which+'_image']['Id']
     if after['Image']!=expected_id:raise Refused('ACTUAL_IMAGE_IDENTITY_CHANGED')
-    module('paired-mount-contract').verify_host_storage(before,after,selinux_enabled=selinux_enabled)
+    first,second=copy.deepcopy(before),copy.deepcopy(after)
+    # Moby adaptContainerSettings defaults absent OomKillDisable to false.
+    # verifyPlatformContainerResources may discard false back to nil on cgroup2.
+    # Both keep the OOM killer enabled; true must remain strictly different.
+    # Primary implementation: moby/moby v28.0.4 daemon/daemon_unix.go.
+    for row in (first,second):
+        if row['HostConfig'].get('OomKillDisable') is None:
+            row['HostConfig']['OomKillDisable']=False
+    module('paired-mount-contract').verify_host_storage(first,second,selinux_enabled=selinux_enabled)
     old,new=copy.deepcopy(before['Config']),copy.deepcopy(after['Config'])
     old['Image']=new['Image']=expected_id
     for config,row in ((old,before),(new,after)):
@@ -199,6 +207,9 @@ class ComposeBackend:
         labels=row['Config'].get('Labels') or {}
         if labels.get('com.docker.compose.project')!=entry['project'] or labels.get('com.docker.compose.service')!=entry['service']:
             raise Refused('FOREIGN_COMPOSE_IDENTITY_NO_MUTATION')
+        if row['Id']!=entry['baseline']['Id'] and labels.get('com.docker.compose.project.config_files') not in (
+                str(entry['candidate_file']),str(entry['rollback_file'])):
+            raise Refused('FOREIGN_REPLACEMENT_CONTAINER_NO_MUTATION')
 
     def switch(self,name,which):
         self.check_files();self.protected();self.eligible(name,allow_missing=which=='rollback')
