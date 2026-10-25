@@ -30,6 +30,28 @@ class TransferTests(unittest.TestCase):
         self.assertIn("raise Refused('IMAGE_TRANSFER_'+reason)",src)
         self.assertIn("raise Refused('IMAGE_TRANSFER_OR_LOAD_FAILED')",src)
         self.assertIn('stderr=subprocess.DEVNULL',src)
+    def test_private_http_preflight_no_host_port_assumption(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        spec=importlib.util.spec_from_file_location('v79_demo_health_v4',
+            P/'release-hardened-pair-demo-v4.py')
+        mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+        with patch.object(mod.subprocess,'run',return_value=SimpleNamespace(returncode=0)) as invoke:
+            mod.local_health_pair()
+            self.assertEqual(invoke.call_count,2)
+            first=invoke.call_args_list[0].args[0]
+            second=invoke.call_args_list[1].args[0]
+            self.assertEqual(first[:3],['docker','exec','v79-hub'])
+            self.assertEqual(second[:3],['docker','exec','v79-tiquet-manager'])
+            self.assertIn('http://127.0.0.1:3040/api/health',first)
+            self.assertIn('http://127.0.0.1:3050/health',second)
+        with patch.object(mod.subprocess,'run',return_value=SimpleNamespace(returncode=2)):
+            with self.assertRaisesRegex(mod.Refused,'SELECTED_PRIVATE_HTTP_HEALTH_FAILED'):
+                mod.local_health_pair()
+        source=(P/'release-hardened-pair-demo-v4.py').read_text()
+        self.assertIn('    local_health_pair()\n    need(hashlib.sha256(payload[',source)
+        self.assertNotIn("urllib.request.urlopen(url",source)
+
     def test_historical_v3_and_mounted_transaction_unmodified(self):
         original=(P/'release-hardened-pair-demo-v3.py').read_text()
         changed=(P/'release-hardened-pair-demo-v4.py').read_text()
