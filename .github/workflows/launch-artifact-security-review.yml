@@ -1,0 +1,154 @@
+name: Exact release artifact security review
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/launch-artifact-security-review.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  review-existing-artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Download original artifact without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p input reports
+          curl --fail --silent --show-error --location --retry 2 --max-time 300 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/MrFixITslu/V79hub/actions/artifacts/12596065338/zip \
+            -o input/original.zip
+          printf '%s  %s\n' d5a7b21619f5c7398dc3b21003ce7d0ce3533df97bd720e0582c381ed1d1c01c input/original.zip | sha256sum -c - | tee reports/original-integrity.txt
+      - name: Verify bounded archive contents before loading metadata
+        id: archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib, re, shutil, stat, zipfile
+          expected = {'images.txt', 'patched-pair.docker.tar.gz', 'SHA256SUMS.txt', 'test.txt'}
+          root = pathlib.Path('input')
+          with zipfile.ZipFile(root / 'original.zip') as z:
+              entries = z.infolist()
+              assert len(entries) == 4 and {e.filename for e in entries} == expected
+              for entry in entries:
+                  assert not entry.is_dir() and not entry.flag_bits & 1
+                  kind = stat.S_IFMT(entry.external_attr >> 16)
+                  assert kind in (0, stat.S_IFREG), 'Nonregular ZIP member'
+                  assert entry.file_size < 1073741824
+                  if entry.filename != 'patched-pair.docker.tar.gz':
+                      assert entry.file_size < 1048576
+                  with z.open(entry) as source, (root / entry.filename).open('xb') as target:
+                      shutil.copyfileobj(source, target)
+          lines = (root / 'SHA256SUMS.txt').read_text().splitlines()
+          assert len(lines) == 3
+          checked = set()
+          for line in lines:
+              match = re.fullmatch(r'([0-9a-f]{64})  (images.txt|test.txt|patched-pair\.docker\.tar\.gz)', line)
+              assert match and match[2] not in checked
+              checked.add(match[2])
+              with (root / match[2]).open('rb') as data:
+                  assert hashlib.file_digest(data, 'sha256').hexdigest() == match[1]
+          assert checked == expected - {'SHA256SUMS.txt'}
+          pathlib.Path('reports/inner-integrity.json').write_text(json.dumps({'original_artifact_id': 12596065338, 'all_inner_hashes_match': True}))
+          PY
+      - name: Install and update antivirus signatures
+        id: antivirus
+        if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam.service
+          sudo freshclam --stdout | tee reports/antivirus-update.txt
+          clamscan --version | tee reports/antivirus-version.txt
+          python3 - <<'PY' | clamscan --fail-if-cvd-older-than=2 - > reports/antivirus-positive-control.txt && status=0 || status=$?
+          import sys
+          sys.stdout.write('X5O!P%@AP[4' + chr(92) + 'PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')
+          PY
+          test "$status" = 1
+          grep -Eiq 'eicar.*FOUND' reports/antivirus-positive-control.txt
+      - name: Scan original bundle with explicit coverage limits
+        if: ${{ !cancelled() && steps.antivirus.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          clamscan --fail-if-cvd-older-than=2 --recursive --infected \
+            --alert-exceeds-max=yes --max-files=2000000 --max-recursion=30 \
+            --max-filesize=1800M --max-scansize=4000M --max-scantime=900000 \
+            input/original.zip | tee reports/antivirus-scan.txt
+      - name: Load images for static inspection only
+        id: images
+        if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker load --input input/patched-pair.docker.tar.gz > reports/image-load.txt
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          images = {
+              'sha256:6cad753945278c6757de3947692c07e87e74d9337a29e08ca182967dee132b81': '48c3facacb049610862203535ffee54616573a81',
+              'sha256:8e92b5d3a291151e8734b4128329bcfe44dbd2a99a91c46c3a0df5e241378f43': 'f1c336bc4406b9c38c23df44a84609bf744512a6',
+          }
+          for image, revision in images.items():
+              row = json.loads(subprocess.check_output(['docker', 'image', 'inspect', image]))[0]
+              assert row['Id'] == image
+              assert row['Config']['Labels']['org.opencontainers.image.revision'] == revision
+          pathlib.Path('reports/exact-image-identities.json').write_text(json.dumps(images, indent=2))
+          PY
+      - name: Install pinned vulnerability scanner
+        id: scanner
+        if: ${{ !cancelled() && steps.images.outcome == 'success' }}
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
+        with:
+          version: v0.76.1
+          cache: false
+      - name: Scan both exact images and enforce security results
+        if: ${{ !cancelled() && steps.scanner.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trivy --version > reports/trivy-version.txt
+          failed=0
+          for pair in \
+            hub:6cad753945278c6757de3947692c07e87e74d9337a29e08ca182967dee132b81 \
+            tiquet:8e92b5d3a291151e8734b4128329bcfe44dbd2a99a91c46c3a0df5e241378f43; do
+            app="${pair%%:*}"
+            image="sha256:${pair#*:}"
+            trivy image --image-src docker --scanners vuln --ignore-unfixed=false \
+              --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --list-all-pkgs \
+              --format json --output "reports/$app-vulnerabilities.json" --exit-code 0 \
+              --timeout 10m "$image" || failed=1
+          done
+          python3 - <<'PY' || failed=1
+          import json, pathlib
+          summary = {}
+          expected_ids = {
+              'hub': 'sha256:6cad753945278c6757de3947692c07e87e74d9337a29e08ca182967dee132b81',
+              'tiquet': 'sha256:8e92b5d3a291151e8734b4128329bcfe44dbd2a99a91c46c3a0df5e241378f43'}
+          for app in ('hub', 'tiquet'):
+              report = json.loads(pathlib.Path(f'reports/{app}-vulnerabilities.json').read_text())
+              assert report.get('Metadata', {}).get('ImageID') == expected_ids[app]
+              results = report.get('Results') or []
+              assert results and any(r.get('Class') == 'os-pkgs' for r in results), 'OS scan missing'
+              assert any(r.get('Class') == 'lang-pkgs' for r in results), 'Application dependency scan missing'
+              findings = [v for r in results for v in r.get('Vulnerabilities') or []]
+              summary[app] = {'high_critical': sum(v.get('Severity') in ('HIGH', 'CRITICAL') for v in findings), 'all_findings': len(findings)}
+          pathlib.Path('reports/vulnerability-summary.json').write_text(json.dumps(summary, indent=2))
+          assert all(v['high_critical'] == 0 for v in summary.values()), 'HIGH/CRITICAL findings require remediation/review'
+          PY
+          test "$failed" = 0
+      - name: Retain reports only; never redistribute blocked images
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exact-artifact-security-review
+          path: reports/
+          if-no-files-found: error
+          retention-days: 14
