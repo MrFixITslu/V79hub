@@ -196,6 +196,13 @@ class TransactionTests(unittest.TestCase):
         self.assertIn(('CANDIDATE_FAILED','tiquet','UNCLASSIFIED_FAILURE'),b.actions)
         self.assertIn(('ROLLBACK_FAILED','hub','UNCLASSIFIED_FAILURE'),b.actions)
 
+    def test_demo_release_export_matches_demo_transaction_source(self):
+        spec=importlib.util.spec_from_file_location('demo_release',
+            Path(__file__).parents[1]/'scripts/release-hardened-pair-demo-v2.py')
+        release=importlib.util.module_from_spec(spec);spec.loader.exec_module(release)
+        expected=(Path(__file__).parents[1]/'scripts/paired-compose-transaction-demo-v2.py').read_text()
+        self.assertEqual(release.SOURCES['paired-compose-transaction.py'],expected)
+
     def test_journal_cannot_emit_untrusted_raw_failure_or_secret(self):
         with tempfile.TemporaryDirectory() as tmp:
             backend=m.ComposeBackend(tmp,{'apps':{}})
