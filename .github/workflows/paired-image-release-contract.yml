@@ -34,6 +34,9 @@ on:
       - scripts/paired-compose-transaction-demo-v4.py
       - scripts/release-hardened-pair-demo-v7.py
       - tests/demo-eventual-cleanup-v7.test.py
+      - scripts/paired-compose-transaction-demo-v5.py
+      - scripts/release-hardened-pair-demo-v8.py
+      - tests/demo-reviewed-metadata-v8.test.py
       - tests/demo-release-fresh-checkpoint.test.py
       - tests/demo-exact-image-transfer.test.py
       - tests/release-hardened-pair.test.py
@@ -74,6 +77,7 @@ jobs:
           python3 tests/demo-manifest-binding-v5.test.py
           python3 tests/demo-profile-cleanup-v6.test.py
           python3 tests/demo-eventual-cleanup-v7.test.py
+          python3 tests/demo-reviewed-metadata-v8.test.py
           python3 scripts/demo-capture-checkpoint-20261025.py --self-test
           python3 tests/release-hardened-pair.test.py
           python3 tests/resume-hardened-pair.test.py
