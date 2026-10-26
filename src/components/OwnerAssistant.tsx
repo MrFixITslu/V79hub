@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Bot, ClipboardCheck, FileText, LayoutList, MessageSquare, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
+import { ArrowRight, Bot, ClipboardCheck, LayoutList, MessageSquare, Sun, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
 import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
-import { WorkforceBriefingHistory } from "./WorkforceBriefingHistory";
+import { OwnerToday } from "./OwnerToday";
 import { MarketingProductionPanel } from "./MarketingProductionPanel";
 import { GoogleWorkforcePanel } from "./GoogleWorkforcePanel";
 import { WorkforceActionPanel } from "./WorkforceActionPanel";
@@ -38,19 +38,21 @@ const specialistPrompts = [
   { label: "CombatZone", prompt: "Review CombatZone laser tag bookings and event readiness." },
 ];
 
-type WorkspaceView = "agents" | "tasks" | "delivery" | "briefings" | "tools";
+type WorkspaceView = "today" | "agents" | "tasks" | "delivery" | "tools";
 const workspaceViews = [
-  { id: "agents", label: "Agents", icon: MessageSquare },
+  { id: "today", label: "Today", icon: Sun },
+  { id: "agents", label: "Ask Assistant", icon: MessageSquare },
   { id: "tasks", label: "Tasks & approvals", icon: ClipboardCheck },
   { id: "delivery", label: "Delivery board", icon: LayoutList },
-  { id: "briefings", label: "Briefings", icon: FileText },
-  { id: "tools", label: "More tools", icon: Wrench },
+
 ] as const;
 
 export function OwnerAssistant() {
-  const [view, setView] = useState<WorkspaceView>("agents");
+  const [view, setView] = useState<WorkspaceView>("today");
   const [taskOpenAttempt, setTaskOpenAttempt] = useState(0);
-  const [visited, setVisited] = useState<Set<WorkspaceView>>(new Set(["agents"]));
+  const [visited, setVisited] = useState<Set<WorkspaceView>>(new Set(["today"]));
+  const [tool, setTool] = useState("communications");
+  const [visitedTools, setVisitedTools] = useState(new Set(["communications"]));
   const composer = useRef<HTMLTextAreaElement>(null);
   const conversation = useRef<HTMLDivElement>(null);
   const navigate = (next: WorkspaceView) => {
@@ -117,35 +119,32 @@ export function OwnerAssistant() {
     }
   };
   return (
-    <div className="mx-auto w-full max-w-7xl p-3 sm:p-6 text-slate-100">
-      <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 shadow-xl">
-        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 bg-gradient-to-r from-cyan-950/60 to-slate-950 px-5 py-6 sm:px-7">
-          <div>
-            <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-cyan-300"><Bot className="h-4 w-4" aria-hidden="true" /> V79 Owner Assistant</p>
-            <h1 className="text-2xl font-bold sm:text-3xl">Your owner workspace</h1>
-            <p className="mt-2 text-sm text-slate-300">Plan with agents. Review decisions. Keep work moving.</p>
+    <div className="v79-area v79-owner">
+      <div className="v79-owner-shell">
+        <header className="v79-area-hero">
+          <div><p className="v79-eyebrow"><Bot size={16} /> VISION79 OWNER WORKSPACE</p>
+            <h1>Clarity for your next move.</h1><p>Review priorities. Make decisions. Keep delivery moving.</p>
+            <span className="v79-hero-note"><ShieldCheck size={15} /> Actions require your review and authorization</span>
           </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <span className="flex items-center gap-2 text-xs text-slate-300"><ShieldCheck className="h-4 w-4 text-cyan-300" aria-hidden="true" /> Owner access · MFA required</span>
-            <button type="button" onClick={openTaskEditor} aria-controls="workspace-tasks" aria-expanded={view === "tasks"}
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-white">
-              <Plus className="h-4 w-4" aria-hidden="true" /> New task
-            </button>
+          <div className="v79-area-hero-actions">
+            <button type="button" onClick={openTaskEditor} aria-controls="workspace-tasks" aria-expanded={view === "tasks"} className="v79-primary"><Plus size={17} /> New task</button>
+            <button type="button" onClick={() => navigate("tools")} aria-current={view === "tools" ? "page" : undefined} className="v79-hero-tools"><Wrench size={16} /> Tools & reports</button>
           </div>
         </header>
-        <nav aria-label="Owner workspace" className="flex gap-1 overflow-x-auto border-b border-slate-800 bg-slate-900/70 p-2 sm:px-5">
+        <nav aria-label="Owner workspace" className="v79-area-nav">
           {workspaceViews.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={view === id ? "page" : undefined}
-            onClick={() => navigate(id)} aria-controls={"workspace-" + id}
-            className={"inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-cyan-300 sm:px-4 " +
-              (view === id ? "bg-cyan-300/10 text-cyan-200 ring-1 ring-inset ring-cyan-500/30" : "text-slate-300 hover:bg-slate-800 hover:text-white")}>
-            <Icon className="h-4 w-4" aria-hidden="true" />{label}
+            onClick={() => navigate(id)} aria-controls={"workspace-" + id}>
+            <Icon size={17} aria-hidden="true" />{label}
           </button>)}
         </nav>
+        <section id="workspace-today" aria-label="Today" hidden={view !== "today"}>
+          <OwnerToday active={view === "today"} onTasks={() => navigate("tasks")} onDelivery={() => navigate("delivery")} onAsk={() => navigate("agents")} />
+        </section>
 
-        <section id="workspace-agents" aria-label="Agents" hidden={view !== "agents"}>
+        <section id="workspace-agents" className="v79-legacy-panel v79-chat" aria-label="Ask Assistant" hidden={view !== "agents"}>
           <div className="grid lg:grid-cols-[250px_minmax(0,1fr)]">
             <aside className="border-b border-slate-800 bg-slate-900/40 p-4 lg:border-b-0 lg:border-r lg:p-5">
-              <h2 className="font-semibold">Work with your team</h2>
+              <h2 className="font-semibold">Choose a perspective</h2>
               <p className="mt-2 hidden text-xs leading-5 text-slate-400 lg:block">Choose a starting point. Review the prompt, then send it to the assistant.</p>
               <div className="mt-3 grid grid-cols-2 gap-2 lg:mt-4 lg:grid-cols-1">
                 {[
@@ -164,7 +163,7 @@ export function OwnerAssistant() {
             </aside>
             <div className="min-w-0">
         <div className="px-5 py-3 border-b border-slate-800 bg-slate-900/50">
-          <p className="text-xs text-slate-400 mb-2">Ask a specialist · drafts and recommendations only</p>
+          <p className="text-xs text-slate-400 mb-2">Specialist prompts · drafts and recommendations only</p>
           <div className="flex flex-wrap gap-2">
             {specialistPrompts.map((specialist) => (
               <button
@@ -179,12 +178,12 @@ export function OwnerAssistant() {
             ))}
           </div>
         </div>
-        <div ref={conversation} role="log" aria-label="Agent conversation" aria-live="polite" aria-relevant="additions text" className="h-[48vh] min-h-72 overflow-y-auto p-4 space-y-4 bg-slate-950 sm:p-6">
+        <div ref={conversation} role="log" aria-label="Agent conversation" aria-live="polite" aria-relevant="additions text" className="v79-conversation overflow-y-auto p-4 space-y-4 bg-slate-950 sm:p-6">
           {messages.map((message, index) => (
             <div
               key={index}
               className={`max-w-[94%] sm:max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "user"
-                ? "ml-auto bg-cyan-600 text-white"
+                ? "v79-chat-user ml-auto bg-cyan-600 text-white"
                 : "bg-slate-900 border border-slate-800 text-slate-200"}`}
             >
               {message.role === "assistant" && message.specialist && (
@@ -229,7 +228,7 @@ export function OwnerAssistant() {
                               evidenceAttestation: finding.evidenceAttestation && finding.id.startsWith(targetSystem + ":") ? finding.evidenceAttestation : undefined,
                               idempotencyKey: crypto.randomUUID(),
                             });
-                            navigate("tools");
+                            navigate("tasks");
                           }}>Propose a review draft</button>
                       </div>
                     ))}
@@ -301,17 +300,21 @@ export function OwnerAssistant() {
           </div>
         </section>
 
-        <section id="workspace-tasks" aria-label="Tasks and approvals" hidden={view !== "tasks"}>
-          {visited.has("tasks") && <WorkforceActionPanel embedded active={view === "tasks"} preparedTask={preparedCooWork} onPreparedTaskApplied={() => setPreparedCooWork(null)} />}
+        <section id="workspace-tasks" className="v79-legacy-panel" aria-label="Tasks and approvals" hidden={view !== "tasks"}>
+          {visited.has("tasks") && <><WorkforceActionPanel embedded active={view === "tasks"} preparedTask={preparedCooWork} onPreparedTaskApplied={() => setPreparedCooWork(null)} /><div className="v79-proposal-group"><h2>Planning proposals</h2><p>Review advisory drafts separately from executable work actions.</p><AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} /></div></>}
         </section>
-        <section id="workspace-delivery" aria-label="Delivery board" hidden={view !== "delivery"}>
+        <section id="workspace-delivery" className="v79-legacy-panel" aria-label="Delivery board" hidden={view !== "delivery"}>
           {visited.has("delivery") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Engineering delivery board</h2><p className="mt-1 text-sm text-slate-400">Review GitHub work and prepare a task for COO. Preparing a task opens a draft for you to review.</p></div><OwnerCooWorkboardPanel embedded active={view === "delivery"} onPrepareTask={prepareTask} /></>}
         </section>
-        <section id="workspace-briefings" aria-label="Briefings" hidden={view !== "briefings"}>
-          {visited.has("briefings") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Reports & executive review</h2><p className="mt-1 text-sm text-slate-400">Read scheduled briefings or request an executive review of available evidence.</p></div><WorkforceBriefingHistory /><ExecutiveReviewPanel /></>}
-        </section>
-        <section id="workspace-tools" aria-label="More tools" hidden={view !== "tools"}>
-          {visited.has("tools") && <><div className="px-5 py-5"><h2 className="text-lg font-semibold">Specialist tools</h2><p className="mt-1 text-sm text-slate-400">Review email, appointments, planning proposals, Marketing production and signed Tiquet evidence.</p></div><div className="px-5 pb-5"><GoogleWorkforcePanel /></div><AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} /><MarketingProductionPanel /><SignedTiquetEvidencePanel /></>}
+        <section id="workspace-tools" className="v79-legacy-panel v79-tools" aria-label="Tools and reports" hidden={view !== "tools"}>
+          <div className="v79-area-heading"><div><h2>Tools & reports</h2><p>Open a focused workspace for each capability.</p></div></div>
+          <nav className="v79-subnav" aria-label="Specialist tools">{[
+            ["communications", "Email & calendar"], ["marketing", "Marketing"], ["evidence", "Tiquet evidence"], ["executive", "Executive review"],
+          ].map(([id, label]) => <button key={id} aria-current={tool === id ? "page" : undefined} onClick={() => { setTool(id); setVisitedTools(current => new Set([...current, id])); }}>{label}</button>)}</nav>
+          <div hidden={tool !== "communications"}>{visited.has("tools") && visitedTools.has("communications") && <GoogleWorkforcePanel />}</div>
+          <div hidden={tool !== "marketing"}>{visited.has("tools") && visitedTools.has("marketing") && <MarketingProductionPanel />}</div>
+          <div hidden={tool !== "evidence"}>{visited.has("tools") && visitedTools.has("evidence") && <SignedTiquetEvidencePanel />}</div>
+          <div hidden={tool !== "executive"}>{visited.has("tools") && visitedTools.has("executive") && <ExecutiveReviewPanel />}</div>
         </section>
       </div>
     </div>
