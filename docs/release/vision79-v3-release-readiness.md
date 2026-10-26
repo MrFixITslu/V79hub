@@ -71,6 +71,8 @@ The operator ran the offhost verifier at 2026-10-26 19:52:00 UTC. All 14 ciphert
 
 `scripts/vision79-v3-acer-db-restore.py` is prepared for a disconnected, rootless Podman restore of the two encrypted logical dumps. It requires the exact two Postgres image IDs already cached on the Acer, rechecks the offhost receipt and dump hashes, restores into disposable tmpfs databases with no network or published ports, verifies nonzero user-table counts, and removes the containers. It does not connect to production or claim the Hub app and mounted files can be restored. Local synthetic tests pass; actual restore evidence is pending operator execution.
 
+The operator ran that rehearsal and received `STOP=EXACT_DB_IMAGE_NOT_CACHED` after two synthetic tests passed. No database container was started and no restore was attempted. The local Podman image prerequisite assumption was false. The recovery evidence remains offhost decryption only. `scripts/vision79-v3-acer-stage-db-images.py` now checks the live DB identities, streams exact image saves through SSH into the Acer local Docker image store, verifies the exact loaded IDs, and rechecks the server identities. The revised `vision79-v3-acer-db-restore.py` uses that local Docker daemon with the same disconnected tmpfs isolation and cleanup checks. Neither step deploys or restarts production.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
