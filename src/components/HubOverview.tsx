@@ -336,41 +336,46 @@ export function HubOverview({
   const visibleMetricCards = metricCards.filter((metric) => visibleKeys.has(metric.key));
 
   return (
-    <div className="min-h-full bg-[#07111f] text-slate-100 pb-24 lg:pb-10">
-      <div className="hub-dashboard mx-auto w-full max-w-[1540px] px-4 sm:px-5 xl:px-7 py-6 space-y-5">
-        <section className="hub-hero relative overflow-hidden rounded-[24px] border border-[#1a3854] bg-[#091728] shadow-[0_28px_80px_rgba(0,0,0,.26)]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(10,134,255,.24),transparent_35%),radial-gradient(circle_at_95%_65%,rgba(255,122,0,.12),transparent_28%)]" />
-          <div className="absolute inset-y-0 right-0 w-[58%] opacity-30 bg-[linear-gradient(120deg,transparent_5%,rgba(10,134,255,.16)_38%,rgba(255,122,0,.13)_70%,transparent_100%)]" />
-          <div className="relative px-5 sm:px-7 py-6 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+    <div className="vision79-release-v1 min-h-full bg-[#07111f] text-slate-100 pb-24 lg:pb-10">
+      <div className="vision79-dashboard hub-dashboard mx-auto w-full max-w-[1540px] px-4 sm:px-5 xl:px-7 py-6 space-y-5">
+        <section className="vision79-command-hero hub-hero relative isolate overflow-hidden rounded-[30px] border border-[#1a3854]">
+          <div aria-hidden="true" className="vision79-hero-glow pointer-events-none absolute inset-0" />
+          <div className="relative z-10 grid gap-7 p-6 sm:p-9 lg:p-10 xl:grid-cols-[minmax(0,1.4fr)_minmax(290px,0.6fr)] xl:items-center">
             <div>
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#65c9ff]">
-                <Sparkles className="w-3.5 h-3.5" />
-                V79 command centre
+              <div className="vision79-identity inline-flex items-center gap-3">
+                <span className="vision79-mark inline-flex h-11 w-11 items-center justify-center rounded-2xl font-black tracking-tight text-white">V79</span>
+                <span className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-[#82d8ff]">Vision79 / Business workspace</span>
               </div>
-              <h1 className="mt-2 text-3xl sm:text-[38px] leading-tight font-black tracking-[-0.03em] text-white">{greeting}{user.fullName ? `, ${user.fullName.trim().split(/\s+/)[0]}` : ""}</h1>
-              <div className="mt-1 text-sm font-semibold text-[#55c7ff]">{organizationName}</div>
-              <p className="mt-2 text-sm text-slate-400 max-w-2xl">
-                Your workspace at a glance. Follow live app signals, take action, and open the tools your business uses.
-              </p>
+              <p className="mt-8 text-[11px] font-bold uppercase tracking-[0.27em] text-[#8ab9e4]">From Idea to Advantage.</p>
+              <h1 className="vision79-main-greeting mt-3 max-w-[780px] text-[clamp(2.4rem,5vw,4.6rem)] leading-[1.08] font-black tracking-[-0.055em] text-white">
+                {greeting}{user.fullName ? `, ${user.fullName.trim().split(/\s+/)[0]}` : ""}
+              </h1>
+              <p className="mt-5 text-base sm:text-lg leading-relaxed font-medium text-[#d2e5f6]">Your business, one command centre.</p>
+              <p className="mt-2 max-w-[590px] text-sm leading-relaxed text-[#9ab5ce]">Open your connected tools, review verified activity and stay focused on what matters.</p>
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                <button type="button" onClick={() => onNavigate("connections")} className="vision79-primary-action inline-flex min-h-12 items-center gap-2 rounded-2xl px-5 py-3 text-sm font-bold text-[#071b31] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-sky-300">
+                  Explore my apps <ArrowUpRight className="h-4 w-4" />
+                </button>
+                <span className="rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-2 text-[11px] font-semibold text-[#bdcee2]">{organizationName}</span>
+              </div>
             </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 xl:pl-8">
-              <div className={`rounded-2xl border px-5 py-3 min-w-[190px] ${actions.length ? "border-amber-500/25 bg-amber-500/10" : "border-emerald-500/25 bg-emerald-500/10"}`}>
-                <div className={`text-[10px] uppercase tracking-[0.16em] font-bold ${actions.length ? "text-amber-300" : "text-emerald-300"}`}>Next action</div>
-                <div className="mt-1 text-sm font-black text-white">{attentionLabel}</div>
+            <aside className="vision79-focus-panel rounded-[25px] border border-white/15 bg-[#091d35]/85 p-5 sm:p-6" aria-label="Workspace activity summary">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] font-black uppercase tracking-[0.24em] text-[#9dc6ea]">Today's focus</span>
+                <Activity className="h-5 w-5 text-[#72d9ff]" aria-hidden="true" />
               </div>
-              <div className="rounded-2xl border border-[#21405d] bg-[#081422]/80 px-4 py-3 min-w-[135px]">
-                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Hub checked</div>
-                <div className="mt-1 text-sm font-bold text-white">{lastUpdated}</div>
+              <div className="mt-7 text-[26px] leading-snug font-extrabold tracking-tight text-white">{attentionLabel}</div>
+              <p className="mt-3 text-xs leading-relaxed text-[#a6bfd7]">Based on available connected app data. Missing reports never count as all-clear.</p>
+              <div className="mt-7 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest font-bold text-[#799dbe]">Hub checked</div>
+                  <div className="mt-1 text-sm font-bold text-white">{lastUpdated}</div>
+                </div>
+                <button type="button" onClick={() => void loadDashboard()} aria-label="Refresh dashboard" title="Refresh dashboard" className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#55c7ff]/35 bg-[#55c7ff]/10 text-[#82d8ff] transition-colors hover:bg-[#55c7ff]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300">
+                  <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
+                </button>
               </div>
-              <button
-                onClick={() => void loadDashboard()}
-                className="w-11 h-11 rounded-xl border border-[#21405d] bg-[#0b1a2c] hover:bg-[#10243b] flex items-center justify-center transition-colors"
-                title="Refresh dashboard"
-              >
-                <RefreshCw className={`w-4 h-4 text-[#55c7ff] ${loading ? "animate-spin" : ""}`} />
-              </button>
-            </div>
+            </aside>
           </div>
         </section>
 
@@ -381,7 +386,77 @@ export function HubOverview({
           </div>
         )}
 
-        <section>
+        <section className="vision79-app-section rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
+          <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
+            <div>
+              <div className="text-base font-bold text-white">Your workspace apps</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">Your tools in one place. Only applications enabled for this workspace are shown.</div>
+            </div>
+            <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff] hover:text-white">
+              Manage apps
+            </button>
+          </div>
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+            {visibleAppCards.map((card) => {
+              const app = appFor(card.id, card.shortName);
+              const summary = summaries?.[card.key];
+              const meta = statusMeta(summary);
+              const metrics = card.metrics(summary?.metrics || {}).slice(0, 2);
+              const launchUrl = appLaunchUrl(app, card.fallback);
+              const Icon = card.icon;
+              return (
+                <a
+                  key={card.key}
+                  href={launchUrl || undefined}
+                  target={launchUrl ? "_blank" : undefined}
+                  rel={launchUrl ? "noopener noreferrer" : undefined}
+                  aria-disabled={!launchUrl}
+                  className={`vision79-product-card hub-product-card group relative overflow-hidden min-h-[206px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
+                >
+                  <div className="absolute -right-8 -bottom-10 w-28 h-28 rounded-full blur-2xl opacity-25" style={{ backgroundColor: card.accent }} />
+                  <div className="relative h-full flex flex-col">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="w-10 h-10 rounded-xl border border-white/10 bg-[#07111f]/85 flex items-center justify-center shadow-lg">
+                        <Icon className={`w-5 h-5 ${card.iconClass}`} />
+                      </div>
+                      <span className={`inline-flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] ${meta.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} /> {meta.label}
+                      </span>
+                    </div>
+                    <div className="mt-3">
+                      <div className="text-[13px] font-black text-white leading-tight">{card.title}</div>
+                      <div className="mt-1 text-[10px] font-medium text-slate-300">{card.category}</div>
+                       <p className="mt-2 text-[11px] leading-relaxed text-slate-400 line-clamp-2">{card.description}</p>
+                    </div>
+                    <div className="mt-3 flex gap-4">
+                      {metrics.map((metric) => (
+                        <div key={metric.label} className="min-w-0">
+                          <div className="text-[7px] uppercase tracking-wide text-slate-600">{metric.label}</div>
+                          <div className="mt-0.5 text-[10px] font-bold text-slate-200 truncate">
+                            {summary?.status === "ok" ? metric.value : "-"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-[9px] text-slate-500 truncate" title={summary?.sourceReportedAt || "Source timestamp unavailable"}>
+                      {summary?.sourceReportedAt && Number.isFinite(Date.parse(summary.sourceReportedAt))
+                        ? `Product reported ${new Date(summary.sourceReportedAt).toLocaleDateString()}`
+                        : "Product source timestamp unavailable"}
+                    </div>
+                    <div className="mt-auto pt-3 flex items-center justify-between">
+                      <span className="text-[9px] text-slate-600">{launchUrl ? "Ready to open" : app?.accessMessage || "Setup pending"}</span>
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-black/10 px-2.5 py-1.5 text-[9px] font-bold" style={{ color: card.accent }}>
+                        Open <ArrowUpRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                      </span>
+                    </div>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="vision79-performance">
           <div className="mb-2 px-1">
             <div className="text-base font-bold text-white">Performance overview</div>
             <div className="text-[10px] text-slate-500 mt-0.5">Live metrics from connected products, with source-specific reporting periods.</div>
@@ -394,7 +469,7 @@ export function HubOverview({
               return (
                 <div
                   key={metric.key}
-                  className="hub-kpi group relative overflow-hidden rounded-[20px] border border-[#1a3854] bg-[#0a1727] p-5 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
+                  className="vision79-metric-card hub-kpi group relative overflow-hidden rounded-[20px] border border-[#1a3854] bg-[#0a1727] p-5 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
                 >
                   <div className={`absolute inset-0 bg-gradient-to-br ${metric.glow} opacity-90 pointer-events-none`} />
                   <div className="relative">
@@ -463,76 +538,6 @@ export function HubOverview({
                 </div>
               </div>
             )}
-          </div>
-        </section>
-
-        <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
-            <div>
-              <div className="text-base font-bold text-white">Your V79 ecosystem</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Only the V79 modules enabled for this workspace appear here</div>
-            </div>
-            <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff] hover:text-white">
-              Manage apps
-            </button>
-          </div>
-          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-            {visibleAppCards.map((card) => {
-              const app = appFor(card.id, card.shortName);
-              const summary = summaries?.[card.key];
-              const meta = statusMeta(summary);
-              const metrics = card.metrics(summary?.metrics || {}).slice(0, 2);
-              const launchUrl = appLaunchUrl(app, card.fallback);
-              const Icon = card.icon;
-              return (
-                <a
-                  key={card.key}
-                  href={launchUrl || undefined}
-                  target={launchUrl ? "_blank" : undefined}
-                  rel={launchUrl ? "noopener noreferrer" : undefined}
-                  aria-disabled={!launchUrl}
-                  className={`hub-product-card group relative overflow-hidden min-h-[206px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
-                >
-                  <div className="absolute -right-8 -bottom-10 w-28 h-28 rounded-full blur-2xl opacity-25" style={{ backgroundColor: card.accent }} />
-                  <div className="relative h-full flex flex-col">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="w-10 h-10 rounded-xl border border-white/10 bg-[#07111f]/85 flex items-center justify-center shadow-lg">
-                        <Icon className={`w-5 h-5 ${card.iconClass}`} />
-                      </div>
-                      <span className={`inline-flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] ${meta.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} /> {meta.label}
-                      </span>
-                    </div>
-                    <div className="mt-3">
-                      <div className="text-[13px] font-black text-white leading-tight">{card.title}</div>
-                      <div className="mt-1 text-[10px] font-medium text-slate-300">{card.category}</div>
-                       <p className="mt-2 text-[11px] leading-relaxed text-slate-400 line-clamp-2">{card.description}</p>
-                    </div>
-                    <div className="mt-3 flex gap-4">
-                      {metrics.map((metric) => (
-                        <div key={metric.label} className="min-w-0">
-                          <div className="text-[7px] uppercase tracking-wide text-slate-600">{metric.label}</div>
-                          <div className="mt-0.5 text-[10px] font-bold text-slate-200 truncate">
-                            {summary?.status === "ok" ? metric.value : "-"}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-2 text-[9px] text-slate-500 truncate" title={summary?.sourceReportedAt || "Source timestamp unavailable"}>
-                      {summary?.sourceReportedAt && Number.isFinite(Date.parse(summary.sourceReportedAt))
-                        ? `Product reported ${new Date(summary.sourceReportedAt).toLocaleDateString()}`
-                        : "Product source timestamp unavailable"}
-                    </div>
-                    <div className="mt-auto pt-3 flex items-center justify-between">
-                      <span className="text-[9px] text-slate-600">{launchUrl ? "Ready to open" : app?.accessMessage || "Setup pending"}</span>
-                      <span className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-black/10 px-2.5 py-1.5 text-[9px] font-bold" style={{ color: card.accent }}>
-                        Open <ArrowUpRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                      </span>
-                    </div>
-                  </div>
-                </a>
-              );
-            })}
           </div>
         </section>
 
