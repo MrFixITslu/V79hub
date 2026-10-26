@@ -257,6 +257,14 @@ Fixed the single malformed condition in `scripts/vision79-v3-supervised-cutover.
 
 Safest next operator action: download these pinned files to Acer, verify SHA-256, parse controller syntax locally using Python's `ast.parse`, execute six harmless probe and ten controller self-tests, and only then perform the detached harmless SSH proof and copy the immutable controller to the already sealed private directory for read-only `--verify`. No `--execute`, no actual watchdog arming for release, and no live Hub restart. Release stays `HOLD` until independent acceptance and rollback mechanism verification.
 
+## 26 October 2026 — harmless watchdog liveness STOP; inspect existing timer first
+
+Operator reports corrected controller's ten synthetic tests `OK`, harmless user-systemd timer `--arm` `PASS_HARMLESS_WATCHDOG_PROBE_ARMED` (real rollback watchdog **not armed**, candidate **not started**), and `--check` `STOP: WATCHDOG_DID_NOT_FIRE_ACROSS_SSH` 12 seconds after arm. The `set -e` pipeline halted before copying the controller to Dell or running its live preflight. **No v3 cutover was executed**, and previously sealed production Compose and existing services remain unchanged by this procedure.
+
+**Three hypotheses:** scheduled timer had not yet fired, transient service failed, or marker writing failed. The first is plausible because the transient user timer scheduled `--on-active=8s` without overriding systemd's documented `AccuracySec=1min`; scheduling may be coalesced for up to another minute (systemd.timer manual), so the 12-second check was too early. This is a hypothesis, not yet a proven root cause.
+
+**Next:** Inspect the existing timer and associated service's `ActiveState`, `Result`, `AccuracyUSec`, last trigger and marker existence via a **read-only** SSH command. Do not re-arm the timer, modify the seal, start Docker, or bypass the watchdog. If the marker now exists, use the existing checksum-pinned probe `--check` to create its private receipt; if the timer/service actually failed, diagnose before patching. **Release=HOLD.**
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
