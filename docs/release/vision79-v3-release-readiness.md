@@ -265,6 +265,16 @@ Operator reports corrected controller's ten synthetic tests `OK`, harmless user-
 
 **Next:** Inspect the existing timer and associated service's `ActiveState`, `Result`, `AccuracyUSec`, last trigger and marker existence via a **read-only** SSH command. Do not re-arm the timer, modify the seal, start Docker, or bypass the watchdog. If the marker now exists, use the existing checksum-pinned probe `--check` to create its private receipt; if the timer/service actually failed, diagnose before patching. **Release=HOLD.**
 
+## 26 October 2026 — harmless watchdog survived SSH; Docker authority check prepared
+
+The operator's latest standalone watchdog `--check` returned `PASS_WATCHDOG_FIRED_AFTER_SSH_DISCONNECT`, `durable_watchdog_liveness_receipt_created=true`, `private_probe_marker_removed=true`, `user_systemd_timer_executed=true`, `production_changes=NONE`, `real_rollback_watchdog_armed=false`, `candidate_started=false`, `release_gate=HOLD`. The previous 12-second check was premature: the harmless timer fired later. **This capability test is complete; do not repeat it or re-arm the probe.**
+
+**/REDTEAM: timer liveness is not Docker rollback authority.** The rollback service must run through the same persistent systemd user manager that would invoke a timed recovery. Three alternatives: assume interactive `sg docker` implies daemon access (unsafe), wait to discover failure during the cutover (unsafe), or prove Docker read-only daemon access from a transient user-systemd unit with `sg docker` before any live change (selected). This also avoids relying on stale supplemental groups from a long-running systemd user manager.
+
+Prepared `scripts/vision79-v3-supervised-cutover.py` on `release/v79-v3-supervised-controller-20261026`, commit `0a33c9f75808d14a2fb4424d47baa2e203a47570`, SHA-256 `dbdcf8a5341c6fdbb32334ce0cc8594724b7377c4a6571a88b94a9657436d9fc`. The revised `--verify` requires the existing signed-off seal and durable watchdog probe, current exact Hub and four supporting service identities, old/new cached image IDs, and a **read-only** `systemd-run --user --wait --pipe --collect` transient unit running `sg docker -c 'docker info --format ...'` that must report the pinned local Docker daemon name. The persistent watchdog service's `ExecStart` now likewise enters group `docker` before invoking the controller's `--rollback`. Twelve synthetic tests are prepared but **not yet executed on Acer**. The next owner step is download, SHA-256 check, syntax parse and the twelve synthetic tests, then one read-only `--verify` via existing SSH. After PASS, install this exact immutable controller into the sealed directory via checksum-verified `scp`. **Do not run `--execute`, `--rollback`, or `--accept` in this verification step.**
+
+Actual persistent rollback timer has not been armed; no live image replacement or owner browser MFA/SSO/design acceptance has taken place. The remaining deployment release decision is **HOLD**. No repeat recovery, staging, static audit, dry-run or seal is warranted absent baseline drift.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
