@@ -691,12 +691,13 @@ class CaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);(root/'gnupg').mkdir(mode=0o700)
             write_new(root/'runner.py',b'fixture runner')
+            write_new(root/'inventory-sha256',b'a'*64)  # Synthetic private inventory seal
             rows={n:self.row(n,True) for n in APPS+DBS}
             for index,(n,r) in enumerate(rows.items()):
                 r['Id']=format(index+1,'064x');r['State'].update({'Status':'running','StartedAt':'fixture'})
                 count={'v79-hub':7,'v79-tiquet-manager':2,'v79-business-agent':1}.get(n,0)
                 r['Mounts']=[{'Destination':'/mount/'+str(i),'Source':'/source/'+n+'/'+str(i),'RW':False,'Type':'bind'} for i in range(count)]
-            actions=[];ready=types.SimpleNamespace(server=lambda:{'inventory_sha256':INVENTORY,
+            actions=[];ready=types.SimpleNamespace(server=lambda:{'inventory_sha256':'a'*64,
                 'blockers':['OTHER_RELEASE_OPERATION_RUNNING'],'active_timers_to_quiesce':TIMERS,
                 'pins':dict.fromkeys(rows),'server_free_bytes':100*1024**3,'image_bytes':4*1024**3,
                 'server_available_memory_bytes':4*1024**3})
