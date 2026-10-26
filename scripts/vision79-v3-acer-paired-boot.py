@@ -203,13 +203,40 @@ def app_args(name,image,holder,settings,mounts):
  for k,v in settings.items():args.extend(['--env',k+'='+v])
  for source,target in mounts:args.extend(['--mount','type=bind,src='+str(source)+',dst='+target])
  return args+[image]
+def tiquet_permission_args(scratch,name,root):
+ need(scratch.parent==Path('/dev/shm') and scratch.name.startswith('v79-v3-')
+  and scratch.is_dir() and not scratch.is_symlink(),'TIQUET_RAM_SCRATCH_REQUIRED')
+ paths=(('tiquet_data','/app/data'),('tiquet_uploads','/app/uploads'),('tiquet_logs','/app/logs'))
+ for dirname,_ in paths:
+  p=scratch/dirname
+  need(p.is_dir() and not p.is_symlink(),'TIQUET_RAM_MOUNT_MISSING')
+ args=['docker','run','--rm','--pull=never','--name',name,'--network','none',
+  '--read-only','--log-driver','none','--security-opt','no-new-privileges',
+  '--user','0:0' if root else 'appuser','--entrypoint','/bin/sh']
+ for dirname,target in paths:
+  args+=['--mount','type=bind,src='+str(scratch/dirname)+',dst='+target]
+ if root:
+  cmd=('uid="$(id -u appuser)"; gid="$(id -g appuser)"; '
+       'test "$uid" -gt 0; '
+       'for p in /app/data /app/uploads /app/logs; do '
+       'chown -R "$uid:$gid" "$p"; '
+       'test "$(stat -c %u "$p")" = "$uid"; '
+       'done')
+ else:
+  cmd='for p in /app/data /app/uploads /app/logs; do test -r "$p" && test -w "$p"; done'
+ return args+[IMAGES['tiquet'],'-eu','-c',cmd]
+def prepare_tiquet_ram_mounts(scratch,owner_name,checker_name):
+ call(tiquet_permission_args(scratch,owner_name,True),timeout=120)
+ call(tiquet_permission_args(scratch,checker_name,False),timeout=120)
+ print('TIQUET_RAM_MOUNT_APPUSER_ACCESS=PASS',flush=True)
 def run():
  preflight();os.umask(0o077)
  scratch=Path(tempfile.mkdtemp(prefix='v79-v3-',dir='/dev/shm'))
  names=[];uid=secrets.token_hex(5)
  holder='v79-v3-holder-'+uid;hdb='v79-v3-hpg-'+uid;tdb='v79-v3-tpg-'+uid
  hub='v79-v3-hub-'+uid;tiquet='v79-v3-tiquet-'+uid;rollback='v79-v3-prior-'+uid
- planned=[rollback,tiquet,hub,tdb,hdb,holder]
+ owner='v79-v3-own-'+uid;checker='v79-v3-check-'+uid
+ planned=[checker,owner,rollback,tiquet,hub,tdb,hdb,holder]
  need(all(subprocess.run(['docker','container','inspect',name],stdout=subprocess.DEVNULL,
   stderr=subprocess.DEVNULL,timeout=20).returncode!=0 for name in planned),'DISPOSABLE_NAME_COLLISION')
  try:
@@ -217,6 +244,7 @@ def run():
   for archive,(prefix,folder) in SELECTED.items():extract(COPY/archive,prefix,scratch/folder,total)
   (scratch/'tiquet_logs').mkdir(mode=0o700)
   print('MOUNTED_APP_DATA_RAM_RESTORE=PASS_3',flush=True)
+  prepare_tiquet_ram_mounts(scratch,owner,checker)
   call(['docker','run','--detach','--pull=never','--name',holder,'--network','none',
    '--read-only','--log-driver','none','--tmpfs','/tmp:rw,size=67108864',
    '--entrypoint','/bin/sh',IMAGES['candidate'],'-c','sleep 1200'])
@@ -273,6 +301,26 @@ def run():
   'disposable_cleanup':'PASS','real_owner_mfa_sso_verified':False,'exact_runtime_parity_verified':False,
   'production_changes':'NONE','release_gate':'HOLD'},sort_keys=True))
 class Tests(unittest.TestCase):
+ def test_tiquet_ram_permissions_limited_to_isolated_mounts(self):
+  with tempfile.TemporaryDirectory(dir='/dev/shm',prefix='v79-v3-') as temp:
+   scratch=Path(temp)
+   for item in ('tiquet_data','tiquet_uploads','tiquet_logs'):
+    (scratch/item).mkdir(mode=0o700)
+   for root in (True,False):
+    args=tiquet_permission_args(scratch,'v79-v3-test-perms',root)
+    self.assertIn('--network',args)
+    self.assertIn('none',args)
+    self.assertIn('--read-only',args)
+    self.assertIn('--log-driver',args)
+    self.assertNotIn('--publish',args)
+    self.assertEqual(args.count('--mount'),3)
+    self.assertIn(IMAGES['tiquet'],args)
+    self.assertEqual(args[args.index('--user')+1],'0:0' if root else 'appuser')
+    self.assertNotIn('/home/firelion', ' '.join(args))
+ def test_tiquet_mount_missing_fails_before_docker(self):
+  with tempfile.TemporaryDirectory(dir='/dev/shm',prefix='v79-v3-') as temp:
+   with self.assertRaises(Stop):
+    tiquet_permission_args(Path(temp),'v79-v3-test-perms',True)
  def test_diagnostic_redacts_container_error(self):
   import io,contextlib
   fake=json.dumps({'Status':'exited','ExitCode':1,'OOMKilled':False,
