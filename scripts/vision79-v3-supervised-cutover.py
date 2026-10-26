@@ -211,7 +211,13 @@ def unit_text(deadline):
 def install_timer(deadline):
  need(INSTALLED.is_file() and not INSTALLED.is_symlink()
       and INSTALLED.stat().st_mode & 0o022==0,"INSTALLED_CONTROLLER_UNSAFE")
- need(USER_UNITS.parent.is_dir() and not USER_UNITS.parent.is_symlink(),
+ home=Path("/home/firelion")
+ need(home.is_dir() and not home.is_symlink()
+      and home.stat().st_uid==pwd.getpwnam("firelion").pw_uid,
+      "USER_HOME_NOT_TRUSTED")
+ if not USER_UNITS.parent.exists():USER_UNITS.parent.mkdir(mode=0o700)
+ need(USER_UNITS.parent.is_dir() and not USER_UNITS.parent.is_symlink()
+      and USER_UNITS.parent.stat().st_uid==pwd.getpwnam("firelion").pw_uid,
       "USER_SYSTEMD_CONFIG_DIRECTORY_UNAVAILABLE")
  if not USER_UNITS.exists():USER_UNITS.mkdir(mode=0o700)
  need(USER_UNITS.is_dir() and not USER_UNITS.is_symlink()
@@ -299,8 +305,27 @@ def execute():
    pending["state"]="ROLLBACK_REQUIRED"
    pending["cutover_failure_code"]=str(exc) if isinstance(exc,Stop) else "REDACTED_EXCEPTION"
    atomic_write(STATE,pending)
-   # Preserve watchdog; it will restore old Hub even if this process exits.
-   raise Stop("CUTOVER_UNACCEPTED_AUTOMATIC_ROLLBACK_ARMED") from None
+   # Restore the original Compose image immediately, with persistent
+   # watchdog as a fallback if the foreground operation fails or dies.
+   try:
+    compose_up(p,False)
+    restored=healthy_hub(PRIOR,timeout=120)
+    need(sha(canon(contract(restored)))==pending["original_contract_sha256"],
+         "IMMEDIATE_ROLLBACK_RUNTIME_MISMATCH")
+    need(sha(canon(current_other()))==pending["other_service_identity_sha256"],
+         "IMMEDIATE_ROLLBACK_OTHER_SERVICES_DRIFT")
+    pending["state"]="ROLLED_BACK"
+    atomic_write(STATE,pending)
+    raise Stop("CUTOVER_FAILED_PRIOR_HUB_RESTORED") from None
+   except Stop as rollback_error:
+    if str(rollback_error)=="CUTOVER_FAILED_PRIOR_HUB_RESTORED":raise
+    pending["state"]="ROLLBACK_FAILED"
+    atomic_write(STATE,pending)
+    raise Stop("CUTOVER_FAILED_WATCHDOG_ROLLBACK_PENDING") from None
+   except Exception:
+    pending["state"]="ROLLBACK_FAILED"
+    atomic_write(STATE,pending)
+    raise Stop("CUTOVER_FAILED_WATCHDOG_ROLLBACK_PENDING") from None
   return {"result":"V3_LIVE_TEMPORARY_REVIEW_WINDOW",
        "owner_mfa_sso_visual_acceptance":"REQUIRED_BEFORE_DEADLINE",
        "deadline_epoch":int(deadline),
