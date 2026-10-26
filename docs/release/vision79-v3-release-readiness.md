@@ -293,6 +293,20 @@ Operator executed the checksum-pinned `scripts/vision79-v3-supervised-cutover.py
 
 Production remains **unchanged** at report time. The release GO decision awaits owner-present execution and acceptance; if owner is unavailable, remain on HOLD.
 
+## 26 October 2026 — LIVE v3 cutover attempt failed, previous Hub image healthy, release HOLD
+
+Operator ran the SHA-256-pinned `--execute` of `vision79-v3-supervised-cutover.py` using owner-present gate. It returned `STOP: CUTOVER_FAILED_WATCHDOG_ROLLBACK_PENDING`, `production_changes: NOT_REVERIFIED`, release `HOLD`. Owner then executed a read-only recovery inventory at `2026-10-26T23:56:34Z`:
+
+- Cutover state file `release-state.json`: `state=ROLLBACK_FAILED`, `cutover_failure_code=RECREATED_HUB_RUNTIME_CONTRACT_DRIFT`, `owner_acceptance=False`, pending planned deadline epoch `1793059961.3594267`, rollback failure reason not separately recorded.
+- Hub: **previous** image `sha256:d2e6f4aee332b076f1340c339e4277b39f1337d2cd02b4b3a4c849e3a6d615e4`, `running | healthy`.
+- `v79-hub-postgres`, `v79-tiquet-manager`, `tiquet-postgres`, `v79-business-agent`: all `running | healthy`.
+- `vision79-v3-automatic-rollback.timer`: `ActiveState=active`, `Result=success`, next displayed scheduled UTC `2026-10-27 00:12:41`; rollback service `ActiveState=inactive`, `Result=success`, `ExecMainStatus=0` at observation (not yet triggered).
+- New v3 release not accepted and not serving according to observed Hub image. **Previous-image service recovery confirmed, exact original runtime parity NOT confirmed.** A healthy old image does not prove original HostConfig, env, mount sources, network attachments, labels and session compatibility match. Do NOT report successful production rollback or successful v3 deployment.
+
+**Controller behavior reviewed:** the release compares an exact `contract()` dictionary including environment, image process defaults, runtime binds/mount declarations, network modes and networks; a Compose recreation may alter those fields. Immediate restoration recreated/retained the prior image in healthy running state but reported mismatch against the saved original contract digest, leaving `ROLLBACK_FAILED`. The persistent watchdog's `--rollback` checks state, old image identity and its health; **when prior Hub is already running healthy, it does not invoke Compose recreate**, and only attempts to close state if original contract/other-service identities match. Under runtime mismatch, it may fail/retry without modifying the healthy container. There is therefore no justification for re-running `--execute`, `--accept`, `docker compose up` or data restores.
+
+**/REDTEAM decision:** alternatives (1) repeat deployment (reject: known parity fail), (2) rely on watchdog to blindly close failure (reject: mismatch persists / potential repeated service failures), (3) inspect exact current runtime state and original contract digest with secrets kept local, then safely close/disarm stale watchdog only after confirming old-image and all four service identities/health, and reconcile runtime drift privately (selected). Diagnose with read-only Docker inspect and on-server hashing (do not print env values or mount paths). Do not mutate the Hub or other app containers. Preserve state receipt, timer/service evidence and old/new image cache for postmortem. **Release remains HOLD**, v3 not accepted, and original runtime equality still open.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
