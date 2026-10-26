@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Post-V8 encrypted V79 checkpoint for the exact 2026-10-26 live stack.\nCapture pauses only the three pinned apps and
+"""Post-V8 encrypted V79 checkpoint for the exact 2026-10-26 live stack.
+Capture pauses only the three pinned apps and
 the three observed timers. No recreate, deployment, provider calls or live restore.
 Run on Acer. Recovery images, runtime inputs and private host state stay encrypted.
 """
