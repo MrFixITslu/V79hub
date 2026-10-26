@@ -35,6 +35,61 @@ def digest(path):
  with path.open("rb") as f:
   for block in iter(lambda:f.read(1024*1024),b""):h.update(block)
  return h.hexdigest()
+def archive_json_blob(tar,digest_hex,expected_size=None):
+ need(isinstance(digest_hex,str) and re.fullmatch(r"[0-9a-f]{64}",digest_hex),
+      "OCI_DIGEST_SHAPE_DRIFT")
+ path="blobs/sha256/"+digest_hex
+ try:info=tar.getmember(path)
+ except KeyError:raise Stop("OCI_REFERENCED_BLOB_MISSING") from None
+ need(info.isfile() and 2<=info.size<=4*1024*1024,"OCI_JSON_BLOB_SIZE_DRIFT")
+ if expected_size is not None:
+  need(type(expected_size) is int and expected_size==info.size,"OCI_DESCRIPTOR_SIZE_DRIFT")
+ stream=tar.extractfile(info)
+ need(stream is not None,"OCI_BLOB_UNREADABLE")
+ with stream:data=stream.read(4*1024*1024+1)
+ need(len(data)==info.size and hashlib.sha256(data).hexdigest()==digest_hex,
+      "OCI_REFERENCED_BLOB_DIGEST_DRIFT")
+ try:value=json.loads(data)
+ except (UnicodeError,ValueError):raise Stop("OCI_REFERENCED_BLOB_JSON_INVALID") from None
+ need(isinstance(value,dict) and value.get("schemaVersion")==2,
+      "OCI_REFERENCED_BLOB_SCHEMA_DRIFT")
+ return value
+def validate_oci_identity_chain(tar,config_sha):
+ # The Docker 29 image ID can be an OCI manifest or image-index digest.
+ # Follow the content-addressed chain to the config used by Docker save.
+ try:index_member=tar.getmember("index.json")
+ except KeyError:raise Stop("OCI_INDEX_REQUIRED_FOR_IMAGE_ID") from None
+ need(index_member.isfile() and 2<=index_member.size<=65536,"OCI_INDEX_SHAPE_DRIFT")
+ stream=tar.extractfile(index_member)
+ need(stream is not None,"OCI_INDEX_UNREADABLE")
+ with stream:data=stream.read(65537)
+ need(len(data)==index_member.size,"OCI_INDEX_READ_DRIFT")
+ try:index=json.loads(data)
+ except (UnicodeError,ValueError):raise Stop("OCI_INDEX_INVALID") from None
+ need(isinstance(index,dict) and index.get("schemaVersion")==2 and
+      isinstance(index.get("manifests"),list),"OCI_INDEX_DESCRIPTOR_DRIFT")
+ roots=[d for d in index["manifests"]
+        if isinstance(d,dict) and d.get("digest")==IMAGE]
+ need(len(roots)==1,"OCI_PINNED_DESCRIPTOR_NOT_UNIQUE")
+ visited=set()
+ def walk(descriptor,depth):
+  need(depth<=4 and len(visited)<64,"OCI_CHAIN_DEPTH_OR_COUNT")
+  need(isinstance(descriptor,dict) and
+       isinstance(descriptor.get("digest"),str) and
+       re.fullmatch(r"sha256:[0-9a-f]{64}",descriptor["digest"]),
+       "OCI_DESCRIPTOR_DIGEST_INVALID")
+  digest_hex=descriptor["digest"][7:]
+  need(digest_hex not in visited,"OCI_CHAIN_CYCLE")
+  visited.add(digest_hex)
+  item=archive_json_blob(tar,digest_hex,descriptor.get("size"))
+  if isinstance(item.get("manifests"),list):
+   need(len(item["manifests"])<=32,"OCI_MANIFEST_LIST_LIMIT")
+   return any([walk(d,depth+1) for d in item["manifests"]])
+  config=item.get("config")
+  need(isinstance(config,dict) and isinstance(item.get("layers"),list),
+       "OCI_IMAGE_MANIFEST_SHAPE_DRIFT")
+  return config.get("digest")=="sha256:"+config_sha
+ need(walk(roots[0],0),"OCI_PINNED_CHAIN_NOT_LINKED_TO_CONFIG")
 def validate_archive_contents(tar):
  # New Docker/containerd save formats may store config as blobs/sha256/<digest>
  # rather than <digest>.json. Verify bytes, not the filename convention.
@@ -67,7 +122,11 @@ def validate_archive_contents(tar):
  h=hashlib.sha256()
  with stream:
   for block in iter(lambda:stream.read(131072),b""):h.update(block)
- need("sha256:"+h.hexdigest()==IMAGE,"IMAGE_ARCHIVE_CONFIG_DIGEST_DRIFT")
+ config_sha=h.hexdigest()
+ need(config in (config_sha+".json","blobs/sha256/"+config_sha),
+      "IMAGE_ARCHIVE_CONFIG_NAME_DIGEST_DRIFT")
+ if "sha256:"+config_sha!=IMAGE:
+  validate_oci_identity_chain(tar,config_sha)
 def validate_archive(archive):
  need(archive.is_file() and not archive.is_symlink() and
       10_000_000 <= archive.stat().st_size <= 4*1024**3,"ARCHIVE_SIZE_INVALID")
@@ -211,7 +270,62 @@ class Tests(unittest.TestCase):
    output.seek(0)
    with tarfile.open(fileobj=output,mode="r:") as tar:
     with self.assertRaisesRegex(Stop,
-      "IMAGE_ARCHIVE_CONFIG_DIGEST_DRIFT" if tags is None else "IMAGE_ARCHIVE_HAS_MUTABLE_TAGS"):
+      "OCI_INDEX_REQUIRED_FOR_IMAGE_ID" if tags is None else "IMAGE_ARCHIVE_HAS_MUTABLE_TAGS"):
+     validate_archive_contents(tar)
+ def test_oci_index_to_manifest_to_config_verified(self):
+  import io
+  config=b'{"config":{"Labels":{"org.opencontainers.image.revision":"test"}}}'
+  cfg_sha=hashlib.sha256(config).hexdigest()
+  manifest=json.dumps({"schemaVersion":2,"config":{"digest":"sha256:"+cfg_sha,"size":len(config)},"layers":[]},
+      separators=(",",":")).encode()
+  manifest_sha=hashlib.sha256(manifest).hexdigest()
+  root=json.dumps({"schemaVersion":2,"manifests":[
+       {"digest":"sha256:"+manifest_sha,"size":len(manifest)}]},
+       separators=(",",":")).encode()
+  root_sha=hashlib.sha256(root).hexdigest()
+  index=json.dumps({"schemaVersion":2,"manifests":[
+       {"digest":"sha256:"+root_sha,"size":len(root)}]}).encode()
+  legacy=json.dumps([{"RepoTags":None,
+       "Config":"blobs/sha256/"+cfg_sha,"Layers":[]}]).encode()
+  members={"manifest.json":legacy,"index.json":index,
+       "blobs/sha256/"+cfg_sha:config,
+       "blobs/sha256/"+manifest_sha:manifest,
+       "blobs/sha256/"+root_sha:root}
+  def bundle(tamper=False):
+   out=io.BytesIO()
+   with tarfile.open(fileobj=out,mode="w:") as tar:
+    for name,data in members.items():
+     if tamper and name=="blobs/sha256/"+root_sha:data=data+b" "
+     info=tarfile.TarInfo(name);info.size=len(data)
+     tar.addfile(info,io.BytesIO(data))
+   out.seek(0)
+   return out
+  with patch(__name__+".IMAGE","sha256:"+root_sha):
+   with tarfile.open(fileobj=bundle(),mode="r:") as tar:
+    validate_archive_contents(tar)
+   with tarfile.open(fileobj=bundle(tamper=True),mode="r:") as tar:
+    with self.assertRaisesRegex(Stop,"OCI_DESCRIPTOR_SIZE_DRIFT|OCI_REFERENCED_BLOB_DIGEST_DRIFT"):
+     validate_archive_contents(tar)
+ def test_oci_index_refuse_unconnected_config(self):
+  import io
+  cfg=b'{"config":{"Labels":{}}, "rootfs":{"diff_ids":[]}}'
+  cfg_sha=hashlib.sha256(cfg).hexdigest()
+  root=json.dumps({"schemaVersion":2,"config":{"digest":"sha256:"+"a"*64},"layers":[]}).encode()
+  root_sha=hashlib.sha256(root).hexdigest()
+  members={"manifest.json":json.dumps([{"RepoTags":None,"Config":"blobs/sha256/"+cfg_sha}]).encode(),
+         "index.json":json.dumps({"schemaVersion":2,"manifests":[
+           {"digest":"sha256:"+root_sha,"size":len(root)}]}).encode(),
+         "blobs/sha256/"+cfg_sha:cfg,
+         "blobs/sha256/"+root_sha:root}
+  out=io.BytesIO()
+  with tarfile.open(fileobj=out,mode="w:") as tar:
+   for name,data in members.items():
+    info=tarfile.TarInfo(name);info.size=len(data)
+    tar.addfile(info,io.BytesIO(data))
+  out.seek(0)
+  with patch(__name__+".IMAGE","sha256:"+root_sha):
+   with tarfile.open(fileobj=out,mode="r:") as tar:
+    with self.assertRaisesRegex(Stop,"OCI_PINNED_CHAIN_NOT_LINKED_TO_CONFIG"):
      validate_archive_contents(tar)
  def test_archive_rejects_config_traversal(self):
   import io
