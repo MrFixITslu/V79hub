@@ -205,13 +205,17 @@ def state():
  return read_json(STATE) if STATE.exists() else None
 def unit_text(deadline):
  date=dt.datetime.fromtimestamp(deadline,dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
- service=f"[Unit]\nDescription=Vision79 v3 automatic rollback\n[Service]\nType=oneshot\nExecStart=/usr/bin/python3 -B {INSTALLED} --rollback\n"
+ service=f"[Unit]\nDescription=Vision79 v3 automatic rollback\nStartLimitIntervalSec=0\n[Service]\nType=oneshot\nRestart=on-failure\nRestartSec=20s\nExecStart=/usr/bin/python3 -B {INSTALLED} --rollback\n"
  timer=f"[Unit]\nDescription=Vision79 v3 rollback deadline\n[Timer]\nOnCalendar={date}\nPersistent=true\nAccuracySec=1s\nUnit={SERVICE}\n[Install]\nWantedBy=timers.target\n"
  return service,timer
 def install_timer(deadline):
  need(INSTALLED.is_file() and not INSTALLED.is_symlink()
       and INSTALLED.stat().st_mode & 0o022==0,"INSTALLED_CONTROLLER_UNSAFE")
- need(USER_UNITS.is_dir() and not USER_UNITS.is_symlink(),
+ need(USER_UNITS.parent.is_dir() and not USER_UNITS.parent.is_symlink(),
+      "USER_SYSTEMD_CONFIG_DIRECTORY_UNAVAILABLE")
+ if not USER_UNITS.exists():USER_UNITS.mkdir(mode=0o700)
+ need(USER_UNITS.is_dir() and not USER_UNITS.is_symlink()
+      and USER_UNITS.stat().st_uid==pwd.getpwnam("firelion").pw_uid,
       "USER_UNIT_DIRECTORY_UNAVAILABLE")
  service=USER_UNITS/SERVICE;timer=USER_UNITS/TIMER
  need(not service.exists() and not timer.exists(),
@@ -305,6 +309,21 @@ def execute():
        "release_gate":"HOLD"}
  finally:
   fcntl.flock(fd,fcntl.LOCK_UN);os.close(fd)
+def hub_for_rollback():
+ result=call(["docker","inspect","--type","container","v79-hub"],
+             permit_failure=True)
+ if result.returncode==0:
+  try:items=json.loads(result.stdout)
+  except (ValueError,UnicodeError):raise Stop("HUB_INSPECT_INVALID") from None
+  need(isinstance(items,list) and len(items)==1 and isinstance(items[0],dict),
+       "HUB_INSPECT_SHAPE_DRIFT")
+  return items[0]
+ # No Hub container can be a recoverable partial recreate, but a failed
+ # daemon connection is not. Prove the daemon responds before proceeding.
+ call(["docker","info","--format","{{.Name}}"])
+ allnames=call(["docker","ps","--all","--format","{{.Names}}"]).stdout.splitlines()
+ need(b"v79-hub" not in allnames,"HUB_EXISTS_BUT_INSPECT_FAILED")
+ return None
 def rollback():
  p=load_plan()
  fd=locked()
@@ -318,11 +337,11 @@ def rollback():
                             "ROLLBACK_REQUIRED","ROLLBACK_FAILED"),
        "ROLLBACK_STATE_INVALID")
   need(expected_prior_reference(p),"PRIOR_IMAGE_REF_UNAVAILABLE")
-  hub=inspect("container","v79-hub")
-  need(hub.get("Image") in (PRIOR,CANDIDATE),
+  hub=hub_for_rollback()
+  need(hub is None or hub.get("Image") in (PRIOR,CANDIDATE),
        "UNKNOWN_HUB_IMAGE_REFUSE_REPLACE")
-  if hub.get("Image")==CANDIDATE or hub.get("Image")==PRIOR and (
-     (hub.get("State") or {}).get("Status")!="running"):
+  if hub is None or hub.get("Image")==CANDIDATE or (hub.get("Image")==PRIOR and (
+     (hub.get("State") or {}).get("Status")!="running")):
    try:
     compose_up(p,False)
     healthy_hub(PRIOR,timeout=120)
@@ -330,6 +349,10 @@ def rollback():
     s["state"]="ROLLBACK_FAILED"
     atomic_write(STATE,s)
     raise Stop("ROLLBACK_EXECUTION_FAILED_REQUIRES_OPERATOR")
+  need(sha(canon(contract(healthy_hub(PRIOR,timeout=45))))==
+       s.get("original_contract_sha256"),"RESTORED_PRIOR_RUNTIME_DRIFT")
+  need(sha(canon(current_other()))==s.get("other_service_identity_sha256"),
+       "OTHER_SERVICES_DRIFT_AFTER_ROLLBACK")
   s["state"]="ROLLED_BACK"
   s["owner_acceptance"]=False
   atomic_write(STATE,s)
@@ -400,6 +423,19 @@ class Tests(unittest.TestCase):
     atomic_write(path,{"schema":"demo","state":"ARMING"})
    self.assertEqual(json.loads(path.read_text())["state"],"ARMING")
    self.assertEqual(path.stat().st_mode & 0o077,0)
+ def test_rollback_missing_hub_allows_safely_recreate_prior(self):
+  with patch(__name__+".call") as cmd:
+   cmd.side_effect=[
+    subprocess.CompletedProcess([],1,b"",b""),
+    subprocess.CompletedProcess([],0,b"v79sl",b""),
+    subprocess.CompletedProcess([],0,b"other-service\n",b"")]
+   self.assertIsNone(hub_for_rollback())
+ def test_rollback_refuses_broken_daemon(self):
+  with patch(__name__+".call") as cmd:
+   cmd.side_effect=[
+    subprocess.CompletedProcess([],1,b"",b""),
+    Stop("GUARDED_COMMAND_NONZERO")]
+   with self.assertRaises(Stop):hub_for_rollback()
  def test_wrong_mode_does_not_execute(self):
   with patch("sys.argv",["release.py","--anything"]):
    with self.assertRaisesRegex(Stop,"UNSUPPORTED_RELEASE_OPERATION"):
