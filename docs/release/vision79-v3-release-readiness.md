@@ -27,6 +27,30 @@ The inventory is not a full runtime parity check or a sealed release plan. Priva
 
 Direct server inspection is currently blocked because the remote-control service previously returned a monthly-usage-limit rejection and instructed the assistant not to retry. An operator must run the pinned read-only preflight from the Acer and return its sanitized output. The local work environment has no Docker or Podman, so no candidate container image is claimed built here.
 
+### Observed live inventory — 26 October 2026, 19:20:39 UTC
+
+The Acer operator ran the pinned script from release-preparation commit `04641d47e4d8744a02c202fd0841ec47692cd936`, verified its SHA-256 `d07c0308c32538353ecc28148557dfb514a7b7c019058bd0e1d51a39c097e7c8`, and passed all five self-tests. The sanitized server output reported `production_changes: NONE` and `release_gate: HOLD_PENDING_RELEASE_EVIDENCE`.
+
+| Service | Observed image ID | Status |
+| --- | --- | --- |
+| v79-hub | `sha256:d2e6f4aee332b076f1340c339e4277b39f1337d2cd02b4b3a4c849e3a6d615e4` | running, healthy, restart 0 |
+| v79-hub-postgres | `sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24` | running, healthy, restart 0 |
+| v79-tiquet-manager | `sha256:8a5e15b15732ced03e77f4ceebb019d8ea11381b14645653933e8e8144a13cc0` | running, healthy, restart 0 |
+| tiquet-postgres | `sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685` | running, healthy, restart 0 |
+| v79-business-agent | `sha256:1ba26d22055b53dc99278673b774e480006143f80222509a3255e75d54526f4b` | running, healthy, restart 0 |
+
+The Hub container ID was `def6bead3fed57c7a40f9a85cfb80398747a76b300500b56a6171637ab2207a3`; its image revision label was `5b8db879b60a3eeb583b40ec8bda725dcb7c8201`. Its nonsecret runtime shape fingerprint was `384aa6206afcfafc27379edc745b595b009f77c7f126789e587dbdc593152348`, with `proxy_network` and `v79-hub_hub_data_network`. It has a writable `/app/data` bind, four read-only token binds, a read-only Google volume and a read-only workforce-reports bind. These are observed destinations, not a complete runtime specification. The three workforce timers were `inactive`; preserve that state unless separately authorized to change it.
+
+This snapshot is time-bound. Recheck the live identities immediately before any release transaction. The historical v2 cutover pins a different Hub image and is invalid for this baseline. No candidate image, checkpoint verification or real MFA/SSO acceptance is established by this receipt.
+
+### Read-only current release contract — operator result
+
+The Acer operator checksum-verified `scripts/p1-r1-current-release-contract.py` at `dac8162a403122d71c2dd418a07a4a1b92a4b244ffc695371ecfe897e262390d` and ran it on `v79sl` with the observed Hub and Tiquet image IDs. Result: `PASS_CURRENT_RUNTIME_CONTRACT_ONLY`; `production_mutations: NONE`. Hub, Tiquet and both Postgres containers were healthy with matching images. The Hub MFA flag was enabled, Tiquet entitlement recheck enabled and Tiquet legacy auth disabled. The live Hub Compose chain has **one** file named `hub-candidate.json`, SHA-256 `2fc119a387df933ff2fcfb8c33d07445160ba281511f05e937ef48beaa4e5083`. The Hub mount destinations matched the inventory, and Tiquet had volumes at `/app/data` and `/app/uploads`.
+
+The check did not compare every private environment value, HostConfig bind/source or rendered Compose field against a proposed candidate. It did not verify a restorable offhost checkpoint. Treat these as open gates; `customer_release_authorized: false` in the operator result.
+
+`scripts/vision79-v3-compose-parity.py` is the next read-only diagnostic. It pins the observed Hub image and the single Compose input hash, then compares rendered environment values, mount sources/modes, network membership and published ports privately on `v79sl`. Its output is allowlisted and redacted. Any drift fails closed. A pass covers only these selected fields; complete runtime parity still requires the candidate and rollback isolated rehearsal.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
