@@ -1,3 +1,8 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+
 // Read-only Git object fingerprint guards: accepted security, reviewed Vision79 UI and tests.
 // Founder authorized Vision79 UI-only visual release on 25 October 2026. Exactly
 // Sidebar, HubOverview and index.css have updated blobs; server.ts, App.tsx,
