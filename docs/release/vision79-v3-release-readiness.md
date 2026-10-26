@@ -109,6 +109,14 @@ The prior failure was Tiquet exiting with code 1 while the approved Hub returned
 
 **Next release work:** verify the complete production replacement runtime contract (including exact `HostConfig.Binds`, mounts, environment, network, labels, restart policy, storage and rollback identity) privately and fail closed on drift; arrange genuine owner MFA/SSO and browser acceptance on the candidate without interrupting production; only then seal a guarded Hub-only release. Preserve the production database and Tiquet image; do not migrate or alter customer data for this visual release.
 
+## Next diagnostic prepared — deep live runtime audit (not executed)
+
+Commit `c9bf54bf90a70e270331a93bb86844ad9b8d4c2d` adds `scripts/vision79-v3-deep-runtime-audit.py` on the independent `audit/v79-v3-deep-runtime-20261026` branch. Its SHA-256 is `1cd0c75a7ddaf822c211415d07688042d3aae41f64748e8221f82b3442514e34`.
+
+The script only runs read-only commands (`docker inspect`, `docker info/context`, `docker compose config`) on `v79sl` and checks the previously observed five image IDs, health and Hub Compose file SHA. In private process memory it validates resolved Compose environment, actual mount sources/modes against Compose and `HostConfig.Binds`/`HostConfig.Mounts`, network membership, filesystem mode, privileged/host-PID boundaries, and configured restart policy. It fingerprints the live Hub runtime and rechecks for concurrent drift. It outputs only allowlisted counts, a fingerprint and stop codes, never raw settings, host paths, passwords, tokens, Compose content or health logs. Its local synthetic self-tests are **prepared but not yet operator-run**. No Docker changes or production deployments are authorized.
+
+**Do not treat an audit PASS as full candidate runtime parity.** The candidate image is still on the Acer. Actual replacement/cold-rollback with exact private production settings, owner MFA/SSO/session checks and authenticated visual/browser acceptance remain independent HOLD gates. The successful paired restore does not satisfy these higher-risk production-replacement tests.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
