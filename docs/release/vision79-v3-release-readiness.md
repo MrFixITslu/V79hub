@@ -192,6 +192,14 @@ The prior safe gates now have owner-operated PASS evidence: encrypted offhost ch
 
 Release policy: **HOLD / NOT DEPLOYED**. Do not start the candidate on the live customer mounts or change Compose while these gates are unsealed. The next step is targeted runtime/owner acceptance and release transaction preparation, not another recovery cycle.
 
+## 26 October 2026 — static replacement preflight and owner acceptance prepared
+
+The operator's final successful image-only staging report is accepted: `SERVER_LIVE_BASELINE=PASS_BEFORE`, `UNTAGGED_CANDIDATE_ARCHIVE=PASS`, `candidate_image_in_dell_cache=true`, unchanged five service identities and live runtime fingerprint, no containers changed, `candidate_started=false`, and `release_gate=HOLD`. Do not rebuild or restage this image.
+
+On separate branch `release/v79-v3-final-contract-preflight-20261026` the new read-only server script `scripts/vision79-v3-final-static-release-preflight.py` was prepared. Source SHA-256: `32f0ad4e895794f6f37f0e1ff123f15fb86a513b07e92912df3f9656414bc5ab`. Six synthetic tests are **prepared, not yet owner-executed**. The script runs only local Docker inspect/context/info and Compose config on host `v79sl`; it compares current five-service running identity/health, approved candidate source/image, live runtime fingerprint, resolved 85 environment keys, exact seven mounts against Compose, two networks, pinned Compose file SHA, and operational image defaults (user, commands, workdir, stop signal, healthcheck, exposed ports and image-defined volumes). It constructs a *theoretical image-only Compose delta in memory*, emits only safe counts/identity hashes and never deploys or writes secret data. The response will explicitly maintain `exact_recreation_parity_proven=false`, `authenticated_owner_mfa_sso_proven=false`, `live_cutover_authorized=false` and `release_gate=HOLD` even on PASS.
+
+The associated release checklist `docs/release/vision79-v3-owner-cutover-acceptance.md` defines the exact conditions under which owner MFA, signed Tiquet SSO, candidate Owner Assistant/Admin design and session verification should occur **inside a future reversible release window**, and the rollback triggers. It is not an approval or claim that live checks happened. Before any actual switch, seal a fresh encrypted checkpoint and a tested exact runtime restore/rollback transaction. No blind `docker compose up`, `docker run` with live mounts, or speculative rollback commands. Production remains on the prior Hub image.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
