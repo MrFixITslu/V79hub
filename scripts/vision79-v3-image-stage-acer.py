@@ -12,7 +12,7 @@ from unittest.mock import patch
 IMAGE="sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6"
 PRIOR="sha256:d2e6f4aee332b076f1340c339e4277b39f1337d2cd02b4b3a4c849e3a6d615e4"
 SOURCE="114841271d4f8b9c4b63df6aedfd55bde2e82f40"
-GATE_SHA="PLACEHOLDER_GATE_SHA"
+GATE_SHA="e2499c7879e1ecb406809c471364eeb8e33f602341d4d24c720de4907e06f9bd"
 BUILD=Path("/home/firelion/v79-v3-approved-build.XDA1yD6v/build-receipt.json")
 HOST="firelion@192.168.100.163"
 SSH=["ssh","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
