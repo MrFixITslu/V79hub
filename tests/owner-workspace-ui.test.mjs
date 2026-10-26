@@ -23,18 +23,22 @@ async function mount(t,Component,props={},handler=()=>queue([])){
  const click=async(text,scope=box)=>{const button=[...scope.querySelectorAll('button')].find(b=>b.textContent.trim()===text||b.getAttribute('aria-label')===text);assert.ok(button,'Button: '+text);await act(async()=>button.click());};
  return {box,calls,timers,click,render:async next=>act(async()=>root.render(React.createElement(Component,next)))};
 }
-test('workspace starts in chat without fetching private tools; navigation only reads and keeps a prepared chat prompt',async t=>{
+test('workspace starts with a read-only Today summary; navigation keeps a prepared chat prompt',async t=>{
  const h=await mount(t,OwnerAssistant);
- assert.equal(h.calls.length,0);
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].url,'/api/agent/work-actions');
+ assert.equal(h.calls[0].opts.method,undefined);
+ assert.equal(h.box.querySelector('#workspace-today').hidden,false);
+ await h.click('Ask Assistant',h.box.querySelector('nav'));
  assert.equal(h.box.querySelector('#workspace-agents').hidden,false);
  await h.click('CEO · DirectionPriorities, tradeoffs and decisions');
  const draft=h.box.querySelector('textarea').value;assert.match(draft,/CEO review/);
- assert.equal(h.calls.length,0,'Choosing an agent prepares a prompt; it does not send');
+ assert.equal(h.calls.length,1,'Choosing an agent prepares a prompt; it does not send');
  await h.click('New task');
  assert.equal(h.box.querySelector('#workspace-tasks').hidden,false);
  assert.ok(h.box.querySelector('form[aria-label="New work item"]'));
- assert.equal(h.calls.length,1);assert.equal(h.calls[0].url,'/api/agent/work-actions');assert.equal(h.calls[0].opts.method,undefined);
- await h.click('Agents',h.box.querySelector('nav'));
+ assert.equal(h.calls.length,2);assert.ok(h.calls.every(c=>c.url==='/api/agent/work-actions'&&!c.opts.method));
+ await h.click('Ask Assistant',h.box.querySelector('nav'));
  assert.equal(h.box.querySelector('textarea').value,draft);
  assert.equal(h.timers.size,0,'Leaving actions stops polling');
 });
@@ -47,7 +51,7 @@ test('workboard handoff opens task view with an exact draft and never queues or 
  assert.equal(h.box.querySelector('input[minlength="8"]').value,'Review: Delivery evidence');
  assert.match(h.box.querySelector('#workspace-tasks textarea').value,/issues\/152/);
  assert.ok(h.calls.every(c=>!c.opts?.method),'Draft handoff must issue no mutations');
- await h.click('Agents',h.box.querySelector('nav'));await h.click('New task');
+ await h.click('Ask Assistant',h.box.querySelector('nav'));await h.click('New task');
  assert.equal(h.box.querySelector('input[minlength="8"]').value,'Review: Delivery evidence','Switching views preserves task draft');
 });
 test('polling observes worker success without execution POST; created work is not labelled complete',async t=>{

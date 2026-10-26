@@ -8,11 +8,14 @@ const allowed=[
   'src/App.tsx','src/components/HubOverview.tsx','src/components/Sidebar.tsx','src/workspace.css',
   'scripts/vision79-workspace-browser.mjs','scripts/vision79-workspace-preflight.mjs',
   'tests/vision79-workspace-boundary.test.mjs','docs/design/vision79-workspace-v2-review.md',
+  'src/components/OwnerAssistant.tsx','src/components/OwnerToday.tsx','src/components/AdminConsole.tsx',
+  'src/components/PlatformAdminOverview.tsx','scripts/vision79-owner-admin-browser.mjs',
+  'tests/owner-workspace-ui.test.mjs','tests/vision79-admin-owner.test.mjs','docs/design/vision79-owner-admin-v3-review.md',
 ];
 const changed=execFileSync('git',['diff',base,'--name-only'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
 const untracked=execFileSync('git',['ls-files','--others','--exclude-standard'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
 for(const p of [...changed,...untracked]) assert.ok(allowed.includes(p),'Unexpected release scope: '+p);
 const hashes=Object.fromEntries(allowed.map(p=>[p,createHash('sha256').update(readFileSync(p)).digest('hex')]));
-console.log(JSON.stringify({base,scope:'presentation-only candidate',changed:[...new Set([...changed,...untracked])],hashes,
+console.log(JSON.stringify({base,scope:'UI candidate with read-only owner summary and admin information-state corrections',changed:[...new Set([...changed,...untracked])],hashes,
   productionActions:'NONE',ownerVisualApproval:'PENDING',releaseGate:'HOLD',
   pending:['new release source acceptance','current production image/config identity','fresh rollback checkpoint','immutable image build and isolated boot','real private-session MFA and Tiquet SSO','guarded Hub-only transaction and rollback rehearsal']},null,2));
