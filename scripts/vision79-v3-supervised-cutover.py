@@ -248,9 +248,10 @@ def healthy_hub(image,original_contract=None,timeout=120):
  while time.monotonic()<deadline:
   try:r=inspect("container","v79-hub")
   except Stop:r=None
-  if r and r.get("Image")==image and
-     (r.get("State") or {}).get("Status")=="running" and
-     ((r.get("State") or {}).get("Health") or {}).get("Status")=="healthy":
+  if (r is not None
+      and r.get("Image")==image
+      and (r.get("State") or {}).get("Status")=="running"
+      and ((r.get("State") or {}).get("Health") or {}).get("Status")=="healthy"):
    if original_contract is not None:
     need(contract(r)==original_contract,"RECREATED_HUB_RUNTIME_CONTRACT_DRIFT")
    return r
