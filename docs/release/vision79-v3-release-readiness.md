@@ -51,6 +51,12 @@ The check did not compare every private environment value, HostConfig bind/sourc
 
 `scripts/vision79-v3-compose-parity.py` is the next read-only diagnostic. It pins the observed Hub image and the single Compose input hash, then compares rendered environment values, mount sources/modes, network membership and published ports privately on `v79sl`. Its output is allowlisted and redacted. Any drift fails closed. A pass covers only these selected fields; complete runtime parity still requires the candidate and rollback isolated rehearsal.
 
+The Acer operator checksum-verified the script at `d1a7d188207632b03ba8a9808ecd93dcc8cf8387179f3b7c1d2aaf9d88d906f3`, passed three synthetic tests, and received `PASS_SELECTED_RUNTIME_PARITY` for image, health, resolved environment, mount type/source/mode, network membership and absence of published ports. The output explicitly said `full_runtime_parity_verified: false`, `production_changes: NONE`, `release_gate: HOLD`. This is a selected-fields gate only. In particular, the previous v2 deployment failed on HostConfig bind/mount drift; the replacement rehearsal must compare those exact structures and fail closed before any production mutation.
+
+### Immutable candidate build preparation
+
+`scripts/vision79-v3-acer-build.sh` performs a local Acer-only build. It fetches the exact approved commit into a new clean directory, verifies all 133 source file hashes against a separately pinned manifest, resolves the Node and Alpine base tags to immutable registry digests, and passes those digests to Docker. It records the resulting image ID and base digests in a private local receipt. It does not connect to `v79sl`, start a candidate container or deploy. The build remains unverified until the operator runs it and returns the receipt; local syntax validation is not a Docker build. A fresh encrypted offhost checkpoint and isolated boot/rollback rehearsal are still independent gates.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
