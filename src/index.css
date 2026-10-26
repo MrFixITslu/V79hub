@@ -425,3 +425,117 @@ html .hub-theme-light .hub-sidebar .text-white:not([class*="bg-"]) {
 .hub-theme-light .hub-dashboard [class*="text-[#65c9ff]"] {
   color: #075db8 !important;
 }
+
+
+/* Vision79 command-centre visual release v1.
+   Scoped presentation only: no auth, SSO, financial or product-data behavior. */
+.vision79-release-v1 {
+  background:
+    radial-gradient(ellipse 70% 32% at 50% -8%, rgba(24,129,222,.22), transparent 75%),
+    linear-gradient(180deg, #071221 0%, #0b1727 52%, #07111f 100%) !important;
+  min-height: 100%;
+}
+.vision79-release-v1 .vision79-dashboard { padding-top: clamp(1rem, 2.5vw, 2rem); }
+.vision79-release-v1 .vision79-command-hero {
+  min-height: 350px;
+  background: linear-gradient(125deg, #06182c 3%, #082d54 46%, #0a5d83 100%) !important;
+  border: 1px solid rgba(112,210,255,.38);
+  box-shadow: 0 22px 70px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.12);
+}
+.vision79-release-v1 .vision79-hero-glow {
+  background:
+    radial-gradient(ellipse 35% 70% at 88% 8%, rgba(81,221,255,.28), transparent 75%),
+    radial-gradient(ellipse 42% 92% at 88% 108%, rgba(22,116,255,.4), transparent 75%),
+    repeating-linear-gradient(135deg, transparent 0 27px, rgba(255,255,255,.024) 28px 29px);
+}
+.vision79-release-v1 .vision79-command-hero::after {
+  content:""; position:absolute; z-index:0; width:380px; height:380px;
+  border-radius:50%; top:-240px; right:-70px;
+  border: 65px solid rgba(133,231,255,.085); pointer-events:none;
+}
+.vision79-release-v1 .vision79-mark {
+  background: linear-gradient(135deg, #6fe6ff, #157ce8 56%, #03437a);
+  box-shadow: 0 6px 28px rgba(40,193,255,.33), inset 0 0 0 1px rgba(255,255,255,.30);
+  text-shadow: 0 1px 3px rgba(1,26,47,.5);
+}
+.vision79-release-v1 .vision79-primary-action {
+  background: linear-gradient(110deg, #c6f8ff, #6adfff);
+  box-shadow: 0 12px 28px rgba(51,191,247,.25);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.vision79-release-v1 .vision79-primary-action:hover {
+  transform: translateY(-2px); box-shadow: 0 17px 36px rgba(51,191,247,.35);
+}
+.vision79-release-v1 .vision79-focus-panel {
+  box-shadow: 0 20px 52px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.12);
+  backdrop-filter: blur(12px);
+}
+.vision79-release-v1 .vision79-app-section {
+  background: linear-gradient(150deg, #f8fbff, #e7f2ff) !important;
+  border: 1px solid rgba(140,193,236,.8);
+  box-shadow: 0 20px 50px rgba(0,0,0,.18);
+}
+.vision79-release-v1 .vision79-app-section > div:first-child { border-color: rgba(85,130,170,.20) !important; }
+.vision79-release-v1 .vision79-app-section > div:first-child h2 { color:#0d2c4a !important; }
+.vision79-release-v1 .vision79-app-section > div:first-child .text-slate-400,
+.vision79-release-v1 .vision79-app-section > div:first-child .text-slate-500 {
+  color: #42627d !important;
+}
+.vision79-release-v1 .vision79-app-section > div:first-child button {
+  color:#075eb0 !important; text-decoration: underline; text-underline-offset:4px;
+}
+.vision79-release-v1 .vision79-app-section > div:nth-child(2) { gap: 1rem; padding: 1.25rem; }
+.vision79-release-v1 .vision79-product-card {
+  background: linear-gradient(155deg, #112f4e 0%, #081728 74%) !important;
+  border:1px solid rgba(72,154,215,.34);
+  box-shadow: 0 9px 25px rgba(4,31,60,.14);
+}
+.vision79-release-v1 .vision79-product-card:hover,
+.vision79-release-v1 .vision79-product-card:focus-visible {
+  border-color:rgba(95,215,255,.86);
+  box-shadow:0 16px 38px rgba(5,39,75,.28);
+}
+.vision79-release-v1 .vision79-metric-card {
+  background:linear-gradient(155deg,#0c2740,#071725) !important;
+  border-top:2px solid rgba(98,207,255,.62);
+  box-shadow:0 10px 27px rgba(0,0,0,.12);
+}
+.vision79-release-v1 .vision79-performance > div:first-child {
+  padding-top:.65rem; padding-bottom:.5rem;
+}
+.vision79-release-v1 .vision79-performance > div:first-child .text-base {
+  font-size:1.15rem; font-weight:800;
+}
+.vision79-sidebar {
+  border-right:1px solid rgba(88,176,242,.27) !important;
+  background:linear-gradient(180deg,#061e36,#071322 57%,#050d18) !important;
+}
+.vision79-sidebar .hub-nav-item {
+  border-radius:14px;
+}
+.vision79-sidebar .hub-nav-item[class*="bg-gradient-to-r"] {
+  background:linear-gradient(90deg,rgba(28,148,238,.38),rgba(26,105,170,.12)) !important;
+  border-color:rgba(95,208,255,.53) !important;
+  box-shadow:inset 3px 0 0 #60d6ff;
+}
+@media (min-width:1280px) {
+  .vision79-release-v1 .vision79-app-section .grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (max-width:640px) {
+  .vision79-release-v1 .vision79-command-hero { min-height:0; border-radius:22px; }
+  .vision79-release-v1 .vision79-command-hero .vision79-main-greeting { overflow-wrap:anywhere; }
+  .vision79-release-v1 .vision79-app-section .grid { grid-template-columns:minmax(0,1fr); }
+}
+@media (prefers-reduced-motion:reduce) {
+  .vision79-release-v1 .vision79-primary-action,
+  .vision79-release-v1 .vision79-product-card { transition:none !important; transform:none !important; }
+}
+/* Protect intentionally dark interior cards from global light-theme overrides. */
+.hub-theme-light .vision79-release-v1 .vision79-command-hero,
+.hub-theme-light .vision79-release-v1 .vision79-product-card,
+.hub-theme-light .vision79-release-v1 .vision79-metric-card,
+.hub-theme-light .vision79-release-v1 .vision79-focus-panel { color:#f4f9ff; }
+.hub-theme-light .vision79-release-v1 .vision79-product-card .text-slate-300,
+.hub-theme-light .vision79-release-v1 .vision79-metric-card .text-slate-300 {
+  color:#c9d9e9 !important;
+}
