@@ -226,6 +226,16 @@ The operator's eight synthetic tests and live dry-run both passed. **Verbatim ev
 
 **Remaining:** Build and independently test actual guarded `--apply/--rollback/--accept` transaction based on the newly sealed private plan; verify rollback watchdog is **actively armed** and persistent before any Hub recreation; perform owner authenticated MFA + signed Tiquet SSO + v3 UI acceptance inside a monitored reversible window and automatically roll back on timeout/failure; produce immutable release/rollback receipt. **Release still HOLD; production prior Hub unchanged.**
 
+## 26 October 2026 — durable release plan sealed; watchdog liveness proof prepared
+
+Operator-run release plan seal returned `PASS_RELEASE_PLAN_SEALED_NOT_DEPLOYED` at `/home/firelion/v79-v3-cutover-plan-20261026`. Verified receipt fields: `durable_override_created=true`, `original_compose_unchanged=true`, `watchdog_preconditions_verified=true`, `rollback_command_prepared_not_executed=true`, `candidate_started=false`, `production_changes=NONE`, `release_gate=HOLD`, **`watchdog_timer_armed=false`**. This is an accepted, completed seal step; do not repeat it, because the plan intentionally refuses duplicate creation.
+
+**/REDTEAM and selected next gate:** A scheduled user-level rollback can disappear on logout if user systemd/linger is unavailable; a release plan is not a functioning watchdog. The safe immediate proof is a harmless transient user-systemd timer that writes an empty private marker after the first SSH session has exited, verified in a **second separate SSH session**. Never use a timer that touches Docker for this capability test.
+
+Prepared `scripts/vision79-v3-watchdog-liveness.py` on branch `release/v79-v3-watchdog-liveness-20261026`, commit `ba17c50070dabd3203f369f0084468eba36c15fb`, SHA-256 `42d073fb45b1b9326b936dcd0590d4f679f3c7c67fa1543ab01e3caa750085e3`. Its five synthetic tests and `--arm`/`--check` server steps await operator execution. It validates the exact immutable sealed plan, original and v3 candidate image, watchdog precondition proof and release HOLD. `--arm` uses user-systemd's timed, detached `/usr/bin/touch` **only** on `watchdog-liveness-PASS` inside the private plan directory. `--check` confirms the marker after disconnection, removes only that marker, and emits allowlisted booleans. It contains **no container modification or release capability**. The probe timer itself is not the real rollback watchdog, and successful proof will not satisfy actual container rollback, owner MFA/SSO or design acceptance.
+
+Next after proof: independently test a persistent, guarded rollback controller and schedule/verify an **actual rollback watchdog** before any live image change. The owner must be ready to complete MFA, Hub-to-Tiquet SSO and approved Vision79 design checks in the limited reversible window. `release_gate=HOLD`; prior live Hub unchanged.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
