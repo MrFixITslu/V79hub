@@ -83,6 +83,8 @@ The operator staged all app image identities (`candidate`, `prior_hub_from_offho
 
 `scripts/vision79-v3-acer-synthetic-hub-boot.py` provides that independent local smoke. It starts candidate and prior Hub images sequentially on `--network none` with synthetic credentials, empty tmpfs app data, a read-only root, no persistent logs or published ports; it checks health and removes each container. Active swap does not threaten customer data in this synthetic-only mode. Passing this smoke would establish image startup and prior-image cold boot only, not mounted-data recovery, Tiquet SSO or exact runtime parity.
 
+The operator's checksum-verified synthetic run passed candidate and prior Hub health with `customer_data_used: false` and `production_changes: NONE`. Acer memory showed 11 GiB total, about 5.9 GiB available; `/swapfile` is a 2 GiB disk-backed file with about 1.0 GiB used. Thus the private-data paired rehearsal remains blocked until the storage encryption/swap posture or a safer host is established. No automatic `swapoff`, swapfile deletion or system memory change is authorized by this evidence. The synthetic result does not certify Tiquet or MFA/SSO.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
