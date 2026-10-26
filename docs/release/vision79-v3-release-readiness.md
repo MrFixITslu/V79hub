@@ -89,6 +89,26 @@ Read-only storage inspection showed the Acer `/swapfile` resides on `/dev/sda2` 
 
 `scripts/vision79-v3-acer-swap-window.py` implements that operator-controlled Acer window. It requires the exact paired-boot script hash, sole active `/swapfile`, available memory at least swap-used plus 4 GiB, no residual v3 containers/RAM scratch, and a cached sudo credential. It disables `/swapfile`, verifies no swap remains and at least 4 GiB available, runs the paired rehearsal, checks cleanup, and then re-enables swap. If cleanup is not proven, it leaves swap **off** for manual review; no timer can re-enable it while private RAM scratch might remain. This changes Acer swap state only. Local synthetic tests cover the residue hold, but the operation has not yet run. The paired boot may still fail on application/runtime differences and is not production acceptance.
 
+## 26 October 2026 — guarded Acer paired recovery PASS
+
+The owner-operated, SHA-256-verified paired boot at `4aef955c7b4f0503e2128b1b17e7cc331514de98` passed the complete isolated smoke and cleanup sequence. The terminal output reported:
+
+- `MOUNTED_APP_DATA_RAM_RESTORE=PASS_3`
+- `TIQUET_RAM_MOUNT_APPUSER_ACCESS=PASS`
+- `PAIRED_DATABASE_RESTORE=PASS_BOTH`
+- `CANDIDATE_HUB_HEALTH=PASS` and `TIQUET_HEALTH=PASS`
+- `CANDIDATE_HUB_AND_TIQUET_HEALTH=PASS`
+- `PRIOR_HUB_ROLLBACK_COLD_BOOT=PASS`
+- `disposable_cleanup: PASS`
+- `ACER_SWAP=RESTORED`
+- `GUARDED_SWAP_WINDOW=PASS_REHEARSAL_AND_SWAP_RESTORED`
+
+The prior failure was Tiquet exiting with code 1 while the approved Hub returned HTTP 200. A separate branch changed only the **disposable Acer RAM restore** by chowning its Tiquet application-data/uploads/log mounts to Tiquet's existing non-root appuser and checking access, then the paired boot succeeded. The app images and live server were not modified. The revised helper added two synthetic safety tests. The successful operator run is the current completion evidence for isolated restore, candidate/paired health and prior-image rollback boot.
+
+**Still NOT verified:** exact production Docker/Compose/HostConfig replacement parity; live owner MFA, session expiry/renewal or genuine Hub-to-Tiquet SSO in the new image; customer-facing browser design acceptance on the deployed candidate; sealed production cutover/rollback transaction. The rehearsal used synthetic credentials and its own isolated runtime profile. The report itself explicitly sets `exact_runtime_parity_verified: false`, `real_owner_mfa_sso_verified: false`, `production_changes: NONE` and `release_gate: HOLD`.
+
+**Next release work:** verify the complete production replacement runtime contract (including exact `HostConfig.Binds`, mounts, environment, network, labels, restart policy, storage and rollback identity) privately and fail closed on drift; arrange genuine owner MFA/SSO and browser acceptance on the candidate without interrupting production; only then seal a guarded Hub-only release. Preserve the production database and Tiquet image; do not migrate or alter customer data for this visual release.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
