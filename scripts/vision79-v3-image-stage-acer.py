@@ -270,7 +270,7 @@ class Tests(unittest.TestCase):
    output.seek(0)
    with tarfile.open(fileobj=output,mode="r:") as tar:
     with self.assertRaisesRegex(Stop,
-      "OCI_INDEX_REQUIRED_FOR_IMAGE_ID" if tags is None else "IMAGE_ARCHIVE_HAS_MUTABLE_TAGS"):
+      "IMAGE_ARCHIVE_CONFIG_NAME_DIGEST_DRIFT" if tags is None else "IMAGE_ARCHIVE_HAS_MUTABLE_TAGS"):
      validate_archive_contents(tar)
  def test_oci_index_to_manifest_to_config_verified(self):
   import io
