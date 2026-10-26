@@ -117,6 +117,19 @@ The script only runs read-only commands (`docker inspect`, `docker info/context`
 
 **Do not treat an audit PASS as full candidate runtime parity.** The candidate image is still on the Acer. Actual replacement/cold-rollback with exact private production settings, owner MFA/SSO/session checks and authenticated visual/browser acceptance remain independent HOLD gates. The successful paired restore does not satisfy these higher-risk production-replacement tests.
 
+## Live runtime PASS; next candidate contract gate prepared
+
+The owner executed the deep live audit on 26 October 2026. All eight safety tests passed; result `PASS_LIVE_RUNTIME_COMPOSE_AUDIT`. Verified **85 environment keys, four HostConfig binds, three HostConfig mounts, seven total mounts, two networks**, with unchanged production and `release_gate: HOLD`. Private runtime fingerprint: `2e63990c22d31d0998d90b575f7490a5fc09917c839f6a54f68e317cdfffaa57`. The candidate was not checked by that audit and is not yet on the Dell.
+
+At `ed9b6b146f60b2bbce3648d3c99ab51412353f2a`, the separate `gate/v79-v3-acer-candidate-contract-20261026` branch prepares two Acer-only scripts:
+
+- `scripts/vision79-v3-acer-candidate-contract.py` — SHA-256 `37af96763959519e246a172683bb1ee01a7d99cf77094af8e6f76dd5e572c75b`.
+- `scripts/vision79-v3-acer-contract-window.py` — SHA-256 `73f1e32f2b7e312e1ce6560b87cb0d1b126a3e507a5532e0f5959b488b8925bb`.
+
+The wrapper reuses the previously tested **operator-executed, single-file swapoff, headroom, cleanup and swap restoration** pattern. The checker refuses active swap, verifies the previously encrypted offhost runtime snapshot and receipt, decrypts only into private process memory, confirms that the archived Hub runtime fingerprint exactly equals the owner-supplied live audit fingerprint, and compares prior/new local Docker image metadata and default-environment key coverage. It prints only sanitized counts, flags and STOP codes. Both new scripts have synthetic unit tests **not yet executed by the operator**. They perform no production access, image transfers, container starts or deploy. On any mismatch, `release_gate: HOLD` continues.
+
+A PASS would mean only snapshot identity and candidate **metadata** are compatible; it is **not** a substitute for exact replacement runtime/Compose rehearsal, MFA/session/Hub-to-Tiquet SSO acceptance or authenticated browser visual verification. Never reclassify it as deployment approval.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
