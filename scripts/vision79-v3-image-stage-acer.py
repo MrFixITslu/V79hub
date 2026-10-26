@@ -54,7 +54,7 @@ def validate_archive_contents(tar):
  need(entry.get("RepoTags") in (None,[]),"IMAGE_ARCHIVE_HAS_MUTABLE_TAGS")
  config=entry.get("Config")
  need(isinstance(config,str) and config and
-      re.fullmatch(r"[a-zA-Z0-9_.\\/-]+",config) and
+      re.fullmatch(r"[a-zA-Z0-9_./-]+",config) and
       not config.startswith("/") and
       ".." not in config.split("/") and
       "\\\\" not in config,"IMAGE_ARCHIVE_CONFIG_PATH_UNSAFE")
