@@ -93,7 +93,7 @@ def validate_rows(hub,others,prior,candidate,rendered,compose_path):
  need(isinstance(services,dict) and HUB in services,"COMPOSE_SERVICE_MISSING")
  before=services[HUB]
  need(not before.get("build"),"COMPOSE_BUILD_DIRECTIVE")
- old_refs={BEFORE,*prior.get("RepoTags",[]),*prior.get("RepoDigests",[])}
+ old_refs={BEFORE,*(prior.get("RepoTags") or []),*(prior.get("RepoDigests") or [])}
  need(before.get("image") in old_refs,"OLD_COMPOSE_IMAGE_REFERENCE_DRIFT")
  need(len((hub.get("Config") or {}).get("Env") or [])==85 and
       len(hub.get("Mounts") or [])==7 and
@@ -132,6 +132,10 @@ def preflight():
  others={n:docker("container",n) for n in OTHER}
  result=validate_rows(hub,others,docker("image",BEFORE),docker("image",AFTER),
                       rendered,compose)
+ identity=sha(json.dumps({n:{"id":r.get("Id"),"image":r.get("Image")}
+                for n,r in [(HUB,hub),*others.items()]},
+               sort_keys=True,separators=(",",":")).encode())
+ need(identity=="fc96149b9d17077a6bb263835e5f043ce3465b95ad958a2fb64e08107d5535b3","FIVE_SERVICE_IDENTITY_DRIFT")
  watchdog=watchdog_prerequisites()
  # Avoid checks passing if live containers changed while watching systemd.
  need(fingerprint(docker("container",HUB))==LIVE_FP,
