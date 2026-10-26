@@ -198,23 +198,50 @@ def create(plan):
   BASE_DIR.rmdir()
   raise
 class Tests(unittest.TestCase):
- def test_no_release_verb_supported(self):
-  self.assertEqual({"--self-test","--seal"},
-                   {"--self-test","--seal"})
- def test_image_delta_only(self):
-  self.assertEqual({"services":{HUB:{"image":AFTER}}},
-                   json.loads(json.dumps({"services":{HUB:{"image":AFTER}}})))
+ def test_release_verb_not_supported(self):
+  with patch("sys.argv",["seal.py","--deploy"]),patch(__name__+".preflight") as fn:
+   with self.assertRaises(Stop):main()
+   fn.assert_not_called()
+ def test_private_plan_pins_only_approved_image_and_retains_base(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   planroot=Path(tmp)/"sealed"
+   fixture={"project":"demo","working":"/opt/synthetic",
+      "base_path":"/opt/synthetic/hub-candidate.json",
+      "hub_id":"original-container-id","service_count":3,
+      "service_identity_sha256":"a"*64,
+      "watchdog":{"linger":True,"timer_was_armed":False}}
+   with patch(__name__+".BASE_DIR",planroot):
+    output=create(fixture)
+   self.assertEqual(output["result"],"PASS_RELEASE_PLAN_SEALED_NOT_DEPLOYED")
+   data=json.loads((planroot/"sealed-plan.json").read_text())
+   overlay=json.loads((planroot/"v3-image-only.json").read_text())
+   self.assertEqual(overlay,{"services":{HUB:{"image":AFTER}}})
+   self.assertEqual(data["prior_image"],BEFORE)
+   self.assertEqual(data["release_gate"],"HOLD")
+   self.assertFalse(data["watchdog_armed"])
+   self.assertFalse(data["cutover_executed"])
+   self.assertEqual(data["rollback_command_plan_only"][-1],HUB)
+   self.assertEqual(data["rollback_command_plan_only"][
+     data["rollback_command_plan_only"].index("-f")+1],fixture["base_path"])
+   self.assertEqual(stat.S_IMODE(planroot.stat().st_mode),0o700)
+   self.assertEqual(stat.S_IMODE((planroot/"sealed-plan.json").stat().st_mode),0o600)
+   self.assertEqual(stat.S_IMODE((planroot/"v3-image-only.json").stat().st_mode),0o600)
+   self.assertNotIn("secret",str(data).lower())
  def test_wrong_host_before_docker(self):
   with patch("socket.gethostname",return_value="other"),patch(__name__+".run") as fn:
    with self.assertRaises(Stop):preflight()
    fn.assert_not_called()
  def test_refuses_duplicate_seal(self):
-  with patch(__name__+".BASE_DIR",Path("/tmp")):
-   with self.assertRaises(Stop):create({"watchdog":{}})
- def test_preview_contains_no_password(self):
-  checklist={"approved_source":SOURCE,"rollback_planned":True,
-             "production_changes":"NONE"}
-  self.assertNotIn("PASSWORD",json.dumps(checklist))
+  with tempfile.TemporaryDirectory() as tmp:
+   with patch(__name__+".BASE_DIR",Path(tmp)):
+    with self.assertRaisesRegex(Stop,"RELEASE_PLAN_ALREADY_EXISTS_STOP"):
+     create({"watchdog":{}})
+ def test_linger_missing_denies_watchdog_readiness(self):
+  with patch(__name__+".run",return_value=b"no\n") as fn:
+   with self.assertRaisesRegex(Stop,"WATCHDOG_LINGER_DISABLED"):
+    watchdog_prerequisites()
+   self.assertEqual(fn.call_count,1)
+
 def main():
  need(len(sys.argv)==2 and sys.argv[1] in ("--self-test","--seal"),
       "NO_RELEASE_OPERATION_SUPPORTED")
