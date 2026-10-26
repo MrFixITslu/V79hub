@@ -148,6 +148,16 @@ On branch `fix/v79-v3-docker-archive-config-20261026`, commit `e136de853595295d2
 
 **Next:** operator reruns only the checksum-pinned image-only stage after self-tests, not the encrypted recovery or DB boot. Successful stage will cache the image only, with live Hub/Compose/data unchanged. `release_gate: HOLD` remains until exact candidate runtime, genuine MFA/SSO, browser visual acceptance and sealed rollback/cutover have been separately verified.
 
+## 26 October 2026 — second pre-transfer archive digest STOP; stage still pending
+
+The owner executed the corrected image-only staging check. Its Dell live baseline read-only gate again returned `SERVER_LIVE_BASELINE=PASS_BEFORE`, but local Acer archive verification stopped at `IMAGE_ARCHIVE_CONFIG_DIGEST_DRIFT`, before `UNTAGGED_CANDIDATE_ARCHIVE=PASS`, any SSH transfer, or Docker image load. **No image import or application deployment occurred in this attempt.** The stop output deliberately shows `production_containers_changed: NOT_PROVEN` because a post-stop server audit was not run, not because a production mutation was observed.
+
+Docker 29 containerd stores can expose image IDs as OCI index/manifest digests rather than the classic SHA-256 of config JSON; this is a **hypothesis**, not yet proven for this exact Acer image. Do not relax the image integrity check, reassign image IDs, retag live images or repeat encrypted recovery.
+
+The standalone Acer-only diagnostic `scripts/vision79-v3-image-archive-diagnostic.py`, commit `46094ac960f382d895d84136d8474c6d197c28fd`, SHA-256 `b6cd5a3370a230833bbd4739d2ce073e0ac36e7efec1a5b9530a135c0477619c`, is prepared with four synthetic tests awaiting operator execution. It exports the already approved image into an auto-cleaned local temporary directory and prints only allowlisted digest-relationship booleans, source/command/diffID comparison booleans and STOP markers. It never reaches the Dell, changes Docker, modifies an image tag, or prints image configuration or secret data. On results, update the validator to verify the **right cryptographic identity chain** for this Docker archive format and separately verify staged Dell image ID before considering further release gates.
+
+All prior paired-restore, runtime audit and approved candidate metadata PASS results remain valid. Candidate staging, exact replacement parity, MFA/SSO, visual browser acceptance and production cutover remain `HOLD`.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
