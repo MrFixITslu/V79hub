@@ -1,0 +1,87 @@
+name: V8 visual deployment — checkpoint source contract (nondeploying)
+
+on:
+  push:
+    branches:
+      - recovery/post-v8-visual-checkpoint-20261026
+  pull_request:
+    branches:
+      - codex/demo-cutover-fixes-20261025
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-offline-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Guard strictly additive checkpoint tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGINAL="9bcb87eb7f29e816e8ee7e495e290a6fe8d37c97"
+          git merge-base --is-ancestor "$ORIGINAL" HEAD
+          mapfile -t changed < <(git diff --name-only "$ORIGINAL" HEAD | LC_ALL=C sort)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 3
+          for p in "${changed[@]}"; do
+            case "$p" in
+              .github/workflows/post-v8-checkpoint-contract.yml|scripts/post-v8-visual-readiness-20261026.py|scripts/post-v8-visual-capture-20261026.py) ;;
+              *) echo "UNREVIEWED_CHANGE=$p" >&2; exit 1 ;;
+            esac
+          done
+          echo "PRODUCTION_APPLICATION_CODE_UNTOUCHED=PASS"
+      - name: Read-only source/embedded readiness equality audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast,base64,hashlib,re
+          from pathlib import Path
+          r=Path('scripts/post-v8-visual-readiness-20261026.py').read_bytes()
+          c=Path('scripts/post-v8-visual-capture-20261026.py').read_bytes()
+          old=Path('scripts/demo-capture-checkpoint-20261025.py').read_text()
+          ready=Path('scripts/post-v8-visual-readiness-20261026.py').read_text()
+          node=ast.parse(c).body
+          encoded=next(x.value.value for x in node if isinstance(x,ast.Assign) and any(getattr(y,'id',None)=='READINESS_B64' for y in x.targets))
+          assert base64.b64decode(encoded)==r, 'EMBEDDED_READINESS_SOURCE_DRIFT'
+          assert 'sha256:66caa099adf1321b72a90b22f8125981e5a6d99b5920cebae0454541cccd9fa7' in ready
+          assert 'sha256:8a5e15b15732ced03e77f4ceebb019d8ea11381b14645653933e8e8144a13cc0' in ready
+          assert 'manifest-v79-hub-candidate.json' in ready
+          assert 'e785277a3970476c214fade92763fac7a41a9151ece7365c67c8cb2b439023c6' in ready
+          assert "EXPECTED_MOUNTS=" in ready and 'RECIPIENT = ' in ready
+          assert "STOP_ORDER = ['v79-business-agent','v79-tiquet-manager','v79-hub']" in c.decode()
+          assert "for db in DBS:" in c.decode() and "OFFHOST_CIPHERTEXT_AND_DECRYPT=PASS_15_OF_15" in c.decode()
+          assert "restore_originals(journal,paused)" in c.decode()
+          a=re.sub(r"^READINESS_B64='[^']*'", "READINESS_B64='<readiness>'",old,flags=re.M)
+          b=re.sub(r"^READINESS_B64='[^']*'", "READINESS_B64='<readiness>'",c.decode(),flags=re.M)
+          b=b.replace('"""Post-V8 encrypted V79 checkpoint for the exact 2026-10-26 live stack.\nCapture pauses only the three pinned apps and','"""Fresh encrypted V79 checkpoint. Capture pauses only the three pinned apps and')
+          b=b.replace("POST_V8_CHECKPOINT_SOURCE_PIN='2026-10-26-v8-exact-runtime'\n","")
+          b=b.replace("self.assertEqual(r.IMAGES['v79-hub'],'sha256:66caa099adf1321b72a90b22f8125981e5a6d99b5920cebae0454541cccd9fa7')","self.assertEqual(r.IMAGES['v79-hub'],'sha256:d722f357206fec938eca691c92ddfe57ece62811f62124f6fbf760258b2b6940')")
+          assert a==b, 'UNREVIEWED_CAPTURE_LOGIC_CHANGE'
+          print('EMBEDDED_SOURCE=EXACT')
+          print('CAPTURE_CODE=UNCHANGED_EXCEPT_IDENTITY_AND_DESCRIPTION')
+          print('PRODUCTION_CONTACTED=NO')
+          PY
+      - name: Offline Python syntax and guarded fake-container regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          for n in ('post-v8-visual-readiness-20261026.py','post-v8-visual-capture-20261026.py'):
+            p=Path('scripts')/n
+            compile(p.read_bytes(),str(p),'exec')
+            print('SYNTAX=PASS',n)
+          namespace={'__name__':'post_v8_readiness'}
+          exec(compile(Path('scripts/post-v8-visual-readiness-20261026.py').read_bytes(),'readiness','exec'),namespace)
+          namespace['self_test']()
+          PY
+          python3 -B scripts/post-v8-visual-capture-20261026.py --self-test
+
+# Never reaches Dell, Tiquet, current Hub, WiPay, SSH, private keys or live databases.
