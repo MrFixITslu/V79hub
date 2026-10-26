@@ -1,0 +1,151 @@
+name: Paired image-only release plan contract
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/paired-image-release-contract.py
+      - tests/paired-image-release-contract.test.py
+      - scripts/review-hardened-release.py
+      - tests/review-hardened-release.test.py
+      - scripts/paired-mount-contract.py
+      - scripts/rehearse-image-release-codec.py
+      - tests/paired-mount-contract.test.py
+      - tests/rehearse-image-release-codec.test.py
+      - scripts/paired-release-context.py
+      - tests/paired-release-context.test.py
+      - scripts/capture-release-checkpoint.py
+      - tests/capture-release-checkpoint.test.py
+      - scripts/paired-compose-transaction.py
+      - tests/paired-compose-transaction.test.py
+      - tests/paired-compose-engine.test.py
+      - scripts/release-hardened-pair.py
+      - scripts/demo-readonly-inventory-20261025.py
+      - scripts/demo-capture-checkpoint-20261025.py
+      - tests/demo-checkpoint-gate.test.py
+      - scripts/demo-review-restored-hub-20261025.py
+      - scripts/release-hardened-pair-demo-v3.py
+      - scripts/release-hardened-pair-demo-v4.py
+      - scripts/release-hardened-pair-demo-v5.py
+      - scripts/demo-manifest-bound-executor-v5.py
+      - tests/demo-manifest-binding-v5.test.py
+      - scripts/paired-compose-transaction-demo-v3.py
+      - scripts/release-hardened-pair-demo-v6.py
+      - tests/demo-profile-cleanup-v6.test.py
+      - scripts/paired-compose-transaction-demo-v4.py
+      - scripts/release-hardened-pair-demo-v7.py
+      - tests/demo-eventual-cleanup-v7.test.py
+      - scripts/paired-compose-transaction-demo-v5.py
+      - scripts/release-hardened-pair-demo-v8.py
+      - tests/demo-reviewed-metadata-v8.test.py
+      - tests/demo-release-fresh-checkpoint.test.py
+      - tests/demo-exact-image-transfer.test.py
+      - tests/release-hardened-pair.test.py
+      - scripts/resume-hardened-pair.py
+      - tests/resume-hardened-pair.test.py
+      - scripts/continue-manifest-bound-pair.py
+      - tests/manifest-bound-pair.test.py
+      - scripts/continue-frozen-metadata-pair.py
+      - tests/frozen-metadata-pair.test.py
+      - .github/workflows/paired-image-release-contract.yml
+concurrency:
+  group: paired-release-preparation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  nonexecuting-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Reject image-only plan and rollback drift using synthetic models
+        run: |
+          python3 tests/paired-image-release-contract.test.py
+          python3 tests/review-hardened-release.test.py
+          python3 tests/paired-mount-contract.test.py
+          python3 tests/rehearse-image-release-codec.test.py
+          python3 tests/paired-release-context.test.py
+          python3 scripts/capture-release-checkpoint.py --self-test
+          python3 tests/capture-release-checkpoint.test.py
+          python3 tests/paired-compose-transaction.test.py
+          python3 tests/demo-cutover-contract.test.py
+          python3 tests/demo-checkpoint-gate.test.py
+          python3 tests/demo-release-fresh-checkpoint.test.py
+          python3 tests/demo-exact-image-transfer.test.py
+          python3 tests/demo-manifest-binding-v5.test.py
+          python3 tests/demo-profile-cleanup-v6.test.py
+          python3 tests/demo-eventual-cleanup-v7.test.py
+          python3 tests/demo-reviewed-metadata-v8.test.py
+          python3 scripts/demo-capture-checkpoint-20261025.py --self-test
+          python3 tests/release-hardened-pair.test.py
+          python3 tests/resume-hardened-pair.test.py
+          python3 tests/manifest-bound-pair.test.py
+          python3 tests/frozen-metadata-pair.test.py
+
+  synthetic-application-rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [classic, containerd]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Enable containerd store only on its disposable CI runner
+        if: matrix.store == 'containerd'
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$(hostname)" != v79sl
+          sudo systemctl stop docker
+          sudo python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('/etc/docker/daemon.json')
+          config=json.loads(p.read_text()) if p.exists() else {}
+          config.setdefault('features',{})['containerd-snapshotter']=True
+          p.write_text(json.dumps(config))
+          PY
+          sudo systemctl start docker
+          docker info --format '{{json .DriverStatus}}' | python3 -c 'import json,sys;assert any("containerd" in str(row) for row in json.load(sys.stdin))'
+      - name: Switch synthetic image pair and recreate originals using a new rollback process
+        run: |
+          python3 tests/paired-compose-engine.test.py
+          python3 tests/demo-compose-engine.test.py
+
+  stopped-engine-codec:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Rehearse both mount encodings and file-backed rollback context without starting probes
+        run: python3 scripts/rehearse-image-release-codec.py --ci
+
+  matching-compose-v560:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install checksum-pinned upstream Compose v5.6.0 on disposable runner
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$(hostname)" != v79sl
+          mkdir -p "$HOME/.docker/cli-plugins"
+          curl --fail --location --silent --show-error --retry 2 \
+            'https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64' \
+            -o "$HOME/.docker/cli-plugins/docker-compose"
+          echo '40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a  '"$HOME/.docker/cli-plugins/docker-compose" | sha256sum -c -
+          chmod 0755 "$HOME/.docker/cli-plugins/docker-compose"
+          test "$(docker compose version --short | sed 's/^v//')" = '5.6.0'
+          docker version --format '{{.Server.Version}}'
+      - name: Exercise actual Compose v5.6 replacement and both independent rollbacks
+        run: |
+          python3 tests/demo-cutover-contract.test.py
+          python3 tests/demo-compose-engine.test.py
