@@ -67,6 +67,10 @@ The operator ran the checksum-verified capture on `v79sl`. Two synthetic tests p
 
 `scripts/vision79-v3-acer-offhost-verify.py` is pinned to that checkpoint directory, expected Hub image and recovery-key fingerprint. It copies the checkpoint to a private new Acer directory, verifies exactly 14 ciphertext hashes, fully decrypts each item through process pipes, checks database dump headers, tar structure and the private runtime JSON shape, then writes a local verification receipt. It does not store plaintext files, alter production or claim an isolated restore. Any missing key, changed file, failed decryption or structural error stops the gate.
 
+The operator ran the offhost verifier at 2026-10-26 19:52:00 UTC. All 14 ciphertext hashes and 14 decryption/structure checks passed. Acer copy: `/home/firelion/v79-v3-offhost-we7b0lir/v3-20261026T194538Z-gnm710en`; private proof: `/home/firelion/v79-v3-offhost-we7b0lir/offhost-verification.json`; server receipt SHA-256 `35a9b4d41b5c42a8c6653e1c1985ebdae49ce77432d57c94ff68c82172173df5`. The result explicitly says `isolated_restore_verified: false`, `production_changes: NONE`, `release_gate: HOLD`.
+
+`scripts/vision79-v3-acer-db-restore.py` is prepared for a disconnected, rootless Podman restore of the two encrypted logical dumps. It requires the exact two Postgres image IDs already cached on the Acer, rechecks the offhost receipt and dump hashes, restores into disposable tmpfs databases with no network or published ports, verifies nonzero user-table counts, and removes the containers. It does not connect to production or claim the Hub app and mounted files can be restored. Local synthetic tests pass; actual restore evidence is pending operator execution.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
