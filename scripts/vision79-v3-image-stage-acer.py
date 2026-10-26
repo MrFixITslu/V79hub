@@ -200,7 +200,7 @@ class Tests(unittest.TestCase):
      validate_archive_contents(tar)
  def test_archive_config_rejects_wrong_bytes_and_tags(self):
   import io
-  data=b'{"example":"wrong-digest"}'
+  data=b'{"example":"wrong-digest-with-a-longer-config-document"}'
   for tags in (None,["v79-hub:latest"]):
    manifest=json.dumps([{"Config":"blobs/sha256/example","RepoTags":tags}]).encode()
    output=io.BytesIO()
