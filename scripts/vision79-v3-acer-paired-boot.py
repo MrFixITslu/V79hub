@@ -129,6 +129,38 @@ def health(name,url):
   if p.returncode==0:return True
   time.sleep(.5)
  return False
+def diagnostic(role,name,url):
+ state={'container_status':'unknown','exit_code':None,'oom_killed':None}
+ try:
+  raw=call(['docker','inspect','--type=container','--format','{{json .State}}',name],timeout=20)
+  parsed=json.loads(raw)
+  valid=('created','running','paused','restarting','removing','exited','dead')
+  if parsed.get('Status') in valid:state['container_status']=parsed['Status']
+  code=parsed.get('ExitCode')
+  if type(code) is int and 0<=code<=255:state['exit_code']=code
+  oom=parsed.get('OOMKilled')
+  if type(oom) is bool:state['oom_killed']=oom
+ except (Stop,ValueError,TypeError,KeyError):
+  pass
+ probe='NOT_RUNNING'
+ if state['container_status']=='running':
+  js=("const http=require('http');const allowed=['ECONNREFUSED','ETIMEDOUT',"
+      "'ECONNRESET','EHOSTUNREACH','ENETUNREACH'];"
+      "const req=http.get(process.argv[1],r=>{r.resume();process.stdout.write('HTTP_'+r.statusCode)});"
+      "req.on('error',e=>process.stdout.write('NETWORK_'+(allowed.includes(e.code)?e.code:'OTHER')));"
+      "req.setTimeout(3000,()=>req.destroy())")
+  try:
+   p=subprocess.run(['docker','exec',name,'node','-e',js,url],
+    stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10)
+   value=p.stdout.decode('ascii','ignore').strip()
+   if p.returncode==0 and (re.fullmatch(r'HTTP_[1-5][0-9]{2}',value) or
+    value in ('NETWORK_ECONNREFUSED','NETWORK_ETIMEDOUT','NETWORK_ECONNRESET',
+              'NETWORK_EHOSTUNREACH','NETWORK_ENETUNREACH','NETWORK_OTHER')):
+    probe=value
+   else:probe='EXEC_FAILED'
+  except (OSError,subprocess.TimeoutExpired):
+   probe='EXEC_FAILED'
+ print('HEALTH_DIAGNOSTIC='+json.dumps({'role':role,**state,'probe':probe},sort_keys=True),flush=True)
 def inspect_isolation(name,holder=None,database=False,scratch=None):
  row=json.loads(call(['docker','inspect','--type=container',name]))[0]
  host=row.get('HostConfig') or {}
@@ -208,8 +240,14 @@ def run():
       (scratch/'tiquet_logs','/app/logs')]
   call(app_args(hub,IMAGES['candidate'],holder,eh,hm),timeout=120);names.append(hub);inspect_isolation(hub,holder,scratch=scratch)
   call(app_args(tiquet,IMAGES['tiquet'],holder,et,tm),timeout=120);names.append(tiquet);inspect_isolation(tiquet,holder,scratch=scratch)
-  need(health(hub,'http://127.0.0.1:3040/api/health') and
-       health(tiquet,'http://127.0.0.1:3050/health'),'CANDIDATE_OR_TIQUET_HEALTH_FAILED')
+  hub_ok=health(hub,'http://127.0.0.1:3040/api/health')
+  tiquet_ok=health(tiquet,'http://127.0.0.1:3050/health')
+  print('CANDIDATE_HUB_HEALTH='+('PASS' if hub_ok else 'FAIL'),flush=True)
+  print('TIQUET_HEALTH='+('PASS' if tiquet_ok else 'FAIL'),flush=True)
+  if not (hub_ok and tiquet_ok):
+   diagnostic('hub',hub,'http://127.0.0.1:3040/api/health')
+   diagnostic('tiquet',tiquet,'http://127.0.0.1:3050/health')
+  need(hub_ok and tiquet_ok,'CANDIDATE_OR_TIQUET_HEALTH_FAILED')
   print('CANDIDATE_HUB_AND_TIQUET_HEALTH=PASS',flush=True)
   call(['docker','rm','-f',hub]);names.remove(hub)
   call(app_args(rollback,IMAGES['prior'],holder,eh,hm),timeout=120);names.append(rollback)
@@ -235,6 +273,24 @@ def run():
   'disposable_cleanup':'PASS','real_owner_mfa_sso_verified':False,'exact_runtime_parity_verified':False,
   'production_changes':'NONE','release_gate':'HOLD'},sort_keys=True))
 class Tests(unittest.TestCase):
+ def test_diagnostic_redacts_container_error(self):
+  import io,contextlib
+  fake=json.dumps({'Status':'exited','ExitCode':1,'OOMKilled':False,
+                   'Error':'PRIVATE_NEVER_PRINT','Pid':123}).encode()
+  with patch(__name__+'.call',return_value=fake):
+   with contextlib.redirect_stdout(io.StringIO()) as out:
+    diagnostic('hub','synthetic','http://127.0.0.1:3040/api/health')
+  self.assertIn('NOT_RUNNING',out.getvalue())
+  self.assertNotIn('PRIVATE_NEVER_PRINT',out.getvalue())
+ def test_diagnostic_http_status_allowlist(self):
+  import io,contextlib
+  fake=json.dumps({'Status':'running','ExitCode':0,'OOMKilled':False}).encode()
+  simulated=subprocess.CompletedProcess([],0,stdout=b'HTTP_503\nSENSITIVE_BODY')
+  with patch(__name__+'.call',return_value=fake),patch('subprocess.run',return_value=simulated):
+   with contextlib.redirect_stdout(io.StringIO()) as out:
+    diagnostic('hub','synthetic','http://127.0.0.1:3040/api/health')
+  self.assertIn('EXEC_FAILED',out.getvalue())
+  self.assertNotIn('SENSITIVE_BODY',out.getvalue())
  def test_repeated_archive_directories(self):
   import io
   stream=io.BytesIO()
