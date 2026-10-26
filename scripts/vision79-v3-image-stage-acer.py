@@ -54,7 +54,7 @@ def archive_json_blob(tar,digest_hex,expected_size=None):
  need(isinstance(value,dict) and value.get("schemaVersion")==2,
       "OCI_REFERENCED_BLOB_SCHEMA_DRIFT")
  return value
-def validate_oci_identity_chain(tar,config_sha):
+def validate_oci_identity_chain(tar,config_sha,config_size):
  # The Docker 29 image ID can be an OCI manifest or image-index digest.
  # Follow the content-addressed chain to the config used by Docker save.
  try:index_member=tar.getmember("index.json")
@@ -88,7 +88,10 @@ def validate_oci_identity_chain(tar,config_sha):
   config=item.get("config")
   need(isinstance(config,dict) and isinstance(item.get("layers"),list),
        "OCI_IMAGE_MANIFEST_SHAPE_DRIFT")
-  return config.get("digest")=="sha256:"+config_sha
+  if config.get("digest")!="sha256:"+config_sha:return False
+  need(type(config.get("size")) is int and config["size"]==config_size,
+       "OCI_CONFIG_DESCRIPTOR_SIZE_DRIFT")
+  return True
  need(walk(roots[0],0),"OCI_PINNED_CHAIN_NOT_LINKED_TO_CONFIG")
 def validate_archive_contents(tar):
  # New Docker/containerd save formats may store config as blobs/sha256/<digest>
@@ -126,7 +129,7 @@ def validate_archive_contents(tar):
  need(config in (config_sha+".json","blobs/sha256/"+config_sha),
       "IMAGE_ARCHIVE_CONFIG_NAME_DIGEST_DRIFT")
  if "sha256:"+config_sha!=IMAGE:
-  validate_oci_identity_chain(tar,config_sha)
+  validate_oci_identity_chain(tar,config_sha,info.size)
 def validate_archive(archive):
  need(archive.is_file() and not archive.is_symlink() and
       10_000_000 <= archive.stat().st_size <= 4*1024**3,"ARCHIVE_SIZE_INVALID")
