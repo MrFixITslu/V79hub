@@ -330,6 +330,46 @@ class Tests(unittest.TestCase):
    with tarfile.open(fileobj=out,mode="r:") as tar:
     with self.assertRaisesRegex(Stop,"OCI_PINNED_CHAIN_NOT_LINKED_TO_CONFIG"):
      validate_archive_contents(tar)
+ def test_oci_manifest_directly_pinned(self):
+  import io
+  cfg=b'{"config":{"Labels":{}}, "rootfs":{"diff_ids":[]}}'
+  cfg_sha=hashlib.sha256(cfg).hexdigest()
+  manifest=json.dumps({"schemaVersion":2,"config":{"digest":"sha256:"+cfg_sha,"size":len(cfg)},"layers":[]}).encode()
+  manifest_sha=hashlib.sha256(manifest).hexdigest()
+  index=json.dumps({"schemaVersion":2,"manifests":[
+     {"digest":"sha256:"+manifest_sha,"size":len(manifest)}]}).encode()
+  entries={"manifest.json":json.dumps([{"RepoTags":None,"Config":"blobs/sha256/"+cfg_sha}]).encode(),
+     "index.json":index,"blobs/sha256/"+cfg_sha:cfg,
+     "blobs/sha256/"+manifest_sha:manifest}
+  out=io.BytesIO()
+  with tarfile.open(fileobj=out,mode="w:") as tar:
+   for name,data in entries.items():
+    info=tarfile.TarInfo(name);info.size=len(data)
+    tar.addfile(info,io.BytesIO(data))
+  out.seek(0)
+  with patch(__name__+".IMAGE","sha256:"+manifest_sha):
+   with tarfile.open(fileobj=out,mode="r:") as tar:
+    validate_archive_contents(tar)
+ def test_oci_manifest_config_size_drift_refused(self):
+  import io
+  cfg=b'{"config":{"Labels":{}}, "rootfs":{"diff_ids":[]}}'
+  cfg_sha=hashlib.sha256(cfg).hexdigest()
+  manifest=json.dumps({"schemaVersion":2,"config":{"digest":"sha256:"+cfg_sha,"size":len(cfg)+1},"layers":[]}).encode()
+  manifest_sha=hashlib.sha256(manifest).hexdigest()
+  entries={"manifest.json":json.dumps([{"RepoTags":None,"Config":"blobs/sha256/"+cfg_sha}]).encode(),
+     "index.json":json.dumps({"schemaVersion":2,"manifests":[
+     {"digest":"sha256:"+manifest_sha,"size":len(manifest)}]}).encode(),
+     "blobs/sha256/"+cfg_sha:cfg,"blobs/sha256/"+manifest_sha:manifest}
+  out=io.BytesIO()
+  with tarfile.open(fileobj=out,mode="w:") as tar:
+   for name,data in entries.items():
+    info=tarfile.TarInfo(name);info.size=len(data)
+    tar.addfile(info,io.BytesIO(data))
+  out.seek(0)
+  with patch(__name__+".IMAGE","sha256:"+manifest_sha):
+   with tarfile.open(fileobj=out,mode="r:") as tar:
+    with self.assertRaisesRegex(Stop,"OCI_CONFIG_DESCRIPTOR_SIZE_DRIFT"):
+     validate_archive_contents(tar)
  def test_archive_rejects_config_traversal(self):
   import io
   manifest=json.dumps([{"Config":"../private","RepoTags":None}]).encode()
