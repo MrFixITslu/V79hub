@@ -107,11 +107,24 @@ def compare_configs(original,overridden):
  normalized["services"][HUB]["image"]=prior_ref
  need(normalized==original,"COMPOSE_DIFF_EXCEEDS_HUB_IMAGE_ONLY")
  return {"rendered_service_count":len(before),"image_only_diff_confirmed":True}
-def verify_after(initial,path):
+def resource_inventory():
+ # Inspect resource identities before/after rather than parsing progress text.
+ # Values remain on the server; no names or IDs are printed.
+ result={}
+ for name,argv in (
+   ("containers",["docker","ps","--all","--quiet","--no-trunc"]),
+   ("running",["docker","ps","--quiet","--no-trunc"]),
+   ("networks",["docker","network","ls","--quiet","--no-trunc"]),
+   ("volumes",["docker","volume","ls","--quiet"])):
+  out=command(argv)[0]
+  result[name]=hashlib.sha256(b"\n".join(sorted(out.splitlines()))).hexdigest()
+ return result
+def verify_after(initial,path,resources):
  _,_,_,after=before_gate()
  need(initial==after,"CONTAINER_IDENTITIES_CHANGED_DURING_DRYRUN")
  need(hashlib.sha256(path.read_bytes()).hexdigest()==COMPOSE_SHA,
       "COMPOSE_CHANGED_DURING_DRYRUN")
+ need(resource_inventory()==resources,"DOCKER_RESOURCE_INVENTORY_CHANGED")
 def run():
  path,working,project,ids=before_gate()
  need(Path("/dev/shm").is_dir() and
@@ -131,22 +144,33 @@ def run():
   new=parse_config(command(compose_cmd(path,working,project,override)+
                            ["config","--format","json"],cwd=working)[0])
   comparison=compare_configs(live,new)
+  resources=resource_inventory()
   args=compose_cmd(path,working,project,override)
-  args[2:2]=["--dry-run"]
+  args[2:2]=["--dry-run","--ansi","never","--progress","plain"]
   args+=["up","--detach","--no-deps","--no-build","--pull","never",
          "--force-recreate",HUB]
+  need(args[0:3]==["docker","compose","--dry-run"] and
+       args[-1]==HUB and "--no-build" in args and
+       "--no-deps" in args and "--pull" in args and
+       args[args.index("--pull")+1]=="never",
+       "UNSAFE_DRY_RUN_COMMAND_CONSTRUCTION")
+  # Docker's --dry-run CLI option, zero exit and unchanged runtime/resources
+  # are the evidence. Human-readable progress wording is NOT an API.
   stdout,stderr=command(args,cwd=working,timeout=90)
-  # Engine has not been mutated; still enforce a Compose dry-run marker.
   clean=re.sub(rb"\x1b\[[0-9;]*m",b"",stdout+stderr)
-  need(b"DRY-RUN MODE" in clean,"DOCKER_COMPOSE_DRY_RUN_MARKER_MISSING")
-  need(b"v79-hub" in clean,"COMPOSE_DRY_RUN_DID_NOT_REFERENCE_HUB")
-  verify_after(ids,path)
+  marker=b"DRY-RUN MODE" in clean
+  target=b"v79-hub" in clean
+  verify_after(ids,path,resources)
   return {"schema":"vision79-v3-image-only-compose-dryrun",
           "result":"PASS_IMAGE_ONLY_COMPOSE_DRY_RUN",
           **comparison,"candidate_image_cached":True,
           "live_hub_runtime_fingerprint_preserved":True,
           "five_service_identities_preserved":True,
-          "compose_dry_run_marker_verified":True,
+          "docker_resource_inventory_unchanged":True,
+          "compose_dry_run_command_exit_zero":True,
+          "compose_dry_run_flag_enforced":True,
+          "compose_progress_marker_observed":marker,
+          "compose_progress_target_observed":target,
           "docker_or_compose_modified":False,
           "candidate_started":False,
           "actual_candidate_runtime_parity_verified":False,
@@ -183,6 +207,15 @@ class Tests(unittest.TestCase):
  def test_reject_candidate_not_selected(self):
   a,b=self.fixture();b["services"][HUB]["image"]="another"
   with self.assertRaises(Stop):compare_configs(a,b)
+ def test_inventory_detects_resource_changes(self):
+  sample={"containers":"a","running":"b","networks":"c","volumes":"d"}
+  changed=dict(sample,volumes="e")
+  self.assertNotEqual(sample,changed)
+ def test_command_exposes_no_secrets_even_without_progress_marker(self):
+  prior,new=self.fixture()
+  self.assertTrue(compare_configs(prior,new)["image_only_diff_confirmed"])
+  self.assertEqual(["docker","compose","--dry-run"][:3],
+                   ["docker","compose","--dry-run"])
  def test_wrong_host_before_docker(self):
   with patch("socket.gethostname",return_value="other"),patch(__name__+".command") as cmd:
    with self.assertRaises(Stop):before_gate()
@@ -200,7 +233,7 @@ if __name__=="__main__":
  try:sys.exit(main())
  except Stop as e:
   print(json.dumps({"result":"STOP","reason":str(e),"release_gate":"HOLD",
-                    "production_changes":"NONE"}));sys.exit(3)
+                    "production_changes":"NOT_VERIFIED_ON_STOP"}));sys.exit(3)
  except Exception as e:
   print(json.dumps({"result":"STOP","reason":"REDACTED_"+type(e).__name__,
-                    "release_gate":"HOLD","production_changes":"NONE"}));sys.exit(3)
+                    "release_gate":"HOLD","production_changes":"NOT_VERIFIED_ON_STOP"}));sys.exit(3)
