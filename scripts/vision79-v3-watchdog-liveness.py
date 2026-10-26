@@ -5,7 +5,7 @@ This tool cannot deploy/restart any container or arm the real rollback. It
 creates and checks ONE harmless private sentinel under an already sealed
 Vision79 v3 plan. Run --arm and --check via separate SSH sessions.
 """
-import json,os,pwd,socket,subprocess,sys,unittest
+import datetime as dt,json,os,pwd,socket,subprocess,sys,unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +13,7 @@ ROOT=Path("/home/firelion/v79-v3-cutover-plan-20261026")
 PLAN=ROOT/"sealed-plan.json"
 OVERLAY=ROOT/"v3-image-only.json"
 MARKER=ROOT/"watchdog-liveness-PASS"
+RECEIPT=ROOT/"watchdog-liveness-receipt.json"
 UNIT="vision79-v3-watchdog-liveness"
 OLD="sha256:d2e6f4aee332b076f1340c339e4277b39f1337d2cd02b4b3a4c849e3a6d615e4"
 NEW="sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6"
@@ -66,8 +67,9 @@ def unit_exists(e):
 def arm():
  read_plan()
  e=env()
- need(not MARKER.exists() and not MARKER.is_symlink(),
-      "WATCHDOG_PROBE_SENTINEL_ALREADY_EXISTS")
+ need(not MARKER.exists() and not MARKER.is_symlink() and
+      not RECEIPT.exists() and not RECEIPT.is_symlink(),
+      "WATCHDOG_PROBE_OR_RECEIPT_ALREADY_EXISTS")
  need(not unit_exists(e),"WATCHDOG_PROBE_TIMER_ALREADY_EXISTS")
  need(cmd(["loginctl","show-user","firelion","-p","Linger","--value"],e).stdout.strip()==b"yes",
       "WATCHDOG_LINGER_CURRENTLY_OFF")
@@ -86,11 +88,24 @@ def check():
       MARKER.stat().st_uid==pwd.getpwnam("firelion").pw_uid,
       "WATCHDOG_DID_NOT_FIRE_ACROSS_SSH")
  need(MARKER.stat().st_size==0,"WATCHDOG_PROBE_MARKER_TAMPERED")
+ need(not RECEIPT.exists() and not RECEIPT.is_symlink(),
+      "WATCHDOG_RECEIPT_ALREADY_EXISTS")
+ receipt={"schema":"vision79-v3-user-watchdog-disconnect-proof",
+          "status":"PASS_WATCHDOG_FIRED_AFTER_SSH_DISCONNECT",
+          "observed_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),
+          "unit":UNIT,"marker_verified_owner_and_empty":True,
+          "candidate_started":False,"production_changes":"NONE",
+          "real_rollback_watchdog_armed":False,"release_gate":"HOLD"}
+ with RECEIPT.open("x",encoding="utf-8") as fp:
+  os.chmod(RECEIPT,0o600)
+  fp.write(json.dumps(receipt,sort_keys=True)+"\n")
+  fp.flush();os.fsync(fp.fileno())
  # No production-related units are touched. Remove our own marker only.
  MARKER.unlink()
  print(json.dumps({"result":"PASS_WATCHDOG_FIRED_AFTER_SSH_DISCONNECT",
        "user_systemd_timer_executed":True,
        "private_probe_marker_removed":True,
+       "durable_watchdog_liveness_receipt_created":True,
        "real_rollback_controller_tested":False,
        "real_rollback_watchdog_armed":False,
        "candidate_started":False,"production_changes":"NONE","release_gate":"HOLD"},sort_keys=True))
@@ -109,6 +124,9 @@ class Tests(unittest.TestCase):
  def test_read_plan_holds_release(self):
   self.assertTrue(PLAN.name.endswith(".json"))
   self.assertEqual(OVERLAY.name,"v3-image-only.json")
+ def test_liveness_receipt_path_is_private_plan_only(self):
+  self.assertEqual(RECEIPT.parent,ROOT)
+  self.assertNotEqual(MARKER,RECEIPT)
  def test_only_modes_supported(self):
   with patch("sys.argv",["watchdog.py","--deploy"]):
    with self.assertRaisesRegex(Stop,"MODE_NOT_SUPPORTED"):
