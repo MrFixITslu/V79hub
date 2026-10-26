@@ -27,6 +27,10 @@ IMAGES={'hub':('sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300
 DOCKER=['docker']
 SQL="SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace=n.oid WHERE c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%';"
 class Stop(Exception):pass
+PHASE='START'
+def mark(value):
+ global PHASE
+ PHASE=value
 def need(ok,code):
  if not ok:raise Stop(code)
 def cmd(args,timeout=45):
@@ -83,6 +87,9 @@ def isolation(name):
  need(host.get('NetworkMode')=='none' and not host.get('PortBindings')
   and all(m.get('Type')=='tmpfs' for m in mounts)
   and '/var/lib/postgresql/data' in (host.get('Tmpfs') or {}),'ISOLATION_DRIFT')
+def table_count(raw):
+ need(isinstance(raw,bytes) and raw.isdigit() and int(raw)>0,'NO_RESTORED_USER_TABLES')
+ return int(raw)
 def restore(name,filename):
  dec=subprocess.Popen(['gpg','--batch','--quiet','--decrypt',str(COPY/filename)],
                       stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
@@ -100,14 +107,22 @@ def restore(name,filename):
   if receiver is not None:receiver.wait()
   dec.wait()
 def restore_one(label,image,filename):
+ mark('CHECK_DISPOSABLE_NAME')
  name='v79-v3-'+label+'-'+secrets.token_hex(4)
  exists=subprocess.run([*DOCKER,'container','inspect',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)
  need(exists.returncode!=0,'DISPOSABLE_NAME_COLLISION')
  try:
+  mark('START_DISPOSABLE_DB')
   cmd(run_args(name,image),timeout=90)
-  isolation(name);wait_sql(name);restore(name,filename)
+  mark('CHECK_ISOLATION')
+  isolation(name)
+  mark('WAIT_FOR_SQL')
+  wait_sql(name)
+  mark('RESTORE_ENCRYPTED_DUMP')
+  restore(name,filename)
+  mark('COUNT_RESTORED_TABLES')
   count=cmd([*DOCKER,'exec',name,'psql','-X','-U','postgres','-d','postgres','-t','-A','-c',SQL])
-  need(count.isdecimal() and int(count)>0,'NO_RESTORED_USER_TABLES')
+  table_count(count)
   print(label.upper()+'_ISOLATED_DB_RESTORE=PASS',flush=True)
   print(label.upper()+'_USER_TABLE_COUNT='+count.decode(),flush=True)
  finally:
@@ -121,12 +136,23 @@ class Tests(unittest.TestCase):
   with patch('socket.gethostname',return_value='wrong'),patch(__name__+'.cmd') as command:
    with self.assertRaises(Stop):preflight()
    command.assert_not_called()
+ def test_table_count_bytes(self):
+  self.assertEqual(table_count(b'12'),12)
+  with self.assertRaises(Stop):table_count(b'0')
 def main():
- need(len(sys.argv)==2 and sys.argv[1] in ('--self-test','--restore'),'MODE_REQUIRED')
+ need(len(sys.argv)==2 and sys.argv[1] in ('--self-test','--preflight','--restore'),'MODE_REQUIRED')
  if sys.argv[1]=='--self-test':
   result=unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(Tests))
   return 0 if result.wasSuccessful() else 1
+ mark('PREFLIGHT')
  preflight()
+ if sys.argv[1]=='--preflight':
+  raw=cmd([*DOCKER,'ps','-a','--format','{{.Names}}'])
+  names=[v for v in raw.decode().splitlines() if v.startswith('v79-v3-hub-') or v.startswith('v79-v3-tiquet-')]
+  need(not names,'DISPOSABLE_RESIDUE_PRESENT')
+  print(json.dumps({'result':'PASS_PREFLIGHT_ONLY','disposable_residue_count':len(names),
+   'production_changes':'NONE','release_gate':'HOLD'},sort_keys=True))
+  return 0
  for label,(image,filename) in IMAGES.items():restore_one(label,image,filename)
  proof={'schema':'vision79-v3-disconnected-db-restore','verified_at_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
   'server_receipt_sha256':RECEIPT_HASH,'database_restore':'PASS_BOTH',
@@ -138,5 +164,6 @@ def main():
  return 0
 if __name__=='__main__':
  try:sys.exit(main())
- except Stop as e:print(json.dumps({'status':'STOP','reason':str(e),'release_gate':'HOLD'}));sys.exit(3)
- except Exception:print(json.dumps({'status':'STOP','reason':'REDACTED_ERROR','release_gate':'HOLD'}));sys.exit(3)
+ except Stop as e:print(json.dumps({'status':'STOP','phase':PHASE,'reason':str(e),'release_gate':'HOLD'}));sys.exit(3)
+ except Exception as e:print(json.dumps({'status':'STOP','phase':PHASE,'reason':'REDACTED_ERROR',
+  'error_type':type(e).__name__,'release_gate':'HOLD'}));sys.exit(3)

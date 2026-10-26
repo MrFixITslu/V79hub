@@ -73,6 +73,8 @@ The operator ran the offhost verifier at 2026-10-26 19:52:00 UTC. All 14 ciphert
 
 The operator ran that rehearsal and received `STOP=EXACT_DB_IMAGE_NOT_CACHED` after two synthetic tests passed. No database container was started and no restore was attempted. The local Podman image prerequisite assumption was false. The recovery evidence remains offhost decryption only. `scripts/vision79-v3-acer-stage-db-images.py` now checks the live DB identities, streams exact image saves through SSH into the Acer local Docker image store, verifies the exact loaded IDs, and rechecks the server identities. The revised `vision79-v3-acer-db-restore.py` uses that local Docker daemon with the same disconnected tmpfs isolation and cleanup checks. Neither step deploys or restarts production.
 
+The operator then staged both exact database images (`PASS_2`), but the Docker restore command returned `STOP=REDACTED_ERROR`. That result is **not** a restore pass. Code review found a defect in the table-count check: it called `isdecimal()` on a `bytes` result, which raises `AttributeError`; this could occur only after a database restore reached the count query. The diagnostic did not record a phase, so the actual cause is not established from the output. The corrected script checks byte digits, tests that path, reports a fixed phase and safe error type, and offers a read-only local residue preflight. Rerun only the corrected local restore after its preflight passes; the images are already staged.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
