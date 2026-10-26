@@ -237,7 +237,16 @@ def timer_drain():
         time.sleep(2)
     raise Halt('ACTIVE_WORKFORCE_JOB_NOT_DRAINED')
 def capture_server(directory):
+    global INVENTORY
     server_guard();run=validate_directory(directory)
+    pin_file=run/'inventory-sha256'
+    st=pin_file.lstat()
+    need(stat.S_ISREG(st.st_mode) and st.st_uid==os.getuid() and
+         not st.st_mode&0o077 and st.st_nlink==1 and not pin_file.is_symlink(),
+         'SEALED_CAPTURE_PIN_UNSAFE')
+    INVENTORY=pin_file.read_text().strip()
+    need(bool(re.fullmatch('[a-f0-9]{64}',INVENTORY)),
+         'SEALED_CAPTURE_PIN_INVALID')
     need(Path(__file__).resolve()==run/'runner.py','PERSISTED_RUNNER_REQUIRED')
     operation_lock=lock_operation()
     try:
@@ -317,7 +326,7 @@ def capture_server(directory):
                   'inventory_sha256':INVENTORY,'images':{n:r['Image'] for n,r in rows.items()},
                   'mount_artifacts':mount_map,'host_paths':paths,'files':files,
                   'recipient_fingerprint':RECIPIENT,'apps_resumed_same_ids':True,
-                  'source_receipt':'owner-authorized-hardened-pair-prerequisites-20261025',
+                  'source_receipt':'owner-authorized-post-v8-hub-visual-recovery-20261025',
                   'frozen_price_inputs':'encrypted-runtime-and-config.tar.gpg',
                   'model_format':'decoded-engine-values-requires-recovery-codec',
                   'pause_seconds':round(time.monotonic()-pause_started,1),
@@ -349,7 +358,15 @@ def remote_file(directory,filename):
     need(re.fullmatch(REMOTE_RE,directory) and re.fullmatch(r'[A-Za-z0-9_.-]+',filename),'REMOTE_PATH_INVALID')
     return directory+'/checkpoint/'+filename
 def verify_offhost(directory):
+    global INVENTORY
     phase('TRANSFER_CIPHERTEXT_TO_ACER_AND_VERIFY_DECRYPTION')
+    pointer=read_private(Path(__file__).resolve().parent/'SERVER_CAPTURE.json')
+    need(pointer.get('directory')==directory and
+         pointer.get('runner_sha256')==sha(Path(__file__)),
+         'OFFHOST_CAPTURE_POINTER_UNBOUND')
+    INVENTORY=pointer.get('inventory_sha256')
+    need(isinstance(INVENTORY,str) and bool(re.fullmatch('[a-f0-9]{64}',INVENTORY)),
+         'OFFHOST_INVENTORY_PIN_INVALID')
     parent=Path.home()/'V79-Portfolio-Checkpoints'
     if parent.exists():
         need(parent.is_dir() and not parent.is_symlink() and parent.stat().st_uid==os.getuid(),'OFFHOST_PARENT_UNSAFE')
@@ -427,8 +444,35 @@ def monitor(directory):
 def acer_guard():
     need(socket.gethostname()=='firelion-Aspire-A315-51' and os.getuid()!=0,'RUN_ON_NONROOT_ACER')
     os.umask(0o077);load_readiness().local_docker(socket.gethostname())
+def preflight_capture():
+    acer_guard()
+    phase('PIN_CURRENT_V8_READ_ONLY_SERVER_INVENTORY')
+    remote='sg docker -c '+shlex.quote('python3 -B - --server')
+    raw=call([*SSH,remote],data=base64.b64decode(READINESS_B64),timeout=180)
+    report=json.loads(raw)
+    need(report.get('mode')=='READ_ONLY_CHECKPOINT_READINESS' and
+         not report.get('blockers') and
+         report.get('active_timers_to_quiesce')==TIMERS and
+         isinstance(report.get('inventory_sha256'),str) and
+         bool(re.fullmatch('[a-f0-9]{64}',report['inventory_sha256'])),
+         'V8_SERVER_READINESS_NOT_PINNABLE')
+    required=max(20*1024**3,2*report['image_bytes']+10*1024**3)
+    need(report['server_free_bytes']>=required and
+         report['server_available_memory_bytes']>=1500*1024**2 and
+         shutil.disk_usage(Path.home()).free>=required,
+         'V8_RECOVERY_RESOURCES_INSUFFICIENT')
+    print('EXACT_V8_IMAGES_CONTAINERS_SEALED_MODELS=PASS',flush=True)
+    print('CURRENT_V8_INVENTORY_SHA256='+report['inventory_sha256'],flush=True)
+    print('ENCRYPTED_RECOVERY_ARTIFACT_SCOPE=15',flush=True)
+    print('PRODUCTION_CHANGES=NONE',flush=True)
+    return report
+
+
 def start_capture():
-    acer_guard();phase('VERIFY_ACER_RECOVERY_KEY_WITH_REAL_ROUNDTRIP')
+    global INVENTORY
+    report=preflight_capture()
+    INVENTORY=report['inventory_sha256']
+    phase('VERIFY_ACER_RECOVERY_KEY_WITH_REAL_ROUNDTRIP')
     sample=os.urandom(48)
     encrypted=call(['gpg','--batch','--quiet','--trust-model','always','--encrypt','--recipient',RECIPIENT],data=sample)
     need(call(['gpg','--batch','--quiet','--decrypt'],data=encrypted)==sample,'ACER_KEY_DECRYPT_ROUNDTRIP_FAILED')
@@ -436,7 +480,8 @@ def start_capture():
     public=call(['gpg','--batch','--export',RECIPIENT]);need(public,'PUBLIC_KEY_EXPORT_FAILED')
     # Install only the reviewed runner and public key in a new private directory.
     payload={'source':base64.b64encode(Path(__file__).read_bytes()).decode(),
-             'sha256':sha(Path(__file__)),'public':base64.b64encode(public).decode()}
+             'sha256':sha(Path(__file__)),'public':base64.b64encode(public).decode(),
+             'inventory_sha256':INVENTORY}
     bootstrap=r'''import base64,datetime,hashlib,json,os,secrets,socket,stat,subprocess,sys
 from pathlib import Path
 assert socket.gethostname()=='v79sl' and os.getuid()!=0
@@ -447,6 +492,10 @@ run=root/('release-'+datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m
 raw=base64.b64decode(p['source']);assert hashlib.sha256(raw).hexdigest()==p['sha256']
 f=os.open(run/'runner.py',os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
 with os.fdopen(f,'wb') as out:out.write(raw)
+pin=p['inventory_sha256']
+assert isinstance(pin,str) and len(pin)==64 and all(c in '0123456789abcdef' for c in pin)
+f=os.open(run/'inventory-sha256',os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
+with os.fdopen(f,'wb') as out:out.write(pin.encode());out.flush();os.fsync(out.fileno())
 keyring=run/'gnupg';keyring.mkdir(mode=0o700)
 c=subprocess.run(['gpg','--homedir',str(keyring),'--batch','--quiet','--import'],input=base64.b64decode(p['public']),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 assert c.returncode==0
@@ -460,7 +509,7 @@ print(str(run))
     pointer=Path(__file__).resolve().parent/'SERVER_CAPTURE.json'
     write_json(pointer,{'directory':directory,'runner_sha256':sha(Path(__file__)),'inventory_sha256':INVENTORY})
     launch=shlex.join(['python3','-B','-u',directory+'/runner.py','--server-capture',directory])
-    call([*SSH,'umask 077; nohup '+launch+' > '+shlex.quote(directory+'/progress.log')+' 2>&1 < /dev/null &'])
+    call([*SSH,'umask 077; nohup sg docker -c '+shlex.quote(launch)+' > '+shlex.quote(directory+'/progress.log')+' 2>&1 < /dev/null &'])
     print('CAPTURE=DETACHED_FROM_SSH_MONITOR',flush=True)
     return monitor(directory)
 def server_entry(directory):
@@ -702,12 +751,14 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     modes=p.add_mutually_exclusive_group(required=True)
     modes.add_argument('--self-test',action='store_true')
+    modes.add_argument('--preflight',action='store_true')
     modes.add_argument('--capture',action='store_true')
     modes.add_argument('--server-capture')
     modes.add_argument('--monitor')
     modes.add_argument('--resume-server')
     a=p.parse_args()
     if a.self_test:self_test()
+    elif a.preflight:preflight_capture()
     elif a.capture:start_capture()
     elif a.server_capture:sys.exit(server_entry(a.server_capture))
     elif a.resume_server:resume_server(a.resume_server)
