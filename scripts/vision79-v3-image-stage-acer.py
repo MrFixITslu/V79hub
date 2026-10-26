@@ -35,20 +35,45 @@ def digest(path):
  with path.open("rb") as f:
   for block in iter(lambda:f.read(1024*1024),b""):h.update(block)
  return h.hexdigest()
+def validate_archive_contents(tar):
+ # New Docker/containerd save formats may store config as blobs/sha256/<digest>
+ # rather than <digest>.json. Verify bytes, not the filename convention.
+ members=tar.getmembers()
+ names=[m.name for m in members]
+ need(len(names)==len(set(names)),"DUPLICATE_ARCHIVE_MEMBER")
+ try:manifest_member=tar.getmember("manifest.json")
+ except KeyError:raise Stop("DOCKER_MANIFEST_MISSING") from None
+ need(manifest_member.isfile() and 0<manifest_member.size<=64*1024,
+      "DOCKER_MANIFEST_SHAPE_DRIFT")
+ handle=tar.extractfile(manifest_member)
+ need(handle is not None,"DOCKER_MANIFEST_UNREADABLE")
+ with handle:entries=json.loads(handle.read())
+ need(isinstance(entries,list) and len(entries)==1 and isinstance(entries[0],dict),
+      "IMAGE_ARCHIVE_COUNT_DRIFT")
+ entry=entries[0]
+ need(entry.get("RepoTags") in (None,[]),"IMAGE_ARCHIVE_HAS_MUTABLE_TAGS")
+ config=entry.get("Config")
+ need(isinstance(config,str) and config and
+      re.fullmatch(r"[a-zA-Z0-9_.\\/-]+",config) and
+      not config.startswith("/") and
+      ".." not in config.split("/") and
+      "\\\\" not in config,"IMAGE_ARCHIVE_CONFIG_PATH_UNSAFE")
+ try:info=tar.getmember(config)
+ except KeyError:raise Stop("IMAGE_ARCHIVE_CONFIG_MISSING") from None
+ need(info.isfile() and 32<=info.size<=4*1024*1024,
+      "IMAGE_ARCHIVE_CONFIG_SHAPE_DRIFT")
+ stream=tar.extractfile(info)
+ need(stream is not None,"IMAGE_ARCHIVE_CONFIG_UNREADABLE")
+ h=hashlib.sha256()
+ with stream:
+  for block in iter(lambda:stream.read(131072),b""):h.update(block)
+ need("sha256:"+h.hexdigest()==IMAGE,"IMAGE_ARCHIVE_CONFIG_DIGEST_DRIFT")
 def validate_archive(archive):
  need(archive.is_file() and not archive.is_symlink() and
       10_000_000 <= archive.stat().st_size <= 4*1024**3,"ARCHIVE_SIZE_INVALID")
  try:
   with tarfile.open(archive,mode="r:") as tar:
-   manifest=tar.extractfile("manifest.json")
-   need(manifest is not None,"DOCKER_MANIFEST_MISSING")
-   data=manifest.read(64*1024)
-   entries=json.loads(data)
-   need(isinstance(entries,list) and len(entries)==1,"IMAGE_ARCHIVE_COUNT_DRIFT")
-   entry=entries[0]
-   need(not entry.get("RepoTags"),"IMAGE_ARCHIVE_HAS_MUTABLE_TAGS")
-   config=entry.get("Config","")
-   need(config==IMAGE.split(":")[1]+".json","IMAGE_ARCHIVE_CONFIG_DRIFT")
+   validate_archive_contents(tar)
  except (tarfile.TarError,ValueError,UnicodeError,OSError):
   raise Stop("IMAGE_ARCHIVE_INVALID") from None
  return digest(archive)
@@ -156,6 +181,49 @@ class Tests(unittest.TestCase):
   with patch("socket.gethostname",return_value="other"),patch(__name__+".run") as c:
    with self.assertRaises(Stop):preflight(Path("/missing"))
    c.assert_not_called()
+ def test_archive_config_digest_accepts_docker_and_containerd_paths(self):
+  import io
+  config_bytes=b'{"id":"synthetic-good-config","rootfs":{"diff_ids":[]}}'
+  config_sha=hashlib.sha256(config_bytes).hexdigest()
+  def simulate(name,tags=None):
+   manifest=json.dumps([{"Config":name,"RepoTags":tags,"Layers":[]}]).encode()
+   output=io.BytesIO()
+   with tarfile.open(fileobj=output,mode="w:") as tar:
+    for filename,data in (("manifest.json",manifest),(name,config_bytes)):
+     info=tarfile.TarInfo(filename);info.size=len(data)
+     tar.addfile(info,io.BytesIO(data))
+   output.seek(0)
+   return output
+  for path in (config_sha+".json","blobs/sha256/"+config_sha):
+   with patch(__name__+".IMAGE","sha256:"+config_sha):
+    with tarfile.open(fileobj=simulate(path),mode="r:") as tar:
+     validate_archive_contents(tar)
+ def test_archive_config_rejects_wrong_bytes_and_tags(self):
+  import io
+  data=b'{"example":"wrong-digest"}'
+  for tags in (None,["v79-hub:latest"]):
+   manifest=json.dumps([{"Config":"blobs/sha256/example","RepoTags":tags}]).encode()
+   output=io.BytesIO()
+   with tarfile.open(fileobj=output,mode="w:") as tar:
+    for filename,payload in (("manifest.json",manifest),("blobs/sha256/example",data)):
+     info=tarfile.TarInfo(filename);info.size=len(payload)
+     tar.addfile(info,io.BytesIO(payload))
+   output.seek(0)
+   with tarfile.open(fileobj=output,mode="r:") as tar:
+    with self.assertRaisesRegex(Stop,
+      "IMAGE_ARCHIVE_CONFIG_DIGEST_DRIFT" if tags is None else "IMAGE_ARCHIVE_HAS_MUTABLE_TAGS"):
+     validate_archive_contents(tar)
+ def test_archive_rejects_config_traversal(self):
+  import io
+  manifest=json.dumps([{"Config":"../private","RepoTags":None}]).encode()
+  output=io.BytesIO()
+  with tarfile.open(fileobj=output,mode="w:") as tar:
+   info=tarfile.TarInfo("manifest.json");info.size=len(manifest)
+   tar.addfile(info,io.BytesIO(manifest))
+  output.seek(0)
+  with tarfile.open(fileobj=output,mode="r:") as tar:
+   with self.assertRaisesRegex(Stop,"IMAGE_ARCHIVE_CONFIG_PATH_UNSAFE"):
+    validate_archive_contents(tar)
  def test_invalid_archive_fails_closed(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/"bad.tar";p.write_bytes(b"not a tar")
