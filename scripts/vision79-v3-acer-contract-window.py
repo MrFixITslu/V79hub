@@ -15,7 +15,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-CHECKER_SHA="a9a9941c78551d3659386e46d978348d8fec8f7338dd51ad7ab39af343fb3cc8"
+CHECKER_SHA="37af96763959519e246a172683bb1ee01a7d99cf77094af8e6f76dd5e572c75b"
 SWAP="/swapfile"
 HEADROOM=4*1024**3
 PHASE="PREFLIGHT"
