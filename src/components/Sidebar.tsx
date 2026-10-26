@@ -56,104 +56,26 @@ export function Sidebar({
       ? currentView === "overview" || currentView === "dashboard"
       : currentView === view;
 
-  const buttonClass = (view: ViewState) =>
-    `hub-nav-item group w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-semibold transition-all border ${
-      active(view)
-        ? "text-white bg-gradient-to-r from-[#0A86FF]/30 to-[#075fbc]/20 border-[#0A86FF]/60 shadow-[0_0_24px_rgba(10,134,255,0.16)]"
-        : "text-slate-400 border-transparent hover:text-white hover:bg-white/[0.045]"
-    }`;
+  const buttonClass = (view: ViewState) => `v79-nav-link ${active(view) ? "is-active" : ""}`;
 
   return (
     <>
-      <aside aria-label="Primary workspace navigation" className="vision79-sidebar hub-sidebar hidden lg:flex w-[252px] h-screen shrink-0 flex-col bg-[#06101d] border-r border-[#17324d]/70 text-slate-300 select-none relative overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-56 bg-[radial-gradient(circle_at_30%_0%,rgba(10,134,255,0.16),transparent_62%)] pointer-events-none" />
-        <div className="relative px-5 pt-5 pb-6">
-          <div className="flex items-center gap-3">
-            <div className="relative w-12 h-11 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-2xl bg-[#0A86FF]/12 blur-xl" />
-              <div className="relative text-[24px] font-black tracking-[-0.08em] text-white">
-                <span className="text-[#4dc3ff]">V</span>79
-              </div>
-            </div>
-            <div>
-              <div className="text-[17px] font-black tracking-tight text-white">Vision<span className="text-[#55c7ff]">79</span></div>
-              <div className="text-[10px] text-slate-400 mt-0.5">From Idea to Advantage.</div>
-            </div>
-          </div>
-        </div>
-
-        <nav className="relative flex-1 px-3.5 pb-5 overflow-y-auto">
-          <div className="px-3 mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">
-            WORKSPACE NAVIGATION
-          </div>
-          <div className="space-y-1">
-            {primary.filter((item) => item.visible).map((item) => {
-              const Icon = item.icon;
-              return (
-                <button key={item.view} onClick={() => onViewChange(item.view)} className={buttonClass(item.view)}>
-                  <Icon className={`w-[17px] h-[17px] ${active(item.view) ? "text-[#55c7ff]" : "text-slate-500 group-hover:text-slate-300"}`} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {user.ownerAgent && (
-            <div className="mt-7">
-              <div className="px-3 mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">
-                Intelligence
-              </div>
-              <button onClick={() => onViewChange("assistant")} className={buttonClass("assistant")}>
-                <Bot className="w-[17px] h-[17px] text-[#8b5cf6]" />
-                <span>Owner Assistant</span>
-                <Sparkles className="w-3.5 h-3.5 ml-auto text-[#f59e0b]" />
-              </button>
-            </div>
-          )}
-
-          {user.platformOperator && (
-            <div className="mt-7">
-              <div className="px-3 mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">
-                Administration
-              </div>
-              <button onClick={() => onViewChange("admin")} className={buttonClass("admin")}>
-                <Settings2 className="w-[17px] h-[17px]" />
-                <span>Platform Admin</span>
-              </button>
-            </div>
-          )}
+      <aside aria-label="Primary workspace navigation" className="v79-sidebar hidden lg:flex">
+        <div className="v79-brand"><span className="v79-brand-mark">V<span>79</span></span><div><strong>Vision<span>79</span></strong><small>From Idea to Advantage.</small></div></div>
+        <nav className="v79-side-nav"><div className="v79-nav-label">WORKSPACE</div>
+          {primary.filter((item) => item.visible).map((item) => {
+            const Icon = item.icon;
+            return <button key={item.view} onClick={() => onViewChange(item.view)} className={buttonClass(item.view)} aria-current={active(item.view) ? "page" : undefined}><Icon size={19} /><span>{item.label}</span>{active(item.view) && <span className="v79-nav-dot" />}</button>;
+          })}
+          {user.ownerAgent && <div className="v79-nav-group"><div className="v79-nav-label">INTELLIGENCE</div><button onClick={() => onViewChange("assistant")} className={buttonClass("assistant")} aria-current={active("assistant") ? "page" : undefined}><Bot size={19} /><span>Owner Assistant</span><Sparkles size={15} /></button></div>}
+          {user.platformOperator && <div className="v79-nav-group"><div className="v79-nav-label">ADMINISTRATION</div><button onClick={() => onViewChange("admin")} className={buttonClass("admin")} aria-current={active("admin") ? "page" : undefined}><Settings2 size={19} /><span>Platform Admin</span></button></div>}
         </nav>
-
-        <div className="relative p-3.5 border-t border-[#17324d]/70 bg-[#050d17]">
-          <div className="mb-2 px-1 text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">
-            Current workspace
-          </div>
-          <div className="rounded-2xl border border-[#1b3956] bg-[#091727] p-3 flex items-center gap-2.5">
-            <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-[#0A86FF] to-[#0057b7] flex items-center justify-center text-white font-black text-sm shadow-[0_0_18px_rgba(10,134,255,.2)]">
-              V
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] font-bold text-white truncate" title={organizationName}>
-                {organizationName}
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-sky-300 mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-                Workspace selected
-              </div>
-            </div>
-            <button
-              onClick={onLogout}
-              title="Log out"
-              className="p-2 rounded-lg text-slate-500 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <div className="v79-side-note"><Sparkles size={20} /><strong>Your next advantage<br />starts here.</strong><p>One workspace.<br />More possibilities.</p></div>
+        <div className="v79-workspace-switch"><span className="v79-workspace-avatar">V</span><div><strong title={organizationName}>{organizationName}</strong><span>Current workspace</span></div><button onClick={onLogout} title="Log out" aria-label="Log out"><LogOut size={18} /></button></div>
       </aside>
 
       <nav
-        className="lg:hidden fixed bottom-0 inset-x-0 z-[70] bg-[#06101d]/95 backdrop-blur-xl border-t border-[#17324d] px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex items-center gap-1"
+        className="v79-mobile-nav lg:hidden fixed bottom-0 inset-x-0 z-[70] bg-[#06101d]/95 backdrop-blur-xl border-t border-[#17324d] px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex items-center gap-1"
         aria-label="Mobile workspace navigation"
       >
         {primary.filter((item) => item.visible).slice(0, 4).map((item) => {
@@ -165,12 +87,13 @@ export function Sidebar({
                 onViewChange(item.view);
                 setMobileMoreOpen(false);
               }}
+              aria-current={active(item.view) ? "page" : undefined}
               className={`min-w-0 flex-1 min-h-12 flex flex-col items-center justify-center gap-1 rounded-xl py-1.5 px-1 text-[11px] font-semibold ${
                 active(item.view) ? "text-[#55c7ff] bg-[#0A86FF]/10" : "text-slate-400"
               }`}
             >
               <Icon className="w-5 h-5" />
-              <span className="max-w-full truncate">{item.label}</span>
+              <span className="max-w-full truncate">{item.view === "team" ? "Team" : item.label}</span>
             </button>
           );
         })}
@@ -202,7 +125,7 @@ export function Sidebar({
             role="dialog"
             aria-modal="true"
             aria-label="More workspace options"
-            className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-[#1a3854] bg-[#07111f] px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl"
+            className="v79-mobile-menu absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-[#1a3854] bg-[#07111f] px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl"
           >
             <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-slate-700" />
             <div className="mb-3 flex items-center justify-between gap-3">

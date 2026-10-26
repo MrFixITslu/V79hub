@@ -55,8 +55,8 @@ export default function App() {
     window.history.replaceState(window.history.state, "", hubViewUrl(window.location.href, "overview"));
   }, [currentView, user, isVerifyingSession]);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
-    try { return (localStorage.getItem("v79-hub-theme") as "light" | "dark") || "dark"; }
-    catch { return "dark"; }
+    try { return localStorage.getItem("v79-hub-theme") === "dark" ? "dark" : "light"; }
+    catch { return "light"; }
   });
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -275,7 +275,7 @@ export default function App() {
   };
 
   return (
-    <div className={"hub-theme-" + theme + " flex h-screen bg-slate-100 font-sans text-slate-800 antialiased overflow-hidden"}>
+    <div className={"hub-theme-" + theme + " v79-shell flex h-screen bg-slate-100 font-sans text-slate-800 antialiased overflow-hidden"}>
       <Sidebar
         currentView={currentView}
         onViewChange={setCurrentView}
@@ -284,25 +284,22 @@ export default function App() {
         organizationName={organizationName}
       />
       <main className="flex-1 min-w-0 overflow-y-auto relative flex flex-col bg-[#07111f] pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:pb-0">
-        <header className="hub-topbar h-[68px] px-4 sm:px-5 xl:px-7 border-b border-[#17324d]/80 bg-[#07111f]/95 backdrop-blur-xl flex items-center justify-between shrink-0 sticky top-0 z-30 text-slate-200">
+        <header className="v79-topbar hub-topbar h-[68px] px-4 sm:px-5 xl:px-7 border-b border-[#17324d]/80 bg-[#07111f]/95 backdrop-blur-xl flex items-center justify-between shrink-0 sticky top-0 z-30 text-slate-200">
           <div className="flex items-center gap-3 min-w-0">
+            <strong className="v79-mobile-brand sm:hidden">Vision<span>79</span></strong>
             <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-[#1a3854] bg-[#091728] min-w-0 max-w-[260px]">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0A86FF] to-[#0057b7] flex items-center justify-center text-[11px] font-black text-white shrink-0">V</div>
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0A86FF] to-[#0057b7] flex items-center justify-center text-[12px] font-black text-white shrink-0">V</div>
               <div className="min-w-0">
-                <div className="text-[8px] uppercase tracking-[0.15em] font-bold text-slate-600">Workspace</div>
-                <div className="text-[11px] font-bold text-white truncate">{organizationName}</div>
+                <div className="text-[12px] uppercase tracking-[0.15em] font-bold text-slate-600">Workspace</div>
+                <div className="text-[12px] font-bold text-white truncate">{organizationName}</div>
               </div>
             </div>
-            <div className="hidden xl:flex items-center gap-2 text-[10px]">
+            <div className="hidden xl:flex items-center gap-2 text-[12px]">
               <span className="text-slate-600">/</span>
               <span className="font-semibold text-slate-400">{viewLabel[currentView] || "Workspace"}</span>
             </div>
           </div>
 
-          <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center gap-2">
-            <span className="text-[13px] font-black tracking-[-0.03em] text-white"><span className="text-[#55c7ff]">V</span>79</span>
-            <span className="text-[9px] font-black tracking-[0.2em] text-slate-500">HUB BY V79 DIGITAL</span>
-          </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
             <button
@@ -319,6 +316,7 @@ export default function App() {
                 showToast("Hub data refreshed");
               }}
               title="Refresh Hub data"
+              aria-label="Refresh Hub data"
               className="w-9 h-9 rounded-xl border border-[#1a3854] bg-[#091728] text-slate-500 hover:text-[#55c7ff] hover:border-[#2b5275] flex items-center justify-center transition-colors"
             >
               <RotateCw className="w-4 h-4" />
@@ -345,12 +343,12 @@ export default function App() {
                 aria-haspopup="menu"
                 className="flex items-center gap-2 rounded-xl px-1.5 py-1 hover:bg-white/[0.04] transition-colors"
               >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#0A86FF] to-[#6d5dfc] flex items-center justify-center text-[10px] font-black text-white">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#0A86FF] to-[#6d5dfc] flex items-center justify-center text-[12px] font-black text-white">
                   {(user.fullName || user.username || "U").trim().split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase()}
                 </div>
                 <div className="hidden xl:block min-w-0 max-w-[130px] text-left">
-                  <div className="text-[10px] font-bold text-white truncate">{user.fullName || user.username}</div>
-                  <div className="text-[8px] text-slate-600 capitalize">{user.workspaceOwner ? "Owner" : user.role}</div>
+                  <div className="text-[12px] font-bold text-white truncate">{user.fullName || user.username}</div>
+                  <div className="text-[12px] text-slate-600 capitalize">{user.workspaceOwner ? "Owner" : user.role}</div>
                 </div>
                 <ChevronDown className={"w-3.5 h-3.5 text-slate-600 transition-transform " + (accountMenuOpen ? "rotate-180" : "")} />
               </button>
@@ -358,8 +356,8 @@ export default function App() {
               {accountMenuOpen && (
                 <div role="menu" className="absolute right-0 top-12 w-56 rounded-2xl border border-[#1a3854] bg-[#091728] shadow-2xl p-2 z-50">
                   <div className="px-3 py-2 border-b border-[#17324d] mb-1">
-                    <div className="text-[10px] font-bold text-white truncate">{user.fullName || user.username}</div>
-                    <div className="text-[9px] text-slate-500 truncate">{organizationName}</div>
+                    <div className="text-[12px] font-bold text-white truncate">{user.fullName || user.username}</div>
+                    <div className="text-[12px] text-slate-500 truncate">{organizationName}</div>
                   </div>
                   <button
                     role="menuitem"
