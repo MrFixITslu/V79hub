@@ -180,6 +180,21 @@ def systemd_env():
  env["XDG_RUNTIME_DIR"]=str(d)
  env["DBUS_SESSION_BUS_ADDRESS"]="unix:path="+str(d/"bus")
  return env
+def prove_systemd_docker_access():
+ # Check the SAME user manager and Docker group context as the rollback
+ # service. The only Docker operation is `info` (read-only). This transient
+ # unit does not touch Hub, Compose, containers, networks or volumes.
+ need(Path("/usr/bin/sg").is_file() and Path("/usr/bin/docker").is_file(),
+      "SYSTEMD_DOCKER_COMMAND_NOT_FOUND")
+ unit="vision79-v3-docker-access-"+str(os.getpid())+"-"+str(time.time_ns()%1000000000)
+ argv=["systemd-run","--user","--wait","--pipe","--collect",
+       "--quiet","--unit",unit,
+       "/usr/bin/sg","docker","-c",
+       "/usr/bin/docker info --format '{{.Name}}'"]
+ response=call(argv,env=systemd_env(),timeout=45,permit_failure=True)
+ need(response.returncode==0 and response.stdout.strip()==b"v79sl",
+      "USER_SYSTEMD_ROLLBACK_DOCKER_ACCESS_UNPROVEN")
+ return True
 def timer_active():
  r=call(["systemctl","--user","show",TIMER,"--property=ActiveState","--value"],
         env=systemd_env(),permit_failure=True)
@@ -205,7 +220,7 @@ def state():
  return read_json(STATE) if STATE.exists() else None
 def unit_text(deadline):
  date=dt.datetime.fromtimestamp(deadline,dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
- service=f"[Unit]\nDescription=Vision79 v3 automatic rollback\nStartLimitIntervalSec=0\n[Service]\nType=oneshot\nRestart=on-failure\nRestartSec=20s\nExecStart=/usr/bin/python3 -B {INSTALLED} --rollback\n"
+ service=f"[Unit]\nDescription=Vision79 v3 automatic rollback\nStartLimitIntervalSec=0\n[Service]\nType=oneshot\nRestart=on-failure\nRestartSec=20s\nExecStart=/usr/bin/sg docker -c \"/usr/bin/python3 -B {INSTALLED} --rollback\"\n"
  timer=f"[Unit]\nDescription=Vision79 v3 rollback deadline\n[Timer]\nOnCalendar={date}\nPersistent=true\nAccuracySec=1s\nUnit={SERVICE}\n[Install]\nWantedBy=timers.target\n"
  return service,timer
 def install_timer(deadline):
@@ -271,6 +286,8 @@ def verify():
  need(not STATE.exists() and not (USER_UNITS/TIMER).exists()
       and not (USER_UNITS/SERVICE).exists(),
       "RELEASE_ATTEMPT_ALREADY_STARTED")
+ need(prove_systemd_docker_access(),
+      "ROLLBACK_DOCKER_PERMISSION_DENIED")
  return p
 def execute():
  need(os.getenv("V79_V3_OWNER_PRESENT")=="I_AM_PRESENT_FOR_MFA_SSO_AND_VISUAL_CHECKS",
@@ -441,6 +458,8 @@ class Tests(unittest.TestCase):
   self.assertIn("Persistent=true",timer)
   self.assertIn("OnCalendar=",timer)
   self.assertIn(str(INSTALLED),service)
+  self.assertIn('ExecStart=/usr/bin/sg docker -c "',service)
+  self.assertIn("--rollback",service)
   self.assertNotIn("docker compose",service)
  def test_atomic_state_mode_and_no_private_secrets(self):
   with tempfile.TemporaryDirectory() as td:
@@ -496,6 +515,26 @@ class Tests(unittest.TestCase):
    with self.assertRaisesRegex(Stop,"OWNER_SUPERVISION_REQUIRED"):
     execute()
    verify_fn.assert_not_called()
+ def test_systemd_docker_probe_uses_docker_info_only(self):
+  with patch(__name__+".systemd_env",return_value={}),\
+       patch(__name__+".call",
+         return_value=subprocess.CompletedProcess([],0,b"v79sl\n",b"")) as fn,\
+       patch("pathlib.Path.is_file",return_value=True):
+   self.assertTrue(prove_systemd_docker_access())
+   args=fn.call_args.args[0]
+   self.assertIn("--user",args)
+   self.assertIn("--wait",args)
+   self.assertIn("--collect",args)
+   self.assertEqual(args[-3:],["docker","-c",
+       "/usr/bin/docker info --format '{{.Name}}'"])
+ def test_systemd_docker_probe_denies_unusable_group(self):
+  with patch(__name__+".systemd_env",return_value={}),\
+       patch(__name__+".call",
+         return_value=subprocess.CompletedProcess([],1,b"",b"")) as fn,\
+       patch("pathlib.Path.is_file",return_value=True):
+   with self.assertRaisesRegex(Stop,"USER_SYSTEMD_ROLLBACK_DOCKER_ACCESS_UNPROVEN"):
+    prove_systemd_docker_access()
+   self.assertTrue(fn.called)
  def test_wrong_mode_does_not_execute(self):
   with patch("sys.argv",["release.py","--anything"]):
    with self.assertRaisesRegex(Stop,"UNSUPPORTED_RELEASE_OPERATION"):
@@ -517,6 +556,7 @@ def main():
   print(json.dumps({"result":"PASS_RELEASE_CONTROLLER_PREFLIGHT",
      "durable_watchdog_probe_received":True,
      "prior_hub_baseline_verified":True,
+     "user_systemd_docker_access_verified":True,
      "production_changes":"NONE","cutover_started":False,
      "release_gate":"HOLD"}))
  elif args[0]=="--execute" and len(args)==1:
