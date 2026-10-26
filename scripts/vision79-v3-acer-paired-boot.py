@@ -79,10 +79,10 @@ def extract(archive,prefix,dest,total):
     need(len(PurePosixPath(suffix).parts)<=14,'TAR_NESTING_LIMIT')
     target=dest/suffix
     need(not target.is_symlink(),'TAR_SYMLINK_TARGET')
-    if member.isdir():target.mkdir(mode=0o700,parents=True);continue
+    if member.isdir():target.mkdir(mode=0o700,parents=True,exist_ok=True);continue
     need(0<=member.size<=64*1024*1024,'TAR_FILE_LIMIT')
     total[0]+=member.size;need(total[0]<=512*1024*1024,'RAM_DATA_LIMIT')
-    target.parent.mkdir(mode=0o700,parents=True)
+    target.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
     need(not target.exists(),'DUPLICATE_TAR_MEMBER')
     source=tar.extractfile(member);need(source is not None,'TAR_SOURCE_INVALID')
     fd=os.open(target,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
@@ -235,6 +235,23 @@ def run():
   'disposable_cleanup':'PASS','real_owner_mfa_sso_verified':False,'exact_runtime_parity_verified':False,
   'production_changes':'NONE','release_gate':'HOLD'},sort_keys=True))
 class Tests(unittest.TestCase):
+ def test_repeated_archive_directories(self):
+  import io
+  stream=io.BytesIO()
+  with tarfile.open(fileobj=stream,mode='w') as tar:
+   for name in ('data','data/nested'):
+    info=tarfile.TarInfo(name);info.type=tarfile.DIRTYPE;tar.addfile(info)
+   for name in ('data/one','data/nested/two','data/nested/three'):
+    info=tarfile.TarInfo(name);info.size=1;tar.addfile(info,io.BytesIO(b'x'))
+  class FakeDecrypt:
+   def __init__(self,content):self.stdout=io.BytesIO(content)
+   def wait(self,timeout=None):return 0
+   def poll(self):return 0
+   def kill(self):pass
+  with tempfile.TemporaryDirectory(prefix='v79-v3-synthetic-') as td:
+   with patch(__name__+'.subprocess.Popen',return_value=FakeDecrypt(stream.getvalue())):
+    extract(Path(td)/'synthetic.gpg','data',Path(td)/'out',[0])
+   self.assertEqual((Path(td)/'out/nested/three').read_bytes(),b'x')
  def test_wrong_host_no_docker(self):
   with patch('socket.gethostname',return_value='wrong'),patch(__name__+'.call') as command:
    with self.assertRaises(Stop):preflight()
