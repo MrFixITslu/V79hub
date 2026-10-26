@@ -41,6 +41,7 @@ Validation and review:
 - `tests/owner-workspace-ui.test.mjs` (updated initial-view expectations; existing action tests retained)
 - `tests/vision79-admin-owner.test.mjs`
 - `scripts/vision79-owner-admin-browser.mjs`
+- `scripts/vision79-workspace-browser.mjs` (wait for the theme shell after reload before asserting)
 - `scripts/vision79-workspace-preflight.mjs` (explicit expanded source allowlist)
 - this document
 
@@ -52,6 +53,7 @@ Validation and review:
 - Chromium: 25 primary screenshots and 49 checks, zero page errors and zero external requests. Sizes: 1440, 1024, 768, 390 and 320 pixels, plus desktop dark theme. Sampled body/label/navigation contrast meets 4.5:1; this is not a full accessibility certification.
 - Browser checks include prompt preparation without automatic send, chat draft retention, task prefill, delivery navigation, Academy reachability, provisioning destination, stale refresh, admin access denial, owner MFA denial and missing metrics. The only POST in the browser run is the explicitly simulated chat request. No approval, execution, provisioning or deployment requests occur.
 - Two additional previous-implementation screenshots and two mobile full-page screenshots support visual review. Previous-implementation renders use source at 7bd2e8234dc4bb4ee36af4d83f9e292d6c5ffb31 and sample data. They are not live production captures.
+- Hub regression browser checks: PASS, including persisted theme after reload, signed Tiquet launch href, disabled app behavior, mobile navigation and unauthenticated login/recovery. The harness now waits for the theme shell to render after reload before asserting, avoiding a timing race.
 - Server/auth/SSO, subscription handlers, typed customer confirmations, task execution and approval panels are protected by source-boundary tests. Real private-session production MFA and Tiquet SSO acceptance remain pending.
 
 ## Evidence provenance

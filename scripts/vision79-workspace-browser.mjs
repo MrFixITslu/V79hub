@@ -175,7 +175,7 @@ try {
         await p.locator('aside[aria-label="Primary workspace navigation"]').getByRole('button',{name:'Overview',exact:true}).click();
         await p.locator('.v79-app-card').first().waitFor();
         await p.getByRole('button',{name:'Switch to dark mode'}).click();
-        assert.equal(await p.locator('.hub-theme-dark').count(),1);await p.reload();assert.equal(await p.locator('.hub-theme-dark').count(),1);
+        await p.locator('.hub-theme-dark').waitFor();assert.equal(await p.locator('.hub-theme-dark').count(),1);await p.reload();await p.locator('.hub-theme-dark').waitFor();assert.equal(await p.locator('.hub-theme-dark').count(),1);
         await p.getByRole('button',{name:'Switch to light mode'}).click();
         report.checks.push('CTA, navigation reload, persisted light/dark toggle, signed launch href and disabled app semantics');
         await capture(p,'desktop-full',true);
