@@ -199,6 +199,14 @@ def timer_active():
  r=call(["systemctl","--user","show",TIMER,"--property=ActiveState","--value"],
         env=systemd_env(),permit_failure=True)
  return r.returncode==0 and r.stdout.strip()==b"active"
+def timer_has_next_trigger():
+ # 'active' alone does not prove a calendar timer has a scheduled elapse.
+ r=call(["systemctl","--user","show",TIMER,
+         "--property=NextElapseUSecRealtime","--value"],
+        env=systemd_env(),permit_failure=True)
+ return r.returncode==0 and r.stdout.strip() not in (
+  b"",b"n/a",b"N/A",b"0",b"infinity")
+
 def locked():
  need(ROOT.is_dir(),"RELEASE_ROOT_MISSING")
  fd=os.open(str(LOCK),os.O_CREAT|os.O_RDWR,0o600)
@@ -252,6 +260,7 @@ def install_timer(deadline):
  call(["systemctl","--user","daemon-reload"],env=env)
  call(["systemctl","--user","enable","--now",TIMER],env=env)
  need(timer_active(),"PERSISTENT_ROLLBACK_TIMER_NOT_ACTIVE")
+ need(timer_has_next_trigger(),"PERSISTENT_ROLLBACK_TIMER_HAS_NO_NEXT_TRIGGER")
  return True
 def compose_up(plan,upgrade):
  args=base_cmd(plan,use_candidate=upgrade)+[
@@ -383,8 +392,10 @@ def rollback():
   hub=hub_for_rollback()
   need(hub is None or hub.get("Image") in (PRIOR,CANDIDATE),
        "UNKNOWN_HUB_IMAGE_REFUSE_REPLACE")
-  if hub is None or hub.get("Image")==CANDIDATE or (hub.get("Image")==PRIOR and (
-     (hub.get("State") or {}).get("Status")!="running")):
+  if (hub is None or hub.get("Image")==CANDIDATE
+      or (hub.get("Image")==PRIOR and
+          ((hub.get("State") or {}).get("Status")!="running" or
+           ((hub.get("State") or {}).get("Health") or {}).get("Status")!="healthy"))):
    try:
     compose_up(p,False)
     healthy_hub(PRIOR,timeout=120)
@@ -535,6 +546,39 @@ class Tests(unittest.TestCase):
    with self.assertRaisesRegex(Stop,"USER_SYSTEMD_ROLLBACK_DOCKER_ACCESS_UNPROVEN"):
     prove_systemd_docker_access()
    self.assertTrue(fn.called)
+ def test_timer_must_have_next_scheduled_trigger(self):
+  with patch(__name__+".systemd_env",return_value={}),\
+       patch(__name__+".call",
+             return_value=subprocess.CompletedProcess([],0,b"n/a\n",b"")):
+   self.assertFalse(timer_has_next_trigger())
+  with patch(__name__+".systemd_env",return_value={}),\
+       patch(__name__+".call",
+             return_value=subprocess.CompletedProcess([],0,b"Mon 2026-10-26 23:59:00 UTC\n",b"")):
+   self.assertTrue(timer_has_next_trigger())
+ def test_unhealthy_prior_recreates_during_watchdog_recovery(self):
+  prior_row={"Image":PRIOR,"State":{"Status":"running","Health":{"Status":"unhealthy"}},
+             "Config":{},"HostConfig":{},"Mounts":[],
+             "NetworkSettings":{"Networks":{}}}
+  healed=json.loads(json.dumps(prior_row))
+  healed["State"]["Health"]["Status"]="healthy"
+  others={"tiquet":{"id":"id","image":"sha256:prior"}}
+  snapshot={"schema":"vision79-v3-supervised-cutover","state":"REVIEW_PENDING",
+            "original_contract_sha256":sha(canon(contract(healed))),
+            "other_service_identity_sha256":sha(canon(others))}
+  with tempfile.TemporaryDirectory() as td:
+   fd=os.open(str(Path(td)/"lock"),os.O_CREAT|os.O_RDWR,0o600)
+   with patch(__name__+".load_plan",return_value={"base_compose_path":"/tmp/base.json"}),\
+        patch(__name__+".locked",return_value=fd),\
+        patch(__name__+".state",return_value=snapshot),\
+        patch(__name__+".expected_prior_reference",return_value="prior:tag"),\
+        patch(__name__+".hub_for_rollback",return_value=prior_row),\
+        patch(__name__+".compose_up") as compose,\
+        patch(__name__+".healthy_hub",return_value=healed),\
+        patch(__name__+".current_other",return_value=others),\
+        patch(__name__+".atomic_write") as save:
+    output=rollback()
+   self.assertEqual(output["result"],"PASS_AUTOMATIC_PRIOR_HUB_RESTORED")
+   compose.assert_called_once()
  def test_wrong_mode_does_not_execute(self):
   with patch("sys.argv",["release.py","--anything"]):
    with self.assertRaisesRegex(Stop,"UNSUPPORTED_RELEASE_OPERATION"):
