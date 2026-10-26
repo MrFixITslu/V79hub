@@ -10,6 +10,7 @@ on:
       - src/components/Sidebar.tsx
       - src/index.css
       - tests/vision79-visual-release.test.mjs
+      - tests/r18-reconciled-candidate.test.mjs
       - .github/workflows/vision79-visual-release.yml
 
 permissions:
@@ -36,10 +37,10 @@ jobs:
           mapfile -t changed < <(git diff --name-only "$ACCEPTED_LIVE_SOURCE" HEAD | LC_ALL=C sort)
           printf 'Changed paths compared with exact deployed Hub source:\n'
           printf '%s\n' "${changed[@]}"
-          test "${#changed[@]}" -eq 5
+          test "${#changed[@]}" -eq 6
           for path in "${changed[@]}"; do
             case "$path" in
-              src/components/HubOverview.tsx|src/components/Sidebar.tsx|src/index.css|tests/vision79-visual-release.test.mjs|.github/workflows/vision79-visual-release.yml) ;;
+              src/components/HubOverview.tsx|src/components/Sidebar.tsx|src/index.css|tests/vision79-visual-release.test.mjs|tests/r18-reconciled-candidate.test.mjs|.github/workflows/vision79-visual-release.yml) ;;
               *) echo "REFUSED_NON_UI_CHANGE=$path" >&2; exit 1 ;;
             esac
           done
