@@ -166,6 +166,32 @@ The isolated staging script on `fix/v79-v3-oci-image-index-20261026` was therefo
 
 Candidate Acer staging checker commit: `e45eeaa2c1f7498baec4ad459aa6249e7477b06a`; checker SHA-256 `afb47d1eea745929ea0a0b95a1985f51df1eed7331361d0919d440dd59627eec`; unchanged Dell gate SHA-256 `e2499c7879e1ecb406809c471364eeb8e33f602341d4d24c720de4907e06f9bd`. **Eleven Acer and six Dell synthetic tests are prepared but not yet operator-run.** Only after tests pass should the owner execute the one image-only staging attempt. Successful stage will cache the image on Dell without deployment; further exact production runtime and MFA/SSO/browser acceptance gates remain `HOLD`.
 
+## 26 October 2026 — APPROVED V3 IMAGE STAGED ON DELL: PASS
+
+The operator executed the checksum-pinned OCI-aware, image-only Acer-to-Dell transfer from source `114841271d4f8b9c4b63df6aedfd55bde2e82f40`. The terminal receipt reports:
+
+- `SERVER_LIVE_BASELINE=PASS_BEFORE`
+- `UNTAGGED_CANDIDATE_ARCHIVE=PASS`
+- `candidate_image: sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6`
+- `candidate_image_in_dell_cache: true`
+- `five_running_container_identities_unchanged: true`
+- `live_runtime_fingerprint_unchanged: true`
+- `production_containers_changed: false`
+- `candidate_started: false`
+- `release_gate: HOLD`
+
+**Staging is COMPLETE.** The Dell Docker image cache now contains the exact approved v3 image; existing Hub, Tiquet, Postgres, agent, Docker/Compose runtime, data and user sessions were unaffected by the image-only import. No more source rebuild, archive transfer, encrypted restore, swap toggling or repeated isolated database boot is needed for this pinned candidate unless the baseline changes.
+
+The prior safe gates now have owner-operated PASS evidence: encrypted offhost checkpoint and disconnected paired restore; prior Hub rollback cold boot; current live deep Docker/Compose audit (85 env keys, seven mounts, two networks and full recorded HostConfig bind/mount sources); approved candidate offhost metadata/source and original runtime fingerprint comparison; OCI cryptographic archive validation; five-container-preserving image-only transfer.
+
+**Open release blockers (do not misstate as completed):**
+1. Prove the *replacement* container uses precisely the sealed original HostConfig, Binds, Mounts, networks, environment, policy, identity and rollback plan with only the image changed. Static parity helps, but it is not actual replacement-runtime proof.
+2. Real owner MFA/session and signed Hub-to-Tiquet SSO browser acceptance on the replacement, including failures/expiry. Previous browser mocks and synthetic isolated smoke are not sufficient.
+3. Authenticated browser check that the v3 Owner Assistant/Platform Admin UI matches the owner-approved design (not the older UI), without customer-data leakage.
+4. Seal the real production cutover, audit, rollback and checkpoint receipt. Stop the cutover/roll back on any failed owner authentication or browser acceptance.
+
+Release policy: **HOLD / NOT DEPLOYED**. Do not start the candidate on the live customer mounts or change Compose while these gates are unsealed. The next step is targeted runtime/owner acceptance and release transaction preparation, not another recovery cycle.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
