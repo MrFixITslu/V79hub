@@ -46,8 +46,11 @@ def validate(services,candidate=None,phase="before"):
   need(isinstance(candidate,dict) and candidate.get("Id")==CANDIDATE and
        ((candidate.get("Config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision")==SOURCE,
        "STAGED_IMAGE_ID_OR_REVISION_DRIFT")
+ identity={n:{"id":row.get("Id"),"image":row.get("Image")} for n,row in services.items()}
+ identity_sha=hashlib.sha256(json.dumps(identity,sort_keys=True,separators=(",",":")).encode()).hexdigest()
  return {"schema":"vision79-v3-image-only-stage-gate","phase":phase,
          "live_hub_fingerprint_match":True,"live_services_healthy":5,
+         "service_identity_sha256":identity_sha,
          "candidate_present":phase=="after",
          "production_containers_changed":False,"release_gate":"HOLD"}
 def collect(phase):
@@ -99,6 +102,7 @@ class Tests(unittest.TestCase):
    report=validate(rows,candidate,"after")
   self.assertNotIn("not_for_output",json.dumps(report))
   self.assertEqual(report["candidate_present"],True)
+  self.assertEqual(len(report["service_identity_sha256"]),64)
  def test_wrong_host_before_docker(self):
   with patch("socket.gethostname",return_value="other"),patch(__name__+".command") as c:
    with self.assertRaises(Stop):collect("before")
