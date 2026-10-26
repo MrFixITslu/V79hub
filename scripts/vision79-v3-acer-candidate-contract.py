@@ -171,9 +171,11 @@ class Tests(unittest.TestCase):
   h=self.hub();h["Config"]["Env"][1]="K0=PRIVATE_SECRET"
   before=runtime_fingerprint(h)
   with patch(__name__+".AUDIT_SHA",before):
-   candidate=self.image(CANDIDATE);candidate["Config"]["Env"]=["NODE_ENV=production"]
-   with self.assertRaises(Stop):compare(h,self.image(PRIOR),candidate)
-  self.assertNotIn("PRIVATE_SECRET",before)
+   candidate=self.image(CANDIDATE)
+   candidate["Config"]["Env"]=["V79_REQUIRE_ADMIN_MFA=1"]
+   report=compare(h,self.image(PRIOR),candidate)
+  self.assertEqual(report["result"],"PASS_CANDIDATE_METADATA_AND_LIVE_SNAPSHOT_MATCH")
+  self.assertNotIn("PRIVATE_SECRET",json.dumps(report))
  def test_fingerprint_rejects_drift(self):
   with self.assertRaises(Stop):compare(self.hub(),self.image(PRIOR),self.image(CANDIDATE))
  def test_missing_image_env_rejected(self):
@@ -183,9 +185,12 @@ class Tests(unittest.TestCase):
    with self.assertRaises(Stop):compare(h,self.image(PRIOR),candidate)
  def test_check_no_swap_without_decrypt(self):
   with patch("socket.gethostname",return_value="firelion-Aspire-A315-51"),\
-       patch("os.geteuid",return_value=1000),patch(__name__+".call",return_value=b"default"),\
-       patch("pathlib.Path.read_text",return_value="Filename Type Size Used Priority\n/swapfile file 100 50 -1\n"):
-   with self.assertRaises(Stop):preflight()
+       patch("os.geteuid",return_value=1000),\
+       patch(__name__+".call",side_effect=[b"default",b"firelion-Aspire-A315-51"]),\
+       patch("pathlib.Path.read_text",return_value="Filename Type Size Used Priority\n/swapfile file 100 50 -1\n"),\
+       patch(__name__+".read_snapshot") as decrypt:
+   with self.assertRaisesRegex(Stop,"ACTIVE_SWAP_REFUSED"):preflight()
+   decrypt.assert_not_called()
 
 def main():
  need(len(sys.argv)==2 and sys.argv[1] in ("--self-test","--run"),"MODE_REQUIRED")
