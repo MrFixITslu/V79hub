@@ -4,10 +4,9 @@ on:
   push:
     branches:
       - recovery/post-v8-visual-checkpoint-20261026
-    paths:
-      - scripts/post-v8-visual-readiness-20261026.py
-      - scripts/post-v8-visual-capture-20261026.py
-      - .github/workflows/post-v8-checkpoint-contract.yml
+  pull_request:
+    branches:
+      - codex/demo-cutover-fixes-20261025
 
 permissions:
   contents: read
