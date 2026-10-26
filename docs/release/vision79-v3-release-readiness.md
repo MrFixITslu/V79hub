@@ -158,6 +158,14 @@ The standalone Acer-only diagnostic `scripts/vision79-v3-image-archive-diagnosti
 
 All prior paired-restore, runtime audit and approved candidate metadata PASS results remain valid. Candidate staging, exact replacement parity, MFA/SSO, visual browser acceptance and production cutover remain `HOLD`.
 
+## 26 October 2026 — OCI identity proven, corrected staging pending
+
+The Acer operator ran the safe local digest-relationship diagnostic. It returned `ACER_ONLY_DIAGNOSTIC_PREFLIGHT=PASS`, `LOCAL_EXPORT_ARCHIVE_REMOVED=PASS`, with these essential properties: OCI blob format; no mutable archive tags; config SHA-256 matches its own OCI blob filename; pinned Docker image ID **does not** equal the config SHA; OCI `index.json` contains a descriptor matching the pinned image ID; a blob under the pinned digest exists; approved Git source and inspected user/entrypoint/command match; all **six** layer DiffIDs match Docker inspect. The diagnostic touched no production system and created no permanent archive. This proves the failed comparator targeted the wrong digest type; it does not yet prove all root/manifest/config references cryptographically.
+
+The isolated staging script on `fix/v79-v3-oci-image-index-20261026` was therefore corrected to verify the pinned image ID through the OCI index descriptor to the content-addressed root manifest/index and on to the exact Docker-save configuration digest and descriptor size. Every visited index/manifest JSON blob is hashed and checked against its OCI digest, with bounded recursion and rejection of missing/tampered blobs, unexpected tags, path traversal, invalid config names and disconnected config. It still checks source image ID and source labels against the pinned approved build on the Acer; the unchanged Dell read-only before/after gate checks the live runtime fingerprint and all five container identities. No image tags, live containers, Compose, mounted data, or application images were altered by these source changes.
+
+Candidate Acer staging checker commit: `e45eeaa2c1f7498baec4ad459aa6249e7477b06a`; checker SHA-256 `afb47d1eea745929ea0a0b95a1985f51df1eed7331361d0919d440dd59627eec`; unchanged Dell gate SHA-256 `e2499c7879e1ecb406809c471364eeb8e33f602341d4d24c720de4907e06f9bd`. **Eleven Acer and six Dell synthetic tests are prepared but not yet operator-run.** Only after tests pass should the owner execute the one image-only staging attempt. Successful stage will cache the image on Dell without deployment; further exact production runtime and MFA/SSO/browser acceptance gates remain `HOLD`.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
