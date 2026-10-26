@@ -249,6 +249,14 @@ Branch `release/v79-v3-supervised-controller-20261026`:
 
 Release decision: **HOLD / live Hub remains prior image**. Next after controller verification: independently review and supervise rollback-armed single-Hub `--execute` with the owner present, test MFA+Tiquet SSO+approved UI, and explicitly `--accept` or allow guaranteed timed rollback. If watchdog fails to persist, cancel release—do not bypass it.
 
+## 26 October 2026 — controller self-test SyntaxError corrected, production NOT contacted
+
+Owner terminal run verified the previous watchdog probe/controller file SHA-256 and the watchdog liveness script's six synthetic tests (`Ran 6 tests ... OK`). Execution then halted at **local** `vision79-v3-supervised-cutover.py` line 251, `SyntaxError: invalid syntax`, caused by an unparenthesized multi-line `if ... and` health condition. The Acer shell used `set -e`, so the following SSH `--arm`, `--check`, controller `scp`, remote `--verify`, and any production cutover were **not executed in this attempt**. There is no evidence the harmful rollback watchdog was armed, controller installed, or v3 started.
+
+Fixed the single malformed condition in `scripts/vision79-v3-supervised-cutover.py` at commit `c62cd8d4182f4d3a2fa763f9d996dba85aae527b`; updated file SHA-256 `f593d4b94aaead2b038c03a2b3e9c2934fb794e9f534ad94e0782edcc640ce12`; unchanged proof script SHA-256 `72b5b73ccbf2615d10d92b72a938feab919397ddf4613bc4706eb1f121b03f1c`. A targeted static scan found no other bare `if/elif/while` lines ending in `and/or`. **Ten controller tests remain unexecuted**, and the syntax fix still needs actual local `ast.parse` and self-test before any remote staging. Don't repeat backup, archive transfer, Compose dry-run, static parity, or sealed-plan creation.
+
+Safest next operator action: download these pinned files to Acer, verify SHA-256, parse controller syntax locally using Python's `ast.parse`, execute six harmless probe and ten controller self-tests, and only then perform the detached harmless SSH proof and copy the immutable controller to the already sealed private directory for read-only `--verify`. No `--execute`, no actual watchdog arming for release, and no live Hub restart. Release stays `HOLD` until independent acceptance and rollback mechanism verification.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
