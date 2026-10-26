@@ -368,7 +368,7 @@ export function HubOverview({
               <p className="mt-3 text-xs leading-relaxed text-[#a6bfd7]">Based on available connected app data. Missing reports never count as all-clear.</p>
               <div className="mt-7 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
                 <div>
-                  <div className="text-[10px] uppercase tracking-widest font-bold text-[#799dbe]">Latest Hub check</div>
+                  <div className="text-[10px] uppercase tracking-widest font-bold text-[#799dbe]">Hub checked</div>
                   <div className="mt-1 text-sm font-bold text-white">{lastUpdated}</div>
                 </div>
                 <button type="button" onClick={() => void loadDashboard()} aria-label="Refresh dashboard" title="Refresh dashboard" className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#55c7ff]/35 bg-[#55c7ff]/10 text-[#82d8ff] transition-colors hover:bg-[#55c7ff]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300">
