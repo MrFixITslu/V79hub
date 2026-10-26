@@ -130,6 +130,14 @@ The wrapper reuses the previously tested **operator-executed, single-file swapof
 
 A PASS would mean only snapshot identity and candidate **metadata** are compatible; it is **not** a substitute for exact replacement runtime/Compose rehearsal, MFA/session/Hub-to-Tiquet SSO acceptance or authenticated browser visual verification. Never reclassify it as deployment approval.
 
+## 26 October 2026 — candidate metadata gate PASS; image-only Dell stage prepared
+
+The Acer operator ran the checksum-pinned candidate-offhost contract at `ed9b6b146f60b2bbce3648d3c99ab51412353f2a`. It returned `PASS_CANDIDATE_METADATA_AND_LIVE_SNAPSHOT_MATCH`, with exact source and live runtime fingerprint matches, 85 live environment keys, seven mounts, zero candidate-default value conflicts, and prior/new user/entrypoint/command matches. The guarded swap window returned `ACER_SWAP=RESTORED` and `CANDIDATE_CONTRACT_WINDOW=PASS_CHECK_AND_SWAP_RESTORED`. The same receipt explicitly states `candidate_image_on_server_verified: false`, `full_production_runtime_parity_verified: false`, `real_owner_mfa_sso_verified: false`, `production_changes: NONE`, `release_gate: HOLD`.
+
+The next stage is **only Docker image-cache transfer**, using `scripts/vision79-v3-image-stage-acer.py` and `scripts/vision79-v3-image-stage-server.py` on the independent `stage/v79-v3-image-only-20261026` branch. Operator execution is still outstanding. The sender validates the previously pinned approved Acer image/build receipt, exports by immutable ID, **rejects any archive carrying mutable repository tags**, verifies a full SSH SHA-256 and reserves disk headroom, then imports on the Dell using `docker image load`. The server checker confirms the pinned five live running service images/health, exact Hub runtime fingerprint, candidate absence before and approved candidate image ID/source label after. The sender independently checks unchanged five-container identity hashes before and after and removes the temporary transfer archives. The scripts do not stop/start/recreate any container, modify Compose or touch persistent application data. Imported image layers **will modify the Dell Docker image cache**, but this is not a production application deployment.
+
+The new scripts must pass their synthetic tests before being run by the operator. Both fail closed; any partial import/error retains the release HOLD and must be reconciled before retry. Successful import would **not** satisfy real owner MFA/SSO, exact candidate runtime parity, visual browser acceptance or production cutover/rollback rehearsal. Do not transfer live secrets to the Acer or disable server swap for image staging.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
