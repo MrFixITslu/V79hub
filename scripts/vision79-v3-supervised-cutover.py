@@ -461,6 +461,40 @@ class Tests(unittest.TestCase):
     subprocess.CompletedProcess([],1,b"",b""),
     Stop("GUARDED_COMMAND_NONZERO")]
    with self.assertRaises(Stop):hub_for_rollback()
+ def test_rollback_candidate_uses_original_compose_and_preserves_other_services(self):
+  prior_row={"Image":PRIOR,"State":{"Status":"running","Health":{"Status":"healthy"}},
+             "Config":{"Env":["PRIVATE=do-not-print"]},
+             "HostConfig":{"Binds":["/private:/app/data:rw"],"Mounts":[]},
+             "Mounts":[{"Destination":"/app/data","Type":"bind",
+                        "Source":"/private","RW":True}],
+             "NetworkSettings":{"Networks":{"proxy_network":{}}}}
+  other_state={"tiquet":{"id":"id","image":"sha256:prior"}}
+  snapshot={"schema":"vision79-v3-supervised-cutover","state":"REVIEW_PENDING",
+            "original_contract_sha256":sha(canon(contract(prior_row))),
+            "other_service_identity_sha256":sha(canon(other_state))}
+  with tempfile.TemporaryDirectory() as td:
+   fd=os.open(str(Path(td)/"lock"),os.O_CREAT|os.O_RDWR,0o600)
+   with patch(__name__+".load_plan",return_value={"base_compose_path":"/tmp/base.json"}),\
+        patch(__name__+".locked",return_value=fd),\
+        patch(__name__+".state",return_value=snapshot),\
+        patch(__name__+".expected_prior_reference",return_value="prior:tag"),\
+        patch(__name__+".hub_for_rollback",return_value={"Image":CANDIDATE}),\
+        patch(__name__+".compose_up") as compose,\
+        patch(__name__+".healthy_hub",return_value=prior_row),\
+        patch(__name__+".current_other",return_value=other_state),\
+        patch(__name__+".atomic_write") as save:
+    result=rollback()
+   self.assertEqual(result["result"],"PASS_AUTOMATIC_PRIOR_HUB_RESTORED")
+   compose.assert_called_once_with({"base_compose_path":"/tmp/base.json"},False)
+   self.assertEqual(snapshot["state"],"ROLLED_BACK")
+   self.assertFalse(snapshot["owner_acceptance"])
+   save.assert_called_once()
+ def test_execute_requires_owner_presence_before_runtime_access(self):
+  with patch.dict(os.environ,{"V79_V3_OWNER_PRESENT":"no"},clear=False),\
+       patch(__name__+".verify") as verify_fn:
+   with self.assertRaisesRegex(Stop,"OWNER_SUPERVISION_REQUIRED"):
+    execute()
+   verify_fn.assert_not_called()
  def test_wrong_mode_does_not_execute(self):
   with patch("sys.argv",["release.py","--anything"]):
    with self.assertRaisesRegex(Stop,"UNSUPPORTED_RELEASE_OPERATION"):
