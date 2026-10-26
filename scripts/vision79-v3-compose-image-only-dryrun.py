@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import socket
 import subprocess
 import sys
@@ -140,6 +139,7 @@ def run():
   # Engine has not been mutated; still enforce a Compose dry-run marker.
   clean=re.sub(rb"\x1b\[[0-9;]*m",b"",stdout+stderr)
   need(b"DRY-RUN MODE" in clean,"DOCKER_COMPOSE_DRY_RUN_MARKER_MISSING")
+  need(b"v79-hub" in clean,"COMPOSE_DRY_RUN_DID_NOT_REFERENCE_HUB")
   verify_after(ids,path)
   return {"schema":"vision79-v3-image-only-compose-dryrun",
           "result":"PASS_IMAGE_ONLY_COMPOSE_DRY_RUN",
