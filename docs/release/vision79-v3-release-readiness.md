@@ -138,6 +138,16 @@ The next stage is **only Docker image-cache transfer**, using `scripts/vision79-
 
 The new scripts must pass their synthetic tests before being run by the operator. Both fail closed; any partial import/error retains the release HOLD and must be reconciled before retry. Successful import would **not** satisfy real owner MFA/SSO, exact candidate runtime parity, visual browser acceptance or production cutover/rollback rehearsal. Do not transfer live secrets to the Acer or disable server swap for image staging.
 
+## 26 October 2026 — image-only stage pre-transfer STOP, archive validator corrected
+
+The operator launched the first image-only staging script. All four original Acer synthetic tests passed and the read-only Dell gate returned `SERVER_LIVE_BASELINE=PASS_BEFORE`. The Acer then returned `STOP IMAGE_ARCHIVE_CONFIG_DRIFT` during local `docker image save` archive verification, **before any SSH archive copy or `docker image load`**. The candidate was **not imported by this attempt**, and production deployment remained unchanged; no subsequent service-gate snapshot was collected by that aborted run.
+
+Root cause in the checker: it compared Docker's `manifest.json` `Config` **filename** to `<image SHA>.json`. Newer archive layouts may use `blobs/sha256/<digest>` without a `.json` suffix. That filename assumption is unsafe for cross-version Docker images.
+
+On branch `fix/v79-v3-docker-archive-config-20261026`, commit `e136de853595295d22436cdbf33bfea4e72446d6`, the Acer stage script now checks the actual archive config **bytes** against the pinned image's SHA-256 regardless of safe filename convention. The script also refuses tagged archive manifests, unsafe paths, symlink/nonregular config members, duplicate tar members, impossible sizes, and cryptographic digest mismatch. Three additional synthetic cases cover both valid filename styles, mismatched/tagged configs, and traversal; the total is **seven tests, pending operator execution**. Its SHA-256 is `4680daec3b9dea45b0c354e486ff258666c40f66271abd3f871ee0c0cae4d292`. The unchanged Dell read-only gate is `e2499c7879e1ecb406809c471364eeb8e33f602341d4d24c720de4907e06f9bd`.
+
+**Next:** operator reruns only the checksum-pinned image-only stage after self-tests, not the encrypted recovery or DB boot. Successful stage will cache the image only, with live Hub/Compose/data unchanged. `release_gate: HOLD` remains until exact candidate runtime, genuine MFA/SSO, browser visual acceptance and sealed rollback/cutover have been separately verified.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
