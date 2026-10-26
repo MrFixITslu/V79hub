@@ -16,7 +16,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-BOOT_SHA='382e01857fe06b217b8e77c8ce2452b01ba590c48d5abff0bd0beab5e3218f55'
+BOOT_SHA='09d312c08c25d030da58f4f3abc13acbf4401b09e7370293bc17c61b87a4a36d'
 SWAP='/swapfile'
 PRE_BYTES=4*1024**3
 AFTER_BYTES=4*1024**3
