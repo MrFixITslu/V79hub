@@ -129,12 +129,21 @@ def health(name,url):
   if p.returncode==0:return True
   time.sleep(.5)
  return False
-def inspect_isolation(name,holder=None):
+def inspect_isolation(name,holder=None,database=False,scratch=None):
  row=json.loads(call(['docker','inspect','--type=container',name]))[0]
  host=row.get('HostConfig') or {}
  need(not host.get('PortBindings') and (host.get('NetworkMode')=='none' if holder is None else
   host.get('NetworkMode','').startswith('container:')),'ISOLATION_DRIFT')
  need(host.get('ReadonlyRootfs') is True and (host.get('LogConfig') or {}).get('Type')=='none','FILESYSTEM_OR_LOG_DRIFT')
+ mounts=row.get('Mounts') or []
+ for m in mounts:
+  if m.get('Type')=='tmpfs':continue
+  need(not database and scratch is not None and m.get('Type')=='bind' and
+   str(m.get('Source','')).startswith(str(scratch)+'/') and
+   m.get('Destination') in ('/app/data','/app/uploads','/app/logs'),'PERSISTENT_OR_UNREVIEWED_MOUNT')
+ if database:
+  need('/var/lib/postgresql/data' in (host.get('Tmpfs') or {}) and
+   all(m.get('Type')=='tmpfs' for m in mounts),'DATABASE_NOT_RAM_BACKED')
 def envs(ph,pt):
  shared=secrets.token_hex(32)
  hub={'NODE_ENV':'production','PORT':'3040','DATA_DIR':'/app/data','V79_HUB_STORE_BACKEND':'json',
@@ -189,7 +198,7 @@ def run():
     '--tmpfs','/tmp:rw,size=67108864',
     '--env','POSTGRES_PASSWORD='+pw,'--env','POSTGRES_USER=postgres','--env','POSTGRES_DB=postgres',image]
    if port==5433:args+=['postgres','-c','port=5433']
-   call(args,timeout=120);names.append(name);inspect_isolation(name,holder)
+   call(args,timeout=120);names.append(name);inspect_isolation(name,holder,database=True)
    wait_sql(name,port)
   restore_dump(hdb,'hub-postgres.dump.gpg',5432);restore_dump(tdb,'tiquet-postgres.dump.gpg',5433)
   print('PAIRED_DATABASE_RESTORE=PASS_BOTH',flush=True)
@@ -197,14 +206,14 @@ def run():
   hm=[(scratch/'hub_data','/app/data')]
   tm=[(scratch/'tiquet_data','/app/data'),(scratch/'tiquet_uploads','/app/uploads'),
       (scratch/'tiquet_logs','/app/logs')]
-  call(app_args(hub,IMAGES['candidate'],holder,eh,hm),timeout=120);names.append(hub);inspect_isolation(hub,holder)
-  call(app_args(tiquet,IMAGES['tiquet'],holder,et,tm),timeout=120);names.append(tiquet);inspect_isolation(tiquet,holder)
+  call(app_args(hub,IMAGES['candidate'],holder,eh,hm),timeout=120);names.append(hub);inspect_isolation(hub,holder,scratch=scratch)
+  call(app_args(tiquet,IMAGES['tiquet'],holder,et,tm),timeout=120);names.append(tiquet);inspect_isolation(tiquet,holder,scratch=scratch)
   need(health(hub,'http://127.0.0.1:3040/api/health') and
        health(tiquet,'http://127.0.0.1:3050/health'),'CANDIDATE_OR_TIQUET_HEALTH_FAILED')
   print('CANDIDATE_HUB_AND_TIQUET_HEALTH=PASS',flush=True)
   call(['docker','rm','-f',hub]);names.remove(hub)
   call(app_args(rollback,IMAGES['prior'],holder,eh,hm),timeout=120);names.append(rollback)
-  inspect_isolation(rollback,holder)
+  inspect_isolation(rollback,holder,scratch=scratch)
   need(health(rollback,'http://127.0.0.1:3040/api/health') and
        health(tiquet,'http://127.0.0.1:3050/health'),'PRIOR_HUB_ROLLBACK_BOOT_FAILED')
   print('PRIOR_HUB_ROLLBACK_COLD_BOOT=PASS',flush=True)
@@ -234,6 +243,12 @@ class Tests(unittest.TestCase):
  def test_app_no_ports(self):
   args=app_args('n',IMAGES['candidate'],'h',{},[])
   self.assertNotIn('--publish',args);self.assertIn('container:h',args)
+ def test_database_volume_rejected(self):
+  row={'HostConfig':{'NetworkMode':'container:holder','PortBindings':None,
+     'ReadonlyRootfs':True,'LogConfig':{'Type':'none'},'Tmpfs':{'/var/lib/postgresql/data':'rw'}},
+     'Mounts':[{'Type':'volume','Destination':'/var/lib/postgresql/data'}]}
+  with patch(__name__+'.call',return_value=json.dumps([row]).encode()):
+   with self.assertRaises(Stop):inspect_isolation('db','holder',database=True)
 def main():
  need(len(sys.argv)==2 and sys.argv[1] in ('--self-test','--run'),'MODE_REQUIRED')
  if sys.argv[1]=='--self-test':
