@@ -89,6 +89,17 @@ def compose_cmd(path,working,project,override=None):
        "-f",str(path)]
  if override is not None:args+=["-f",str(override)]
  return args
+def make_dryrun_command(path,working,project,override):
+ args=compose_cmd(path,working,project,override)
+ args[2:2]=["--dry-run","--ansi","never","--progress","plain"]
+ args+=["up","--detach","--no-deps","--no-build","--pull","never",
+        "--force-recreate",HUB]
+ need(args[:3]==["docker","compose","--dry-run"] and
+      args[-1]==HUB and "--no-build" in args and
+      "--no-deps" in args and "--pull" in args and
+      args[args.index("--pull")+1]=="never" and
+      "--force-recreate" in args,"UNSAFE_DRY_RUN_COMMAND_CONSTRUCTION")
+ return args
 def parse_config(stdout):
  try:cfg=json.loads(stdout)
  except (UnicodeError,ValueError):raise Stop("RENDERED_COMPOSE_INVALID") from None
@@ -145,22 +156,16 @@ def run():
                            ["config","--format","json"],cwd=working)[0])
   comparison=compare_configs(live,new)
   resources=resource_inventory()
-  args=compose_cmd(path,working,project,override)
-  args[2:2]=["--dry-run","--ansi","never","--progress","plain"]
-  args+=["up","--detach","--no-deps","--no-build","--pull","never",
-         "--force-recreate",HUB]
-  need(args[0:3]==["docker","compose","--dry-run"] and
-       args[-1]==HUB and "--no-build" in args and
-       "--no-deps" in args and "--pull" in args and
-       args[args.index("--pull")+1]=="never",
-       "UNSAFE_DRY_RUN_COMMAND_CONSTRUCTION")
-  # Docker's --dry-run CLI option, zero exit and unchanged runtime/resources
-  # are the evidence. Human-readable progress wording is NOT an API.
-  stdout,stderr=command(args,cwd=working,timeout=90)
+  args=make_dryrun_command(path,working,project,override)
+  # The after-gate runs even if Compose exits nonzero. Progress text is
+  # informational, never a release-control contract.
+  try:
+   stdout,stderr=command(args,cwd=working,timeout=90)
+  finally:
+   verify_after(ids,path,resources)
   clean=re.sub(rb"\x1b\[[0-9;]*m",b"",stdout+stderr)
   marker=b"DRY-RUN MODE" in clean
   target=b"v79-hub" in clean
-  verify_after(ids,path,resources)
   return {"schema":"vision79-v3-image-only-compose-dryrun",
           "result":"PASS_IMAGE_ONLY_COMPOSE_DRY_RUN",
           **comparison,"candidate_image_cached":True,
@@ -211,11 +216,16 @@ class Tests(unittest.TestCase):
   sample={"containers":"a","running":"b","networks":"c","volumes":"d"}
   changed=dict(sample,volumes="e")
   self.assertNotEqual(sample,changed)
- def test_command_exposes_no_secrets_even_without_progress_marker(self):
-  prior,new=self.fixture()
-  self.assertTrue(compare_configs(prior,new)["image_only_diff_confirmed"])
-  self.assertEqual(["docker","compose","--dry-run"][:3],
-                   ["docker","compose","--dry-run"])
+ def test_constructed_command_is_one_service_dry_run(self):
+  args=make_dryrun_command(Path("/tmp/base.json"),"/tmp","v79project",
+                           Path("/dev/shm/image-only.json"))
+  self.assertEqual(args[:3],["docker","compose","--dry-run"])
+  self.assertIn("--force-recreate",args)
+  self.assertIn("--no-deps",args)
+  self.assertIn("--no-build",args)
+  self.assertEqual(args[-1],HUB)
+  self.assertNotIn("down",args)
+  self.assertNotIn("build",args)
  def test_wrong_host_before_docker(self):
   with patch("socket.gethostname",return_value="other"),patch(__name__+".command") as cmd:
    with self.assertRaises(Stop):before_gate()
