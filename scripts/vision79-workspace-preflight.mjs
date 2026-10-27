@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+// Read-only source check. This is not deployment approval and never runs Docker/SSH.
+const base='796cea94e9b56d8fde023688a19a78adb40d0c2a';
+const allowed=[
+  'src/App.tsx','src/components/HubOverview.tsx','src/components/Sidebar.tsx','src/workspace.css',
+  'scripts/vision79-workspace-browser.mjs','scripts/vision79-workspace-preflight.mjs',
+  'tests/vision79-workspace-boundary.test.mjs','docs/design/vision79-workspace-v2-review.md',
+  'src/components/OwnerAssistant.tsx','src/components/OwnerToday.tsx','src/components/AdminConsole.tsx',
+  'src/components/PlatformAdminOverview.tsx','scripts/vision79-owner-admin-browser.mjs',
+  'tests/owner-workspace-ui.test.mjs','tests/vision79-admin-owner.test.mjs','docs/design/vision79-owner-admin-v3-review.md',
+  'tests/r18-reconciled-candidate.test.mjs','tests/vision79-visual-release.test.mjs',
+  'tests/vision79-approved-source.test.mjs','tests/vision79-v3-live-inventory.test.py',
+  'scripts/vision79-v3-live-inventory.py','docs/release/vision79-v3-approved-source.json',
+  'docs/release/vision79-v3-release-readiness.md',
+];
+const changed=execFileSync('git',['diff',base,'--name-only'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
+const untracked=execFileSync('git',['ls-files','--others','--exclude-standard'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
+for(const p of [...changed,...untracked]) assert.ok(allowed.includes(p),'Unexpected release scope: '+p);
+const approval=JSON.parse(readFileSync('docs/release/vision79-v3-approved-source.json','utf8'));
+for (const [path,pin] of Object.entries(approval.runtime_files_sha256)) assert.equal(createHash('sha256').update(readFileSync(path)).digest('hex'),pin,'Approved runtime source changed: '+path);
+const hashes=Object.fromEntries(allowed.map(p=>[p,createHash('sha256').update(readFileSync(p)).digest('hex')]));
+console.log(JSON.stringify({base,scope:'UI candidate with read-only owner summary and admin information-state corrections',changed:[...new Set([...changed,...untracked])],hashes,
+  productionActions:'NONE',ownerVisualApproval:'APPROVED',approvedVisualSource:approval.approved_visual_source,releaseGate:'HOLD',
+  pending:['current production image/config identity','fresh rollback checkpoint','immutable image build and isolated boot','real private-session MFA and Tiquet SSO','guarded Hub-only transaction and rollback rehearsal']},null,2));

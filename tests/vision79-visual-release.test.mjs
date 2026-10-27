@@ -4,13 +4,11 @@ import { readFileSync } from "node:fs";
 
 const overview = readFileSync("src/components/HubOverview.tsx", "utf8");
 const sidebar = readFileSync("src/components/Sidebar.tsx", "utf8");
-const css = readFileSync("src/index.css", "utf8");
+const css = readFileSync("src/workspace.css", "utf8");
 
 test("visual release is clearly versioned and places signed app launch first", () => {
   for (const token of [
-    "vision79-release-v1", "vision79-command-hero", "Vision79 / Business workspace",
-    "Your business, one command centre.", "vision79-focus-panel",
-    "Your workspace apps", "vision79-app-section", "vision79-metric-card",
+    "v79-workspace", "v79-hero", "v79-focus", "Your workspace apps", "v79-app-grid", "v79-kpi",
     "Explore my apps", "visibleAppCards.map", "availableSummaryCount",
   ]) assert.ok(overview.includes(token), "missing visibly reviewed UI contract: " + token);
   assert.ok(overview.indexOf("Your workspace apps") < overview.indexOf("Performance overview"));
@@ -31,23 +29,16 @@ test("no simulated health, revenue, uptime or customer content replaces the prod
 });
 
 test("Vision79 identity is shown in the existing permission-aware sidebar", () => {
-  assert.match(sidebar, /vision79-sidebar hub-sidebar/);
-  assert.match(sidebar, />Vision<span className="text-\[#55c7ff\]">79<\/span>/);
+  assert.match(sidebar, /v79-sidebar hidden lg:flex/);
+  assert.match(sidebar, />Vision<span>79<\/span>/);
   assert.match(sidebar, /primary\.filter\(\(item\) => item\.visible\)/);
   assert.match(sidebar, /onClick=\{onLogout\}/);
   assert.match(sidebar, /can\("connections"\)/);
 });
 
 test("visual CSS is scoped and accessible on desktop and mobile", () => {
-  assert.match(css, /Vision79 command-centre visual release v1/);
-  for (const cls of [
-    ".vision79-release-v1 .vision79-command-hero",
-    ".vision79-release-v1 .vision79-app-section",
-    ".vision79-release-v1 .vision79-product-card",
-    ".vision79-release-v1 .vision79-focus-panel",
-    ".vision79-sidebar .hub-nav-item",
-  ]) assert.ok(css.includes(cls));
+  for (const cls of [".v79-hero", ".v79-app-grid", ".v79-app-card", ".v79-focus", ".v79-sidebar", ".v79-area", ".v79-owner-metrics", ".v79-admin-app-grid"]) assert.ok(css.includes(cls));
   assert.match(css, /prefers-reduced-motion:reduce/);
-  assert.match(css, /max-width:640px/);
-  assert.match(overview, /focus-visible:outline/);
+  assert.match(css, /max-width:700px/);
+  assert.match(css, /focus-visible/);
 });
