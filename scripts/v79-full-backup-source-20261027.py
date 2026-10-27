@@ -127,6 +127,11 @@ def host_paths(bind_sources):
              "/var/spool/cron", "/var/lib/tailscale", "/var/lib/NetworkManager"]
     paths = [x for x in roots if Path(x).exists()]
     for source in sorted(bind_sources):
+        # A monitoring container may bind the host root for observation. It is
+        # not an app-data source and would become an empty tar member here.
+        # Selected OS roots and all narrower active binds are captured below.
+        if source == "/":
+            continue
         if not any(source == root or source.startswith(root + "/") for root in roots):
             paths.append(source)
     # Avoid recursive mounts, sockets and sensitive virtual filesystems.
@@ -136,7 +141,10 @@ def host_paths(bind_sources):
             continue
         if Path(path).is_socket():
             continue
-        result.append(path.lstrip("/"))
+        relative = path.lstrip("/")
+        if not relative:
+            raise Stop("EMPTY_HOST_ARCHIVE_MEMBER")
+        result.append(relative)
     return sorted(set(result))
 
 def host_batches(bind_sources):
@@ -238,7 +246,8 @@ def main():
             "containers": len(by_name), "volumes": len(volumes),
             "postgres_clusters": len(PG_NAMES),
             "active_postgres_data_volumes_excluded_from_raw_tar": len(pg_volumes),
-            "host_bind_sources": len(binds), "host_batches": len(batches), "production_changes": "NONE",
+            "host_bind_sources": len(binds), "host_root_observation_bind_excluded": "/" in binds,
+            "host_batches": len(batches), "production_changes": "NONE",
             "app_file_consistency": "NOT_PROVEN_BY_LIVE_COPY"}, sort_keys=True))
         return 0
     if args.expected_baseline != baseline or args.stream not in sources:
