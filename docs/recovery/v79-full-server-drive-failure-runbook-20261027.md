@@ -37,9 +37,9 @@ bash -euo pipefail <<'CAPTURE_SCRIPT' && echo CAPTURE_COMMAND=PASS || echo CAPTU
 mkdir -p "$HOME/V79-Recovery-Tools"
 chmod 700 "$HOME/V79-Recovery-Tools"
 cd "$HOME/V79-Recovery-Tools"
-curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/f5c7f8ebe0bac2d65bdcbd6b934d0390294ac3e0/scripts/v79-full-backup-source-20261027.py' -o source.py
-curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/f5c7f8ebe0bac2d65bdcbd6b934d0390294ac3e0/scripts/v79-full-backup-acer-20261027.py' -o acer.py
-printf '%s  %s\n' 'd65516852e6bac223733ec591ab37b201604355f518a3f8294fe13c02dd55670' source.py '5d253ca38fef25b58b240ee7a417b7971f54f4fe50058357243d03237618f91e' acer.py | sha256sum -c -
+curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/22f5bcdc6687c3771aa19bd99ca9a1e6ead82a25/scripts/v79-full-backup-source-20261027.py' -o source.py
+curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/22f5bcdc6687c3771aa19bd99ca9a1e6ead82a25/scripts/v79-full-backup-acer-20261027.py' -o acer.py
+printf '%s  %s\n' 'c60f18b0abccbd34a8c67862f5c7e6da8d073f6d7d274a200638abc5d05fb07d' source.py '5d253ca38fef25b58b240ee7a417b7971f54f4fe50058357243d03237618f91e' acer.py | sha256sum -c -
 python3 acer.py --source-script source.py --self-test
 python3 acer.py --source-script source.py --backup 2>&1 | tee capture-third.log
 CAPTURE_SCRIPT
@@ -49,7 +49,7 @@ The Acer destination is a first offhost copy, not two independent copies. Never 
 
 The current source helper captures all local named volumes except active PostgreSQL raw data, the five clusters' roles and databases, active bind sources, selected host configuration paths, all container image IDs and encrypted Docker inspect metadata. It does not create a bare-metal disk image, capture unmounted filesystems or prove consistency for file-backed services, Redis, uploads changing during capture, or a second storage copy. An offline physical image and isolated whole-server restore remain separate steps.
 
-The first 27 October run stopped at item 2/63 (`host-files`) with a generic stream failure. A one-file read-only Docker helper diagnostic passed. The second run stopped at item 2/64 with `SOURCE_STREAM_UNAVAILABLE_OR_TIMEOUT`; both directories remain `INCOMPLETE_DO_NOT_RESTORE`. The revised source splits the host archive into smaller indexed batches and reports timeout separately from OS errors. The owner command runs strict failure handling only inside a child Bash process, so a failed capture does not close the interactive terminal. If the cause is a changing file or permission denial, do not weaken archive checks or omit data silently; inspect the affected service privately and take a coordinated consistency capture.\n\n## Isolated restore rehearsal
+The first 27 October run stopped at item 2/63 (`host-files`) with a generic stream failure. A one-file read-only Docker helper diagnostic passed. The second run stopped at item 2/64 with `SOURCE_STREAM_UNAVAILABLE_OR_TIMEOUT`; both directories remain `INCOMPLETE_DO_NOT_RESTORE`. The revised source splits the host archive into smaller indexed batches and reports timeout separately from OS errors. The first host-batch diagnostic returned `tar: : No such file or directory`. The source had converted an active `/` observational bind into an empty archive member; this is now explicitly excluded, while the selected host roots and narrower bind sources remain in scope. The owner command runs strict failure handling only inside a child Bash process, so a failed capture does not close the interactive terminal. If the cause is a changing file or permission denial, do not weaken archive checks or omit data silently; inspect the affected service privately and take a coordinated consistency capture.\n\n## Isolated restore rehearsal
 
 Use a spare disk/host (the R430 may be suitable after hardware, RAM and storage checks) or a sufficiently resourced offline VM. Keep it disconnected from public DNS, payment gateways, email providers, customer ingress and production Tailscale identity. Restore into fresh volumes, not live Docker volumes.
 
@@ -75,4 +75,4 @@ Use a spare disk/host (the R430 may be suitable after hardware, RAM and storage 
 - Decide daily recovery point target (RPO) and acceptable outage (RTO). A once-daily complete backup can lose up to approximately one day of changes; no RTO is promised before a full rehearsal.
 - Decide whether to schedule a brief consistency window for file-backed apps and Redis, and where the second encrypted copy and private-key recovery copy will live.
 
-**Status:** two offhost capture attempts **FAILED at host-files item 2** and are unusable; diagnostic helper PASS, batched host capture ready. Whole-server restore and disk-failure rehearsal **NOT YET VERIFIED**.
+**Status:** three offhost capture attempts **FAILED before host-data completion** and are unusable; root-bind empty-member cause identified and fixed in source, new capture pending. Whole-server restore and disk-failure rehearsal **NOT YET VERIFIED**.
