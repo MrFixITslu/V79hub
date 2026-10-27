@@ -34,7 +34,7 @@ export type CooWorkItemDraft = { sourceId: string; system: string; summary: stri
 
 const issueSystem: Record<string, string> = {
   V79hub: "hub", V79Tiquet: "tiquet", "V79-Sentinel": "sentinel",
-  V79Marketing: "marketing", V79acaedmy: "academy", V79POS: "pos",
+  FFPRO2: "ffpro", V79Marketing: "marketing", V79acaedmy: "academy", V79POS: "pos",
 };
 export function OwnerCooWorkboardPanel({ onPrepareTask, embedded = false, active = true }: {
   onPrepareTask?: (draft: CooWorkItemDraft) => void;

@@ -1,0 +1,33 @@
+name: Workforce completion candidate (no deployment)
+on:
+  pull_request:
+    paths:
+      - 'server/workforce-*.mjs'
+      - 'server/owner-coo-workboard.mjs'
+      - 'src/components/Workforce*.tsx'
+      - 'src/components/OwnerAssistant.tsx'
+      - 'src/components/OwnerCooWorkboardPanel.tsx'
+      - 'scripts/workforce-activation-preflight-20261027.py'
+      - 'tests/workforce-*'
+      - 'tests/owner-workspace-ui.test.mjs'
+      - '.github/workflows/workforce-completion-isolated.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Workforce, Google, owner MFA and tenant regressions
+        run: node --test tests/workforce-*.test.mjs tests/owner-coo-workboard*.test.mjs tests/owner-workspace-ui.test.mjs
+      - name: Read-only operator script safety
+        run: python3 -B tests/workforce-activation-preflight.test.py
+      - name: TypeScript and frontend build
+        run: |
+          npm run lint
+          npm run build

@@ -75,7 +75,7 @@ test("allowed, read-only GitHub API GET maps issue and PR kinds without untruste
   const res = response();
   await handler({}, res);
   assert.equal(res.statusCode, 200);
-  assert.equal(visited.length, 6);
+  assert.equal(visited.length, 7);
   assert.equal(res.payload.connection, "PARTIAL_OR_COMPLETE");
   assert.equal(res.payload.tracked.find(i => i.repo === "V79hub" && i.number === 113).githubState, "OPEN_IN_GITHUB");
   assert.equal(res.payload.tracked.find(i => i.repo === "V79hub" && i.number === 145).githubState, "OPEN_IN_GITHUB");

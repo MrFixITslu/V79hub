@@ -3,11 +3,12 @@ import { Check, ChevronRight, ClipboardCheck, Plus, RefreshCcw, Search } from "l
 import type { CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
 
 type Job = { id: string; operation: string; system: string; summary: string;
-  payload: { detail?: string; commitSha?: string; manifestSha256?: string; to?: string; subject?: string; body?: string; start?: string; end?: string; attendees?: string[]; eventId?: string; etag?: string; threadId?: string; messageId?: string; summary?: string };
+  payload: { specialist?: string; detail?: string; commitSha?: string; manifestSha256?: string; to?: string; subject?: string; body?: string; start?: string; end?: string; attendees?: string[]; eventId?: string; etag?: string; threadId?: string; messageId?: string; summary?: string };
   digest: string; revision: number; status: string; approval: { expiresAt: string } | null;
   result: { taskId?: string; receiptSha256?: string } | null };
 type QueueFilter = "all" | "review" | "active" | "history";
 const systems = ["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag"];
+const specialists: Record<string, string> = { coo: "COO · Coordinate work", finance: "Finance", strategy: "Strategy", marketing: "Marketing", "customer-service": "Customer service", "technical-security": "Technical & security", sales: "Sales" };
 const operations: Record<string, string> = { create_work_item: "Create work item", validate_release: "Test exact release", deploy_release: "Deploy tested release", rollback_release: "Roll back exact release" };
 const googleOperations: Record<string,string> = {create_email_draft:'Save Gmail reply draft',create_calendar_event:'Create appointment',update_calendar_event:'Change appointment',delete_calendar_event:'Cancel appointment'};
 const priority: Record<string, number> = { pending: 0, uncertain: 1, failed: 2, approved: 3, running: 4 };
@@ -43,6 +44,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [notice, setNotice] = useState("");
   const [operation, setOperation] = useState("create_work_item"), [system, setSystem] = useState("hub");
+  const [specialist, setSpecialist] = useState("coo");
   const [summary, setSummary] = useState(""), [detail, setDetail] = useState("");
   const [commitSha, setCommitSha] = useState(""), [manifestSha256, setManifestSha256] = useState("");
   const [filter, setFilter] = useState<QueueFilter>("all"), [search, setSearch] = useState("");
@@ -79,7 +81,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
   useEffect(() => {
     if (!preparedTask || !systems.includes(preparedTask.system)) return;
     // UI prefill only. Queueing and exact owner approval remain separate user actions.
-    setOpen(true); setOperation("create_work_item"); setSystem(preparedTask.system);
+    setOpen(true); setSpecialist("coo"); setOperation("create_work_item"); setSystem(preparedTask.system);
     setSummary(preparedTask.summary.slice(0, 180)); setDetail(preparedTask.detail.slice(0, 2000));
     setCommitSha(""); setManifestSha256("");
     setNotice("Draft prepared only. Review it and choose Queue for review; your approval is still required.");
@@ -95,7 +97,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
   const queue = () => perform(async () => {
     // The server accepts one-line plain text. Review still binds the saved exact scope.
     const plain = (value: string) => value.trim().replace(/\s+/g, " ");
-    const draft = { operation, system, summary: plain(summary), payload: operation === "create_work_item" ? { detail: plain(detail) } : { commitSha, manifestSha256 } };
+    const draft = { operation, system, summary: plain(summary), payload: operation === "create_work_item" ? { detail: plain(detail), specialist } : { commitSha, manifestSha256 } };
     const signature = JSON.stringify(draft);
     if (proposalRetry.current?.signature !== signature) proposalRetry.current = { signature, key: "work-" + crypto.randomUUID() };
     await request("", { ...draft, idempotencyKey: proposalRetry.current.key });
@@ -146,6 +148,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
           <div><h3 className="flex items-center gap-2 text-base font-semibold"><Plus className="h-4 w-4 text-cyan-300" aria-hidden="true" />New work item</h3><p className="mt-1 text-xs leading-5 text-slate-400">Describe the assignment first. Queueing it later requires a verified owner session; opening this form changes nothing on the server.</p></div>
           {(!enabled || !checkedAt) && <p role="status" aria-live="polite" className="rounded-lg border border-amber-700/60 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">{loading ? "Checking owner-approved task access. You can prepare a draft; submitting is disabled until verification succeeds." : error ? "The owner action queue could not be verified. Drafting is available, but no task can be queued. Refresh status. If your owner session has ended, sign in again." : checkedAt ? "Task actions are disabled on the server. You may prepare a draft, but no task can be queued." : "Waiting for verified owner action queue access. No task will be queued."}</p>}
           <label className="block text-sm font-medium">App<select value={system} onChange={e => setSystem(e.target.value)} className={field}>{systems.map(s => <option key={s}>{s}</option>)}</select></label>
+          {operation === "create_work_item" && <label className="block text-sm font-medium">Specialist through COO<select value={specialist} onChange={e => setSpecialist(e.target.value)} className={field}>{Object.entries(specialists).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><span className="mt-1 block text-xs text-slate-400">Records the assignment for COO. Specialist work is advisory and requires review.</span></label>}
           <label className="block text-sm font-medium">Task title<input value={summary} onChange={e => setSummary(e.target.value)} maxLength={180} minLength={8} required placeholder="e.g. Review Sentinel monitoring gaps" className={field} /></label>
           {operation === "create_work_item" ? <label className="block text-sm font-medium">Work to complete<textarea value={detail} onChange={e => setDetail(e.target.value)} maxLength={2000} minLength={8} required rows={5} placeholder="Describe the outcome, scope, and evidence you expect." className={field + " resize-y"} /></label> : <>
             <label className="block text-sm font-medium">Reviewed commit SHA<input required pattern="[a-f0-9]{40}" value={commitSha} onChange={e => setCommitSha(e.target.value)} maxLength={40} className={field + " font-mono"} /></label>
@@ -167,6 +170,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
           <div className="space-y-3">{visibleJobs.map(job => <article key={job.id} aria-label={job.summary} className="space-y-3 rounded-xl border border-slate-700 bg-slate-900/50 p-4">
             <div className="flex flex-wrap items-start justify-between gap-2"><h4 className="min-w-0 break-words font-semibold">{job.summary}</h4><span className={"rounded-full border px-2.5 py-1 text-xs " + statusStyle(job)}>{statusLabel(job)}</span></div>
             <p className="text-xs text-slate-400">{job.system} · {operations[job.operation] || googleOperations[job.operation] || job.operation.replaceAll("_", " ")}</p>
+            {job.operation === "create_work_item" && job.payload.specialist && <p className="text-xs text-cyan-200">COO → {specialists[job.payload.specialist] || "Unrecognised specialist"}</p>}
             {job.payload.detail && <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">{job.payload.detail}</p>}
             {googleOperations[job.operation] ? <div className="space-y-2 rounded-lg border border-slate-700 p-3 text-sm">
               {job.payload.to&&<p>To: {job.payload.to}</p>}{job.payload.subject&&<p>Subject: {job.payload.subject}</p>}
@@ -179,7 +183,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
             {job.status === "pending" && <p className="text-xs text-amber-200">Next: review the scope above, then approve or reject this exact action.</p>}
             {job.status === "approved" && <p className="text-xs text-amber-200">{expired(job) ? "Approval has expired. This action cannot execute; cancel it and queue a fresh review if still needed." : "Waiting for an eligible worker or manual execution. Approval expires " + new Date(job.approval!.expiresAt).toLocaleString() + "."}</p>}
             {job.status === "uncertain" && <p className="text-xs text-amber-200">Execution outcome is uncertain. An operator must reconcile the result before any retry.</p>}
-            {job.status === "succeeded" && job.operation === "create_work_item" && <p className="flex items-start gap-2 text-xs leading-5 text-slate-300"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" />Assigned to COO. Creation is verified; completion of the underlying work is not verified here.</p>}
+            {job.status === "succeeded" && job.operation === "create_work_item" && <p className="flex items-start gap-2 text-xs leading-5 text-slate-300"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" />Creation reported. Check the verified task lifecycle in Delivery board; completion of the underlying work is not verified here.</p>}
             {enabled && job.status === "pending" && <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => decide(job, "approve")} className="min-h-11 rounded-lg bg-emerald-300 px-3 py-2 font-semibold text-slate-950 disabled:opacity-50">Approve exact action</button><button type="button" disabled={busy} onClick={() => decide(job, "reject")} className="min-h-11 rounded-lg border border-slate-600 px-3 py-2 disabled:opacity-50">Reject</button></div>}
             {enabled && job.status === "approved" && job.operation === "create_work_item" && !expired(job) && <details className="rounded-lg border border-slate-700 p-3"><summary className="cursor-pointer text-xs text-slate-300">Manual execution option</summary><p className="mt-2 text-xs leading-5 text-slate-400">Use only if you intend to execute this approved creation manually. Leave this untouched when verifying the scheduled worker.</p><button type="button" disabled={busy || paused} onClick={() => void perform(async () => { await request("/" + encodeURIComponent(job.id) + "/execute", { expectedRevision: job.revision }); setNotice("Engineering work item created and assigned to COO. Underlying delivery remains separate."); })} className="mt-2 min-h-11 rounded-lg border border-emerald-700 px-3 py-2 text-emerald-200 disabled:opacity-50">Create approved work item</button></details>}
             {enabled && ["pending", "approved"].includes(job.status) && <button type="button" disabled={busy} onClick={() => void perform(async () => { await request("/" + encodeURIComponent(job.id) + "/cancel", { expectedRevision: job.revision }); setNotice("Action cancelled."); })} className="min-h-10 rounded-lg px-2 py-2 text-xs text-slate-400 underline underline-offset-4 hover:text-white disabled:opacity-50">Cancel action</button>}

@@ -50,7 +50,7 @@ test('workboard handoff opens task view with an exact draft and never queues or 
  assert.equal(h.box.querySelector('#workspace-tasks').hidden,false);
  assert.equal(h.box.querySelector('input[minlength="8"]').value,'Review: Delivery evidence');
  assert.match(h.box.querySelector('#workspace-tasks textarea').value,/issues\/152/);
- assert.ok(h.calls.every(c=>!c.opts?.method),'Draft handoff must issue no mutations');
+ assert.ok(h.calls.every(c=>!c.opts?.method||c.opts.method==='GET'),'Draft handoff must issue no mutations');
  await h.click('Ask Assistant',h.box.querySelector('nav'));await h.click('New task');
  assert.equal(h.box.querySelector('input[minlength="8"]').value,'Review: Delivery evidence','Switching views preserves task draft');
 });
@@ -85,7 +85,7 @@ test('queueing a prepared work item creates only a pending proposal and highligh
  const draft={sourceId:'owner',system:'hub',summary:'Review monitoring evidence',detail:'Review only. No deployment.'};let proposed=false;
  const h=await mount(t,WorkforceActionPanel,{embedded:true,preparedTask:draft},(url,opts)=>{
   if(opts?.method==='POST'){
-   const body=JSON.parse(opts.body);assert.equal(url,'/api/agent/work-actions');assert.equal(body.operation,'create_work_item');assert.equal(body.summary,draft.summary);assert.deepEqual(body.payload,{detail:draft.detail});proposed=true;return {job:job()};
+   const body=JSON.parse(opts.body);assert.equal(url,'/api/agent/work-actions');assert.equal(body.operation,'create_work_item');assert.equal(body.summary,draft.summary);assert.deepEqual(body.payload,{detail:draft.detail,specialist:'coo'});proposed=true;return {job:job()};
   }return queue(proposed?[job()]:[]);
  });
  await act(async()=>h.box.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));

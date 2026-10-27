@@ -69,5 +69,13 @@ export function createWorkActionStore({ file, secret, backend = "json", database
     }
     return fileRead();
   }
-  return { transact, read, close: async () => { if (activePool && !pool) await activePool.end(); } };
+  async function readAuthenticatedSnapshot() {
+    if (repo) {
+      const current = await repo.load();
+      return current ? open(current.state) : null;
+    }
+    try { return open(JSON.parse(await fs.readFile(file, "utf8"))); }
+    catch (e) { if (e.code === "ENOENT") return null; throw e; }
+  }
+  return { transact, read, readAuthenticatedSnapshot, close: async () => { if (activePool && !pool) await activePool.end(); } };
 }
