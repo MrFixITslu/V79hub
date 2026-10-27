@@ -3,6 +3,14 @@
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
+## Latest operator result — stopped candidate bookkeeping failure isolated
+
+Owner checksum-verified diagnostic at 78e9a48d1ba33eb3ff5ea05d13b5561135626fce. Existing failed scope e7bf10d730ec47e3: zero containers/volumes, directory absent. Two bounded receipts had no persisted engine code. The targeted proof created scope v79profilefbe7490cd19b4b34 and rejected candidate with **COMPOSE_BOOKKEEPING_IDENTITY_CHANGED**. Post-proof: prior Hub healthy; all protected 43 match; zero profile containers. Engine returned the original predicate rather than cleanup failure; no production cutover attempted. Do not repeat backups or recovery preparation.
+
+The exact failed check is now known, but it contains four subpredicates (config_files, image, version, environment_file); the failed field remains unknown. No engine, supervisor, manifest or runtime correction is justified yet. Diagnostic-only update ecd6d1c4a845d9f03b2a8912c9f1172fa3117972 reports each field as present/matches booleans, never values. SHA256 a845fac2907b3e239fd434b94edeca2121a8447f71f9602d8f9ce124e850c5d3. Five field/redaction checks passed locally. Checks latest failed scope before another bounded stopped proof. Deployment/rollback engine and sealed manifest unchanged; acceptance-supervisor risks still open; release HOLD.
+
+Three options reviewed: adapt manifest expectation, narrow proven Compose-version compatibility, or reseal configuration. Select only after identifying failed field; /REDTEAM rejects skipping any label equality or assuming Docker image-ID codec equivalence without proof. Next owner action: run updated checksum-pinned diagnostic once, return boolean report. This additional proof is justified solely by the original engine's shared error code omitting the failed field.
+
 ## Hub v3 outcome: HOLD — not confirmed deployed
 
 Direct access check this session: GitHub read/write works. Desktop Commander lists Dell online but rejects execution with monthly usage exhausted and explicitly says do not retry/reconnect. No server command, cleanup, cutover, rollback, payment, invitation or timer change was executed by the assistant.
