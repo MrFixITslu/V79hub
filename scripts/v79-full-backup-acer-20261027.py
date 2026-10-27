@@ -84,8 +84,8 @@ def encrypt_item(source, baseline, item, output):
                      "--encrypt", "--output", str(partial)],
                     stdin=producer.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 producer.stdout.close()
-                consumer_status = consumer.wait(timeout=7200)
-                producer_status = producer.wait(timeout=7200)
+                consumer_status = consumer.wait(timeout=25200)
+                producer_status = producer.wait(timeout=25200)
                 source_error = producer.stderr.read(4096)
             except (OSError, subprocess.TimeoutExpired):
                 producer.kill()
@@ -134,7 +134,7 @@ def verify_item(item, path):
     decrypt = subprocess.Popen(["gpg", "--batch", "--quiet", "--decrypt", str(path)],
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     validate = subprocess.run(["tar", "-tf", "-"], stdin=decrypt.stdout, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, timeout=7200, check=False)
+                              stderr=subprocess.DEVNULL, timeout=21600, check=False)
     decrypt.stdout.close()
     if validate.returncode or decrypt.wait(timeout=120) != 0:
         raise Stop("TAR_DECRYPT_OR_STRUCTURE_FAILED")
@@ -158,7 +158,7 @@ def capture(source):
         raise Stop("PLAN_INVALID") from None
     items = plan.get("items")
     baseline = plan.get("baseline_sha256")
-    if not isinstance(items, list) or len(items) < 30 or len(items) > 200 or (
+    if not isinstance(items, list) or len(items) < 30 or len(items) > 400 or (
             not isinstance(baseline, str) or not re.fullmatch(r"[a-f0-9]{64}", baseline)):
         raise Stop("PLAN_SHAPE_INVALID")
     if len(set(items)) != len(items) or len({safe_file(item) for item in items}) != len(items):
