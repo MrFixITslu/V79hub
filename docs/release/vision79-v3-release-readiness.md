@@ -3,6 +3,12 @@
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
+## LIVE RECEIPT — Hub v3 healthy, owner acceptance pending
+
+Owner ran checksum-verified owner-release package at 6f56d7e64950415a6e9d400463328d6a8cf785c2. Output: CORRECTED_SUPERVISOR_INSTALLED_ORIGINAL_PRESERVED=PASS; accepted compatibility proof reused; persistent rollback timer armed; Hub-only switch invoked original engine. Actual result V3_HARDENED_HUB_LIVE_REVIEW_PENDING, candidate_healthy=true, protected_count=43, release_gate=HOLD, owner_acceptance_required=true.
+
+Deadline: epoch 1793072243; 26 October 2026 23:37:23 Saint Lucia (AST), as reported by server. Candidate is deployed/healthy at this receipt, NOT owner accepted and NOT commercial GO. Owner must immediately verify login/MFA, Hub-to-Tiquet dashboard SSO without another login, approved v3 Owner Assistant/Platform Admin visuals, and existing data/tenant permissions. Only genuine passing checks authorize explicit --accept flags. Failure requires --rollback using installed v2 supervisor; absence of acceptance leaves scheduled expiry rollback attempt armed. A deadline is not proof that rollback later succeeded. Do not rerun deployment or infer acceptance. Latest runtime after this receipt requires actual owner acceptance/status/rollback output.
+
 ## Current release handoff — accepted proof CLOSED; one owner-supervised deployment package
 
 Owner successful receipt: EXACT_IMAGE_MANIFEST_MAPPING=PASS_BOTH; scope v79profile2194ee84cedb4466; profiles_verified=2, no application process started, no live application data mounted, temporary cleanup verified; POST_PROOF_PRIOR_AND_PROTECTED_43=PASS; PASS_PINNED_IMAGE_LABEL_COMPATIBILITY. **Do not rerun this compatibility proof or completed backups/restores by default.**
