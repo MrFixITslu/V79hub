@@ -3,6 +3,14 @@
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
+## Latest owner read-only receipt — baseline intact, one synthetic volume remains
+
+Owner output for scope v79profile07f5dde175de4b1a: zero containers, one labelled volume, private directory present. Prior Hub healthy; baseline Id/Image/Config/HostConfig/Mounts all equal; BASELINE_AND_PROTECTED_43=PASS. This establishes post-failure baseline preservation, not complete synthetic cleanup or v3 deployment.
+
+Three approaches: leave residue and retry (rejected); broad prune/delete (rejected); exact nonce-owned unused local-volume cleanup with private evidence retained (selected). /REDTEAM requires release lock, unchanged pinned supervisor/engine/manifest, baseline/protected checks, no scope containers, exactly one correctly named/scoped local volume with no options or container references. No force/prune, no real mount-source access; rename the private directory to an evidence sibling without deleting its files. Failure stops before a proof. Recheck baseline after cleanup.
+
+Diagnostic commit 0b09a64a332016eb986299940d19166ac7c86872 adds explicit --cleanup-known-scope and emits failed predicates/engine outcome BEFORE postchecks. Six local guard/evidence-retention scenarios and two output-order checks passed; server execution pending. Committed blob a1eeb8e56e658d89307c65b7647a1e3c130cfa61 independently reproduced; 10458 bytes; SHA256 4774446523203762153abba85ea20aa34753c7377aecfbc20696bbb5fae6febd. Original hardened release/rollback modules and sealed manifest unchanged. One operator cleanup-plus-targeted-proof command is next; no live cutover. Release HOLD; original bookkeeping field and acceptance-supervisor fixes remain open.
+
 ## Latest operator result — diagnostic post-check masked proof outcome
 
 Owner verified corrected committed diagnostic checksum ae2dcea6f75bc728bb5624d4c148ac3def1d560c092fb402ea0830b4410b143e. Pre-proof: prior Hub healthy, protected 43 match, prior scope fbe7490cd19b4b34 has zero containers/volumes and no directory. New scope v79profile07f5dde175de4b1a was printed, followed by DIAGNOSTIC_STOP / PRECONDITION_FAILED. No POST_PROOF report returned. Therefore latest scope cleanup and post-proof baseline are UNKNOWN; do not carry pre-proof health forward as a current post-proof result.
