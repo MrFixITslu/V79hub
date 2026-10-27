@@ -136,6 +136,7 @@ def verify_item(item, path):
         raise Stop("TAR_DECRYPT_OR_STRUCTURE_FAILED")
 
 def capture(source):
+    os.umask(0o077)
     if socket.gethostname().split(".")[0] != HOST:
         raise Stop("ACER_HOST_REQUIRED")
     if not source.is_file() or source.is_symlink():
