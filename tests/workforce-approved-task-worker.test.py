@@ -29,6 +29,38 @@ class WorkerTests(unittest.TestCase):
     with self.assertRaises(SystemExit):w.main()
     self.assertTrue((root/'uncertain.json').exists())
     w.main();self.assertEqual(execute.call_count,1)
+ def test_intent_is_durable_before_post_and_cleared_after_receipt(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);root.chmod(0o700)
+   config=root/'config.json';config.write_text('{}');config.chmod(0o600)
+   marker=root/'uncertain.json'
+   def observe(_config):
+    self.assertTrue(marker.is_file())
+    self.assertEqual(json.loads(marker.read_text())['state'],'uncertain')
+    return {'state':'idle','operation':'create_work_item'}
+   with patch.object(w.sys,'argv',['worker',str(config)]),patch.object(w,'run_once',side_effect=observe) as execute,patch('sys.stdout',io.StringIO()):
+    w.main()
+   self.assertEqual(execute.call_count,1)
+   self.assertFalse(marker.exists())
+   self.assertEqual(json.loads((root/'status.json').read_text())['state'],'idle')
+ def test_abrupt_process_exit_after_intent_fails_closed_without_replay(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);root.chmod(0o700)
+   config=root/'config.json';config.write_text('{}');config.chmod(0o600)
+   with patch.object(w.sys,'argv',['worker',str(config)]),patch.object(w,'run_once',side_effect=KeyboardInterrupt('synthetic kill')) as execute,patch('sys.stdout',io.StringIO()):
+    with self.assertRaises(KeyboardInterrupt):w.main()
+    self.assertTrue((root/'uncertain.json').exists())
+    w.main()
+   self.assertEqual(execute.call_count,1)
+ def test_receipt_persist_failure_retains_intent_no_retry(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);root.chmod(0o700)
+   config=root/'config.json';config.write_text('{}');config.chmod(0o600)
+   with patch.object(w.sys,'argv',['worker',str(config)]),patch.object(w,'run_once',return_value={'state':'succeeded','operation':'create_work_item','approvedDigest':'a'*64}) as execute,patch.object(w.os,'replace',side_effect=OSError('disk unavailable')),patch('sys.stdout',io.StringIO()):
+    with self.assertRaises(SystemExit):w.main()
+    self.assertTrue((root/'uncertain.json').exists())
+    w.main()
+   self.assertEqual(execute.call_count,1)
  def test_redirect_refused(self):
   with self.assertRaises(RuntimeError):w.NoRedirect().redirect_request(None,None,None,None,None,None)
 if __name__=='__main__':unittest.main()
