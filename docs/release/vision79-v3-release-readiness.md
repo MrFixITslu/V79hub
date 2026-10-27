@@ -333,6 +333,14 @@ The v3 ad-hoc watchdog unit uses `Restart=on-failure`, `RestartSec=20s`, `StartL
 
 Decision retained: standardize the previously validated hardened `paired-compose-transaction.py` pre-start contract verification and manifest-pinned rollback; do not resurrect this one-off controller. Avoid repeat backup/archive/restoration loops, `--execute`, `--rollback` or forced Docker recreation. Prior-image operational recovery has been observed but exact previous runtime configuration has NOT been proven. Release remains `HOLD`.
 
+## 26 October 2026 — 65 failed watchdog retries, timer elapsed; old Hub healthy
+
+Owner returned definitive read-only user-systemd evidence: `vision79-v3-automatic-rollback.service` `ActiveState=activating`, `SubState=auto-restart`, `Restart=on-failure`, `RestartUSec=20s`, `MainPID=0`, `ControlPID=0`, `Result=exit-code`, `NRestarts=65`, `ExecMainStatus=3`. Its timer `ActiveState=active`, `SubState=elapsed`, `LastTriggerUSec=Tue 2026-10-27 00:12:41 UTC`, no future trigger. The prior Hub image `sha256:d2e6f4aee332b076f1340c339e4277b39f1337d2cd02b4b3a4c849e3a6d615e4` is `running|healthy`. The other four original pinned images are all `running|healthy`. The original runtime contract digest remains mismatched from the saved cutover receipt and Hub container ID has changed. Release state was last `ROLLBACK_FAILED`.
+
+**Decision:** stop the repeatedly failing *systemd rollback service*, and disable its already elapsed *systemd timer*, **not** Docker or the production Hub. Perform guarded one-time closeout: lock existing private controller lock nonblocking, check pinned controller checksum, existing `ROLLBACK_FAILED` state with owner acceptance false, original image healthy, all four original supporting service identities healthy and equal to receipt, exact user-unit FragmentPaths; then `systemctl --user stop vision79-v3-automatic-rollback.service` and `systemctl --user disable --now vision79-v3-automatic-rollback.timer`, confirm both inactive and timer disabled; post-check live image/health and companion identities unchanged, preserve logs, service/unit file and failed release state. If a prerequisite fails, STOP before systemd mutation. This is an **incident containment action**, not proof of exact original runtime parity.
+
+The existing hardened engine `paired-compose-transaction.py` uses Compose `up --no-start` with pre-start contract verification; retire the ad hoc v3 controller after incident containment and adapt current release-specific manifest to the reusable engine. Do not repeat image switch or attempt new rollback without current baseline compatibility. **Release HOLD / v3 not accepted.**
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
