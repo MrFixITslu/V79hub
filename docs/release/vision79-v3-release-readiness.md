@@ -349,6 +349,14 @@ Release engineering decision retained: **retire one-off v3 controller**; use pre
 
 Final state for this action: prior Hub and all four supporting services healthy, failed watchdog disabled, v3 NOT deployed, no release accepted, original-runtime contract **not yet proven**; `release_gate=HOLD`.
 
+## 26 October 2026 — post-containment snapshot search: NO EXACT ORIGINAL SNAPSHOT IN FIRST 100
+
+Owner's latest read-only Dell output reports `original_snapshot_found=false`, `snapshot_matches_sealed_contract=false`, `changed_runtime_categories=[]` (empty because source snapshot is unavailable, **not** because there is no drift). Current restored previous-image Hub: env count **85**, `HostConfig.Binds` **4**, `HostConfig.Mounts` **3**, resolved mounts **7**, networks **2**; these counts exactly match the pre-cutover snapshot counts. `production_modified=false` and `release_gate=HOLD`. Previous operator receipt `PASS_FAILED_ROLLBACK_WATCHDOG_CONTAINED` confirms the 65-retry systemd service was stopped and the elapsed timer disabled, without changing any production containers. No exact original snapshot has yet been found; search only covered up to 100 `~/.v79-hardened-pair-releases/*/transaction.json` files, and does not establish that no other private evidence exists.
+
+**Decision:** do NOT repeat the rejected cutover, recreate old container again, or search indefinitely for a deleted container ID. Treat the **running healthy previous-image Hub** as the prospective NEW baseline only after a single privacy-preserving, read-only comparison of *current* live Docker inspect against the *current* original Compose-rendered declaration: same prior image ID, 85 effective env keys and expected values, 7 mount destinations + source/type/read-only correspondence, correct 2 Compose network attachments, healthy protected dependencies, plus owner fresh-session login/MFA and Hub-to-Tiquet signed SSO as warranted. Counts alone are not sufficient. Preserve prior release evidence and mark source baseline rebase separately; do not rewrite an immutable prior receipt or misrepresent original runtime equality.
+
+Hardened reusable engine found at `scripts/paired-compose-transaction.py`, with `paired-mount-contract.py`, uses a stopped-container pre-start verification and normalizes semantically equivalent Binds/Mounts encodings. Before next v3 switch, adapt *only its manifest inputs* and any provably necessary compatibility surfaces for current Hub-only deployment; do not create another release-specific rollback engine, redo unaffected backup/restore, or rely on original changed container ID. Current production remains prior image healthy; release `HOLD`.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
