@@ -1,4 +1,4 @@
-import importlib.util,io,json,tempfile,unittest
+import ast,importlib.util,io,json,tempfile,unittest
 from unittest.mock import patch
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('worker',Path(__file__).parents[1]/'scripts/workforce-approved-task-worker.py')
@@ -61,6 +61,13 @@ class WorkerTests(unittest.TestCase):
     self.assertTrue((root/'uncertain.json').exists())
     w.main()
    self.assertEqual(execute.call_count,1)
+ def test_embedded_installer_worker_matches_reviewed_source(self):
+  root=Path(__file__).parents[1]
+  src=(root/'scripts/workforce-approved-task-worker.py').read_text()
+  tree=ast.parse((root/'scripts/workforce-install-approved-task-worker.py').read_text())
+  literal=next(node.value for node in tree.body if isinstance(node,ast.Assign)
+   and any(isinstance(target,ast.Name) and target.id=='WORKER_SOURCE' for target in node.targets))
+  self.assertEqual(ast.literal_eval(literal),src)
  def test_redirect_refused(self):
   with self.assertRaises(RuntimeError):w.NoRedirect().redirect_request(None,None,None,None,None,None)
 if __name__=='__main__':unittest.main()
