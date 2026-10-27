@@ -3,6 +3,12 @@
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
+## Latest operator result — diagnostic post-check masked proof outcome
+
+Owner verified corrected committed diagnostic checksum ae2dcea6f75bc728bb5624d4c148ac3def1d560c092fb402ea0830b4410b143e. Pre-proof: prior Hub healthy, protected 43 match, prior scope fbe7490cd19b4b34 has zero containers/volumes and no directory. New scope v79profile07f5dde175de4b1a was printed, followed by DIAGNOSTIC_STOP / PRECONDITION_FAILED. No POST_PROOF report returned. Therefore latest scope cleanup and post-proof baseline are UNKNOWN; do not carry pre-proof health forward as a current post-proof result.
+
+Source review: diagnostic performs sup.assert_prior_snapshot after catching engine failure but before printing captured predicates/engine error. A post-check exception can hide that captured result. Exact current exception is not established. Select read-only current baseline/protected and exact last-scope residue inspection before any new proof; no repeat stopped profiles, cutover, cleanup/deletion or rollback. /REDTEAM preserves fail-closed gates and prints only fixed safe codes/counts, not private error values. Production deployment remains unconfirmed/HOLD; acceptance-supervisor defects remain open.
+
 ## Latest operator result — stopped candidate bookkeeping failure isolated
 
 Owner checksum-verified diagnostic at 78e9a48d1ba33eb3ff5ea05d13b5561135626fce. Existing failed scope e7bf10d730ec47e3: zero containers/volumes, directory absent. Two bounded receipts had no persisted engine code. The targeted proof created scope v79profilefbe7490cd19b4b34 and rejected candidate with **COMPOSE_BOOKKEEPING_IDENTITY_CHANGED**. Post-proof: prior Hub healthy; all protected 43 match; zero profile containers. Engine returned the original predicate rather than cleanup failure; no production cutover attempted. Do not repeat backups or recovery preparation.
