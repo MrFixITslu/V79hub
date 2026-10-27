@@ -1,6 +1,6 @@
 # Vision79 full-server backup and drive-failure recovery
 
-27 October 2026 · DRAFT / source preparation · Do not claim a completed whole-server backup or restore.
+27 October 2026 · DRAFT / capture script prepared; execution pending · Do not claim a completed whole-server backup or restore.
 
 ## Decision and /REDTEAM
 
@@ -25,10 +25,28 @@ Risk controls: do not archive live PostgreSQL data directories as the primary re
 3. Pin the current image IDs, container IDs, Compose file hashes, mount identities and destination; stop if they change during the capture. Capture a nonsecret manifest and capture time. Inventory *all* Docker volumes, including stopped historical containers, but distinguish active production from obsolete stages.
 4. Stream database roles/globals and every PostgreSQL database as format-custom logical dumps to encryption without plaintext files. For POS Redis, determine persistence mode and take a supported consistent snapshot. Quiesce or snapshot file-backed services during a bounded window if their files can change while copied; do not infer consistency from a successful `tar`.
 5. Stream each unique non-database bind source and Docker volume once, preserving ownership, modes and symlinks. Include Academy `/app/data`, website/marketing/FFPRO/POS/Hub/Tiquet/Sentinel/Portainer/proxy state as applicable from the live manifest. Capture configuration, env/secrets, certificates, host service definitions, backup scripts, image digests and required image archives. Exclude recreatable Docker overlay layers and runtime caches unless the manifest shows unique data there.
-6. Write ciphertext to the offhost destination with restrictive permissions. Hash every ciphertext item and sign/seal the manifest. Recheck live identities and service health. Mark the capture **INCOMPLETE** on any failed source, changed identity, missing item or encryption/hash error.
+6. Write ciphertext to the offhost destination with restrictive permissions. Hash every ciphertext item and retain the manifest on trusted storage. Recheck live identities and service health. Mark the capture **INCOMPLETE** on any failed source, changed identity, missing item or encryption/hash error.
 7. Offhost: verify every hash; decrypt every item in a controlled environment and validate archive structure and database dump listing. This proves readable archives, **not** restored apps. Keep two independent copies on different devices/locations, with retention and an owner-held key recovery process.
 
-The actual capture command must be generated from the completed private inventory and selected destination. Do not reuse the old Hub/Tiquet scripts: their hardcoded image IDs and Compose chain no longer match production.
+### Acer capture command (owner runs, no production restart)
+
+Use the Acer terminal in a persistent `tmux` session if available. The command pins the exact draft revision and SHA-256 for both scripts, runs the two local safety tests, and writes encrypted streams to `~/V79-Full-Recovery/full-<UTC>-<random>/`. It requires at least 140 GiB free at start and stops new items below a 100 GiB reserve. It will fail closed if the five database clusters or the source inventory change, an SSH stream fails, a key cannot decrypt, or an archive cannot be read. Capture may take hours; keep the Acer powered and connected.
+
+```bash
+set -euo pipefail
+mkdir -p "$HOME/V79-Recovery-Tools"
+chmod 700 "$HOME/V79-Recovery-Tools"
+cd "$HOME/V79-Recovery-Tools"
+curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/e7c12ac33e6aecab3a24765f3c2514d656b20100/scripts/v79-full-backup-source-20261027.py' -o source.py
+curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/e7c12ac33e6aecab3a24765f3c2514d656b20100/scripts/v79-full-backup-acer-20261027.py' -o acer.py
+printf '%s  %s\\n' '74e2709c52f26f8be9afa551b5f2a61a00992c08c3e4e33c48990ac66a4af724' source.py '8f3cc3891e2a955af8a3f4769edad157042546802fb24c0e011ff9a6a636efdc' acer.py | sha256sum -c -
+python3 acer.py --source-script source.py --self-test
+python3 acer.py --source-script source.py --backup | tee capture.log
+```
+
+The Acer destination is a first offhost copy, not two independent copies. Never copy its recovery private key into a backup directory. A receipt marked `OFFHOST_CIPHERTEXT_VERIFIED_RESTORE_NOT_PROVEN` proves encrypted transfer, decryption and basic structure checks, not a working whole-server restore. `INCOMPLETE_DO_NOT_RESTORE` means the run failed; preserve its log/receipt for diagnosis and start a new run. The runtime inventory and live file/Redis consistency still need a private review. Old Hub/Tiquet scripts have stale image pins and must not be reused.
+
+The current source helper captures all local named volumes except active PostgreSQL raw data, the five clusters' roles and databases, active bind sources, selected host configuration paths, all container image IDs and encrypted Docker inspect metadata. It does not create a bare-metal disk image, capture unmounted filesystems or prove consistency for file-backed services, Redis, uploads changing during capture, or a second storage copy. An offline physical image and isolated whole-server restore remain separate steps.
 
 ## Isolated restore rehearsal
 
@@ -56,4 +74,4 @@ Use a spare disk/host (the R430 may be suitable after hardware, RAM and storage 
 - Decide daily recovery point target (RPO) and acceptable outage (RTO). A once-daily complete backup can lose up to approximately one day of changes; no RTO is promised before a full rehearsal.
 - Decide whether to schedule a brief consistency window for file-backed apps and Redis, and where the second encrypted copy and private-key recovery copy will live.
 
-**Status:** plan and read-only preflight prepared; complete offhost backup, whole-server restore and disk-failure rehearsal **NOT YET VERIFIED**.
+**Status:** plan, read-only preflight and checksum-pinned capture scripts prepared; offhost capture **NOT YET RUN**, whole-server restore and disk-failure rehearsal **NOT YET VERIFIED**.
