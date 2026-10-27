@@ -152,6 +152,10 @@ export function checkModelBudget({receipts, estimateUsd, budgetUsd=20, nowMs=Dat
     if (age < 30*24*3600_000) used += r.usd;
   }
   used = Math.round(used * 1000000) / 1000000;
-  return {allowed:used+estimateUsd <= budgetUsd,reason:used+estimateUsd <= budgetUsd?'WITHIN_BUDGET':'BUDGET_CAP',
-    usedUsd:used,estimatedAfterUsd:Math.round((used+estimateUsd)*1000000)/1000000,budgetUsd};
+  const projected = Math.round((used + estimateUsd) * 1000000) / 1000000;
+  // Project policy is strictly BELOW the cap. Values rounded to micro-USD
+  // cannot become falsely compliant at exactly the limit.
+  const allowed = projected < budgetUsd;
+  return {allowed,reason:allowed?'WITHIN_BUDGET':'BUDGET_CAP',
+    usedUsd:used,estimatedAfterUsd:projected,budgetUsd};
 }
