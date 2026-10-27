@@ -16,7 +16,7 @@ import sys
 ROOT=Path('/home/firelion/v79-v3-hardened-hub-manifest-20261026')
 SUPERVISOR='v79_v3_hardened_hub_release.py'
 SUPERVISOR_SHA='89f5e1a0a72da32bebda84068cae7e0f790ba62cdf386e84f98bbe0a3c33bc62'
-OLD_SCOPE='v79profilee7bf10d730ec47e3'
+OLD_SCOPE='v79profilefbe7490cd19b4b34'
 class Stop(Exception): pass
 def require(ok,code):
     if not ok: raise Stop(code)
@@ -49,6 +49,16 @@ def codes_from_source(*paths):
                     code=value.value.rstrip(':')
                     if re.fullmatch('[A-Z][A-Z0-9_]+',code): codes.add(code)
     return codes
+def bookkeeping_checks(row,entry,which):
+    labels=row.get('Config',{}).get('Labels') or {}
+    expected={
+        'config_files':('com.docker.compose.project.config_files',str(entry[which+'_file'])),
+        'image':('com.docker.compose.image',entry[which+'_image']['Id']),
+        'version':('com.docker.compose.version',entry['compose_version']),
+        'environment_file':('com.docker.compose.project.environment_file','/dev/null'),
+    }
+    return {name:{'present':key in labels,'matches':labels.get(key)==value}
+            for name,(key,value) in expected.items()}
 def docker(*args):
     p=subprocess.run(['docker',*args],capture_output=True,timeout=30)
     require(p.returncode==0,'DOCKER_READ_UNAVAILABLE')
@@ -105,7 +115,8 @@ def main(proof=False):
         def observed(before,after,entry,which,**kwargs):
             try: return original(before,after,entry,which,**kwargs)
             except Exception as error:
-                failures.append({'profile':which,'safe_error':safe_code(error,allowed)})
+                failures.append({'profile':which,'safe_error':safe_code(error,allowed),
+                                 'bookkeeping_fields':bookkeeping_checks(after,entry,which)})
                 raise
         engine.runtime_matches=observed
         error_code=None;result=None
