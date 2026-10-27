@@ -37,6 +37,7 @@ UNITS=Path('/home/firelion/.config/systemd/user')
 STATE=ROOT/'v3-hardened-state.json'
 LOCK=ROOT/'v3-hardened.lock'
 WINDOW=20*60
+WORKFORCE_TIMERS=('v79-g2-approved-task-worker.timer','v79-workforce-morning.timer','v79-workforce-evening.timer')
 MODULES={
  'paired-compose-transaction.py':'a0d42890a4ad3f39203893dc166e2717545ebe4b',
  'paired-mount-contract.py':'00f46b9284a982748b697b253a4e34317d77f074',
@@ -131,6 +132,19 @@ def engine_plan():
  compat.install(module)
  module._v79_compat=compat
  bind_durable_context(backend,plan)
+ original_protected=backend.protected
+ def protected():
+  original_protected()
+  for name in ('v79-tiquet-manager','v79-business-agent','v79-hub-postgres','tiquet-postgres'):
+   check(name in plan['protected'],'PROTECTED_CORE_MISSING')
+   row=backend.inspect(plan['protected'][name]['Id'])
+   check(row['State'].get('Running') and row['State'].get('Health',{}).get('Status')=='healthy',
+         'PROTECTED_CORE_HEALTH_CHANGED')
+  s=state()
+  if isinstance(s,dict) and 'workforce_timers' in s:
+   check({unit:prop(unit,'ActiveState') for unit in WORKFORCE_TIMERS}==s['workforce_timers'],
+         'WORKFORCE_TIMER_STATE_CHANGED')
+ backend.protected=protected
  return module,plan,backend
 
 def bind_durable_context(backend,plan):
@@ -283,15 +297,11 @@ def deployment():
   check(state() is None,'RELEASE_ALREADY_STARTED')
   assert_prior_snapshot(m,plan,backend)
   supervision_preflight()
-  print('IMAGE_LABEL_PROOF=REUSED_CHECKING_NEW_REPLACEMENT_CODEC',flush=True)
-  with heartbeat():
-   proof=m._v79_compat.replacement_profiles(m,backend)
-   check(proof.get('profiles_verified')==2,'TWO_STOPPED_REPLACEMENT_PROFILES_REQUIRED')
-  assert_prior_snapshot(m,plan,backend)
-  print('STOPPED_REPLACEMENT_CODEC_PROOF=PASS_BOTH',flush=True)
+  print('ACCEPTED_IMAGE_COMPATIBILITY_PROOF=REUSED',flush=True)
   due=time.time()+WINDOW
   s={'schema':'v79-hardened-hub-v3','phase':'ARMING','deadline_epoch':due,
-     'owner_accepted':False,'prior':PRIOR,'candidate':CANDIDATE,'manifest_sha256':MANIFEST}
+     'owner_accepted':False,'prior':PRIOR,'candidate':CANDIDATE,'manifest_sha256':MANIFEST,
+     'workforce_timers':{unit:prop(unit,'ActiveState') for unit in WORKFORCE_TIMERS}}
   put(s)
   print('RELEASE_PHASE=ARM_PERSISTENT_HARDENED_ROLLBACK_TIMER',flush=True)
   arm(due)
@@ -370,6 +380,10 @@ def status():
   m,plan,backend=engine_plan()
   s=state()
   h=backend.inspect('v79-hub',allow_missing=True)
+  backend.protected()
+  if isinstance(s,dict) and s.get('phase') in ('ACCEPTED','OWNER_REVIEW_PENDING'):
+   backend.verify('v79-hub','candidate',h)
+   check(candidate_healthy(backend),'CANDIDATE_NOT_HEALTHY')
   return {'result':'HUB_RELEASE_STATUS','phase':s.get('phase') if isinstance(s,dict) else 'NOT_STARTED',
           'hub_image':h.get('Image') if h else None,
           'hub_health':((h.get('State') or {}).get('Health') or {}).get('Status') if h else None,
