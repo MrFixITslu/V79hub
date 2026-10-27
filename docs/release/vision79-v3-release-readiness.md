@@ -3,6 +3,14 @@
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
+## Latest owner proof — only Compose image bookkeeping label differs
+
+Owner ran 0b09a64a332016eb986299940d19166ac7c86872 diagnostic with verified committed checksum. Exactly one old nonce-owned synthetic volume removed; private evidence preserved; old scope then zero containers/volumes/no directory. New scope v79profile9c3d681c420843be candidate failed COMPOSE_BOOKKEEPING_IDENTITY_CHANGED. Boolean fields: config_files=true, environment_file=true, version=true; image present=true, matches=false. Post-proof prior Hub healthy, all protected 43 match, no profile containers. No cutover attempted. Normal engine return preserved original failure, not a cleanup error.
+
+Source investigation: docker/compose v5.6.0 pkg/compose/build.go (blob e70b16d5e01e53bda36f0b69696792ad7b3041c2) sets ImageDigestLabel via serviceImageDigest; pkg/compose/images.go (blob b20bb35539530e5b02029096948922fd38db1a20) uses localContentDigest/matchLocalManifest to select an available runnable platform-manifest digest, falling back to inspect.ID. Original engine assumes com.docker.compose.image == approved top-level inspect ID. This is a supported potential codec incompatibility, not proof of actual server mapping/version yet.
+
+Three options: establish exact local image/manifest mapping (selected), substitute expected identity blindly (rejected), relax label equality (rejected). /REDTEAM keeps actual container Image equal to the approved top-level pin, exact source revision, platform identity and all HostConfig/env/mount/network checks. Next: read-only Docker API manifest metadata for the two pinned images, installed/sealed Compose version and existing prior-Hub label mapping; no new probe/deployment/cleanup. If confirmed, narrow metadata normalization must be durable and bound to immutable image mapping, with original manifest/engine preserved as evidence. Acceptance-supervisor risks remain open; release HOLD.
+
 ## Latest owner read-only receipt — baseline intact, one synthetic volume remains
 
 Owner output for scope v79profile07f5dde175de4b1a: zero containers, one labelled volume, private directory present. Prior Hub healthy; baseline Id/Image/Config/HostConfig/Mounts all equal; BASELINE_AND_PROTECTED_43=PASS. This establishes post-failure baseline preservation, not complete synthetic cleanup or v3 deployment.
