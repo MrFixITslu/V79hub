@@ -1,3 +1,4 @@
+import { WorkforceDeliveryPanel } from "./WorkforceDeliveryPanel";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Bot, ClipboardCheck, LayoutList, MessageSquare, Sun, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
@@ -304,7 +305,7 @@ export function OwnerAssistant() {
           {visited.has("tasks") && <><WorkforceActionPanel embedded active={view === "tasks"} preparedTask={preparedCooWork} onPreparedTaskApplied={() => setPreparedCooWork(null)} /><div className="v79-proposal-group"><h2>Planning proposals</h2><p>Review advisory drafts separately from executable work actions.</p><AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} /></div></>}
         </section>
         <section id="workspace-delivery" className="v79-legacy-panel" aria-label="Delivery board" hidden={view !== "delivery"}>
-          {visited.has("delivery") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Engineering delivery board</h2><p className="mt-1 text-sm text-slate-400">Review GitHub work and prepare a task for COO. Preparing a task opens a draft for you to review.</p></div><OwnerCooWorkboardPanel embedded active={view === "delivery"} onPrepareTask={prepareTask} /></>}
+          {visited.has("delivery") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Engineering delivery board</h2><p className="mt-1 text-sm text-slate-400">Review GitHub work and prepare a task for COO. Preparing a task opens a draft for you to review.</p></div><WorkforceDeliveryPanel active={view === "delivery"} /><OwnerCooWorkboardPanel embedded active={view === "delivery"} onPrepareTask={prepareTask} /></>}
         </section>
         <section id="workspace-tools" className="v79-legacy-panel v79-tools" aria-label="Tools and reports" hidden={view !== "tools"}>
           <div className="v79-area-heading"><div><h2>Tools & reports</h2><p>Open a focused workspace for each capability.</p></div></div>

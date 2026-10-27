@@ -1,7 +1,8 @@
 import express from "express";
+import { projectAuthenticatedWorkDelivery } from "./workforce-delivery.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { GOOGLE_OPERATIONS } from './workforce-google.mjs';
-import { WORK_OPERATIONS, WORK_SYSTEMS, proposeWork, decideWork, cancelWork, claimWork,
+import { WORK_OPERATIONS, WORK_SYSTEMS, WORK_SPECIALISTS, proposeWork, decideWork, cancelWork, claimWork,
   finishWork, createApprovedWorkItem, pauseWork, publicWorkJob } from "./workforce-actions.mjs";
 
 const exact = (body, fields) => body && typeof body === "object" && !Array.isArray(body) &&
@@ -28,12 +29,15 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
     next();
   });
   owner.get("/", wrap(async (req, res) => {
-    const state = await ledger.read(), org = req.workOwner.organizationId;
+    const authenticated = typeof ledger.readAuthenticatedSnapshot === "function" ? await ledger.readAuthenticatedSnapshot() : null;
+    const state = authenticated ?? await ledger.read(), org = req.workOwner.organizationId;
     return res.json({ mode: "owner-approved-actions", enabled: enabled(), paused: state.paused,
       operations: WORK_OPERATIONS.filter(op=>googleEnabled() || !GOOGLE_OPERATIONS.includes(op)),
+      specialists: WORK_SPECIALISTS,
       systems: WORK_SYSTEMS.filter(system=>googleEnabled() || !['gmail','calendar'].includes(system)),
       jobs: state.jobs.filter(j => j.organizationId === org).slice(-200).reverse().map(publicWorkJob),
-      tasks: state.tasks.filter(j => j.organizationId === org).slice(-200).reverse() });
+      tasks: state.tasks.filter(j => j.organizationId === org).slice(-200).reverse(),
+      delivery: projectAuthenticatedWorkDelivery(authenticated, org, now()) });
   }));
   owner.post("/", wrap(async (req, res) => {
     if (GOOGLE_OPERATIONS.includes(req.body?.operation) && !googleEnabled()) return res.status(503).json({ error: "Google workforce integration is disabled" });

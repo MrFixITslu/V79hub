@@ -3,6 +3,7 @@ import { GOOGLE_OPERATIONS, validateGooglePayload } from './workforce-google.mjs
 
 export const WORK_SYSTEMS = Object.freeze(["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag", "gmail", "calendar"]);
 export const WORK_OPERATIONS = Object.freeze(["create_work_item", "validate_release", "deploy_release", "rollback_release", ...GOOGLE_OPERATIONS]);
+export const WORK_SPECIALISTS = Object.freeze(["coo", "finance", "strategy", "marketing", "customer-service", "technical-security", "sales"]);
 const SHA = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const MAX = 2000;
@@ -24,7 +25,8 @@ export function validateWorkRequest(input) {
   } else if (["gmail", "calendar"].includes(input.system)) {
     throw new Error("Google systems require a bounded Google operation");
   } else if (input.operation === "create_work_item") {
-    if (!exact(input.payload, ["detail"]) || !text(input.payload.detail, 2000)) throw new Error("Invalid work item");
+    if (!(exact(input.payload, ["detail"]) ||
+      (exact(input.payload, ["detail", "specialist"]) && WORK_SPECIALISTS.includes(input.payload.specialist))) || !text(input.payload.detail, 2000)) throw new Error("Invalid work item");
   } else if (!exact(input.payload, ["commitSha", "manifestSha256"]) ||
       !COMMIT.test(input.payload.commitSha) || !SHA.test(input.payload.manifestSha256)) throw new Error("Immutable release manifest required");
   return structuredClone(input);
@@ -34,7 +36,8 @@ export function workDigest(input) {
   return createHash("sha256").update(JSON.stringify([
     request.operation, request.system, request.summary,
     GOOGLE_OPERATIONS.includes(request.operation) ? Object.keys(request.payload).sort().map(k=>[k,request.payload[k]]) :
-      request.operation === "create_work_item" ? request.payload.detail : [request.payload.commitSha, request.payload.manifestSha256],
+      request.operation === "create_work_item" ? (Object.hasOwn(request.payload, "specialist")
+        ? [request.payload.detail, request.payload.specialist] : request.payload.detail) : [request.payload.commitSha, request.payload.manifestSha256],
     request.idempotencyKey,
   ])).digest("hex");
 }
@@ -117,6 +120,7 @@ export function createApprovedWorkItem(state, id, { organizationId, actor, expec
   if (state.tasks.length >= MAX) fail("Task capacity reached");
   const task = { id: randomUUID(), jobId: job.id, organizationId, system: job.system,
     title: job.summary, detail: job.payload.detail, status: "open", assignedTo: "coo", createdAt: new Date(now).toISOString() };
+  if (job.payload.specialist) task.specialist = job.payload.specialist;
   state.tasks.push(task); job.status = "succeeded"; job.revision++;
   job.result = { taskId: task.id, at: new Date(now).toISOString() };
   event(state, job, actor, "work_item_created", now); return job;
