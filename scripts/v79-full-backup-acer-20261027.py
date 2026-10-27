@@ -77,7 +77,7 @@ def encrypt_item(source, baseline, item, output):
     try:
         with source.open("rb") as script:
             producer = subprocess.Popen(["ssh", "-o", "StrictHostKeyChecking=yes", SERVER, command],
-                                        stdin=script, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                        stdin=script, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 consumer = subprocess.Popen(
                     ["gpg", "--batch", "--quiet", "--trust-model", "always", "--recipient", RECIPIENT,
@@ -86,6 +86,7 @@ def encrypt_item(source, baseline, item, output):
                 producer.stdout.close()
                 consumer_status = consumer.wait(timeout=7200)
                 producer_status = producer.wait(timeout=7200)
+                source_error = producer.stderr.read(4096)
             except (OSError, subprocess.TimeoutExpired):
                 producer.kill()
                 producer.wait()
@@ -94,6 +95,9 @@ def encrypt_item(source, baseline, item, output):
                     consumer.wait()
                 raise Stop("STREAM_TIMEOUT") from None
         if producer_status or consumer_status or not partial.is_file() or partial.stat().st_size == 0:
+            code = re.search(rb"STOP=([A-Z_]+)", source_error)
+            if producer_status and code:
+                raise Stop("SOURCE_" + code.group(1).decode("ascii"))
             raise Stop("STREAM_OR_ENCRYPTION_FAILED")
         partial.rename(output)
     finally:
