@@ -39,7 +39,7 @@ chmod 700 "$HOME/V79-Recovery-Tools"
 cd "$HOME/V79-Recovery-Tools"
 curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/e7c12ac33e6aecab3a24765f3c2514d656b20100/scripts/v79-full-backup-source-20261027.py' -o source.py
 curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/e7c12ac33e6aecab3a24765f3c2514d656b20100/scripts/v79-full-backup-acer-20261027.py' -o acer.py
-printf '%s  %s\\n' '74e2709c52f26f8be9afa551b5f2a61a00992c08c3e4e33c48990ac66a4af724' source.py '8f3cc3891e2a955af8a3f4769edad157042546802fb24c0e011ff9a6a636efdc' acer.py | sha256sum -c -
+printf '%s  %s\n' '74e2709c52f26f8be9afa551b5f2a61a00992c08c3e4e33c48990ac66a4af724' source.py '8f3cc3891e2a955af8a3f4769edad157042546802fb24c0e011ff9a6a636efdc' acer.py | sha256sum -c -
 python3 acer.py --source-script source.py --self-test
 python3 acer.py --source-script source.py --backup | tee capture.log
 ```
