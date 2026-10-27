@@ -201,12 +201,37 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--plan", action="store_true")
     mode.add_argument("--stream", metavar="ITEM")
+    mode.add_argument("--diagnose-first-host", action="store_true")
     parser.add_argument("--expected-baseline")
     args = parser.parse_args()
     if args.stream and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,150}", args.stream):
         raise Stop("ITEM_INVALID")
     by_name, volumes, pg_volumes, binds, images, dbs, tar_image, batches, baseline = inventory()
     sources = items(volumes, pg_volumes, dbs, batches)
+    if args.diagnose_first_host:
+        # Reproduce only the first failing host batch, discarding archive bytes.
+        # stderr contains paths but no file contents; review before sharing.
+        with tempfile.TemporaryFile() as errors:
+            try:
+                probe = subprocess.run(
+                    helper(tar_image, ["type=bind,source=/,target=/host,readonly"],
+                           ["/host", *batches[0]]), stdout=subprocess.DEVNULL,
+                    stderr=errors, timeout=900, check=False)
+            except subprocess.TimeoutExpired:
+                print("FIRST_HOST_DIAG=TIMEOUT_15_MINUTES")
+                return 2
+            except OSError:
+                print("FIRST_HOST_DIAG=OS_ERROR")
+                return 2
+            errors.seek(0)
+            sample = errors.read(2048).decode("utf-8", "replace")
+        print("FIRST_HOST_BATCH_ENTRIES=" + str(len(batches[0])))
+        print("FIRST_HOST_DIAG_EXIT=" + str(probe.returncode))
+        if probe.returncode:
+            print("FIRST_HOST_STDERR_BEGIN")
+            print(sample.rstrip())
+            print("FIRST_HOST_STDERR_END")
+        return 0 if probe.returncode == 0 else 2
     if args.plan:
         print(json.dumps({"schema": "v79-full-backup-source-20261027",
             "baseline_sha256": baseline, "items": sources,
