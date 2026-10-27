@@ -325,6 +325,14 @@ Owner's last recovery receipt shows previous Hub image `sha256:d2e6f4aee332b076f
 
 **Subsequent v3 work:** examine the saved baseline original runtime evidence and the current recreated Hub with secret-safe *field names only*; reconcile the exact changed storage/HostConfig/network semantics using the tested `paired-mount-contract.py` and `paired-compose-transaction.py` modules, then bind the approved v3 image to a Hub-only release manifest. Run the existing hardened engine's tests and a focused stopped-container check only for the new baseline profile. No backups/restore loops, no destructive retry while healthy old Hub serves.
 
+## 26 October 2026 — failed timer closeout STOP: rollback service busy
+
+Operator ran the guarded closeout command after the failed v3 attempt. Result: `STOP_NO_FURTHER_CHANGES` with `reason=ROLLBACK_SERVICE_BUSY`, release `HOLD`. Code did not execute `systemctl disable --now` because service `ActiveState` was not `inactive`/ `failed`. This is a **safety STOP**, not an authorization to disable service/timer without checking its actual activity. Previous read-only receipt showed prior Hub image `sha256:d2e6f4ae…` healthy, four companions healthy and unchanged; Hub runtime contract differs and release-state `ROLLBACK_FAILED`.
+
+The v3 ad-hoc watchdog unit uses `Restart=on-failure`, `RestartSec=20s`, `StartLimitIntervalSec=0`; if it started at the Oct 27 00:12:41Z deadline and the pre-cutover config digest mismatch persists, it may be in `activating / auto-restart` and continuously retrying. This is a **hypothesis**, not verified: inspect `ActiveState`, `SubState`, `MainPID`, `ControlPID`, `NRestarts`, timer properties and current Hub and four app statuses read-only before any further action. A repeatedly restarting rollback service cannot be treated as inactive merely because no Docker mutation is planned. `systemctl stop` may interrupt active Docker/Compose work; defer until checking the service process is not currently mutating containers and the prior Hub is healthy.
+
+Decision retained: standardize the previously validated hardened `paired-compose-transaction.py` pre-start contract verification and manifest-pinned rollback; do not resurrect this one-off controller. Avoid repeat backup/archive/restoration loops, `--execute`, `--rollback` or forced Docker recreation. Prior-image operational recovery has been observed but exact previous runtime configuration has NOT been proven. Release remains `HOLD`.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
