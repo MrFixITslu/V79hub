@@ -32,6 +32,7 @@ def validate_image(row,pin):
  return True
 def install(engine):
  original=engine.runtime_matches
+ engine._v79_profile_replacements={}
  def compatible(before,after,entry,which,**kwargs):
   pin=entry[which+'_image']['Id']
   require(pin in MAPPING,'UNREVIEWED_IMAGE_LABEL_MAPPING')
@@ -40,11 +41,57 @@ def install(engine):
           'COMPOSE_IMAGE_LABEL_MAPPING_CHANGED')
   normalized=copy.deepcopy(after)
   normalized['Config']['Labels'][LABEL]=pin
+  proof_previous=engine._v79_profile_replacements.get(after.get('Id'))
+  if proof_previous is not None:
+   entry=copy.deepcopy(entry)
+   entry['_replaced_id']=proof_previous
+  replaced=entry.get('_replaced_id')
+  if replaced is not None:
+   require(re.fullmatch('[0-9a-f]{64}',replaced or '') is not None,
+           'REPLACEMENT_CONTEXT_INVALID')
+   require(entry.get('compose_version','').lstrip('v')=='5.6.0',
+           'UNREVIEWED_COMPOSE_REPLACEMENT_CODEC')
+   name=entry['model']['services'][entry['service']].get('container_name')
+   require(isinstance(name,str) and bool(name),'EXPLICIT_CONTAINER_NAME_REQUIRED')
+   require(normalized['Config']['Labels'].get('com.docker.compose.replace')==name,
+           'COMPOSE_REPLACEMENT_NAME_CHANGED')
+   normalized['Config']['Labels']['com.docker.compose.replace']=replaced
   # Original validator still compares image, Config, Env, HostConfig/storage,
   # networks and every other label. Never mutate input snapshots or manifest.
   return original(before,normalized,entry,which,**kwargs)
  engine.runtime_matches=compatible
  return original
+def replacement_profiles(engine,backend):
+ """Extend existing stopped proof with one exact synthetic recreate per image."""
+ original_call=backend.call
+ def call(args,**kwargs):
+  result=original_call(args,**kwargs)
+  if args[:2]==['docker','compose'] and '--no-start' in args:
+   require('--no-deps' in args and '--no-build' in args and '--pull' in args
+           and args[args.index('--pull')+1]=='never','PROBE_COMMAND_SCOPE_CHANGED')
+   project=args[args.index('--project-name')+1]
+   require(re.fullmatch('v79profile[0-9a-f]{16}-[01]',project) is not None,
+           'PROBE_PROJECT_SCOPE_CHANGED')
+   model=json.loads(Path(args[args.index('-f')+1]).read_bytes())
+   name=model['services'][args[-1]]['container_name']
+   require(name==project,'PROBE_CONTAINER_NAME_CHANGED')
+   before=backend.inspect(name)
+   require(not before['State'].get('Running') and str(before['State'].get('StartedAt','0001')).startswith('0001'),
+           'PROBE_PROCESS_STARTED')
+   original_call([*args[:-1],'--force-recreate',args[-1]],**kwargs)
+   after=backend.inspect(name)
+   require(after['Id']!=before['Id'] and after['Image']==before['Image']
+           and not after['State'].get('Running')
+           and str(after['State'].get('StartedAt','0001')).startswith('0001'),
+           'PROBE_RECREATE_IDENTITY_OR_STATE_CHANGED')
+   engine._v79_profile_replacements[after['Id']]=before['Id']
+  return result
+ backend.call=call
+ try:return engine.stopped_profiles(backend)
+ finally:
+  backend.call=original_call
+  engine._v79_profile_replacements.clear()
+
 class Docker(http.client.HTTPConnection):
  def connect(self):
   self.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
@@ -72,7 +119,7 @@ def proof():
   print('EXACT_IMAGE_MANIFEST_MAPPING=PASS_BOTH',flush=True)
   install(engine)
   try:
-   with sup.heartbeat(): result=engine.stopped_profiles(backend)
+   with sup.heartbeat(): result=replacement_profiles(engine,backend)
    require(result.get('profiles_verified')==2,'TWO_PROFILES_REQUIRED')
    print(json.dumps({'phase':'COMPATIBILITY_PROOF','proof':result}),flush=True)
   except Exception as error:
