@@ -103,17 +103,18 @@ def inventory():
                 not x or "\n" in x or "\r" in x for x in entries):
             raise Stop("DATABASE_LIST_INVALID")
         dbs[name] = entries
+    batches = host_batches(bind_sources)
     identity = {
         "containers": sorted((name, r["Id"], r["Image"],
                               [(m.get("Type"), m.get("Source"), m.get("Name"), m.get("Destination"))
                                for m in r.get("Mounts") or []]) for name, r in by_name.items()),
-        "volumes": sorted(volumes), "databases": dbs,
+        "volumes": sorted(volumes), "databases": dbs, "host_batches": batches,
     }
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return by_name, volumes, active_pg_volumes, bind_sources, images, dbs, tar_image, digest
+    return by_name, volumes, active_pg_volumes, bind_sources, images, dbs, tar_image, batches, digest
 
-def items(volumes, active_pg_volumes, dbs):
-    out = ["runtime-inspect", "host-files", "images"]
+def items(volumes, active_pg_volumes, dbs, batches):
+    out = ["runtime-inspect", *["host:" + str(i) for i in range(len(batches))], "images"]
     for name in PG_NAMES:
         out.append("pg-globals:" + name)
         for index in range(len(dbs[name])):
@@ -138,6 +139,29 @@ def host_paths(bind_sources):
         result.append(path.lstrip("/"))
     return sorted(set(result))
 
+def host_batches(bind_sources):
+    paths = host_paths(bind_sources)
+    batches = []
+    for path in paths:
+        if path != "home" or not Path("/home").is_dir():
+            batches.append([path])
+            continue
+        entries = []
+        for account in sorted(Path("/home").iterdir()):
+            if account.is_dir() and not account.is_symlink():
+                children = sorted(account.iterdir())
+                entries.extend(str(child).lstrip("/") for child in children)
+                if not children:
+                    entries.append(str(account).lstrip("/"))
+            else:
+                entries.append(str(account).lstrip("/"))
+        if not entries:
+            entries = ["home"]
+        batches.extend(entries[i:i + 5] for i in range(0, len(entries), 5))
+    if len(batches) > 200 or any(len(p) > 300 for batch in batches for p in batch):
+        raise Stop("HOST_BATCH_BOUND")
+    return batches
+
 def helper(tar_image, mounts, paths):
     args = ["docker", "run", "--rm", "--pull", "never", "--network", "none",
             "--read-only", "--cap-drop", "ALL", "--cap-add", "DAC_READ_SEARCH",
@@ -152,7 +176,7 @@ def stream(args):
     try:
         with tempfile.TemporaryFile() as errors:
             p = subprocess.run(args, stdout=sys.stdout.buffer, stderr=errors,
-                               timeout=3600, check=False)
+                               timeout=21600, check=False)
             if p.returncode:
                 errors.seek(0)
                 detail = errors.read(262144).lower()
@@ -167,8 +191,10 @@ def stream(args):
                 if b"not found" in detail or b"executable file not found" in detail:
                     raise Stop("HELPER_EXECUTABLE_UNAVAILABLE")
                 raise Stop("SOURCE_STREAM_EXIT_NONZERO")
-    except (OSError, subprocess.TimeoutExpired):
-        raise Stop("STREAM_UNAVAILABLE_OR_TIMEOUT") from None
+    except subprocess.TimeoutExpired:
+        raise Stop("STREAM_TIMEOUT") from None
+    except OSError:
+        raise Stop("STREAM_OS_ERROR") from None
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -179,15 +205,15 @@ def main():
     args = parser.parse_args()
     if args.stream and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,150}", args.stream):
         raise Stop("ITEM_INVALID")
-    by_name, volumes, pg_volumes, binds, images, dbs, tar_image, baseline = inventory()
-    sources = items(volumes, pg_volumes, dbs)
+    by_name, volumes, pg_volumes, binds, images, dbs, tar_image, batches, baseline = inventory()
+    sources = items(volumes, pg_volumes, dbs, batches)
     if args.plan:
         print(json.dumps({"schema": "v79-full-backup-source-20261027",
             "baseline_sha256": baseline, "items": sources,
             "containers": len(by_name), "volumes": len(volumes),
             "postgres_clusters": len(PG_NAMES),
             "active_postgres_data_volumes_excluded_from_raw_tar": len(pg_volumes),
-            "host_bind_sources": len(binds), "production_changes": "NONE",
+            "host_bind_sources": len(binds), "host_batches": len(batches), "production_changes": "NONE",
             "app_file_consistency": "NOT_PROVEN_BY_LIVE_COPY"}, sort_keys=True))
         return 0
     if args.expected_baseline != baseline or args.stream not in sources:
@@ -198,10 +224,8 @@ def main():
                    "volumes": command(["docker", "volume", "inspect", *volumes], json_result=True),
                    "baseline_sha256": baseline}
         sys.stdout.buffer.write(json.dumps(payload, sort_keys=True).encode())
-    elif item == "host-files":
-        paths = host_paths(binds)
-        if not paths:
-            raise Stop("HOST_SOURCE_EMPTY")
+    elif item.startswith("host:"):
+        paths = batches[int(item.split(":", 1)[1])]
         stream(helper(tar_image, ["type=bind,source=/,target=/host,readonly"],
                       ["/host", *paths]))
     elif item == "images":
