@@ -15,6 +15,7 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 
 MAX_CONTAINERS = 100
 MAX_VOLUMES = 300
@@ -149,12 +150,25 @@ def helper(tar_image, mounts, paths):
 
 def stream(args):
     try:
-        p = subprocess.run(args, stdout=sys.stdout.buffer, stderr=subprocess.DEVNULL,
-                           timeout=3600, check=False)
+        with tempfile.TemporaryFile() as errors:
+            p = subprocess.run(args, stdout=sys.stdout.buffer, stderr=errors,
+                               timeout=3600, check=False)
+            if p.returncode:
+                errors.seek(0)
+                detail = errors.read(262144).lower()
+                if b"file changed as we read" in detail or b"file shrank" in detail:
+                    raise Stop("LIVE_FILE_CHANGED_DURING_READ")
+                if b"permission denied" in detail:
+                    raise Stop("SOURCE_FILE_PERMISSION_DENIED")
+                if b"no space left" in detail:
+                    raise Stop("SOURCE_OR_HELPER_OUT_OF_SPACE")
+                if b"cannot open" in detail or b"cannot stat" in detail:
+                    raise Stop("SOURCE_FILE_UNAVAILABLE")
+                if b"not found" in detail or b"executable file not found" in detail:
+                    raise Stop("HELPER_EXECUTABLE_UNAVAILABLE")
+                raise Stop("SOURCE_STREAM_EXIT_NONZERO")
     except (OSError, subprocess.TimeoutExpired):
         raise Stop("STREAM_UNAVAILABLE_OR_TIMEOUT") from None
-    if p.returncode:
-        raise Stop("STREAM_FAILED")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
