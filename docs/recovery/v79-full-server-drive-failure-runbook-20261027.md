@@ -33,22 +33,24 @@ Risk controls: do not archive live PostgreSQL data directories as the primary re
 Use the Acer terminal in a persistent `tmux` session if available. The command pins the exact draft revision and SHA-256 for both scripts, runs the two local safety tests, and writes encrypted streams to `~/V79-Full-Recovery/full-<UTC>-<random>/`. It requires at least 140 GiB free at start and stops new items below a 100 GiB reserve. It will fail closed if the five database clusters or the source inventory change, an SSH stream fails, a key cannot decrypt, or an archive cannot be read. Capture may take hours; keep the Acer powered and connected.
 
 ```bash
+if (
 set -euo pipefail
 mkdir -p "$HOME/V79-Recovery-Tools"
 chmod 700 "$HOME/V79-Recovery-Tools"
 cd "$HOME/V79-Recovery-Tools"
-curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/57972aa6552f73405b96361b14527995ac3baa25/scripts/v79-full-backup-source-20261027.py' -o source.py
-curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/57972aa6552f73405b96361b14527995ac3baa25/scripts/v79-full-backup-acer-20261027.py' -o acer.py
-printf '%s  %s\n' '69b5dd6873773b2fc406f59ae4b9a8fcb0826838ca8aa8cd6d135909507e4af1' source.py 'c4081ba60bf78557142185cfd78c0e4ebe640eae22097a439d965ac115d18842' acer.py | sha256sum -c -
+curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/f5c7f8ebe0bac2d65bdcbd6b934d0390294ac3e0/scripts/v79-full-backup-source-20261027.py' -o source.py
+curl --fail --location --proto '=https' 'https://raw.githubusercontent.com/MrFixITslu/V79hub/f5c7f8ebe0bac2d65bdcbd6b934d0390294ac3e0/scripts/v79-full-backup-acer-20261027.py' -o acer.py
+printf '%s  %s\n' 'd65516852e6bac223733ec591ab37b201604355f518a3f8294fe13c02dd55670' source.py '5d253ca38fef25b58b240ee7a417b7971f54f4fe50058357243d03237618f91e' acer.py | sha256sum -c -
 python3 acer.py --source-script source.py --self-test
-python3 acer.py --source-script source.py --backup | tee capture.log
+python3 acer.py --source-script source.py --backup 2>&1 | tee capture-third.log
+); then echo CAPTURE_COMMAND=PASS; else echo CAPTURE_COMMAND=FAIL; fi
 ```
 
 The Acer destination is a first offhost copy, not two independent copies. Never copy its recovery private key into a backup directory. A receipt marked `OFFHOST_CIPHERTEXT_VERIFIED_RESTORE_NOT_PROVEN` proves encrypted transfer, decryption and basic structure checks, not a working whole-server restore. `INCOMPLETE_DO_NOT_RESTORE` means the run failed; preserve its log/receipt for diagnosis and start a new run. The runtime inventory and live file/Redis consistency still need a private review. Old Hub/Tiquet scripts have stale image pins and must not be reused.
 
 The current source helper captures all local named volumes except active PostgreSQL raw data, the five clusters' roles and databases, active bind sources, selected host configuration paths, all container image IDs and encrypted Docker inspect metadata. It does not create a bare-metal disk image, capture unmounted filesystems or prove consistency for file-backed services, Redis, uploads changing during capture, or a second storage copy. An offline physical image and isolated whole-server restore remain separate steps.
 
-The first 27 October run stopped at item 2/63 (`host-files`) with a generic stream failure. A one-file read-only Docker helper diagnostic passed. The revised scripts report a sanitized source failure code during the next capture; the first directory remains `INCOMPLETE_DO_NOT_RESTORE`. If the cause is a changing file or permission denial, do not weaken archive checks or omit data silently; inspect the affected service privately and take a coordinated consistency capture.\n\n## Isolated restore rehearsal
+The first 27 October run stopped at item 2/63 (`host-files`) with a generic stream failure. A one-file read-only Docker helper diagnostic passed. The second run stopped at item 2/64 with `SOURCE_STREAM_UNAVAILABLE_OR_TIMEOUT`; both directories remain `INCOMPLETE_DO_NOT_RESTORE`. The revised source splits the host archive into smaller indexed batches and reports timeout separately from OS errors. The owner command runs `set -e` only inside a subshell, so a failed capture does not close the interactive terminal. If the cause is a changing file or permission denial, do not weaken archive checks or omit data silently; inspect the affected service privately and take a coordinated consistency capture.\n\n## Isolated restore rehearsal
 
 Use a spare disk/host (the R430 may be suitable after hardware, RAM and storage checks) or a sufficiently resourced offline VM. Keep it disconnected from public DNS, payment gateways, email providers, customer ingress and production Tailscale identity. Restore into fresh volumes, not live Docker volumes.
 
@@ -74,4 +76,4 @@ Use a spare disk/host (the R430 may be suitable after hardware, RAM and storage 
 - Decide daily recovery point target (RPO) and acceptable outage (RTO). A once-daily complete backup can lose up to approximately one day of changes; no RTO is promised before a full rehearsal.
 - Decide whether to schedule a brief consistency window for file-backed apps and Redis, and where the second encrypted copy and private-key recovery copy will live.
 
-**Status:** first offhost capture **FAILED at host-files item 2/63** and is unusable; diagnostic helper PASS, revised scripts ready. Whole-server restore and disk-failure rehearsal **NOT YET VERIFIED**.
+**Status:** two offhost capture attempts **FAILED at host-files item 2** and are unusable; diagnostic helper PASS, batched host capture ready. Whole-server restore and disk-failure rehearsal **NOT YET VERIFIED**.
