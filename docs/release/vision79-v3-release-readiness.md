@@ -3,6 +3,12 @@
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
+## Latest acceptance result — owner browser PASS, durable acceptance refused
+
+Owner reported “all works” after live candidate review, covering the requested MFA/SSO/visual/data checks. Subsequent explicit v2 --accept command returned STOP_HARDENED_RELEASE / OWNER_REVIEW_NOT_PENDING / HOLD. This refusal occurs before acceptance is written or timer disarm. It means stored phase is not OWNER_REVIEW_PENDING (or state is absent); it does NOT establish which phase, current image, health, rollback completion, or a new product defect. Expiry rollback is a possibility, not a confirmed outcome. Preserve owner browser acceptance as dated evidence while formal release remains unresolved.
+
+Next action: existing installed v2 --status only. No redeployment, timer changes, state rewrite or backup/rehearsal repetition. Three options considered: force acceptance (rejected), redeploy blindly (rejected), inspect current state/image/health/timer and then choose the smallest justified action (selected). /REDTEAM forbids accepting a rolled-back image as candidate or changing expired approval state without actual runtime evidence.
+
 ## LIVE RECEIPT — Hub v3 healthy, owner acceptance pending
 
 Owner ran checksum-verified owner-release package at 6f56d7e64950415a6e9d400463328d6a8cf785c2. Output: CORRECTED_SUPERVISOR_INSTALLED_ORIGINAL_PRESERVED=PASS; accepted compatibility proof reused; persistent rollback timer armed; Hub-only switch invoked original engine. Actual result V3_HARDENED_HUB_LIVE_REVIEW_PENDING, candidate_healthy=true, protected_count=43, release_gate=HOLD, owner_acceptance_required=true.
