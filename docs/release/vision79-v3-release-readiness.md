@@ -375,6 +375,12 @@ Artifact prepared in conversation: `V79_v3_Hub_Only_Manifest_Preparation.zip`, i
 
 **Immediate next:** owner downloads package to Acer, verifies pinned checksums and runs `bash V79_v3_Hub_Manifest/run_preparation.sh`; this transfers the adapter and pinned engine only, runs `--prepare` on Dell, prints `PASS_HUB_ONLY_HARDENED_MANIFEST_SEALED` when good. Stop if any check fails. After that, use sealed Hub-only manifest and tested hardened transaction engine to execute a single supervised cutover with safe owner authentication/visual/tenant acceptance; do not run old pair launcher, retired ad hoc controller, or historic recovery commands. Remote Desktop Commander device is online but usage quota currently 0%; no direct Docker execution by assistant. No claim of deployment until user supplies actual live receipt. **Release HOLD**.
 
+## Oct 26–27 — Hub-only manifest sealed, production unchanged
+
+Operator output: `PASS_HUB_ONLY_HARDENED_MANIFEST_SEALED`. Private plan SHA256 `4424b8ad83d66fe5b551bc9efc845545f0127fce66737f66cc2c5f8fe1076857`. Only `v79-hub` included, 43 other containers protected. Prior image `sha256:d2e6f4aee332b076f1340c339e4277b39f1337d2cd02b4b3a4c849e3a6d615e4`. Candidate `sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6`. Approved revision `114841271d4f8b9c4b63df6aedfd55bde2e82f40`. Existing hardened modules verified. Production unchanged; release HOLD.
+
+A Hub-only cutover operator ZIP was generated: `V79_v3_Hardened_Hub_Release.zip`, SHA256 `bed0e26a8a678968d383c35a1cf14755c670fce9e9f17f598e3b5dd2e3c3b3bb`, with supervisor Python SHA256 `89f5e1a0a72da32bebda84068cae7e0f790ba62cdf386e84f98bbe0a3c33bc62`. Local syntax and four synthetic tests passed. The supervisor delegates live deployment and rollback exclusively to the existing `paired-compose-transaction.py` engine, pins the Hub-only release plan, preserves the protected container set, verifies synthetic stopped-container compatibility before switching, and arms a persistent one-shot 20-minute rollback timer. Files provide live, accept, rollback, and status commands. This ZIP has NOT been run on Dell. The owner must check MFA, Hub-to-Tiquet SSO, approved visuals and tenant permissions before attesting to acceptance. A failed compatibility proof must block live deployment. No release success claimed yet.
+
 ## Release sequence
 
 1. Collect and review the current server inventory. Preserve the observed Hub image as the prospective rollback identity; do not assume a historical image remains current.
