@@ -1,3 +1,110 @@
+# Vision79 Digital — active master completion register
+
+Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
+This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
+
+## Hub v3 outcome: HOLD — not confirmed deployed
+
+Direct access check this session: GitHub read/write works. Desktop Commander lists Dell online but rejects execution with monthly usage exhausted and explicitly says do not retry/reconnect. No server command, cleanup, cutover, rollback, payment, invitation or timer change was executed by the assistant.
+
+Latest owner evidence: stopped-profile scope `v79profilee7bf10d730ec47e3` failed before cutover, release state and expiry timer creation. Exact engine predicate is **unknown**, because the supervisor converts engine exceptions to the class name `Refused`. Current Hub health and failed-scope cleanup remain unverified since that attempt; the prior image was last reported healthy. Do not call this a current health audit.
+
+Candidate: `sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6`.
+Prior: `sha256:d2e6f4aee332b076f1340c339e4277b39f1337d2cd02b4b3a4c849e3a6d615e4`.
+Approved source: `114841271d4f8b9c4b63df6aedfd55bde2e82f40`.
+Manifest SHA256: `4424b8ad83d66fe5b551bc9efc845545f0127fce66737f66cc2c5f8fe1076857`.
+Retain the sealed manifest and original engine unchanged. No evidence yet justifies resealing or repeating backups/restores.
+
+### Three options and /REDTEAM decision
+
+1. Diagnose existing receipts and failed scope, then one bounded proof if no code was persisted — **selected**.
+2. Blindly replay the complete release — rejected; hides the failure and risks repeated incident work.
+3. Reseal/rewrite the engine — rejected without an identified incompatible field.
+
+Diagnostic source: `scripts/vision79-v3-profile-diagnostic.py`, commit `78e9a48d1ba33eb3ff5ea05d13b5561135626fce`, SHA256 `d4dda3d324c8f81bb84d827051e52b40acfa55bd9732adf2d91f922433c2468c`.
+It verifies the installed supervisor checksum and unchanged engine blob pins; uses the same release lock nonblocking; requires no release state; verifies Hub-only scope, 43 protected containers and sealed current baseline; checks old scope residue and bounded private receipts. Existing safe error evidence or residue stops a proof. Only with owner-presence assertion and no persisted error does it invoke the unchanged stopped-profile proof once. It never calls deploy, rollback, switch, arm or disarm. Engine-owned cleanup is preserved; no fallback deletion. Output omits environment values, application label keys and filesystem sources. Seven local redaction/no-cutover checks passed; this is **not** a Docker or server proof.
+
+**Additional supervisor blockers discovered by source review:** acceptance starts a new process and calls `backend.healthy(candidate)` without renewing the 30-second lease; deployment heartbeat ends on return although browser window is 20 minutes. Also `_replaced_id` is assigned only in the deployment process, while fresh acceptance reloads the sealed plan without it; a nonempty Compose replacement label is rejected. Two local pure-engine reproductions passed (stale lease refusal; fresh-plan replacement-label refusal). These are source-level risks, **not attribution of the failed stopped-profile predicate**. Fix acceptance context durably in the supervisor after the diagnostic, retaining full engine validation and explicit owner attestations; test fresh-process accept and rollback. Do not weaken the engine's replacement check or treat a heartbeat as browser acceptance. Verify user-systemd lifetime across SSH logout and real expiry rollback readiness before cutover. Existing four supervisor tests did not cover these paths.
+
+## Component-by-component completion register
+
+Evidence states below are bounded: historical live acceptance is preserved; current runtime is unknown without access.
+
+| Component/task | Verified completion state | Evidence | Outstanding work | Priority | Next action | Owner action required |
+| --- | --- | --- | --- | --- | --- | --- |
+| Hub v3 visuals/source/image | Approved; built and isolated boot passed; NOT deployed/accepted | Approved revision/image above; dated release log below | Exact failed predicate; supervisor acceptance context; live acceptance | P1 | Run narrow diagnostic, repair only evidenced compatibility, prove fresh-process acceptance/expiry | Run command below, then attend browser checks |
+| Healthy prior Hub and protected 43 | Last owner-reported baseline healthy; sealed current Compose parity passed | Existing sealed manifest and post-containment receipts | Current health and old-profile cleanup since failure | P1 | Diagnostic verifies baseline/protected set without live mutation | Same diagnostic |
+| Recovery/checkpoint | Completed dated offhost/decryption, DB/mounted-data restore, paired boot and prior-image cold boot | Dated v3 release evidence below | No new recovery rehearsal justified by present evidence | P1 | Preserve receipts; reassess only material data/storage/release change | Preserve recovery key |
+| Tiquet | Controlled beta accepted; later exact image health in v3 inventory; v3 pairing not browser accepted | Oct22 beta record; v3 inventory | Post-Hub v3 signed dashboard launch, permissions and data | P1 | Keep Tiquet unchanged; test through Hub after release | Real SSO/customer checks |
+| Invitations/trial | Existing invitation flow and 14-day controlled beta accepted | docs/launch/beta-go-release-record-20261022.md | Current v3 first-customer delivery/trial display, pilot roster/support | P1 | Use designated existing test identities, then 10–15 invite-only customers | Select real participants; authorize sends |
+| Prices/billing | Reviewed catalogue source and customer/admin request flow accepted historically | docs/customer-pricing-review-20261022.md; Oct22 beta record | Current runtime quote/plan display; actual payment acceptance | P1 | Compare live offer to approved catalogue; no price mutation | Review exact offer/payment evidence |
+| WiPay/manual payment | Sandbox only; manual invoice/bank fallback approved; request UI does not grant paid access | Oct22 beta record; Hub closeout | Sandbox result/idempotency/reconciliation, verified bank settlement process | P1 | Keep WiPay sandbox; no charge/paid entitlement from redirect or uploaded receipt | Finance/provider verification; live mode separate authorization |
+| Website/funnel | Current main source inspected at 501157179203f23acf5417680598b7fd4dfa2b7a; deployment unknown | MrFixITslu/v79website (renamed from website2026) | Live submission, sync and conversion receipt | P1 | One approved test lead; verify CRM then Hub/Tiquet delivery states | Provide/approve test identity and receipt |
+| Guide/newsletter | Source has generated PDF, unticked consent, consentVersion and encrypted PII | server.ts newsletter/download handlers; AIPromptGuideLandingPage.tsx | No unsubscribe route found in inspected server; subscribe handler does not send email; live PDF/delivery unknown | P1 | Reconcile actual provider/unsubscribe handling before campaign; test PDF and subscription persistence | Confirm intended email delivery and unsubscribe route |
+| SEO/analytics | Robots, canonical/structured metadata and dynamic sitemap source present | website index.html, robots.txt, server.ts | Live rendered indexing and conversion-event collection unknown | P1 | Verify served metadata/sitemap and attributed lead event | Analytics property/access if applicable |
+| CEO/COO workboard/history | Owner-only bounded operations accepted | Library register v27; Oct22 beta record | Controlled task assignment does not prove engineering completion | P2 | A01/A02 closed; keep A03 historical acceptance; verify task outcome receipts | Approve concrete effects only |
+| AM/PM briefings | Six slots Oct19–21 and 3 timer/service results accepted | Oct22 beta operations receipt | Current freshness unknown; latest v3 inventory had timers inactive | P2 | Preserve current timer state; reconcile why inactive; no automatic resume | Only if a new operating change needs approval |
+| Gmail/Calendar | Unsent draft and create/update/cancel owner accepted Oct22 | Hub/Tiquet/workforce closeout; beta record | Current v3 behavior and unattended triage not established | P2 | Preserve owner review; draft-only email; explicit event approval | OAuth consent only if actually missing/revoked |
+| Specialist skills | Packages and bounded owner model evaluations exist; partial autonomy | Library A06; accepted canonical-role evidence | Expanded specialist/provider outcomes and end-to-end task delivery | P2 | Score only unaccepted functions; retain audit/MFA | Approve autonomy expansion separately |
+| Sentinel | Internal pilot accepted; current production monitoring/integration not certified | Library v27; docs/g2-sentinel-runtime-verification-20261017.md historical scope | Genuine collector-to-Hub/COO/Tiquet receipt, fault/recovery/alerts and security disposition | P2 | Inspect current evidence; preserve internal-only scope | Supervised incident/alert validation |
+| FFPRO | Owner/internal recovery and MFA/SSO accepted; commercial hardening HOLD | Library v27 Stage5AD–AI evidence | Key discrepancy was repaired for accepted internal records; Stage5AJ restricted-role app/session runtime not accepted | P2 | Inspect latest Stage5AJ failure only; no repeat encryption repair or restore without evidence | Return latest execution receipt if absent |
+| POS | Merged source; historical dashboard/isolated API proof | Library v27 | Worker, migration compatibility, transaction/reconciliation UAT | P2 | Inspect worker/schema evidence; migration needs authorization | Real sales/receipt/refund acceptance; migration approval if needed |
+| Academy | Merged source/isolated startup proof; customer release unaccepted | Library v27; Oct24 pricing/publication work reported in handoff | Latest live course publication, enrollment/student access/payment receipt | P2 | Retrieve latest course/pricing receipts before changes | Test publish/enrollment/payment; no price change |
+| Marketing | Merged tracking/draft source; marketing copy previously approved | Library v27 | Provider first-submit, publication delivery, quota and attribution | P2 | Prepare provider-specific validation; do not publish | Provider authorization and exact publication approval |
+| Games | Merged stale-timer/game-loop fixes; full gameplay release unaccepted | Library v27 | Verify remaining practice/words/story/audio/retry/multiplayer/admin backlog against current build | P2 | Real-player acceptance per feature; do not re-fix merged retry blindly | Player/playability review |
+| Laser Tag | Existing source; latest live readiness UNKNOWN | Library repository inventory | Booking/pricing/team split/admin/store/payment UAT | P2 | Read existing release evidence first | Business workflow validation |
+| SIWM | Existing source; latest live readiness UNKNOWN | Library repository inventory | Identify canonical active repo and acceptance scope | P2 | Reconcile SIWM vs SIWM-final-v1; avoid duplicate rebuild | Confirm intended live app if ambiguous |
+| Wellness / GIBD | Latest source/runtime acceptance UNKNOWN | Project handoff only | Repo/live identity, auth/data/payment readiness | P2 | Locate canonical evidence; no completion claim | Identify app only if sources cannot resolve it |
+
+Approved catalogue for **comparison only**, no new pricing: Starter XCD149/month (1 app, 3 staff), Business XCD299 (2 apps, 5 staff), Business Plus XCD499 (3 apps, 10 staff); extra standard app XCD99, POS supplement XCD100, extra named staff XCD25/month/workspace, optional setup XCD199 once. Annual recurring = 10× monthly; USD display = XCD/2.70. Academy offers are separate. A pricing request is not a subscription or entitlement.
+
+## Prioritized commercial launch checklist
+
+1. Resolve Hub compatibility and supervisor acceptance blockers; make one owner-present Hub-only switch, then verify real login/MFA, Tiquet dashboard SSO, approved Owner Assistant/Platform Admin visuals, data and tenant permissions. No GO without owner attestation.
+2. Verify one website test lead from submit through CRM → Hub → Tiquet. Check first submit, same-key retry, intended tenant and truthful pending/error status. Use no real customer secrets.
+3. Verify guide PDF opens, explicit consent saves, existing subscriber behavior, actual unsubscribe method and any promised email delivery. Confirm deployed SEO metadata, sitemap and analytics conversion receipt.
+4. Check current price examples and displayed 14-day trial. Keep signup invite-only and WiPay sandbox. Verify sandbox cancellation/failure/success/replay and manual invoice/cleared-funds reconciliation without automatic access from a screenshot.
+5. Finish support contact/hours, privacy/retention/exit terms, pilot success measures and stop conditions. No invented uptime or payment claims.
+6. Start with one selected business; prove invite delivery, password/security setup, intended workspace, Tiquet dashboard and a harmless ticket. Then onboard the remaining 10–15 progressively.
+7. Record activation time, trial end, Day1 walkthrough, Day7 feedback and trial-end follow-up in private customer records. Publish/send only separately authorized exact communications.
+
+Prepared outreach text and Day1/Day7/trial-end drafts: existing pilot customer pack retained at docs/launch/2026-10-15-pilot-customer-pack.md. Brand in all new material: **Vision79 Digital**. Before use replace old V79 labels, add approved support hours and actual terms; approval of marketing direction is not proof of delivery.
+
+Ready-to-review interest message: “Vision79 Digital is inviting a small group of Saint Lucia businesses to evaluate a simpler way to manage support requests. The invitation-only Hub + Tiquet pilot runs for 14 days, with no automatic charge. If you would like to take part, reply to discuss whether it fits your business. From Idea to Advantage.” No message was sent.
+
+## Owner-only actions — in order
+
+1. Run the single diagnostic command below on Acer and return only sanitized output. Keep the terminal open. It may create stopped synthetic probes only; it cannot deploy.
+2. Once the exact defect and acceptance-supervisor fixes are tested, be present for one production switch and the four genuine browser acceptance checks. Do not run the old live switch now.
+3. Confirm pilot support terms/hours and choose the first business plus the remaining private roster. Approve actual invitations/outreach recipients.
+4. Verify bank/payment-provider outcomes and any separate live-payment decision. Keep WiPay sandbox until explicitly approved.
+5. Perform role-specific Academy/POS/Games and other business UAT when each app has a concrete tested candidate.
+
+### One exact operator command — diagnostic only
+
+Run on Acer. This does not claim the failed predicate is already known.
+
+```bash
+(
+set -euo pipefail
+test "$(hostname)" = "firelion-Aspire-A315-51"
+V79_DIAG_DIR="$(mktemp -d "$HOME/v79-profile-diagnostic.XXXXXXXX")"
+curl --fail --location --proto '=https' \
+  'https://raw.githubusercontent.com/MrFixITslu/V79hub/78e9a48d1ba33eb3ff5ea05d13b5561135626fce/scripts/vision79-v3-profile-diagnostic.py' \
+  -o "$V79_DIAG_DIR/diagnostic.py"
+printf '%s  %s\n' \
+  'd4dda3d324c8f81bb84d827051e52b40acfa55bd9732adf2d91f922433c2468c' \
+  "$V79_DIAG_DIR/diagnostic.py" | sha256sum -c -
+ssh -o StrictHostKeyChecking=yes firelion@192.168.100.163 \
+  'V79_V3_OWNER_PRESENT=I_AM_PRESENT_FOR_MFA_SSO_AND_VISUAL_CHECKS sg docker -c "python3 -B - --proof-once"' \
+  < "$V79_DIAG_DIR/diagnostic.py"
+)
+```
+
+## Historical release engineering evidence
+
+The following entries are immutable dated context. They do not reopen closed preparation, supersede the current decision table, or certify present runtime health.
+
 # Vision79 v3 — approved visuals, guarded release preparation
 
 Owner decision: **approved**, 26 October 2026, in the active review conversation.
