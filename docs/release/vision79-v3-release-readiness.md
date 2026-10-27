@@ -3,6 +3,14 @@
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
+## Latest owner mapping — confirmed Compose image-label codec incompatibility
+
+Read-only owner result: installed Compose version equals sealed version. Candidate top-level ID matches approved pin 960849ef… and exactly one runnable manifest is bf5bf4424c1cb860e099441799653ea0586874d82b6a6b71e3737faa93f07254. Rollback top-level ID and sole runnable manifest both d2e6f4ae…; live prior Hub label equals both. This establishes the mapping behind the candidate label incompatibility; no new image rebuild or manifest reseal is required for unchanged runtime/model.
+
+Three options reviewed: narrow metadata compatibility (selected), rebind approved image identity (rejected), rebuild image (unnecessary). /REDTEAM keeps actual container Image equal to original approved top-level pin, validates exact cached image/runnable-manifest mapping, sole available image manifest, linux/amd64 and candidate approved revision. Only after exact Compose image-label equality to the pinned manifest does a deep copy normalize that single label for the unchanged original runtime validator; foreign image/label and all other drift fail.
+
+Source-only helper scripts/vision79-v3-image-label-compat.py at c5f67a653bb32eba8c26aaae376371f3f412feca; committed SHA256 3b5216f5b25bc91bc047794ff89bd12e2928f6d6af254dca409577867f1b3c1b. Eleven local real-validator/mapping regression checks passed. Its only CLI invokes unchanged stopped_profiles under existing supervisor/lock/heartbeat with full baseline/protected checks. It has no cutover CLI, no deployment/rollback call and no persisted engine/model changes. Actual two-profile Dell proof pending. After proof, integrate reviewed normalization durably into existing supervisor and fix fresh-process lease/replacement acceptance context; validate expiry rollback/user-session lifetime before releasing one owner-supervised live switch. No deployment claim; release HOLD.
+
 ## Latest owner proof — only Compose image bookkeeping label differs
 
 Owner ran 0b09a64a332016eb986299940d19166ac7c86872 diagnostic with verified committed checksum. Exactly one old nonce-owned synthetic volume removed; private evidence preserved; old scope then zero containers/volumes/no directory. New scope v79profile9c3d681c420843be candidate failed COMPOSE_BOOKKEEPING_IDENTITY_CHANGED. Boolean fields: config_files=true, environment_file=true, version=true; image present=true, matches=false. Post-proof prior Hub healthy, all protected 43 match, no profile containers. No cutover attempted. Normal engine return preserved original failure, not a cleanup error.
