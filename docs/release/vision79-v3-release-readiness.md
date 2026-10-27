@@ -3,6 +3,23 @@
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
+## RELEASE CLOSED — Hub v3 ACCEPTED / LIVE / GO
+
+Latest owner-executed installed v2 --status returned:
+- phase=ACCEPTED
+- hub_image=sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6
+- hub_health=healthy
+- release_gate=GO
+- timer_state=inactive
+
+The v2 status path verifies candidate runtime using durable replacement context, checks candidate health and the protected container set/core health and workforce timer preservation before reporting accepted state. Combined with owner's “all works” browser report, this closes the Hub v3 release within its approved scope. Owner login/MFA, Hub-to-Tiquet SSO, approved Owner Assistant/Platform Admin visual design and data/tenant-permission checks are owner-reported PASS, not independently automated browser tests.
+
+The earlier OWNER_REVIEW_NOT_PENDING refusal is superseded as a completion blocker by the subsequent explicit ACCEPTED/GO status. Exact ordering of the state transition is not reconstructed; do not claim expiry rollback occurred. Approved candidate remains running. No additional acceptance, deployment, rollback, backup or recovery rehearsal is required for this completed release.
+
+Current Hub row: source approved; image built; local checks and isolated recovery/profile proof passed; Hub-only production deployed; owner accepted; rollback timer inactive; original engine/manifest/prior image evidence preserved; all 43 protected-container checks passed at status. Commercial paid launch, provider settlement and secondary application release gates remain separate.
+
+Next P1: advance the existing website-to-CRM/Hub/Tiquet lead conversion and guide/newsletter delivery/unsubscribe evidence, then the existing invite-only 10–15-customer pilot checklist and sandbox/manual-payment acceptance. Do not reopen completed Hub release gates without a demonstrated new regression or material change.
+
 ## Latest acceptance result — owner browser PASS, durable acceptance refused
 
 Owner reported “all works” after live candidate review, covering the requested MFA/SSO/visual/data checks. Subsequent explicit v2 --accept command returned STOP_HARDENED_RELEASE / OWNER_REVIEW_NOT_PENDING / HOLD. This refusal occurs before acceptance is written or timer disarm. It means stored phase is not OWNER_REVIEW_PENDING (or state is absent); it does NOT establish which phase, current image, health, rollback completion, or a new product defect. Expiry rollback is a possibility, not a confirmed outcome. Preserve owner browser acceptance as dated evidence while formal release remains unresolved.
