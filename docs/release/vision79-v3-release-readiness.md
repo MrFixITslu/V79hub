@@ -1,4 +1,8 @@
 # Vision79 Digital — active master completion register
+## 28 Oct 2026 — FINAL Sentinel advisory-fixed candidate CI 6/6 SUCCESS
+
+Independent connected GitHub Actions on PR #20 code SHA `39dfcff98ed790e18ff24ec43a0fcade90e67981` now completed **6/6 SUCCESS** after owner-fixed cryptography 50.0.2 dependency pin: isolated networkless candidate build run `40765631696` (pre-build security lock PASS, exact three package versions, dual source hashes and non-root demo smoke), wheel audit `40765632182`, signer security `40765631642`, legacy/source bridge `40765632130`, isolated regression `40765631750`, private Docker staging `40765632031`. This supersedes earlier status showing Docker staging pending. Ephemeral image ID only, deleted after CI. Draft not merged; no registry push, image signature or independent runtime process/probe origin. Signer deployment, off-host Dell-down detector and trusted auto-alert pipeline still HOLD. Current older Dell monitor/G2/Hub/NPM/WiPay/external Hetrix preserved.
+
 ## 28 Oct 2026 — owner dependency upgrade committed and Sentinel candidate unblocked in CI
 
 Owner explicitly confirmed completed manual update on Sentinel draft `feature/sentinel-live-monitor-proof-20261028`; connected GitHub read verified `images/sentinel-candidate-requirements.lock` changed to `cryptography==50.0.2` with audited Linux/amd64 wheel sha256 `9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079`, while cffi 2.0.0 and pycparser 2.23 pins/hashes remain unchanged. This supersedes the previous exact vulnerability lock blocker on 45.0.7; no circumventing blocked connector patch occurred.
