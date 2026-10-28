@@ -1,5 +1,13 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — Compose 5.6.1 compatibility confirmed; corrected binder
+
+Owner reports installed=5.6.1 and both prepared app compose_version=5.6.1. Thus there is NO installed/prepared version drift. Prior binder's fixed 5.6.0 check was an assistant assumption error and stopped before model/seal/profile activity; existing inputs, dedicated credentials and candidate images remain valid.
+
+Primary source review docker/compose compare v5.6.0...v5.6.1 found only .go-version, Dockerfile and relay/Dockerfile toolchain changes (Go 1.26.8→1.26.10). Relevant files are byte-identical: pkg/compose/build.go e70b16d5e01e53bda36f0b69696792ad7b3041c2; images.go b20bb35539530e5b02029096948922fd38db1a20; executor_ops.go d9f61c8a660e008cef092264d310726d0238dd84.
+
+Corrected binder explicitly allowlists only reviewed 5.6.0/5.6.1 (optional single v prefix) and retains exact installed/prepared equality plus exact generated Compose version-label check. Two NEW focused version tests PASS: 5.6.1 candidate/rollback compatibility, mismatched version label rejection, unknown/suffixed versions rejection and preparation drift rejection. Previous 8 adapter tests and all application/build evidence retained without rerun. Corrected binder SHA256 06be2308bee4ac1370ba285a27a7c4bb55274eb77d43044b9e990c7104dac29c. Next operator command resumes previously unexecuted binding+4 stopped new-configuration profiles, not a rebuild/backup/restore or deployment. No production change performed.
+
 ## 28 October 2026 — binding stopped at Compose version gate
 
 Owner checksum-pinned binder returned STOP_BINDING / UNREVIEWED_COMPOSE_VERSION / deployed=false. Source order: verified configuration digest and scope, acquired binding lock, downloaded/verified original engine modules, then compared installed Compose short version to 5.6.0. No image metadata inspection, candidate/rollback model writes, transaction seal, synthetic profiles, timer-state collection or cutover was reached by this attempt. Preserve prepared credentials/inputs and closed build/runtime-test evidence. Actual current and prepared Compose version strings are not yet reported. Next action is one read-only version comparison; do not loosen compatibility checks or blindly rerun the binder. Historical 5.6.0 evidence does not establish the currently installed version.
