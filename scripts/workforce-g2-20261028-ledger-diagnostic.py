@@ -123,9 +123,13 @@ def main():
     worker, _ = private(ROOT / "worker.py", 45000)
     require(hashlib.sha256(worker).hexdigest() == WORKER_SHA,
             "INSTALLED_WORKER_CHANGED")
-    row = json.loads(run(["docker", "inspect", "v79-hub"]))[0]
-    require(row.get("Image") == IMAGE and
-            row.get("State", {}).get("Health", {}).get("Status") == "healthy",
+    # Project only image and health: full Docker inspect includes unrelated secrets.
+    fmt = "{{json .Image}}|{{json .State.Running}}|{{json .State.Health.Status}}"
+    projected = run(["docker", "inspect", "--format", fmt, "v79-hub"])
+    values = projected.strip().split("|")
+    require(len(values) == 3, "HUB_IDENTITY_PROJECTION_INVALID")
+    image, running, health = (json.loads(x) for x in values)
+    require(image == IMAGE and running is True and health == "healthy",
             "HUB_IDENTITY_OR_HEALTH_CHANGED")
     raw = json.loads(run(["docker", "exec", "v79-hub", "node", "--input-type=module",
                           "-e", READER]))
