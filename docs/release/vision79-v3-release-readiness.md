@@ -1,5 +1,11 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — new profile rejected application labels; no cutover
+
+Owner ran corrected 5.6.1 binder: STOPPED_PROFILE_SCOPE=v79profile39e19427a15546ab, runtime_validation APPLICATION_LABELS_CHANGED, STOP_BINDING APPLICATION_LABELS_CHANGED, deployed=false. Sealed models/transaction were created before this proof; exact differing label omitted by prefix-only reporting. No app process or deployment invoked. Original engine finally cleanup/protection path is intended but current cleanup and target state still need the bounded diagnostic receipt; do not infer complete new-profile acceptance.
+
+Next diagnostic scripts/diagnose-website-lead-label.py verifies known configuration digest, engine pins, sealed model equality, current baseline/protected health, original failed-scope cleanup and timer preservation before ONE stopped Hub candidate capture. Uses original engine with website temporarily included in protected set; always interrupts after first validation capture and lets original engine clean that nonce. Private failed before/after evidence is saved; output is restricted to standard safe label identities or hashed unknown keys and comparison booleans, never label/env values. Three new local diagnostic tests PASS (redaction, original metadata comparison semantics, one-target/no-cutover shape); syntax PASS. Does not rerun full four-profile proof or overwrite sealed files. Future release driver must preserve explicit Hub-before-website ordering rather than rely on canonical JSON key order; actual rollback model/environment context also requires focused verification before any release CLI is issued.
+
 ## 28 October 2026 — Compose 5.6.1 compatibility confirmed; corrected binder
 
 Owner reports installed=5.6.1 and both prepared app compose_version=5.6.1. Thus there is NO installed/prepared version drift. Prior binder's fixed 5.6.0 check was an assistant assumption error and stopped before model/seal/profile activity; existing inputs, dedicated credentials and candidate images remain valid.
