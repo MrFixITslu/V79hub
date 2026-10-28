@@ -1,5 +1,12 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — cutover rolled back cleanly; website candidate health unresolved
+
+Owner execution of supervisor f756f88731b2cd53f3170b680c9e7289f086d49e returned RELEASE_FAILED_ORIGINALS_RESTORED / PAIR_DEPLOYMENT_DID_NOT_COMPLETE. Follow-up owner status confirms phase ROLLED_BACK, rollback timer inactive, both original live images healthy: Hub sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6; website sha256:d23ea67d07bcbe3801379330a344642bbcfacb351ed1a0bb121f664a3a25b37d. engine_rollback_complete=true; rollback_failed=false. Both candidate and rollback created IDs were durably verified for both apps.
+
+Journal: Hub CANDIDATE_HEALTHY 15:28:42 UTC; website CANDIDATE_INTENT 15:28:42 UTC, CANDIDATE_FAILED 15:31:51 UTC; website rollback healthy 15:32:04 UTC; Hub rollback healthy 15:32:20 UTC; ORIGINAL_PAIR_RESTORED 15:32:21 UTC. Website health timeout is an inference from timing, not a recovered failure reason. Supervisor masks engine candidate_failure_reason and does not persist it. Do not replay deploy, reset state, or replace the installed controller while its digest binds recovery state. Next action is targeted read-only healthcheck/model diagnosis. Prior build/profile/public-check passes remain closed. Lead integration NOT accepted/deployed; commercial gate unchanged.
+
+
 ## 28 October 2026 — all 4 configuration profiles CLOSED; guarded cutover ready
 
 Owner final website-profile receipt: PASS_BOUND_ENGINE_AND_NEW_CONFIGURATION_PROFILES, website candidate and rollback both RUNTIME_MATCHED with no label differences; reused_profiles=2 (both Hub), profiles_verified=4/new_profiles_verified=2; baseline, workforce timers and temporary cleanup true; engine_bound=true; deployed=false. Private directory /home/firelion/v79-lead-release-2pvsb2mo; protected count 41; sealed manifest 44c0625680f1dfb306aaa49d51f936a08eb76d67ba1e9c2fcddfd9b6be4f368e; adapter SHA256 a1d4842cb0625e1207fb454b5510c05bd2443a245fe7f3143d7be20c660d84e7. All candidate builds, stopped profiles and configuration preparation are now CLOSED. No rebuild, profile replay, credential regeneration or recovery rehearsal is justified by present evidence.
