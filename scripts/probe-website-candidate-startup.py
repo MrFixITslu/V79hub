@@ -95,7 +95,7 @@ try {
 """
 
 
-def main():
+def main(*, image_override=None):
     os.umask(0o077)
     require(ROOT.is_dir() and not ROOT.is_symlink() and ROOT.stat().st_uid == os.geteuid()
             and ROOT.stat().st_mode & 0o077 == 0, 'PRIVATE_RELEASE_DIRECTORY_REQUIRED')
@@ -107,6 +107,8 @@ def main():
     state = json.loads((ROOT / 'lead-release-state.json').read_text())
     require(state.get('phase') == 'ROLLED_BACK', 'ORIGINALS_MUST_BE_RESTORED')
     entry = plan['apps']['V79website']
+    selected_image = image_override or IMAGE
+    require(re.fullmatch(r'sha256:[0-9a-f]{64}', selected_image), 'INVALID_PROBE_IMAGE')
     data = Path(entry['candidate_file']).read_bytes()
     require(hashlib.sha256(data).hexdigest() == entry['candidate_sha256'], 'SEALED_MODEL_CHANGED')
     service = json.loads(data)['services'][entry['service']]
@@ -114,7 +116,7 @@ def main():
     require(service.get('command') is None and service.get('entrypoint') is None
             and service.get('working_dir') is None and service.get('user') is None,
             'STARTUP_OVERRIDE_NOT_REVIEWED')
-    image = json.loads(call(['docker', 'image', 'inspect', IMAGE]))[0]
+    image = json.loads(call(['docker', 'image', 'inspect', selected_image]))[0]
     require(image['Config'].get('Cmd') == ['node', 'dist/server/server.cjs']
             and image['Config'].get('User') == 'node'
             and image['Config'].get('WorkingDir') == '/app'
@@ -148,9 +150,9 @@ def main():
         cid = call(['docker', 'create', '--name', nonce, '--network', 'none',
                     '--restart', 'no', '--label', 'v79.startup.probe=' + nonce,
                     '--env-file', str(envfile), '--entrypoint', 'node',
-                    IMAGE, '-e', BOOTSTRAP]).decode().strip()
+                    selected_image, '-e', BOOTSTRAP]).decode().strip()
         row = inspect(cid)
-        require(row['Image'] == IMAGE and row['HostConfig']['NetworkMode'] == 'none'
+        require(row['Image'] == selected_image and row['HostConfig']['NetworkMode'] == 'none'
                 and not row.get('Mounts') and not row['HostConfig'].get('PortBindings'),
                 'PROBE_ISOLATION_FAILED')
         with archive.open('rb') as stream:
@@ -177,7 +179,7 @@ def main():
         require(captured.returncode == 0, 'PROBE_LOG_CAPTURE_FAILED')
         logs = captured.stdout + captured.stderr
         (work / 'startup.log').write_bytes(logs)
-        result = {'result': 'ISOLATED_STARTUP_CAPTURED', 'running': row['State']['Running'],
+        result = {'result': 'ISOLATED_STARTUP_CAPTURED', 'image': selected_image, 'running': row['State']['Running'],
                   'exit_code': row['State']['ExitCode'], 'health': health,
                   'signals': signals(logs.decode(errors='replace')),
                   'error_codes': sorted({code.decode() for code in re.findall(
@@ -186,7 +188,7 @@ def main():
     finally:
         if cid:
             row = inspect(cid)
-            require(row['Image'] == IMAGE
+            require(row['Image'] == selected_image
                     and row['Config']['Labels'].get('v79.startup.probe') == work.name
                     and row['HostConfig']['NetworkMode'] == 'none'
                     and not row.get('Mounts'), 'PROBE_CLEANUP_SCOPE_CHANGED')
@@ -201,6 +203,7 @@ def main():
     result.update(probe_removed=True, originals_unchanged=True, deployed=False)
     (work / 'result.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result, indent=2))
+    return result
 
 
 if __name__ == '__main__':
