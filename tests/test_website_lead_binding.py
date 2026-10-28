@@ -36,7 +36,7 @@ class BindingTests(unittest.TestCase):
             'com.docker.compose.image':manifest if which=='candidate' else old,
             'com.docker.compose.version':'5.6.0','com.docker.compose.project.environment_file':'/dev/null',
             'com.docker.compose.config-hash':'c'*64})
-        entry={'release_name':'v79-hub','baseline':copy.deepcopy(before),'service':'hub','compose_version':'5.6.0',
+        entry={'release_name':'v79-hub','baseline':copy.deepcopy(before),'project':'example','service':'hub','compose_version':'5.6.0',
             'model':{'services':{'hub':{'container_name':'v79-hub','environment':effective}}},
             'candidate_image':{'Id':new,'Config':{'Labels':{}}},'rollback_image':{'Id':old,'Config':{'Labels':{}}},
             'candidate_file':'/private/candidate.json','rollback_file':'/private/rollback.json',
@@ -72,6 +72,33 @@ class BindingTests(unittest.TestCase):
         fixture=self.fixture();before=copy.deepcopy(fixture[1]);after=copy.deepcopy(fixture[2])
         self.assertTrue(self.check(fixture))
         self.assertEqual(fixture[1],before);self.assertEqual(fixture[2],after)
+
+    def test_stale_image_compose_identity_does_not_remove_runtime_identity(self):
+        for which in ('candidate','rollback'):
+            fixture=self.fixture(which)
+            fixture[3]['rollback_image']['Config']['Labels'].update({
+                'com.docker.compose.project':'old-image-project','com.docker.compose.service':'old-image-service'})
+            entry=copy.deepcopy(fixture[3]);after=copy.deepcopy(fixture[2])
+            self.assertTrue(self.check(fixture,which))
+            self.assertEqual(fixture[3],entry);self.assertEqual(fixture[2],after)
+
+    def test_missing_or_foreign_runtime_identity_still_fails(self):
+        for side in (1,2):
+            for key in ('com.docker.compose.project','com.docker.compose.service'):
+                for change in ('missing','foreign'):
+                    fixture=self.fixture()
+                    if change=='missing':fixture[side]['Config']['Labels'].pop(key)
+                    else:fixture[side]['Config']['Labels'][key]='foreign'
+                    with self.assertRaisesRegex(ValueError,'EXACT_COMPOSE_IDENTITY_REQUIRED'):
+                        self.check(fixture)
+
+    def test_non_identity_application_image_labels_remain_enforced(self):
+        fixture=self.fixture()
+        fixture[3]['rollback_image']['Config']['Labels']['application.guard']='old'
+        fixture[1]['Config']['Labels']['application.guard']='old'
+        fixture[2]['Config']['Labels']['application.guard']='old'
+        with self.assertRaisesRegex(ValueError,'APPLICATION_LABELS_CHANGED'):
+            self.check(fixture)
 
     def test_existing_secret_and_extra_environment_changes_fail(self):
         for key in ('EXISTING','UNAPPROVED'):
