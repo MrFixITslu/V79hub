@@ -67,15 +67,15 @@ class GuardTests(unittest.TestCase):
       mod.signed_reconcile()
 
  def test_original_marker_is_preserved_on_review_mode(self):
-  with patch.object(mod.socket,"gethostname",return_value="v79sl"), \\
-       patch.object(mod,"fixed_files",return_value=(Path("/tmp/notactuallyused"),b"original")), \\
-       patch.object(mod,"pinned_hub"), \\
-       patch.object(mod,"unit_state",side_effect=[{"ActiveState":"inactive"},{"ActiveState":"active"}]), \\
-       patch.object(mod,"candidate",return_value=b"candidate"), \\
-       patch.object(mod,"blob",side_effect=lambda data: mod.OLD_BLOB if data==b"original" else mod.NEW_BLOB), \\
-       patch.object(mod,"reviewed_marker"), \\
-       patch.object(mod,"signed_reconcile"), \\
-       patch.object(mod,"apply") as apply, \\
+  with patch.object(mod.socket,"gethostname",return_value="v79sl"), \
+       patch.object(mod,"fixed_files",return_value=(Path("/tmp/notactuallyused"),b"original")), \
+       patch.object(mod,"pinned_hub"), \
+       patch.object(mod,"unit_state",side_effect=[{"ActiveState":"inactive"},{"ActiveState":"active"}]), \
+       patch.object(mod,"candidate",return_value=b"candidate"), \
+       patch.object(mod,"blob",side_effect=lambda data: mod.OLD_BLOB if data==b"original" else mod.NEW_BLOB), \
+       patch.object(mod,"reviewed_marker"), \
+       patch.object(mod,"signed_reconcile"), \
+       patch.object(mod,"apply") as apply, \
        patch.object(mod.sys,"argv",["runner","--review-marker"]):
    mod.main()
    apply.assert_not_called()
