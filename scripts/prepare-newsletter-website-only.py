@@ -170,6 +170,13 @@ def prepare():
                 (candidate_metadata['Config'].get('Labels') or {}).get('org.opencontainers.image.revision') == SOURCE,
                 'NEWSLETTER_IMAGE_SOURCE_CHANGED')
         existing = copy.deepcopy(oldplan['apps']['V79website'])
+        # Save the immutable accepted candidate as the NEW release's rollback.
+        # 'existing' is later inserted into plan['apps'] by reference: assigning
+        # a new candidate first would overwrite existing['candidate_image'] too.
+        accepted_website_image = copy.deepcopy(existing['candidate_image'])
+        require(accepted_website_image['Id'] == CURRENT['V79website'] and
+                existing['image_manifests'].get(CURRENT['V79website']),
+                'ACCEPTED_WEBSITE_IMAGE_METADATA_CHANGED')
         existing_model = json.loads(private_file(Path(existing['candidate_file'])))
         service = existing['service']
         require(existing_model['services'][service]['image'] == CURRENT['V79website'] and
@@ -194,9 +201,11 @@ def prepare():
         entry = plan['apps']['V79website']
         entry.pop('_replaced_id', None)
         entry['baseline'] = before['V79website']
+        entry['rollback_image'] = accepted_website_image
         entry['candidate_image'] = candidate_metadata
-        entry['rollback_image'] = copy.deepcopy(existing['candidate_image'])
-        require(entry['rollback_image']['Id'] == CURRENT['V79website'],
+        require(entry['rollback_image']['Id'] == before['V79website']['Image'] ==
+                CURRENT['V79website'] and entry['candidate_image']['Id'] == IMAGE and
+                entry['rollback_image']['Id'] != entry['candidate_image']['Id'],
                 'ROLLBACK_MUST_BE_ACCEPTED_WEBSITE')
         entry['image_manifests'] = {
             CURRENT['V79website']: existing['image_manifests'][CURRENT['V79website']],
