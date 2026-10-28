@@ -37,6 +37,17 @@ class NewsletterPreparationSafety(unittest.TestCase):
                               for target in node.targets)]
         self.assertEqual(len(assignment), 1)
 
+    def test_accepted_prior_release_does_not_need_a_fresh_lease(self):
+        # The previous release is already ACCEPTED and its 30-second
+        # supervision lease correctly expired. The original engine's
+        # healthy(candidate) requests a lease; direct verify is read-only.
+        self.assertNotIn("oldbackend.healthy(", SOURCE)
+        self.assertIn("oldbackend.verify(name, 'candidate', row)", SOURCE)
+        self.assertIn("require(controller.healthy(row), 'ACCEPTED_RUNTIME_NOT_HEALTHY')", SOURCE)
+        self.assertIn("NEW.mkdir(mode=0o700)", SOURCE)
+        self.assertLess(SOURCE.index("oldbackend.verify(name, 'candidate', row)"),
+                        SOURCE.index("NEW.mkdir(mode=0o700)"))
+
     def test_hub_and_42_nonwebsite_containers_protected(self):
         self.assertIn("plan['protected']['v79-hub'] = before['v79-hub']", SOURCE)
         self.assertIn("len(plan['protected']) == 42", SOURCE)
