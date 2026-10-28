@@ -74,7 +74,7 @@ class DiagnosticTests(unittest.TestCase):
         for i in range(5):
             jid = "synthetic-" + str(i)
             system = "hub" if i < 4 else "tiquet"
-            actor = "coo-worker" if i < 4 else "owner-synthetic"
+            actor = ("coo-worker" if i < 4 else "owner-synthetic") if bad != "cross_origin" else ("owner-synthetic" if i == 3 else "coo-worker")
             digest = ("0" * 63) + str(i)
             jobs.append({"id": jid, "system": system,
                          "organizationId": "synthetic-org", "operation": "create_work_item",
@@ -86,10 +86,12 @@ class DiagnosticTests(unittest.TestCase):
             tasks.append({"id": "synthetic-task-" + str(i), "jobId": jid,
                           "organizationId": "synthetic-org", "system": system,
                           "createdAt": done})
+            events.append({"type":"proposed", "actor":"owner-synthetic", "jobId":jid,
+                           "digest":digest, "at":base})
             events.append({"type":"approved", "actor":"owner-synthetic", "jobId":jid,
                            "digest":digest, "at":approved})
             events.append({"type":"work_item_created", "actor":actor, "jobId":jid,
-                           "digest":digest, "at":done})
+                           "id":"synthetic-create-"+str(i), "digest":digest, "at":done})
         jobs.append({"id":"synthetic-rejected","system":"hub",
                      "operation":"create_work_item","status":"rejected",
                      "createdAt":base})
@@ -114,6 +116,32 @@ class DiagnosticTests(unittest.TestCase):
         self.assertTrue(data["cohort"]["otherSystemApprovalActorMatches"])
         self.assertEqual(data["cohortCounts"]["hubSuccessfulJobs"], 4)
         self.assertEqual(data["cohortCounts"]["otherSystemSuccessfulJobs"], 1)
+
+
+    def test_per_job_provenance_four_worker_one_owner(self):
+        data = self.run_synthetic_cohort()
+        self.assertTrue(all(data["provenanceChecks"].values()), data["provenanceChecks"])
+        self.assertEqual(data["groups"]["hubWorker"], 4)
+        self.assertEqual(data["groups"]["otherOwner"], 1)
+        self.assertFalse(any(str(x).startswith("synthetic-") for x in data.values()))
+
+    def test_per_job_provenance_crossed_system_actor_roles(self):
+        data = self.run_synthetic_cohort("cross_origin")
+        self.assertFalse(data["cohort"]["allFiveEffectsBelongToFiveSuccesses"])
+        self.assertTrue(all(data["provenanceChecks"].values()), data["provenanceChecks"])
+        self.assertEqual(data["groups"]["hubWorker"], 3)
+        self.assertEqual(data["groups"]["hubOwner"], 1)
+        self.assertEqual(data["groups"]["otherWorker"], 1)
+
+    def test_per_job_provenance_rejects_wrong_actor(self):
+        data = self.run_synthetic_cohort("wrong_actor")
+        self.assertFalse(data["provenanceChecks"]["allFiveActorsRecognised"])
+        self.assertFalse(data["provenanceChecks"]["exactlyOneFounderExecution"])
+
+    def test_per_job_provenance_rejects_wrong_link(self):
+        data = self.run_synthetic_cohort("wrong_job_link")
+        self.assertFalse(data["provenanceChecks"]["allFiveTasksMatch"])
+        self.assertFalse(data["provenanceChecks"]["noOrphanTasks"])
 
     def test_synthetic_wrong_owner_actor_fails_closed(self):
         data = self.run_synthetic_cohort("wrong_actor")
