@@ -1,5 +1,9 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — controlled contact captured; Hub delivery disabled
+
+Owner Guest-browser submission returned Request Received. Owner authenticated read-only receipt for marker V79-TEST-20261028-A: website_matches=1, crm_matches=1, submission id=2, tiquetSyncStatus=sent, hubEventStatus=disabled. Close website/CRM capture and website-reported Tiquet delivery acknowledgement for this record; destination entity/tenant correctness remains unverified. Hub integration is NOT passed. Inspected website platformEvents.ts returns disabled when event URL, secret of at least 32 characters, or organization reference is absent. Inspect running configuration booleans next; no repeated submission, Tiquet resend, CAPTCHA bypass or unrelated completed test. Guest success suggests normal browser profile interference, without proving a specific extension cause.
+
 ## 28 October 2026 — contact journey blocked at CAPTCHA
 
 Owner contact submission returned “Verification failed. Please try again.” In inspected server.ts this rejection precedes lead/CRM persistence and downstream dispatch. Exact CAPTCHA failure cause remains unproven; do not repeat the six passed public checks or disable verification. Next bounded diagnostic: public config, browser reCAPTCHA loading and fresh token generation, without printing token values or submitting contact details. Correction: inspected ContactPage.tsx DOES supply Idempotency-Key via submissionId.current; earlier statement that source omitted the header was an inspection error, not a product defect. Live deployed header behavior and retry acceptance remain unverified. The owner pasted the previous console code, without its output; no CRM/delivery result is established.
