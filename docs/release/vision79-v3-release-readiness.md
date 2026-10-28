@@ -1,4 +1,10 @@
 # Vision79 Digital — active master completion register
+## 28 Oct 2026 — Owner personally confirms receipt of Sentinel one-time test email
+
+After connected Resend showed `delivered` and connected Gmail confirmed message ID `1a183f3a7364d79d`, founder explicitly confirmed in project chat: **“i got the email.com”**. Consequently, all three separate proofs for the one-time no-incident test are now present: (1) provider transmission/delivery status; (2) destination Gmail mailbox entry; (3) direct owner receipt acknowledgement. This **CLOSES founder-only transactional test email delivery**. No repeats required.
+
+Scope /REDTEAM: Owner receipt is NOT proof that Sentinel's runtime triggers messages from trusted real telemetry or that an external host-down event reaches the inbox. Preserve NO-GO for authenticated physical-probe source, signer custody/replay, independent off-host observer and autonomous sending. Do not simulate downtime, change working NPM/apps, or rerun G2 archive. Proceed through source-only security tests and deployment gates first.
+
 ## 28 Oct 2026 — Sentinel founder-only notification delivery test PASS (Resend and Gmail independently verified)
 
 Explicitly owner-approved single no-incident test sent from `V79 Sentinel <alerts@v79sl.com>` to owner-only `vision79slu@gmail.com` using connected Resend send_email; subject `[V79 Sentinel] Test Alert — No Incident`; idempotency key `v79-sentinel-20261028-founder-one-off-delivery-test-v1`; provider email id `01a183f3-a22b-752b-9fe2-b5ffae0873d6`. Resend get_email subsequently returned `Status: delivered`, created `2026-10-28T19:19:04Z`. Independently connected Gmail search found exact subject/email at `2026-10-28T19:19:04Z`, Gmail message ID `1a183f3a7364d79d`. Therefore end-to-end **test message delivered to founder mailbox, accepted**, without reliance on merely configured contact address. One outbound email was sent and found; no customer recipient, no website disruption, no monitor configuration changes, no Docker/NPM/G2 changes.
