@@ -48,6 +48,26 @@ class BindingTests(unittest.TestCase):
         engine,before,after,entry=fixture
         return engine.runtime_matches(before,after,entry,which,selinux_enabled=False)
 
+    def test_561_candidate_and_rollback_keep_the_same_exact_runtime_contract(self):
+        for which in ('candidate','rollback'):
+            fixture=self.fixture(which)
+            fixture[3]['compose_version']='5.6.1'
+            fixture[2]['Config']['Labels']['com.docker.compose.version']='5.6.1'
+            self.assertTrue(self.check(fixture,which))
+        fixture=self.fixture()
+        fixture[3]['compose_version']='5.6.1'
+        with self.assertRaisesRegex(ValueError,'COMPOSE_BOOKKEEPING_IDENTITY_CHANGED'):
+            self.check(fixture)
+
+    def test_only_reviewed_versions_pass_and_prepared_version_must_match(self):
+        for version in ('5.6.0','5.6.1','v5.6.0','v5.6.1'):
+            binding.verify_compose_version(version,version)
+        for version in ('5.6.2','5.6.10','5.7.0','5.6.1-custom','vv5.6.1',''):
+            with self.assertRaisesRegex(ValueError,'UNREVIEWED_COMPOSE_VERSION'):
+                binding.verify_compose_version(version)
+        with self.assertRaisesRegex(ValueError,'PREPARED_COMPOSE_VERSION_CHANGED'):
+            binding.verify_compose_version('5.6.1','5.6.0')
+
     def test_only_exact_approved_candidate_environment_and_image_mapping_pass(self):
         fixture=self.fixture();before=copy.deepcopy(fixture[1]);after=copy.deepcopy(fixture[2])
         self.assertTrue(self.check(fixture))
