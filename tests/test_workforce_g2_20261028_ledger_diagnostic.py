@@ -32,6 +32,18 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(m.MARKER, 1793201532.142639)
         self.assertEqual(m.WORKER_SHA, "5f629915d7715620fdd17ac0fed80cf595e65dab0035d0739a53c9bc5984fb3d")
 
+    def test_docker_inspect_projects_only_image_running_health(self):
+        source = FILE.read_text()
+        self.assertIn('"docker", "inspect", "--format", fmt, "v79-hub"', source)
+        self.assertNotIn('run(["docker", "inspect", "v79-hub"])', source)
+        self.assertIn('{{json .Image}}|{{json .State.Running}}|{{json .State.Health.Status}}', source)
+        self.assertIn('require(image == IMAGE and running is True and health == "healthy"', source)
+
+    def test_projected_docker_output_stays_bounded(self):
+        source = FILE.read_text()
+        self.assertIn('len(p.stdout) < 12000', source)
+        self.assertIn('"HUB_IDENTITY_PROJECTION_INVALID"', source)
+
     def test_cannot_progress_when_marker_missing(self):
         with tempfile.TemporaryDirectory() as temp:
             with patch.object(m, "ROOT", Path(temp)), patch.object(m.socket, "gethostname", return_value="v79sl"):
