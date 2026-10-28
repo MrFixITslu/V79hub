@@ -33,7 +33,7 @@ class G2E2EAcceptanceTests(unittest.TestCase):
    self.assertIsNone(mod.private_bytes(p))
 
  def test_incorrect_host_stops_before_runtime_inspection(self):
-  with patch.object(mod.socket,"gethostname",return_value="wrong"), \\
+  with patch.object(mod.socket,"gethostname",return_value="wrong"), \
        patch.object(mod,"private_bytes") as read:
    with self.assertRaises(SystemExit):
     mod.check_host()
@@ -41,8 +41,8 @@ class G2E2EAcceptanceTests(unittest.TestCase):
 
  def _audit(self, summary):
   out=io.StringIO()
-  with patch.object(mod,"check_host"), \\
-       patch.object(mod,"run",return_value=json.dumps(summary)), \\
+  with patch.object(mod,"check_host"), \
+       patch.object(mod,"run",return_value=json.dumps(summary)), \
        contextlib.redirect_stdout(out):
    mod.main()
   return out.getvalue()
@@ -81,8 +81,8 @@ class G2E2EAcceptanceTests(unittest.TestCase):
         "sideEffects":"NONE",
         "claim":"COO_TASK_CREATION_ONLY_NOT_UNDERLYING_TASK_COMPLETION"}
   out=io.StringIO()
-  with patch.object(mod,"check_host"), \\
-       patch.object(mod,"run",return_value=json.dumps(item)), \\
+  with patch.object(mod,"check_host"), \
+       patch.object(mod,"run",return_value=json.dumps(item)), \
        contextlib.redirect_stdout(out):
    with self.assertRaises(SystemExit) as err:
     mod.main()
