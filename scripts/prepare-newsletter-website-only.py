@@ -143,7 +143,13 @@ def prepare():
             row = oldbackend.inspect(name)
             require(row['Id'] == accepted['replacements'][name]['candidate']['created_id']
                     and row['Image'] == CURRENT[name], 'ACCEPTED_RUNTIME_CHANGED')
-            oldbackend.healthy(name, 'candidate')  # read-only validation; no lead replay
+            # The *accepted* prior controller has an intentionally expired
+            # supervision lease. Its healthy(candidate) method requests a
+            # fresh lease even for a read-only check. Verify the exact sealed
+            # runtime contract directly; require genuine healthy/running state
+            # without extending or recreating that accepted controller's lease.
+            oldbackend.verify(name, 'candidate', row)
+            require(controller.healthy(row), 'ACCEPTED_RUNTIME_NOT_HEALTHY')
             before[name] = row
         oldbackend.protected()
         raw = private_file(BUILD)
