@@ -1,5 +1,11 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — public website batch 1 PASS (owner execution)
+
+Owner returned BATCH_1=PASS_PUBLIC_CHECKS_ONLY: website metadata HTTP 200 with title/canonical/structured data present; /api/ready HTTP 200/status ready; guide landing HTTP 200 HTML; guide PDF HTTP 200/application/pdf, 152755 bytes with PDF signature; robots HTTP 200 with User-agent and Sitemap declaration; sitemap HTTP 200 with valid XML root. Preserve these six checks as completed; repeat only for a relevant change or regression. This proves bounded endpoint/content checks, not full visual PDF acceptance, indexing, analytics receipt, subscription persistence or downstream lead delivery.
+
+Next: one clearly labelled owner-controlled website contact submission, read-only CRM capture and Hub/Tiquet delivery-state receipt. CAPTCHA must remain enforced. Inspect actual request idempotency before claiming retry coverage; inspected ContactPage source does not supply Idempotency-Key even though the backend supports it. No duplicate submission is required merely to repeat existing synthetic coverage. Newsletter email delivery/unsubscribe remain unresolved in inspected source. No invitation, campaign, payment or production deployment performed by this batch.
+
 Updated 26 October 2026, Saint Lucia. **From Idea to Advantage.**
 This section is the current consolidated decision record; dated material below is retained as history. The older Library register is historical evidence, not a second active work queue.
 
