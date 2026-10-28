@@ -141,7 +141,9 @@ class DiagnosticTests(unittest.TestCase):
     def test_per_job_provenance_rejects_wrong_link(self):
         data = self.run_synthetic_cohort("wrong_job_link")
         self.assertFalse(data["provenanceChecks"]["allFiveTasksMatch"])
-        self.assertFalse(data["provenanceChecks"]["noOrphanTasks"])
+        # A wrong job link can still target another existing job: the strict
+        # per-success linkage must catch it even when no-orphan remains true.
+        self.assertTrue(data["provenanceChecks"]["noOrphanTasks"])
 
     def test_synthetic_wrong_owner_actor_fails_closed(self):
         data = self.run_synthetic_cohort("wrong_actor")
