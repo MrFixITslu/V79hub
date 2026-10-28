@@ -175,7 +175,8 @@ def prepare():
                                       existing['compose_version'])
         new_model = copy.deepcopy(existing_model)
         new_model['services'][service]['image'] = IMAGE  # the ONLY service configuration change
-        assert list(new_model['services']) == list(existing_model['services'])
+        require(set(existing_model['services']) == {service} and
+                set(new_model['services']) == {service}, 'WEBSITE_COMPOSE_SERVICE_SCOPE_CHANGED')
 
         # New transaction protects Hub like every other non-website container.
         plan = copy.deepcopy(oldplan)
