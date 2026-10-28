@@ -57,6 +57,13 @@ class AcceptanceAuditTests(unittest.TestCase):
             target.chmod(0o600);root.chmod(0o755)
             self.assertIsNone(audit.safe_file_bytes(target))
 
+    def test_no_generic_sentinel_database_path_or_traversal(self):
+        self.assertIsNone(audit.noc_db_path(["--db","/etc/shadow"]))
+        self.assertIsNone(audit.noc_db_path(["--db","/data/../etc/other.db"]))
+        self.assertIsNone(audit.noc_db_path(["--db","http://localhost/db"]))
+        self.assertIsNone(audit.noc_db_path(["python","server.py"]))
+        self.assertEqual(audit.noc_db_path(["noc","--db","/app/data/noc.sqlite3"]),"/app/data/noc.sqlite3")
+
     def test_refuse_to_run_on_wrong_host(self):
         with patch.object(audit.socket,"gethostname",return_value="test-box"):
             with self.assertRaises(SystemExit):
