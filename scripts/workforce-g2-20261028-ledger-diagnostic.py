@@ -76,9 +76,59 @@ try {
    tasksAfterMarker:allTasks.filter(t=>Number.isFinite(ms(t.createdAt))&&ms(t.createdAt)>=limit).length,
    createEventsAfterMarker:allEvents.filter(e=>Number.isFinite(ms(e.at))&&ms(e.at)>=limit).length
  };
+ const otherTasks=allTasks.filter(t=>t.system!=='hub');
+ const otherEvents=allEvents.filter(e=>e.actor!=='coo-worker');
+ const otherSucceeded=ok.filter(j=>j.system!=='hub');
+ const hubSucceeded=ok.filter(j=>j.system==='hub');
+ const approvedEvents=v.events.filter(e=>e.type==='approved');
+ const oneOther=otherTasks.length===1 && otherEvents.length===1 &&
+   otherSucceeded.length===1;
+ const outside=otherSucceeded[0], task=otherTasks[0], event=otherEvents[0];
+ const oneOtherLinked=Boolean(oneOther && task.jobId===outside.id &&
+   task.id===outside.result?.taskId && task.system===outside.system &&
+   task.organizationId===outside.organizationId &&
+   event.jobId===outside.id && event.digest===outside.digest &&
+   event.actor===outside.approval?.by && event.actor!=='coo-worker');
+ const oneOtherApproved=Boolean(oneOtherLinked &&
+   outside.approval?.digest===outside.digest &&
+   approvedEvents.filter(e=>e.jobId===outside.id &&
+     e.actor===outside.approval.by && e.digest===outside.digest).length===1);
+ const oneOtherChronology=Boolean(oneOtherApproved &&
+   [outside.createdAt,outside.approval.at,event.at,task.createdAt,
+    outside.result?.at,outside.approval.expiresAt].every(x=>Number.isFinite(ms(x))) &&
+   ms(outside.createdAt)<=ms(outside.approval.at) &&
+   ms(outside.approval.at)<=ms(event.at) &&
+   ms(event.at)<ms(outside.approval.expiresAt) &&
+   ms(event.at)===ms(task.createdAt) &&
+   ms(task.createdAt)===ms(outside.result.at) &&
+   ms(event.at)<limit);
+ const hubWorkerCohort=hubSucceeded.length===4 &&
+   hubSucceeded.every(j=>allTasks.filter(t=>t.jobId===j.id &&
+     t.id===j.result?.taskId && t.organizationId===j.organizationId &&
+     t.system==='hub').length===1 &&
+     workerEvents.filter(e=>e.jobId===j.id && e.digest===j.digest).length===1);
+ const exactTwoCohorts=oneOtherChronology && hubWorkerCohort &&
+   allTasks.length===5 && allEvents.length===5 && ok.length===5 &&
+   allTasks.every(t=>ok.some(j=>j.id===t.jobId)) &&
+   allEvents.every(e=>ok.some(j=>j.id===e.jobId));
+ const cohort={
+   exactlyOneOtherSystemJob:oneOther,
+   otherSystemTaskEventSameJob:oneOtherLinked,
+   otherSystemApprovalActorMatches:oneOtherApproved,
+   otherSystemTimelineWithinApproval:oneOtherChronology,
+   fourHubWorkerTasksLinked:hubWorkerCohort,
+   allFiveEffectsBelongToFiveSuccesses:exactTwoCohorts,
+   otherSystemInitiatedByExecutingActor:Boolean(oneOther &&
+     outside.createdBy===event.actor)
+ };
+ const cohortCounts={
+   otherSystemTasks:otherTasks.length,otherActorCreateEvents:otherEvents.length,
+   otherSystemSuccessfulJobs:otherSucceeded.length,
+   hubSuccessfulJobs:hubSucceeded.length
+ };
  // Keys/values are fixed, bounded, and contain no task, identity, secret or detail.
  console.log(JSON.stringify({result:'READ_ONLY_HMAC_LEDGER_DIAGNOSTIC',
-   hmacValidated:true,checks,counters}));
+   hmacValidated:true,checks,counters,cohort,cohortCounts}));
 }finally{await store.close();}
 """
 
@@ -135,7 +185,7 @@ def main():
                           "-e", READER]))
     require(raw.get("result") == "READ_ONLY_HMAC_LEDGER_DIAGNOSTIC" and
             raw.get("hmacValidated") is True and
-            set(raw) == {"result","hmacValidated","checks","counters"} and
+            set(raw) == {"result","hmacValidated","checks","counters","cohort","cohortCounts"} and
             set(raw["checks"]) == {
               "pausedFalse","jobCountSix","fiveSucceeded","oneRejected","noInFlight",
               "allTasksFive","hubTasksFive","allCreateEventsFive",
@@ -146,7 +196,15 @@ def main():
               "allSucceededResultTimesBeforeMarker","allJobCreatedTimesBeforeMarker",
               "rejectedJobCreatedBeforeMarker","validMarkerTime"} and
             all(isinstance(x, bool) for x in raw["checks"].values()) and
-            all(type(x) is int and 0 <= x <= 10000 for x in raw["counters"].values()),
+            all(type(x) is int and 0 <= x <= 10000 for x in raw["counters"].values()) and
+            set(raw["cohort"]) == {"exactlyOneOtherSystemJob","otherSystemTaskEventSameJob",
+             "otherSystemApprovalActorMatches","otherSystemTimelineWithinApproval",
+             "fourHubWorkerTasksLinked","allFiveEffectsBelongToFiveSuccesses",
+             "otherSystemInitiatedByExecutingActor"} and
+            all(isinstance(x, bool) for x in raw["cohort"].values()) and
+            set(raw["cohortCounts"]) == {"otherSystemTasks","otherActorCreateEvents",
+              "otherSystemSuccessfulJobs","hubSuccessfulJobs"} and
+            all(type(x) is int and 0 <= x <= 10000 for x in raw["cohortCounts"].values()),
             "LEDGER_DIAGNOSTIC_INVALID")
     print(json.dumps(raw, sort_keys=True), flush=True)
     print("MARKER_UNCHANGED=true", flush=True)
