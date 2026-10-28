@@ -100,8 +100,8 @@ class DiagnosticTests(unittest.TestCase):
         state = {"paused":False,"jobs":jobs,"tasks":tasks,"events":events}
         code = m.READER.replace(
             "import {createWorkActionStore} from './server/workforce-action-store.mjs';",
-            "const createWorkActionStore=()=>({read:async()=>"
-            + json.dumps(state) + ",close:async()=>{}});"
+            "const createWorkActionStore=()=>({read:async()=>("
+            + json.dumps(state) + "),close:async()=>{}});"
         )
         result = subprocess.run(["node", "--input-type=module", "-e", code],
                                 capture_output=True, text=True, timeout=10)
