@@ -48,6 +48,28 @@ class NewsletterPreparationSafety(unittest.TestCase):
         self.assertLess(SOURCE.index("oldbackend.verify(name, 'candidate', row)"),
                         SOURCE.index("NEW.mkdir(mode=0o700)"))
 
+    def test_rollback_image_copied_before_rebinding_aliased_entry(self):
+        # Regression: entry and existing reference the same dict. Previously
+        # the candidate was overwritten before copying the rollback image.
+        import copy
+        snapshot = "accepted_website_image = copy.deepcopy(existing['candidate_image'])"
+        rebind = "entry['candidate_image'] = candidate_metadata"
+        rollback = "entry['rollback_image'] = accepted_website_image"
+        self.assertIn(snapshot, SOURCE)
+        self.assertIn(rollback, SOURCE)
+        self.assertLess(SOURCE.index(snapshot), SOURCE.index(rebind))
+        self.assertLess(SOURCE.index(rollback), SOURCE.index(rebind))
+        self.assertIn("entry['rollback_image']['Id'] != entry['candidate_image']['Id']", SOURCE)
+        old = {"candidate_image": {"Id": "sha256:accepted"}, "rollback_image": {"Id": "sha256:historical"}}
+        existing = copy.deepcopy(old)
+        accepted_website_image = copy.deepcopy(existing["candidate_image"])
+        entry = {"V79website": existing}["V79website"]
+        entry["rollback_image"] = accepted_website_image
+        entry["candidate_image"] = {"Id": "sha256:newsletter"}
+        self.assertEqual(entry["rollback_image"]["Id"], "sha256:accepted")
+        self.assertEqual(entry["candidate_image"]["Id"], "sha256:newsletter")
+        self.assertEqual(old["candidate_image"]["Id"], "sha256:accepted")
+
     def test_hub_and_42_nonwebsite_containers_protected(self):
         self.assertIn("plan['protected']['v79-hub'] = before['v79-hub']", SOURCE)
         self.assertIn("len(plan['protected']) == 42", SOURCE)
