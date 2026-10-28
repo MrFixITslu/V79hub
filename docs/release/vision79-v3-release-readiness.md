@@ -1,5 +1,9 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — candidate bootstrap corrected; no build yet
+
+Owner first build command stopped at `git -C /opt/v79/hub fetch` with not-a-git-repository. No runner, build or deployment executed. Assistant's checkout assumption was wrong. Corrected runner @881f8f5d1ac0f08731b7fcabb0b52c919133698d (SHA256 aec72be1164cf3d6ec1db9bd29c98ca10eb44e6fea69bd207b09765eac4394ac) initializes fresh temporary Git repositories and fetches both exact application commits from their verified public GitHub repos; it does not depend on live deployment folders, worktrees or Compose working-directory labels. Application source pins unchanged: Hub 2e5f872914bb85f98651ce00a4a90b1880e44076, website 43de17780357e776c86a7f8898168a50fa5e2820. Two synthetic runner checks PASS: isolated fresh-source/build/test sequencing; failed fetch stops before any build. Prior 14 new app tests and green source CI remain valid, not rerun. Runner syntax PASS. Operator candidate image build still pending. New bootstrap downloads only checksum-pinned public runner bytes; no credentials, live containers or application data are changed by bootstrap. No production deployment claimed.
+
 ## 28 October 2026 — website receiver candidate ready for build (NOT DEPLOYED)
 
 Owner read-only runtime scan: server_source_present=true, source_files_checked=62, event_route_literal_found=false. Website config booleans: valid endpoint=true, event secret minimum=false, organisation=false. Current accepted Hub v3 release remains accepted; this new integration candidate is not deployed.
