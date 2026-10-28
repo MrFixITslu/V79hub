@@ -1,5 +1,14 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — isolated website failure captured; package-permission fix prepared
+
+Owner isolated probe receipt ISOLATED_STARTUP_CAPTURED: candidate exited 1 before server listening; permission_denied=true; error_codes=[ERR_INVALID_PACKAGE_CONFIG]; legacy database, missing module, busy/corrupt/read-only database, key, data-shape and snapshot failure flags false. Private evidence /home/firelion/v79-lead-release-2pvsb2mo/website-startup-probe-a3aa8959eb014d16. Probe removed, original identities unchanged, deployed=false. Original healthcheck/port, runtime command/entrypoint, user and working directory match; no application-covering mount. Compose command/entrypoint null mean inherited defaults, not active overrides.
+
+Source review identified builder os.umask(077), private Git checkout modes and runner COPY of package metadata as root without explicit mode. Likely unreadable /app/package.json; exact file access remains to be confirmed by the guarded runner before any rebuild. Website Dockerfile fix @356b09e0cb5ebdda92b5f7d80e01a4d37feacdf0 sets runtime package.json/package-lock.json COPY --chmod=0644 only. No application logic or production data permission changes.
+
+New runner scripts/rebuild-website-runtime-permissions.py @00e8b3ca7e48fd5915f1c562f9de825138c52804; SHA256 00677acfd705b6ca064a2c946b9eec03d907516e164c1d5d6ebdb1d0d15e8271. Confirms EACCES as image user with network none/read-only before building; builds website only from exact fixed source; requires metadata mode 644/readable; runs one networkless candidate startup on private data copy and consistent read-only SQLite document snapshot. Never deploys or changes installed controller/state/sealed models. Reuses Hub candidate; no Hub rebuild or old application test replay. Five relevant helper checks passed within an 8-check targeted helper batch. If new candidate passes, a new image-bound release is required; do not replay old manifest/controller deploy. Commercial gate unchanged.
+
+
 ## 28 October 2026 — cutover rolled back cleanly; website candidate health unresolved
 
 Owner execution of supervisor f756f88731b2cd53f3170b680c9e7289f086d49e returned RELEASE_FAILED_ORIGINALS_RESTORED / PAIR_DEPLOYMENT_DID_NOT_COMPLETE. Follow-up owner status confirms phase ROLLED_BACK, rollback timer inactive, both original live images healthy: Hub sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6; website sha256:d23ea67d07bcbe3801379330a344642bbcfacb351ed1a0bb121f664a3a25b37d. engine_rollback_complete=true; rollback_failed=false. Both candidate and rollback created IDs were durably verified for both apps.
