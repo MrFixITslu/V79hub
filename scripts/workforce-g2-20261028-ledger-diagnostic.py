@@ -126,9 +126,78 @@ try {
    otherSystemSuccessfulJobs:otherSucceeded.length,
    hubSuccessfulJobs:hubSucceeded.length
  };
+
+ // Analyse actual job→task→creation-event links, not coincidental cohorts.
+ // Both actor-bound paths are valid in the installed Hub: credential-bound
+ // coo-worker and MFA-verified owner's explicit execute action.
+ const createdEvents=v.events.filter(e=>e.type==='work_item_created');
+ const allApprovedEvents=v.events.filter(e=>e.type==='approved');
+ const allProposedEvents=v.events.filter(e=>e.type==='proposed');
+ const profiles=ok.map(j=>{
+   const taskMatches=allTasks.filter(t=>t.jobId===j.id &&
+     t.id===j.result?.taskId && t.organizationId===j.organizationId &&
+     t.system===j.system);
+   const creationMatches=createdEvents.filter(e=>e.jobId===j.id &&
+     e.digest===j.digest);
+   const approvedMatches=allApprovedEvents.filter(e=>e.jobId===j.id &&
+     e.digest===j.digest && e.actor===j.approval?.by);
+   const proposalMatches=allProposedEvents.filter(e=>e.jobId===j.id &&
+     e.digest===j.digest && e.actor===j.createdBy);
+   const e=creationMatches[0],t=taskMatches[0],a=approvedMatches[0],p=proposalMatches[0];
+   const validDates=[j.createdAt,j.approval?.at,j.approval?.expiresAt,
+     e?.at,t?.createdAt,j.result?.at,a?.at,p?.at].every(x=>Number.isFinite(ms(x)));
+   const actorClass=e?.actor==='coo-worker'?'worker':
+     (e?.actor===j.approval?.by && e?.actor!=='coo-worker'?'owner':'unexpected');
+   const chronology=Boolean(validDates &&
+     ms(p.at)===ms(j.createdAt) &&
+     ms(a.at)===ms(j.approval.at) &&
+     ms(j.createdAt)<=ms(j.approval.at) &&
+     ms(j.approval.at)<=ms(e.at) &&
+     ms(e.at)<ms(j.approval.expiresAt) &&
+     ms(e.at)===ms(t.createdAt) &&
+     ms(t.createdAt)===ms(j.result.at) &&
+     ms(e.at)<limit);
+   return {system:j.system==='hub'?'hub':'other',actorClass,
+     taskMatch:taskMatches.length===1, eventMatch:creationMatches.length===1,
+     approvedMatch:approvedMatches.length===1,
+     proposedMatch:proposalMatches.length===1,
+     approvalDigest:j.approval?.digest===j.digest,
+     chronology};
+ });
+ const groups={hubWorker:0,hubOwner:0,otherWorker:0,otherOwner:0,unexpectedActor:0};
+ for(const p of profiles){
+   const key=p.actorClass==='unexpected'?'unexpectedActor':
+     p.system+(p.actorClass==='worker'?'Worker':'Owner');
+   groups[key]++;
+ }
+ const fixedTotal=jobs.length===6 && ok.length===5 && rejected.length===1 &&
+   open.length===0 && v.paused===false && allTasks.length===5 &&
+   createdEvents.length===5 && profiles.length===5;
+ const provenanceChecks={
+   fixedCurrentCounts:fixedTotal,
+   allFiveTasksMatch:profiles.every(p=>p.taskMatch),
+   allFiveCreateEventsMatch:profiles.every(p=>p.eventMatch),
+   allFiveApprovedEventsMatch:profiles.every(p=>p.approvedMatch),
+   allFiveProposalEventsMatch:profiles.every(p=>p.proposedMatch),
+   allFiveApprovalDigestsMatch:profiles.every(p=>p.approvalDigest),
+   allFiveActorsRecognised:profiles.every(p=>p.actorClass!=='unexpected'),
+   allFiveChronologiesValid:profiles.every(p=>p.chronology),
+   noOrphanTasks:allTasks.every(t=>ok.some(j=>j.id===t.jobId)),
+   noOrphanCreationEvents:createdEvents.every(e=>ok.some(j=>j.id===e.jobId)),
+   noEventsOrTasksAfterMarker:
+     counters.createEventsAfterMarker===0 && counters.tasksAfterMarker===0,
+   distinctTaskIds:unique(allTasks.map(t=>t.id)),
+   distinctCreationEventIds:unique(createdEvents.map(e=>e.id)),
+   exactlyOneFounderExecution:
+     groups.hubOwner+groups.otherOwner===1 &&
+     groups.unexpectedActor===0,
+   exactlyFourWorkerExecutions:
+     groups.hubWorker+groups.otherWorker===4
+ };
+
  // Keys/values are fixed, bounded, and contain no task, identity, secret or detail.
  console.log(JSON.stringify({result:'READ_ONLY_HMAC_LEDGER_DIAGNOSTIC',
-   hmacValidated:true,checks,counters,cohort,cohortCounts}));
+   hmacValidated:true,checks,counters,cohort,cohortCounts,provenanceChecks,groups}));
 }finally{await store.close();}
 """
 
@@ -185,7 +254,7 @@ def main():
                           "-e", READER]))
     require(raw.get("result") == "READ_ONLY_HMAC_LEDGER_DIAGNOSTIC" and
             raw.get("hmacValidated") is True and
-            set(raw) == {"result","hmacValidated","checks","counters","cohort","cohortCounts"} and
+            set(raw) == {"result","hmacValidated","checks","counters","cohort","cohortCounts","provenanceChecks","groups"} and
             set(raw["checks"]) == {
               "pausedFalse","jobCountSix","fiveSucceeded","oneRejected","noInFlight",
               "allTasksFive","hubTasksFive","allCreateEventsFive",
@@ -204,7 +273,20 @@ def main():
             all(isinstance(x, bool) for x in raw["cohort"].values()) and
             set(raw["cohortCounts"]) == {"otherSystemTasks","otherActorCreateEvents",
               "otherSystemSuccessfulJobs","hubSuccessfulJobs"} and
-            all(type(x) is int and 0 <= x <= 10000 for x in raw["cohortCounts"].values()),
+            all(type(x) is int and 0 <= x <= 10000 for x in raw["cohortCounts"].values()) and
+            set(raw["provenanceChecks"]) == {
+             "fixedCurrentCounts","allFiveTasksMatch","allFiveCreateEventsMatch",
+             "allFiveApprovedEventsMatch","allFiveProposalEventsMatch",
+             "allFiveApprovalDigestsMatch","allFiveActorsRecognised",
+             "allFiveChronologiesValid","noOrphanTasks","noOrphanCreationEvents",
+             "noEventsOrTasksAfterMarker","distinctTaskIds",
+             "distinctCreationEventIds","exactlyOneFounderExecution",
+             "exactlyFourWorkerExecutions"} and
+            all(type(x) is bool for x in raw["provenanceChecks"].values()) and
+            set(raw["groups"]) == {"hubWorker","hubOwner","otherWorker",
+                                  "otherOwner","unexpectedActor"} and
+            all(type(x) is int and 0 <= x <= 5 for x in raw["groups"].values()) and
+            sum(raw["groups"].values()) == 5,
             "LEDGER_DIAGNOSTIC_INVALID")
     print(json.dumps(raw, sort_keys=True), flush=True)
     print("MARKER_UNCHANGED=true", flush=True)
