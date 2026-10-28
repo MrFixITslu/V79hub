@@ -28,6 +28,51 @@ CONTAINERS = (
 HEX = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
+# Only existing local NOC state is read, never new external monitoring targets.
+SENTINEL_READER = r"""
+import json,sqlite3,sys,time,urllib.request
+from pathlib import Path
+try:
+ with urllib.request.urlopen('http://127.0.0.1:8788/readyz',timeout=3) as r:
+  data=json.load(r)
+  for k in ('collector','integrations'):
+   val=data.get(k)
+   print('NOC_DECLARED_'+k.upper()+'='+val if val in ('live','simulated-only','disabled','unknown') else 'NOC_DECLARED_'+k.upper()+'=UNAVAILABLE')
+except Exception:
+ print('NOC_READYZ=UNAVAILABLE')
+db=Path(sys.argv[1])
+try:
+ with sqlite3.connect(db.as_uri()+'?mode=ro',uri=True) as con:
+  con.execute('PRAGMA query_only=ON')
+  tables={row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+  for table,column in [('sentinel_real_measurements','seen'),('sentinel_real_checks','updated')]:
+   if table in tables:
+    count,newest=con.execute('SELECT count(*),max('+column+') FROM '+table).fetchone()
+    age=int(time.time())-int(newest) if newest is not None else None
+    print('NOC_TABLE='+table+'|COUNT='+str(count)+'|NEWEST_AGE_SECONDS='+str(age))
+   else:
+    print('NOC_TABLE='+table+'|STATE=ABSENT')
+except Exception:
+ print('NOC_DATABASE=UNAVAILABLE')
+print('SENSOR_SIGNATURE_ATTESTATION=NOT_VERIFIED')
+"""
+
+
+def noc_db_path(cmd):
+    if not isinstance(cmd, list) or "--db" not in cmd:
+        return None
+    try:
+        value = cmd[cmd.index("--db") + 1]
+    except IndexError:
+        return None
+    if (not isinstance(value, str) or
+        not value.startswith(("/app/data/", "/data/")) or
+        ".." in Path(value).parts or len(value) > 240 or
+        not value.endswith((".sqlite", ".sqlite3", ".db"))):
+        return None
+    return value
+
+
 def command(args, timeout=15):
     try:
         result = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
@@ -176,6 +221,16 @@ def docker_inventory():
             allowed_health = health if health in ("healthy", "unhealthy", "starting", "not_configured") else "UNKNOWN"
             print("CONTAINER=" + name + "|RUNNING=" + str(state.get("Running") is True).lower() +
                   "|HEALTH=" + allowed_health + "|IMAGE=" + ident)
+            if name == "v79-sentinel-dell-noc":
+                database = noc_db_path((row.get("Config") or {}).get("Cmd"))
+                if database:
+                    result = command(["docker", "exec", name, "python3", "-B", "-c", SENTINEL_READER, database], timeout=12)
+                    if result:
+                        print(result.strip())
+                    else:
+                        print("NOC_EXISTING_EVIDENCE=UNAVAILABLE")
+                else:
+                    print("NOC_DATABASE_PATH=UNVERIFIED")
             if name == "v79-hub":
                 cfg = row.get("Config") or {}
                 vals = {x.split("=", 1)[0]: x.split("=", 1)[1]
