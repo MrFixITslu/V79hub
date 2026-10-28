@@ -1,4 +1,10 @@
 # Vision79 Digital — active master completion register
+## 28 Oct 2026 — G2 bounded diagnostic STOP: redacted Docker read, no mutation
+
+Owner ran SHA256-pinned scripts/workforce-g2-20261028-ledger-diagnostic.py from V79hub 64d8564a044826b8a6e0fa81308ac3176dc73fa3. Actual output G2_LEDGER_DIAGNOSTIC_CHECKSUM=PASS, STOP_G2_BOUNDED_LEDGER_DIAGNOSTIC reason=REDACTED_READ_FAILED. This is NOT a finding of corrupted ledger, nor successful marker review, and no bounded checks/counters were emitted. Existing G2 uncertainty marker remains fail-closed; --archive MUST NOT run.
+
+Source review explains that the common diagnostic run helper enforces command exit zero and stdout strictly under 12000 bytes for BOTH full Docker inspect and the read-only Node HMAC ledger diagnostic. A complete Docker inspect JSON may exceed 12 KB, so output size is a plausible cause, not yet confirmed. Next single safe probe: sg docker -c 'docker inspect v79-hub | wc -c' (prints only a byte count, not environment or credentials). If above 12 KB, repair the diagnostic by projecting only approved image/running/health from Docker inspect and by classifying failure stage, rather than displaying private diagnostic stderr or weakening the signed-ledger gate. This size probe is read-only. No marker archive, timer stop/restart, task creation, HTTP POST, Hub, Sentinel or other service change authorised.
+
 
 ## 28 Oct 2026 — NEW G2 marker-only read-only review STOP; no marker archival or runtime change
 
