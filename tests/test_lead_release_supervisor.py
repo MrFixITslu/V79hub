@@ -185,7 +185,7 @@ current=state.read();print(json.dumps({'phase':current['phase'],'image':backend.
 
 
 class ControllerTests(unittest.TestCase):
-    def exercise(self,receipt_error=False,reported_rollback=None):
+    def exercise(self,receipt_error=False,reported_rollback=None,candidate_reason=None):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);state=s.State(root);calls=[]
             installed=root/'lead-release-supervisor.py';installed.write_text('synthetic controller');installed.chmod(0o600)
@@ -202,7 +202,8 @@ class ControllerTests(unittest.TestCase):
                     current['rollback_failed' if reported_rollback=='failed' else 'engine_rollback_complete']=True
                     state.put(current)
                     if reported_rollback=='failed':raise ValueError('ROLLBACK_INCOMPLETE_OPERATOR_REQUIRED')
-                    return {'status':'PASS_ORIGINAL_IMAGES_AND_RUNTIME_RESTORED'}
+                    return {'status':'PASS_ORIGINAL_IMAGES_AND_RUNTIME_RESTORED',
+                        **({'candidate_failure_reason':candidate_reason} if candidate_reason else {})}
                 return {'status':'PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING'}
             def engine_rollback(b,names):
                 calls.append(('rollback',names));return {'status':'PASS_ORIGINAL_IMAGES_AND_RUNTIME_RESTORED'}
@@ -249,6 +250,12 @@ class ControllerTests(unittest.TestCase):
             state=s.State(directory);plan={'apps':{name:{} for name in reversed(s.ORDER)}}
             with self.assertRaisesRegex(ValueError,'HUB_MUST_SWITCH_BEFORE_WEBSITE'):
                 s.deploy(None,None,plan,None,state)
+
+    def test_engine_failure_reason_survives_completed_rollback(self):
+        result,calls,state=self.exercise(reported_rollback='complete',candidate_reason='SELECTED_APP_HEALTH_TIMEOUT')
+        self.assertEqual(result['reason'],'SELECTED_APP_HEALTH_TIMEOUT')
+        self.assertEqual(state['candidate_failure_reason'],'SELECTED_APP_HEALTH_TIMEOUT')
+        self.assertFalse(any(isinstance(c,tuple) and c[0]=='rollback' for c in calls))
 
     def test_changed_event_id_is_rejected_before_hub_receipt_read(self):
         expected={'hubEventId':'a','tiquetEventId':'b'}
