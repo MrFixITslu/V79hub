@@ -43,10 +43,11 @@ class ProbeTests(unittest.TestCase):
             (root / 'transaction.json').write_bytes(manifest)
             calls = []
             cid = 'a' * 64
+            selected_image = 'sha256:' + 'b' * 64
             def inspect(name):
                 if name == cid:
                     probe_dir = next(root.glob('website-startup-probe-*'))
-                    return {'Image': p.IMAGE, 'HostConfig': {'NetworkMode': 'none'}, 'Mounts': [],
+                    return {'Image': selected_image, 'HostConfig': {'NetworkMode': 'none'}, 'Mounts': [],
                         'Config': {'Labels': {'v79.startup.probe': probe_dir.name}},
                         'State': {'Running': False, 'ExitCode': 1, 'Health': {'Status': 'unhealthy'}}}
                 return {'Id': name, 'Image': plan['apps'][name]['rollback_image']['Id'],
@@ -78,7 +79,7 @@ class ProbeTests(unittest.TestCase):
                  patch.object(p, 'call', side_effect=call), patch.object(p, 'inspect', side_effect=inspect), \
                  patch.object(p.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, logs, b'')), \
                  contextlib.redirect_stdout(stdout):
-                p.main()
+                p.main(image_override=selected_image)
             self.assertNotIn('private-token', stdout.getvalue())
             self.assertIn('"legacy_database_rejected": true', stdout.getvalue())
             self.assertIn(['docker', 'rm', '-f', cid], calls)
