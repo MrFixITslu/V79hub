@@ -1,0 +1,36 @@
+name: Newsletter website-only release guards
+
+on:
+  push:
+    branches:
+      - fix/newsletter-website-only-release-20261028
+    paths:
+      - scripts/newsletter-website-supervisor.py
+      - scripts/prepare-newsletter-website-only.py
+      - tests/test_newsletter_website_supervisor.py
+      - tests/test_prepare_newsletter_website_only.py
+      - .github/workflows/newsletter-website-release-guards.yml
+  pull_request:
+    paths:
+      - scripts/newsletter-website-supervisor.py
+      - scripts/prepare-newsletter-website-only.py
+      - tests/test_newsletter_website_supervisor.py
+      - tests/test_prepare_newsletter_website_only.py
+      - .github/workflows/newsletter-website-release-guards.yml
+
+permissions:
+  contents: read
+
+jobs:
+  focused-python-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile only changed release code and tests
+        run: |
+          python3 -m py_compile scripts/newsletter-website-supervisor.py scripts/prepare-newsletter-website-only.py tests/test_newsletter_website_supervisor.py tests/test_prepare_newsletter_website_only.py
+      - name: Run focused isolated release safety tests
+        run: |
+          python3 -m unittest discover -s tests -p 'test_newsletter_website_supervisor.py' -v
+          python3 -m unittest discover -s tests -p 'test_prepare_newsletter_website_only.py' -v
