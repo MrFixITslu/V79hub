@@ -30,6 +30,15 @@ PINS = {'v79-hub':('2e5f872914bb85f98651ce00a4a90b1880e44076',
 ALLOWED = {'v79-hub':{'V79_WEBSITE_EVENTS_ENABLED','V79_WEBSITE_EVENT_SECRET','V79_WEBSITE_ORGANIZATION_REF'},
     'V79website':{'V79_HUB_EVENT_SECRET','V79_HUB_ORGANIZATION_REF','V79_HUB_EVENT_REPLAY_LEAD_IDS'}}
 TIMERS = ('v79-g2-approved-task-worker.timer','v79-workforce-morning.timer','v79-workforce-evening.timer')
+REVIEWED_COMPOSE = frozenset(('5.6.0','5.6.1','v5.6.0','v5.6.1'))
+
+
+def verify_compose_version(installed, prepared=None):
+    # docker/compose v5.6.0...v5.6.1 changes only the Go toolchain files.
+    # build.go, images.go and executor_ops.go have identical Git blob IDs.
+    require(installed in REVIEWED_COMPOSE, 'UNREVIEWED_COMPOSE_VERSION')
+    if prepared is not None:
+        require(prepared == installed, 'PREPARED_COMPOSE_VERSION_CHANGED')
 
 
 def require(ok, code):
@@ -60,7 +69,8 @@ def install_compat(engine):
     original=engine.runtime_matches
     def compatible(before, after, entry, which, **kwargs):
         name=entry['release_name']
-        require(name in ALLOWED and entry['compose_version'].lstrip('v')=='5.6.0', 'UNREVIEWED_CODEC')
+        require(name in ALLOWED, 'UNREVIEWED_CODEC')
+        verify_compose_version(entry['compose_version'])
         approved=entry['approved_environment']
         require(set(approved)==ALLOWED[name], 'ENVIRONMENT_ALLOWANCE_SCOPE_CHANGED')
         baseline=engine.environment(before['Config'].get('Env') or [])
@@ -193,7 +203,7 @@ def bind():
         spec=importlib.util.spec_from_file_location('existing_pair_engine',ROOT/'paired-compose-transaction.py')
         engine=importlib.util.module_from_spec(spec);spec.loader.exec_module(engine)
         version=run(['docker','compose','version','--short']).decode().strip()
-        require(version.lstrip('v')=='5.6.0','UNREVIEWED_COMPOSE_VERSION')
+        verify_compose_version(version)
         options=json.loads(run(['docker','info','--format','{{json .SecurityOptions}}']))
         plan={'schema':'v79-website-lead-pair-v1','requires_supervision':True,
             'selinux_enabled':any('selinux' in s for s in options),'apps':{},
@@ -206,7 +216,7 @@ def bind():
                 'PREPARED_BASELINE_CHANGED')
         for name,(revision,pin) in PINS.items():
             p=inputs['prepared'][name];baseline=inputs['baseline'][name];service=p['service']
-            require(p['compose_version']==version,'PREPARED_COMPOSE_VERSION_CHANGED')
+            verify_compose_version(version,p['compose_version'])
             before_env=engine.environment(baseline['Config'].get('Env') or [])
             candidate=copy.deepcopy(p['candidate']);rollback=copy.deepcopy(p['rollback'])
             expected_changes=({'V79_WEBSITE_EVENTS_ENABLED':'1','V79_WEBSITE_EVENT_SECRET':inputs['credential'],
