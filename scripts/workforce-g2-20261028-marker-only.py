@@ -42,37 +42,65 @@ const store=createWorkActionStore({
  backend:process.env.V79_HUB_STORE_BACKEND||'json',
  databaseUrl:process.env.DATABASE_URL||''
 });
-try{
+try {
  const v=await store.read();
  const jobs=v.jobs.filter(j=>j.operation==='create_work_item');
  const good=jobs.filter(j=>j.status==='succeeded');
  const bad=jobs.filter(j=>j.status==='rejected');
- const events=v.events.filter(e=>e.type==='work_item_created'&&e.actor==='coo-worker');
- const tasks=v.tasks.filter(t=>t.system==='hub'&&t.jobId);
+ const tasks=v.tasks.filter(t=>t.jobId);
+ const created=v.events.filter(e=>e.type==='work_item_created');
+ const approved=v.events.filter(e=>e.type==='approved');
+ const proposed=v.events.filter(e=>e.type==='proposed');
  const inFlight=jobs.filter(j=>['approved','running','uncertain'].includes(j.status));
- const timeOf=x=>Date.parse(x);
- const before=items=>items.every(x=>Number.isFinite(x)&&x<cutoff);
- const linked=good.every(j=>tasks.filter(t=>t.jobId===j.id&&t.id===j.result?.taskId&&
-   t.organizationId===j.organizationId).length===1 &&
-   events.filter(e=>e.jobId===j.id&&e.digest===j.digest).length===1);
- const taskIds=tasks.map(t=>t.id);
- const jobIds=jobs.map(j=>j.id);
- const eventJobs=events.map(e=>e.jobId);
- const valid=Number.isFinite(cutoff)&&v.paused===false&&
-   jobs.length===6&&good.length===5&&bad.length===1&&inFlight.length===0&&
-   tasks.length===5&&events.length===5&&linked&&
-   new Set(taskIds).size===5&&new Set(jobIds).size===6&&
-   new Set(eventJobs).size===5&&
-   before(tasks.map(t=>timeOf(t.createdAt)))&&
-   before(events.map(e=>timeOf(e.at)))&&
-   before(good.map(j=>timeOf(j.result?.at)))&&
-   before(jobs.map(j=>timeOf(j.createdAt)));
- console.log(JSON.stringify({signature:'HMAC_STORE_VALIDATED',safe:valid,
+ const ms=x=>Date.parse(x);
+ const before=x=>Number.isFinite(ms(x))&&ms(x)<cutoff;
+ const unique=a=>new Set(a).size===a.length;
+ const counts=jobs.length===6&&good.length===5&&bad.length===1&&
+   tasks.length===5&&created.length===5&&inFlight.length===0&&v.paused===false;
+ const seen=good.map(j=>{
+   const task=tasks.filter(t=>t.jobId===j.id&&t.id===j.result?.taskId&&
+     t.organizationId===j.organizationId&&t.system===j.system);
+   const event=created.filter(e=>e.jobId===j.id&&e.digest===j.digest);
+   const approval=approved.filter(e=>e.jobId===j.id&&
+     e.actor===j.approval?.by&&e.digest===j.digest);
+   const proposal=proposed.filter(e=>e.jobId===j.id&&
+     e.actor===j.createdBy&&e.digest===j.digest);
+   const t=task[0],e=event[0],a=approval[0],p=proposal[0];
+   const role=e?.actor==='coo-worker'?'worker':
+     (e?.actor===j.approval?.by&&e?.actor!=='coo-worker'?'owner':'invalid');
+   const chronology=Boolean([j.createdAt,j.approval?.at,j.approval?.expiresAt,
+     t?.createdAt,e?.at,a?.at,p?.at,j.result?.at].every(x=>Number.isFinite(ms(x)))&&
+     ms(p.at)===ms(j.createdAt)&&ms(a.at)===ms(j.approval.at)&&
+     ms(j.createdAt)<=ms(j.approval.at)&&ms(j.approval.at)<=ms(e.at)&&
+     ms(e.at)<ms(j.approval.expiresAt)&&ms(e.at)===ms(t.createdAt)&&
+     ms(t.createdAt)===ms(j.result.at)&&ms(e.at)<cutoff);
+   const matched=task.length===1&&event.length===1&&approval.length===1&&
+     proposal.length===1&&j.approval?.digest===j.digest&&
+     role!=='invalid'&&chronology;
+   return {matched,system:j.system==='hub'?'hub':'other',role};
+ });
+ const groups={hubWorker:0,hubOwner:0,otherWorker:0,otherOwner:0,invalid:0};
+ for(const x of seen){
+   const k=x.role==='invalid'?'invalid':
+     x.system+(x.role==='worker'?'Worker':'Owner');
+   groups[k]++;
+ }
+ const valid=counts&&Number.isFinite(cutoff)&&seen.every(x=>x.matched)&&
+   groups.hubWorker===3&&groups.hubOwner===1&&
+   groups.otherWorker===1&&groups.otherOwner===0&&groups.invalid===0&&
+   unique(jobs.map(j=>j.id))&&unique(tasks.map(t=>t.id))&&
+   unique(created.map(e=>e.id))&&
+   tasks.every(t=>good.some(j=>j.id===t.jobId)&&before(t.createdAt))&&
+   created.every(e=>good.some(j=>j.id===e.jobId)&&before(e.at))&&
+   jobs.every(j=>before(j.createdAt))&&good.every(j=>before(j.result?.at));
+ console.log(JSON.stringify({signature:'HMAC_STORE_VALIDATED',safe:Boolean(valid),
    jobs:jobs.length,succeeded:good.length,rejected:bad.length,
-   tasks:tasks.length,createdEvents:events.length,
-   inFlight:inFlight.length,postMarkerTaskCount:events.filter(e=>timeOf(e.at)>=cutoff).length,
-   paused:v.paused,linked,allEffectsBeforeMarker:
-   before(tasks.map(t=>timeOf(t.createdAt)))&&before(events.map(e=>timeOf(e.at)))}));
+   tasks:tasks.length,createdEvents:created.length,
+   inFlight:inFlight.length,postMarkerTaskCount:created.filter(e=>
+     Number.isFinite(ms(e.at))&&ms(e.at)>=cutoff).length,
+   paused:v.paused,linked:seen.every(x=>x.matched),
+   allEffectsBeforeMarker:tasks.every(t=>before(t.createdAt))&&
+     created.every(e=>before(e.at)),groups}));
 }finally{await store.close()}
 """
 
@@ -185,7 +213,9 @@ def check_runtime():
         "signature": "HMAC_STORE_VALIDATED", "safe": True,
         "jobs": 6, "succeeded": 5, "rejected": 1, "tasks": 5,
         "createdEvents": 5, "inFlight": 0, "postMarkerTaskCount": 0,
-        "paused": False, "linked": True, "allEffectsBeforeMarker": True
+        "paused": False, "linked": True, "allEffectsBeforeMarker": True,
+        "groups": {"hubWorker": 3, "hubOwner": 1, "otherWorker": 1,
+                   "otherOwner": 0, "invalid": 0}
     }, "SIGNED_LEDGER_NOT_EXACT_CURRENT_SAFE_STATE")
 
 
@@ -220,9 +250,15 @@ def archive():
                 "HUB_CHANGED_WHILE_TIMER_STOPPED")
         v = json.loads(cmd(["docker", "exec", "v79-hub", "node",
                             "--input-type=module", "-e", READER, STAMP], timeout=25))
-        require(v.get("safe") is True and v.get("signature") == "HMAC_STORE_VALIDATED"
-                and v.get("inFlight") == 0 and v.get("postMarkerTaskCount") == 0,
-                "SIGNED_LEDGER_CHANGED_WHILE_TIMER_STOPPED")
+        require(v == {
+            "signature": "HMAC_STORE_VALIDATED", "safe": True,
+            "jobs": 6, "succeeded": 5, "rejected": 1,
+            "tasks": 5, "createdEvents": 5, "inFlight": 0,
+            "postMarkerTaskCount": 0, "paused": False, "linked": True,
+            "allEffectsBeforeMarker": True,
+            "groups": {"hubWorker": 3, "hubOwner": 1, "otherWorker": 1,
+                       "otherOwner": 0, "invalid": 0}
+        }, "SIGNED_LEDGER_CHANGED_WHILE_TIMER_STOPPED")
         os.rename(MARKER, ARCHIVE)
         sync_parent()
         try:
