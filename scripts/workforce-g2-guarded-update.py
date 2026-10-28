@@ -142,6 +142,8 @@ def fsync_dir():
 
 
 def apply(old, original, replacement):
+    if blob(original) not in (OLD_BLOB, NEW_BLOB) or blob(replacement) != NEW_BLOB:
+        raise RuntimeError("Worker replacement is not an exact approved source")
     # Do not patch/restart the entire Hub, DB, Agent, Tiquet or Sentinel.
     timer = unit_state(TIMER)
     service = unit_state(SERVICE)
@@ -155,9 +157,9 @@ def apply(old, original, replacement):
     staged = ROOT / "worker.py.candidate"
     if saved.exists() or staged.exists() or saved.is_symlink() or staged.is_symlink():
         raise RuntimeError("Existing patch artifacts need operator reconciliation")
-    command(["systemctl", "--user", "stop", TIMER])
     changed = False
     try:
+        command(["systemctl", "--user", "stop", TIMER])
         if unit_state(SERVICE).get("ActiveState") != "inactive":
             raise RuntimeError("Worker was running after timer stop")
         pinned_hub()  # Fresh signed-queue check while timer is stopped.
@@ -192,12 +194,10 @@ def apply(old, original, replacement):
             # Revert only this worker file if restart/check fails.
             if blob(private(saved)) != OLD_BLOB:
                 raise RuntimeError("STOP_WORKER_BACKUP_INTEGRITY_FAILURE_MANUAL_RECOVERY")
-            with old.open("wb") as f:
-                os.chmod(old, 0o600)
-                f.write(original)
-                f.flush()
-                os.fsync(f.fileno())
+            os.replace(saved, old)  # Atomic restore of exact original file.
             fsync_dir()
+            if blob(private(old)) != OLD_BLOB:
+                raise RuntimeError("STOP_WORKER_ROLLBACK_INTEGRITY_FAILURE")
         try:
             command(["systemctl", "--user", "start", TIMER])
         except Exception:
