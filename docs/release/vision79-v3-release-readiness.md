@@ -1,5 +1,12 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — website-only newsletter deployed HEALTHY; acceptance urgently pending by 14:23:51 AST
+
+Owner executed pinned local supervisor sha256 377dbfdd161d8086fb3986fc2e0d380ceb621cc1d146ff8c6ce59732f64967c8 with --deploy after green Dell preflight. Actual receipt: PASS_NEWSLETTER_CANDIDATE_HEALTHY_AWAITING_ACCEPTANCE, candidate image sha256:00ebb4212a271bbc9400fcf373f72bf02cb4287b07a41e7b2b650e18a34dade2, accepted prior rollback website image sha256:2bf0b35a8b7d71b183b34fa09a08ba7fb1b3c7637448b523c1bd07f8a02fa1fb, protected_container_count=42, rollback_timer_armed=true, deployed=true, runtime_acceptance=false, deadline_saint_lucia=2026-10-28T14:23:51.198065-04:00. Supplied output is healthy candidate, NOT final acceptance. Only website image is selected by manifest; prior Hub accepted release protected. Technical release phase AWAITING_ACCEPTANCE; launch/commercial charging invitations separate HOLD.
+
+Urgent next owner step: before deadline run only checksum-verified supervisor --accept, requiring exact candidate image/runtime, current all 42 protected containers and active timer, then supervisor should disarm timer. Expected PASS_NEWSLETTER_WEBSITE_RUNTIME_ACCEPTED and rollback_timer_disabled=true. If any STOP or deadline expiry, **do not** rerun --deploy, replay accepted lead 2, touch Hub, or bypass timer; collect supervisor --status/owner output and investigate actual rollback state. No additional acceptance receipt has been received yet.
+
+
 ## 28 October 2026 — WEBSITE-ONLY NEWSLETTER SUPERVISOR PREFLIGHT PASSED, cutover not yet executed
 
 Operator installed exact SHA256-pinned supervisor scripts/newsletter-website-supervisor.py from V79hub commit c2b2853d7781345c597fe60077fe07a28e7a12cb (SHA256 377dbfdd161d8086fb3986fc2e0d380ceb621cc1d146ff8c6ce59732f64967c8) privately in /home/firelion/v79-newsletter-website-release-20261028. Live operator receipt: NEWSLETTER_SUPERVISOR_CHECKSUM=PASS; PASS_NEWSLETTER_WEBSITE_ONLY_SUPERVISOR_PREFLIGHT; manifest_sha256=dd0566bd32da564c7b9ff7788c8f9b3c5981a18a3865023c5c56edfebaf1c6f4; hub_protected=true; protected_container_count=42; previous_release_preserved=true; rollback_timer_armed=false; deployed=false. This is genuine Dell preflight evidence, NOT a live website image switch or a supervisor acceptance.
