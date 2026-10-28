@@ -195,7 +195,7 @@ def report(state):
                       "worker": "ALREADY_HARDENED_EXACT_SOURCE",
                       "signed_ledger": "MATCHED_SIX_JOBS_FIVE_TASKS",
                       "effects_after_marker": 0,
-                      "prior_incident_proven_absENT": False,
+                      "prior_incident_absence_proven": False,
                       "production_containers_changed": False},
                      sort_keys=True), flush=True)
 
@@ -231,6 +231,11 @@ def archive():
                            stderr=subprocess.DEVNULL, timeout=20)
             require(unit(TIMER).get("ActiveState") == "active",
                     "TIMER_NOT_ACTIVE_AFTER_RECONCILIATION")
+            # A new marker created by an immediate timed poll is a NEW
+            # ambiguous POST; never misreport the historical archive as a
+            # clean, continuously running worker when that happens.
+            require(not MARKER.exists() and not MARKER.is_symlink(),
+                    "NEW_UNCERTAINTY_AFTER_TIMER_RESUME")
             report("PASS_G2_20261028_MARKER_ARCHIVED_WORKER_ACTIVE")
         except BaseException:
             if not MARKER.exists() and ARCHIVE.exists():
