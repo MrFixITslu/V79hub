@@ -1,5 +1,9 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — binding stopped at Compose version gate
+
+Owner checksum-pinned binder returned STOP_BINDING / UNREVIEWED_COMPOSE_VERSION / deployed=false. Source order: verified configuration digest and scope, acquired binding lock, downloaded/verified original engine modules, then compared installed Compose short version to 5.6.0. No image metadata inspection, candidate/rollback model writes, transaction seal, synthetic profiles, timer-state collection or cutover was reached by this attempt. Preserve prepared credentials/inputs and closed build/runtime-test evidence. Actual current and prepared Compose version strings are not yet reported. Next action is one read-only version comparison; do not loosen compatibility checks or blindly rerun the binder. Historical 5.6.0 evidence does not establish the currently installed version.
+
 ## 28 October 2026 — configuration inputs CLOSED; new engine binding ready
 
 Owner PASS_RELEASE_CONFIGURATION_PREPARED_ONLY: private directory /home/firelion/v79-lead-release-2pvsb2mo; external input SHA256 628d37220b899422b0ff2ef957f428e5ed5d2aec45f208e9aa867bb5eefedd52. Exact candidate images match closed build receipts. Approved changes are exactly 3 Hub website-event keys and 3 website Hub/replay keys; selected lead 2. Protected container count 41 means all non-target containers in the current captured inventory, not missing validations. engine_bound=false, deployed=false at this owner receipt. Do not regenerate credentials/configuration or repeat candidate builds.
