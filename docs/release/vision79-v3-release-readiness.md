@@ -1,4 +1,10 @@
 # Vision79 Digital — active master completion register
+## 28 Oct 2026 — FINAL IN-PROCESS PROBE SOURCE CI: 4/4 checks SUCCESS, production signer still HOLD
+
+All four independent GitHub Actions on source commit `404f7f6e9de72cac44f2ece5c5f7dd65df78a74c` finished SUCCESS: `Sentinel legacy monitor proof bridge` run `40755197083` including the new nine no-network measured-cycle candidate tests; `Sentinel private signer promotion NO-GO gate` run `40755197141`; `Sentinel isolated regression` run `40755197041`; `Sentinel private Docker staging checks` run `40755197120`. Source-only Sentinel gate register updated commit `d2b709436c41cb6f5f6cd7846221e4bc2eaf7753`; existing draft PR #20 remains open, not merged or deployed. No change to production monitors, G2, NPM, WiPay, Docker, email infrastructure or running services.
+
+Security acceptance remains strict: optional evidence sink disabled in `main()`; in-loop report is sanitized and explicitly UNVERIFIED, not a protected origin signature. Active live source attestation/owner-controlled signer custody, independent off-host watchdog, and controlled autonomous owner incident-to-email delivery remain NO-GO. External Hetrix 9/9 live public endpoints last verified UP; owner confirmed harmless manual test email receipt, but automated event-to-email still NOT ACTIVE. Remote Dell connector execution unavailable due monthly tool quota; no live host-level acceptance was performed.
+
 ## 28 Oct 2026 — Sentinel in-process measured-cycle review boundary source-only PASS; deployed trust HOLD
 
 Founder authorised next-stage work after owner-confirmed email receipt. Compared (1) sign untrusted `/api/status` payload (REJECT potential forged JSON and replay), (2) new second active probe/monitor (REJECT duplicate checks, image/operational blast radius), (3) selected and implemented a **default-off** internal evidence tap immediately after the actual existing `sentinel.monitor_forever` `probe_many()` + successful store/dashboard cycle on existing **draft PR #20** branch `feature/sentinel-live-monitor-proof-20261028`. `main()` does not supply any callback: absolutely no new active operational behaviour.
