@@ -5,12 +5,12 @@ on:
     branches: [fix/g2-20261028-current-marker-reconcile]
     paths:
       - scripts/workforce-g2-20261028-marker-only.py
-      - tests/workforce-g2-20261028-marker-only.test.py
+      - tests/test_workforce_g2_20261028_marker_only.py
       - .github/workflows/workforce-g2-20261028-marker-safety.yml
   pull_request:
     paths:
       - scripts/workforce-g2-20261028-marker-only.py
-      - tests/workforce-g2-20261028-marker-only.test.py
+      - tests/test_workforce_g2_20261028_marker_only.py
       - .github/workflows/workforce-g2-20261028-marker-safety.yml
 
 permissions:
@@ -24,6 +24,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile marker-only script and tests
         run: |
-          python3 -m py_compile scripts/workforce-g2-20261028-marker-only.py tests/workforce-g2-20261028-marker-only.test.py
+          python3 -m py_compile scripts/workforce-g2-20261028-marker-only.py tests/test_workforce_g2_20261028_marker_only.py
       - name: Run isolated safety gates
-        run: python3 -m unittest discover -s tests -p 'workforce-g2-20261028-marker-only.test.py' -v
+        run: python3 -m unittest discover -s tests -p 'test_workforce_g2_20261028_marker_only.py' -v
