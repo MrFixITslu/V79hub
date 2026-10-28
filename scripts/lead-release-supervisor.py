@@ -331,7 +331,14 @@ def deploy(engine,backend,plan,helper,state):
             print(json.dumps({'phase':'SWITCH_HUB_THEN_WEBSITE','rollback_timer_armed':True,
                 'deadline_saint_lucia':local_deadline}),flush=True)
             result=engine.deploy(backend)
-            require(result.get('status')=='PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING','PAIR_DEPLOYMENT_DID_NOT_COMPLETE')
+            if result.get('status')!='PASS_DEPLOYED_HEALTHY_ACCEPTANCE_PENDING':
+                detail=result.get('candidate_failure_reason','PAIR_DEPLOYMENT_DID_NOT_COMPLETE')
+                if not isinstance(detail,str) or not re.fullmatch('[A-Z][A-Za-z0-9_:,.]+',detail):
+                    detail='PAIR_DEPLOYMENT_DID_NOT_COMPLETE'
+                current=state.read();current['candidate_failure_reason']=detail;state.put(current)
+                prefix=detail.split(':',1)[0]
+                require(False,prefix if re.fullmatch('[A-Z][A-Z0-9_]+',prefix)
+                        else 'PAIR_DEPLOYMENT_DID_NOT_COMPLETE')
             current=state.read();current['phase']='VERIFYING_LEAD_RECEIPT';state.put(current)
             until=min(time.time()+360,deadline-60)
             matched=False;receipt_hash=None;last_log=0
@@ -392,6 +399,7 @@ def main():
         elif args.status:
             rows={name:backend.inspect(name,allow_missing=True) for name in ORDER}
             result={'phase':current.get('phase') if current else 'NOT_STARTED',
+                'candidate_failure_reason':current.get('candidate_failure_reason') if current else None,
                 'rollback_timer':prop(TIMER,'ActiveState'),
                 'live_images':{name:row.get('Image') if row else None for name,row in rows.items()},
                 'live_healthy':{name:healthy(row) for name,row in rows.items()}}
