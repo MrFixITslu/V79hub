@@ -86,6 +86,19 @@ def install_compat(engine):
         pin=entry[which+'_image']['Id']
         require(after['Image']==pin, 'ACTUAL_IMAGE_CHANGED')
         labels=normalized['Config']['Labels']
+        # These two labels identify the actual Compose resource. Old images
+        # may carry stale copies (for example from a committed container), but
+        # those image defaults must never remove or replace runtime identity.
+        identity={'com.docker.compose.project':entry['project'],
+            'com.docker.compose.service':entry['service']}
+        for key,value in identity.items():
+            require(value and labels.get(key)==value and
+                (before['Config'].get('Labels') or {}).get(key)==value,
+                'EXACT_COMPOSE_IDENTITY_REQUIRED')
+        normalized_entry=copy.deepcopy(entry)
+        for image_key in ('candidate_image','rollback_image'):
+            inherited=normalized_entry[image_key]['Config'].get('Labels') or {}
+            for key in identity:inherited.pop(key,None)
         require(labels.get('com.docker.compose.image')==entry['image_manifests'][pin], 'IMAGE_LABEL_MAPPING_CHANGED')
         labels['com.docker.compose.image']=pin
         replaced=entry.get('_replaced_id')
@@ -95,7 +108,7 @@ def install_compat(engine):
             require(expected_name and labels.get('com.docker.compose.replace')==expected_name,
                 'REPLACEMENT_NAME_CHANGED')
             labels['com.docker.compose.replace']=replaced
-        try:return original(adjusted_before,normalized,entry,which,**kwargs)
+        try:return original(adjusted_before,normalized,normalized_entry,which,**kwargs)
         except Exception as error:
             prefix=str(error).split(':',1)[0]
             if re.fullmatch('[A-Z][A-Z0-9_]+',prefix):
