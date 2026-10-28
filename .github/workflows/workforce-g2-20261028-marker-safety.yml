@@ -1,0 +1,29 @@
+name: Exact G2 incident marker-only recovery safety
+
+on:
+  push:
+    branches: [fix/g2-20261028-current-marker-reconcile]
+    paths:
+      - scripts/workforce-g2-20261028-marker-only.py
+      - tests/workforce-g2-20261028-marker-only.test.py
+      - .github/workflows/workforce-g2-20261028-marker-safety.yml
+  pull_request:
+    paths:
+      - scripts/workforce-g2-20261028-marker-only.py
+      - tests/workforce-g2-20261028-marker-only.test.py
+      - .github/workflows/workforce-g2-20261028-marker-safety.yml
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-marker-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile marker-only script and tests
+        run: |
+          python3 -m py_compile scripts/workforce-g2-20261028-marker-only.py tests/workforce-g2-20261028-marker-only.test.py
+      - name: Run isolated safety gates
+        run: python3 -m unittest discover -s tests -p 'workforce-g2-20261028-marker-only.test.py' -v
