@@ -62,5 +62,69 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("checks,counters", output)
 
 
+    def run_synthetic_cohort(self, bad=None):
+        import subprocess
+        import copy
+        # Fully synthetic ledger; no network, production credentials or real jobs.
+        jobs, tasks, events = [], [], []
+        base = "2026-10-28T09:00:00Z"
+        approved = "2026-10-28T09:05:00Z"
+        done = "2026-10-28T09:06:00Z"
+        expires = "2026-10-28T10:00:00Z"
+        for i in range(5):
+            jid = "synthetic-" + str(i)
+            system = "hub" if i < 4 else "tiquet"
+            actor = "coo-worker" if i < 4 else "owner-synthetic"
+            digest = ("0" * 63) + str(i)
+            jobs.append({"id": jid, "system": system,
+                         "organizationId": "synthetic-org", "operation": "create_work_item",
+                         "status": "succeeded", "digest": digest,
+                         "createdAt": base, "createdBy": "owner-synthetic",
+                         "approval": {"by": "owner-synthetic", "digest": digest,
+                                      "at": approved, "expiresAt": expires},
+                         "result": {"taskId": "synthetic-task-" + str(i), "at": done}})
+            tasks.append({"id": "synthetic-task-" + str(i), "jobId": jid,
+                          "organizationId": "synthetic-org", "system": system,
+                          "createdAt": done})
+            events.append({"type":"approved", "actor":"owner-synthetic", "jobId":jid,
+                           "digest":digest, "at":approved})
+            events.append({"type":"work_item_created", "actor":actor, "jobId":jid,
+                           "digest":digest, "at":done})
+        jobs.append({"id":"synthetic-rejected","system":"hub",
+                     "operation":"create_work_item","status":"rejected",
+                     "createdAt":base})
+        if bad == "wrong_actor":
+            events[-1]["actor"] = "different-owner"
+        if bad == "wrong_job_link":
+            tasks[-1]["jobId"] = "synthetic-0"
+        state = {"paused":False,"jobs":jobs,"tasks":tasks,"events":events}
+        code = m.READER.replace(
+            "import {createWorkActionStore} from './server/workforce-action-store.mjs';",
+            "const createWorkActionStore=()=>({read:async()=>"
+            + json.dumps(state) + ",close:async()=>{}});"
+        )
+        result = subprocess.run(["node", "--input-type=module", "-e", code],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_synthetic_four_worker_one_owner_cohort(self):
+        data = self.run_synthetic_cohort()
+        self.assertTrue(data["cohort"]["allFiveEffectsBelongToFiveSuccesses"])
+        self.assertTrue(data["cohort"]["otherSystemApprovalActorMatches"])
+        self.assertEqual(data["cohortCounts"]["hubSuccessfulJobs"], 4)
+        self.assertEqual(data["cohortCounts"]["otherSystemSuccessfulJobs"], 1)
+
+    def test_synthetic_wrong_owner_actor_fails_closed(self):
+        data = self.run_synthetic_cohort("wrong_actor")
+        self.assertFalse(data["cohort"]["otherSystemApprovalActorMatches"])
+        self.assertFalse(data["cohort"]["allFiveEffectsBelongToFiveSuccesses"])
+
+    def test_synthetic_wrong_task_link_fails_closed(self):
+        data = self.run_synthetic_cohort("wrong_job_link")
+        self.assertFalse(data["cohort"]["otherSystemTaskEventSameJob"])
+        self.assertFalse(data["cohort"]["allFiveEffectsBelongToFiveSuccesses"])
+
+
 if __name__ == "__main__":
     unittest.main()
