@@ -1,4 +1,12 @@
 # Vision79 Digital — active master completion register
+## 28 October 2026 — Hetrix CombatZone monitor target corrected in place
+
+Owner confirmed canonical site `combatzone.v79sl.com`; read-only verification on Dell: DNS 199.223.249.193, HTTPS HTTP 200 with SSL_VERIFY=0, generated NPM host 30.conf. No site/NPM fault at canonical URL. Root cause of persistent V79 LaserTag monitoring alarm was stale monitor target `lasertag.v79sl.com`.
+
+Updated existing connected Hetrix HTTPS monitor ID `31703f7d9a044f18d310da16710dc391`: display name `V79 CombatZone`, target `https://combatzone.v79sl.com/`, explicit unchanged empty keyword. API returned SUCCESS. Read-after-write confirmed monitor active, 1-minute checks, original monitor ID and creation time preserved, same owner contact list, SSL cert and hostname verification on, GET method and existing accepted HTTP codes, same fail thresholds. Immediately after update provider status still DOWN from previous checks; external recovery is pending fresh provider checks. Do not claim recovery or owner alert arrival until observed.
+
+Considered three methods and /REDTEAM: restore obsolete lasertag URL (reject wrong canonical identity); create duplicate new monitor (reject noisy duplicate, history split); in-place update (selected). No NPM/Docker or G2 changes, no notification dispatched by assistant. Existing G2 marker recovery accepted. Signed Sentinel producer, off-host missing-heartbeat and owner alert receipt remain HOLD.
+
 ## 28 Oct 2026 — CORRECTION: CombatZone's canonical domain is combatzone.v79sl.com, NOT lasertag.v79sl.com
 
 Owner explicitly corrected the canonical business URL: `https://combatzone.v79sl.com/`. Previous incident diagnosis was performed against the obsolete/wrong target `https://lasertag.v79sl.com/`, not the actual CombatZone service. Therefore **DO NOT** repair/re-create an NPM proxy host for `lasertag.v79sl.com` and **DO NOT** classify the old-domain TLS SNI failure as an active outage of the real CombatZone application. The old-domain TLS failure was independently observed, but it proves nothing about the correct canonical domain's availability.
