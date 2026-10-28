@@ -11,6 +11,8 @@ on:
       - 'tests/workforce-g2-guarded-update.test.py'
       - 'scripts/workforce-g2-uncertain-reconcile.py'
       - 'tests/workforce-g2-uncertain-reconcile.test.py'
+      - 'scripts/workforce-g2-e2e-acceptance.py'
+      - 'tests/workforce-g2-e2e-acceptance.test.py'
       - '.github/workflows/workforce-g2-worker-isolated.yml'
 permissions:
   contents: read
@@ -24,11 +26,12 @@ jobs:
           persist-credentials: false
       - name: Python syntax only
         run: |
-          python3 -B -m py_compile scripts/workforce-approved-task-worker.py scripts/workforce-install-approved-task-worker.py scripts/workforce-live-acceptance-audit.py tests/workforce-approved-task-worker.test.py tests/workforce-live-acceptance-audit.test.py scripts/workforce-g2-guarded-update.py tests/workforce-g2-guarded-update.test.py scripts/workforce-g2-uncertain-reconcile.py tests/workforce-g2-uncertain-reconcile.test.py
+          python3 -B -m py_compile scripts/workforce-approved-task-worker.py scripts/workforce-install-approved-task-worker.py scripts/workforce-live-acceptance-audit.py tests/workforce-approved-task-worker.test.py tests/workforce-live-acceptance-audit.test.py scripts/workforce-g2-guarded-update.py tests/workforce-g2-guarded-update.test.py scripts/workforce-g2-uncertain-reconcile.py tests/workforce-g2-uncertain-reconcile.test.py scripts/workforce-g2-e2e-acceptance.py tests/workforce-g2-e2e-acceptance.test.py
       - name: Test durable intent, uncertain receipt and embedded source parity
         run: |
           python3 -B tests/workforce-approved-task-worker.test.py
           python3 -B tests/workforce-live-acceptance-audit.test.py
           python3 -B tests/workforce-g2-guarded-update.test.py
           python3 -B tests/workforce-g2-uncertain-reconcile.test.py
+          python3 -B tests/workforce-g2-e2e-acceptance.test.py
 # No tokens, Docker operations, production network, publish or deployment.
