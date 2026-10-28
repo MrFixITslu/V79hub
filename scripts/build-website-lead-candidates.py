@@ -12,6 +12,7 @@ WEBSITE = '43de17780357e776c86a7f8898168a50fa5e2820'
 
 def main():
     os.umask(0o077)
+    os.environ['GIT_TERMINAL_PROMPT'] = '0'
     root = Path(tempfile.mkdtemp(prefix='v79-lead-candidates-'))
     log = root / 'build.log'
     stage = 'inventory'
@@ -27,19 +28,18 @@ def main():
         return {item['Name']: {'id':item['Id'], 'image':item['Image']} for item in items}, items
 
     try:
-        before, containers = live()
-        website = next(c for c in containers if c['Name'] == '/V79website')
-        website_repo = website['Config'].get('Labels', {}).get('com.docker.compose.project.working_dir','')
-        if not website_repo or not Path(website_repo).is_dir():
-            raise RuntimeError('WEBSITE_COMPOSE_WORKDIR_UNAVAILABLE')
-        sources = [('hub', '/opt/v79/hub', HUB), ('website', website_repo, WEBSITE)]
+        before, _ = live()
+        sources = [('hub', 'https://github.com/MrFixITslu/V79hub.git', HUB),
+                   ('website', 'https://github.com/MrFixITslu/v79website.git', WEBSITE)]
         candidates = {}
         for name, repo, commit in sources:
             stage = name + '_source'
-            run(['git','-C',repo,'rev-parse','--show-toplevel'], True)
-            run(['git','-C',repo,'fetch','--no-tags','origin',commit])
             source = root / name
-            run(['git','-C',repo,'worktree','add','--detach',str(source),commit])
+            print(json.dumps({'stage':stage,'status':'RUNNING'}), flush=True)
+            run(['git','init',str(source)])
+            run(['git','-C',str(source),'remote','add','origin',repo])
+            run(['git','-C',str(source),'fetch','--depth=1','--no-tags','origin',commit])
+            run(['git','-C',str(source),'checkout','--detach',commit])
             if run(['git','-C',str(source),'rev-parse','HEAD'],True) != commit:
                 raise RuntimeError('SOURCE_PIN_MISMATCH')
             if run(['git','-C',str(source),'status','--porcelain'],True):
