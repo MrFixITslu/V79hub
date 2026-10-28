@@ -1,5 +1,12 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — newsletter candidate built: PASS; guarded website-only preparation NEXT
+
+Owner executed checksum-pinned runner scripts/build-newsletter-candidate.py @36271d7c458a4b73a20b503df540aa60d7d52388 (SHA256 916868edc3a94e0c10b20abd70578ba7a2526f4753521538e7d0471b1c5ccdbc). Exact operator receipt: PASS_NEWSLETTER_CANDIDATE_BUILT_FOCUSED_ONLY; source db84a4a07cf637c9115769706301814c8cb3df4b; image sha256:00ebb4212a271bbc9400fcf373f72bf02cb4287b07a41e7b2b650e18a34dade2; tag v79website:newsletter-db84a4a07cf6; newsletter_checks=PASS; compiled_http_flow=PASS; hub_rebuilt=false; previous_lead_checks_repeated=false; production_container_count=43; live_runtime_unchanged=true; deployed=false. Private evidence directory: /home/firelion/v79-newsletter-candidate-9b66hdwg, receipt.json therein. These are owner-provided runtime results, not assistant-executed Docker results.
+
+Do not rebuild candidate, repeat compiled newsletter/accepted lead-2 tests, or reopen prior metadata/PDF/CRM/Tiquet gates. Site must retain immediate guide download and no outbound email. Next: prepare a *fresh WEBSITE-ONLY* guarded manifest using existing hardened transaction source @b233cbfb57960412acc408e833053d75001d0e14 and reviewed later compatibility/supervisor logic, keeping the accepted Hub sha256:29d9b40cfd489f65c430b9bc7fbc6f57bc4db35d02508ce95dd002babd642eec as a protected container along with all other non-website services. Preserve /home/firelion/v79-lead-release-2pvsb2mo-r2 and earlier attempts, all credentials/settings and old evidence. The old accepted paired controller is *not* a deployable newsletter controller. No newsletter live cutover or timer has been run; release decision HOLD pending new website-only preparation and safe acceptance. Commercial launch separate, pilot invites/charges not authorised.
+
+
 ## 28 October 2026 — newsletter source READY; immediate-download scope selected, production unchanged
 
 Owner explicitly selected “Keep download (Recommended)” when asked whether the guide should additionally be emailed. Retain immediate PDF delivery; no email provider, confirmation/welcome email, campaign or external send is part of this change. Public landing/PDF checks and accepted lead integration stay CLOSED.
