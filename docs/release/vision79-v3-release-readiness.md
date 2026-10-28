@@ -1,5 +1,16 @@
 # Vision79 Digital — active master completion register
 
+## 28 October 2026 — second website-only preparation STOP; accepted rollback image alias corrected
+
+Owner ran checksum-pinned scripts/prepare-newsletter-website-only.py @22f7f7d92c00bc429df7a46b62bf41a0cc617ecd, SHA256 32fa6af86c9656aacefd11fbdf0b2539797639b0af1b4b4e6af2bc707b0fb978; output NEWSLETTER_PREPARATION_CHECKSUM=PASS; STOP_NEWSLETTER_WEBSITE_ONLY_PREPARATION reason=ROLLBACK_MUST_BE_ACCEPTED_WEBSITE, deployed=false. This STOP occurred before NEW.mkdir and before any stopped profile, production switch or rollback timer. Old accepted pair, lead-2 evidence, and build candidate must not be replayed; no evidence of new release or production mutation.
+
+Root cause in new adapter: `existing` and `entry=plan['apps']['V79website']` alias the same dictionary. Code assigned `entry['candidate_image']=candidate_metadata` BEFORE copying `existing['candidate_image']` to `entry['rollback_image']`, thereby accidentally choosing the newsletter candidate as its own rollback despite correct accepted source metadata. The fail-closed runtime guard caught this error. /REDTEAM options: (1) weaken rollback guard — REJECT; (2) use historical rollback image — REJECT, not current accepted production; (3) snapshot the already-accepted website candidate metadata *before* rebinding and then set it as the new rollback — SELECTED.
+
+Corrected script in draft PR https://github.com/MrFixITslu/V79hub/pull/217 at commit 5e200993917048f52cc0c8b2a87241dd7e0b2f49, SHA256 8307a65321b99b95b65094f6412c1c25f97ed2e63f18d35e1dd1e4d615873df6. It requires the snapshot image ID to match accepted live sha256:2bf0b35a8b7d71b183b34fa09a08ba7fb1b3c7637448b523c1bd07f8a02fa1fb, separately binds new candidate sha256:00ebb4212a271bbc9400fcf373f72bf02cb4287b07a41e7b2b650e18a34dade2, requires the IDs differ and checks before creating NEW. Targeted regression test added on same PR at f816e063e8e21cbe99e98088fcd581132c221a17. Static source checks PASS; no assertion of server execution or GitHub CI. Earlier expired-accepted-lease fix remains intact.
+
+Next operator action: execute *only* checksum-pinned corrected preparation; expected PASS_NEWSLETTER_WEBSITE_ONLY_MANIFEST_PREPARED with 42 protected containers, one new synthetic website candidate profile and no deployment. Stop on any discrepancy; do not create duplicate release directories or clear existing state. Commercial launch remains HOLD.
+
+
 ## 28 October 2026 — newsletter website-only preparation STOP on expired *accepted* lease; narrow fix committed
 
 Owner executed checksum-verified prepare-newsletter-website-only.py @f4c5ad475e2d79ab69d6905bac098e78d5a04204 (SHA256 ecaface58914f6ad9dfa34350a3aa279cf1e06fe56fa9853545d45201a411bf4). Output: NEWSLETTER_PREPARATION_CHECKSUM=PASS; STOP_NEWSLETTER_WEBSITE_ONLY_PREPARATION reason=OWNER_SUPERVISION_LEASE_LOST, deployed=false. No stage=new_website_candidate_profile print; code reaches oldbackend.healthy(name,'candidate') before NEW.mkdir, so the original accepted controller's stale supervision lease caused a read-only verification refusal before any new release directory, new profile or production image switch. Do **not** renew, touch or replay the accepted lead release's lease/controller, and do not reset its state or resend lead 2.
