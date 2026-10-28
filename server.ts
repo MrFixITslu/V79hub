@@ -41,6 +41,7 @@ import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchR
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
 import { activateMarketingTenantMapping, marketingProvisioningTarget, marketingTenantLaunchReady, marketingTenantMapping } from "./server/marketing-provisioning.mjs";
 import { createHubStorePersistence } from "./server/runtime-store.mjs";
+import { createWebsiteLeadEventReceiver } from "./server/website-lead-events.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
@@ -1892,6 +1893,18 @@ function requirePlatformOperator(req: Request, res: Response, next: () => void) 
   }
   next();
 }
+// Website metadata receipts are confined to the verified platform workspace.
+// This receiver does not provision accounts, schedule tasks or change billing.
+const websiteLeadEvents = createWebsiteLeadEventReceiver({
+  dataDir: DATA_DIR,
+  organizationAllowed: (id: string) => id === posIdentity.organizationId &&
+    store.organizations.some(org => org.id === id),
+  beginWrite: () => sentinelWriteFence.beginStoreSave({ sentinel: false }),
+});
+app.post("/api/platform/events", websiteLeadEvents.receive);
+app.get("/api/admin/website-lead-events/:eventId", requireAuth,
+  requirePlatformOperator, websiteLeadEvents.receipt);
+
 function requireRole(...roles: StoredUser["role"][]) {
   return (req: Request, res: Response, next: () => void) => {
     if (!roles.includes((req as any).user.role)) return res.status(403).json({ error: "Permission denied" });
