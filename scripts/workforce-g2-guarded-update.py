@@ -6,6 +6,7 @@ file and its user timer, only after exact installed-image/queue/source checks.
 No task proposals, approved task execution, DB changes, container changes or releases.
 """
 import argparse
+import datetime as dt
 import hashlib
 import json
 import os
@@ -26,6 +27,9 @@ CANDIDATE_URL = ("https://raw.githubusercontent.com/MrFixITslu/V79hub/"
 SERVICE = "v79-g2-approved-task-worker.service"
 TIMER = "v79-g2-approved-task-worker.timer"
 ROOT = Path.home() / ".local/share/v79-approved-task-worker"
+# Exact owner-observed 25 Oct incident; never accept a different marker silently.
+MARKER_TIME = dt.datetime.fromisoformat("2026-10-25T15:51:31.400148+00:00")
+ARCHIVED_MARKER = "uncertain.20261025T155131400148Z.reviewed.json"
 
 # Trusted Hub code's private and authenticated state-reader, no transact().
 LEDGER_READ = r"""
@@ -64,7 +68,7 @@ def private(path):
     return path.read_bytes()
 
 
-def fixed_files():
+def fixed_files(allow_marker=False):
     d = ROOT.lstat()
     if not stat.S_ISDIR(d.st_mode) or d.st_uid != os.getuid() or d.st_mode & 0o077:
         raise RuntimeError("Unsafe worker directory")
@@ -85,7 +89,7 @@ def fixed_files():
     required = "ExecStart=/usr/bin/python3 -I " + str(old) + " " + str(ROOT / "config.json")
     if required.encode() not in unit:
         raise RuntimeError("Unexpected installed unit execution path")
-    if (ROOT / "uncertain.json").exists() or (ROOT / "uncertain.json").is_symlink():
+    if not allow_marker and ((ROOT / "uncertain.json").exists() or (ROOT / "uncertain.json").is_symlink()):
         raise RuntimeError("Uncertain G2 result must be manually reconciled")
     return old, original
 
@@ -116,6 +120,81 @@ def pinned_hub():
         raise RuntimeError("Pending/running/uncertain G2 work or pause in effect")
 
 
+# This authorizes an OWNER REVIEW CANDIDATE, never proves a failed HTTP request.
+# The existing Hub's signed ledger is the only G2 create_work_item effect store.
+LEDGER_RECONCILE = r"""
+import {createWorkActionStore} from './server/workforce-action-store.mjs';
+const t=Date.parse(process.argv[1]);
+if(!Number.isFinite(t)||t<=0)throw Error('Invalid marker timestamp');
+const s=createWorkActionStore({
+ file:(process.env.DATA_DIR||'/app/data')+'/workforce-actions.json',
+ secret:process.env.V79_WORKFORCE_AUDIT_KEY,
+ backend:process.env.V79_HUB_STORE_BACKEND||'json',
+ databaseUrl:process.env.DATABASE_URL||''
+});
+try {
+ const v=await s.read();
+ const jobs=v.jobs.filter(j=>j.operation==='create_work_item');
+ const good=jobs.filter(j=>j.status==='succeeded');
+ const rejected=jobs.filter(j=>j.status==='rejected');
+ const tasks=v.tasks;
+ const created=v.events.filter(e=>e.type==='work_item_created');
+ const afterMarker=v.events.some(e=>e.type==='work_item_created'&&Date.parse(e.at)>=t);
+ const linked=good.every(j=>tasks.some(task=>task.jobId===j.id&&task.id===j.result?.taskId));
+ const timeSafe=[...tasks.map(j=>Date.parse(j.createdAt)),
+   ...good.map(j=>Date.parse(j.result?.at)),
+   ...created.map(e=>Date.parse(e.at))].every(x=>Number.isFinite(x)&&x<t);
+ const idsUnique=new Set(tasks.map(x=>x.id)).size===tasks.length;
+ const matching=jobs.length===5&&good.length===4&&rejected.length===1&&
+    tasks.length===4&&created.length===4&&linked&&idsUnique&&timeSafe&&!afterMarker;
+ const blocked=v.jobs.some(j=>['approved','running','uncertain'].includes(j.status));
+ console.log(JSON.stringify({paused:v.paused,blocked,
+  matching,created:created.length,tasks:tasks.length,
+  verifiedBy:'current-hmac-store-no-historical-continuity-assertion'}));
+}finally{await s.close()}
+"""
+
+
+def reviewed_marker():
+    marker = ROOT / "uncertain.json"
+    if marker.is_symlink() or not marker.exists():
+        raise RuntimeError("Original incident marker missing or symlinked")
+    state = marker.lstat()
+    if abs(state.st_mtime - MARKER_TIME.timestamp()) > 0.002:
+        raise RuntimeError("Original incident marker timestamp changed")
+    try:
+        payload = json.loads(private(marker))
+    except (UnicodeDecodeError, ValueError, TypeError):
+        raise RuntimeError("Unrecognised incident marker")
+    if payload != {"state":"uncertain", "action":"inspect_signed_queue_before_reset"}:
+        raise RuntimeError("Unexpected incident marker schema")
+    receipt = ROOT / "status.json"
+    status = json.loads(private(receipt))
+    if status != {"state":"idle", "operation":"create_work_item"}:
+        raise RuntimeError("Original receipt is not exactly the pre-marker idle record")
+    if receipt.lstat().st_mtime >= state.st_mtime:
+        raise RuntimeError("Receipt is not older than the uncertain incident")
+    archive = ROOT / ARCHIVED_MARKER
+    if archive.exists() or archive.is_symlink():
+        raise RuntimeError("Prior incident evidence archive exists")
+    if (ROOT / "status.tmp").exists() or (ROOT / "status.tmp").is_symlink():
+        raise RuntimeError("Unreconciled temporary worker receipt")
+    return marker, archive
+
+
+def signed_reconcile():
+    value = json.loads(command([
+      "docker", "exec", "v79-hub", "node", "--input-type=module",
+      "-e", LEDGER_RECONCILE, MARKER_TIME.isoformat()]))
+    if (set(value) != {"paused","blocked","matching","created","tasks","verifiedBy"}
+        or value.get("paused") is not False or value.get("blocked") is not False
+        or value.get("matching") is not True or value.get("tasks") != 4
+        or value.get("created") != 4
+        or value.get("verifiedBy") != "current-hmac-store-no-historical-continuity-assertion"):
+        raise RuntimeError("Signed current ledger changed or does not reconcile incident")
+    return value
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         raise RuntimeError("Unexpected candidate redirect")
@@ -141,7 +220,7 @@ def fsync_dir():
         os.close(fd)
 
 
-def apply(old, original, replacement):
+def apply(old, original, replacement, resolve_marker=False):
     if blob(original) not in (OLD_BLOB, NEW_BLOB) or blob(replacement) != NEW_BLOB:
         raise RuntimeError("Worker replacement is not an exact approved source")
     # Do not patch/restart the entire Hub, DB, Agent, Tiquet or Sentinel.
@@ -151,8 +230,14 @@ def apply(old, original, replacement):
             "enabled", "enabled-runtime") or service.get("ActiveState") != "inactive":
         raise RuntimeError("Worker timer/service not in expected idle state")
     if blob(original) == NEW_BLOB:
+        if resolve_marker:
+            raise RuntimeError("Only original worker may enter incident-resolution path")
         print("G2_WORKER=ALREADY_REVIEWED_VERSION")
         return
+    marker = archive = None
+    if resolve_marker:
+        marker, archive = reviewed_marker()
+        signed_reconcile()
     saved = ROOT / ("worker.py.precrashfix." + OLD_BLOB[:12])
     staged = ROOT / "worker.py.candidate"
     if saved.exists() or staged.exists() or saved.is_symlink() or staged.is_symlink():
@@ -163,6 +248,9 @@ def apply(old, original, replacement):
         if unit_state(SERVICE).get("ActiveState") != "inactive":
             raise RuntimeError("Worker was running after timer stop")
         pinned_hub()  # Fresh signed-queue check while timer is stopped.
+        if resolve_marker:
+            reviewed_marker()
+            signed_reconcile()
         if private(old) != original:
             raise RuntimeError("Worker source raced before patch")
         with saved.open("xb") as f:
@@ -181,15 +269,32 @@ def apply(old, original, replacement):
         fsync_dir()
         if blob(private(old)) != NEW_BLOB:
             raise RuntimeError("Postreplace worker identity drift")
+        if resolve_marker:
+            # Only move incident evidence AFTER the hardened worker has been
+            # verified installed; an interrupted upgrade remains fail-closed.
+            reviewed_marker()
+            signed_reconcile()
+            os.rename(marker, archive)
+            fsync_dir()
         command(["systemctl", "--user", "start", TIMER])
         if unit_state(TIMER).get("ActiveState") != "active":
             raise RuntimeError("Timer did not resume")
+        if resolve_marker:
+            print("G2_20261025_MARKER=RECONCILED_AND_ARCHIVED")
+            print("INCIDENT_PROVENANCE=SIGNED_CURRENT_STORE_NOT_HISTORY_ATTESTATION")
         print("G2_WORKER_PATCH=REVIEWED_CRASH_LATCH_INSTALLED")
         print("G2_TIMER=ACTIVE")
         print("OWNER_APPROVED_QUEUE_ACTIONS=UNCHANGED")
         print("CONTAINERS_AND_DATA=NOT_MODIFIED")
         print("G2_E2E_TASK_DELIVERY=NOT_TESTED")
     except Exception:
+        if resolve_marker and archive is not None and archive.exists():
+            # The fail-closed latch must be restored before the old worker
+            # can be restored, or before the timer can ever resume.
+            if marker.exists() or marker.is_symlink():
+                raise RuntimeError("STOP_RESTORE_MARKER_COLLISION_TIMER_REMAINS_STOPPED")
+            os.rename(archive, marker)
+            fsync_dir()
         if changed:
             # Revert only this worker file if restart/check fails.
             if blob(private(saved)) != OLD_BLOB:
@@ -210,26 +315,36 @@ def main():
     x = parser.add_mutually_exclusive_group(required=True)
     x.add_argument("--check", action="store_true")
     x.add_argument("--apply", action="store_true")
+    x.add_argument("--review-marker", action="store_true")
+    x.add_argument("--resolve-marker-and-apply", action="store_true")
     options = parser.parse_args()
     os.umask(0o077)
     if socket.gethostname() != "v79sl":
         raise RuntimeError("Only approved v79sl owner session can run this")
-    old, data = fixed_files()
+    resolve = options.review_marker or options.resolve_marker_and_apply
+    old, data = fixed_files(allow_marker=resolve)
     pinned_hub()
     worker = unit_state(SERVICE)
     timer = unit_state(TIMER)
     if timer.get("ActiveState") != "active" or worker.get("ActiveState") != "inactive":
         raise RuntimeError("Unexpected live timer/service state")
     new = candidate()
+    if resolve:
+        if blob(data) != OLD_BLOB:
+            raise RuntimeError("Incident resolution requires exact original worker")
+        reviewed_marker()
+        signed_reconcile()
+        print("G2_INCIDENT_REVIEW=SIGNED_CURRENT_LEDGER_MATCHES_NO_POST_MARKER_TASKS")
+        print("G2_INCIDENT_LIMIT=HISTORICAL_JOURNAL_UNAVAILABLE")
     print("G2_WORKER_INSTALLED_GIT_BLOB=" + blob(data))
     print("G2_GUARDED_CANDIDATE_GIT_BLOB=" + blob(new))
     print("G2_UNRECONCILED_APPROVED_RUNNING_UNCERTAIN=0")
     print("G2_TIMER=ACTIVE_AND_WORKER_IDLE")
-    if options.check:
+    if options.check or options.review_marker:
         print("G2_PATCH=SAFE_CANDIDATE_NOT_APPLIED")
         print("PRODUCTION_CHANGES=NONE")
     else:
-        apply(old, data, new)
+        apply(old, data, new, resolve_marker=options.resolve_marker_and_apply)
 
 
 if __name__ == "__main__":
