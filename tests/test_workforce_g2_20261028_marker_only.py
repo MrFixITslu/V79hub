@@ -78,9 +78,11 @@ class MarkerOnlyTests(unittest.TestCase):
         self.assertIn("store.read()", mod.READER)
         self.assertNotIn("store.transact(", mod.READER)
         self.assertIn("jobs.length===6&&good.length===5&&bad.length===1", mod.READER)
-        self.assertIn("tasks.length===5&&events.length===5", mod.READER)
-        self.assertIn("linked&&", mod.READER)
-        self.assertIn("before(events.map(e=>timeOf(e.at)))", mod.READER)
+        self.assertIn("tasks.length===5&&created.length===5", mod.READER)
+        self.assertIn("seen.every(x=>x.matched)", mod.READER)
+        self.assertIn("created.every(e=>good.some(j=>j.id===e.jobId)&&before(e.at))", mod.READER)
+        self.assertIn("groups.hubWorker===3&&groups.hubOwner===1", mod.READER)
+        self.assertIn("groups.otherWorker===1&&groups.otherOwner===0&&groups.invalid===0", mod.READER)
         self.assertIn("inFlight.length===0", mod.READER)
         self.assertIn('"postMarkerTaskCount": 0', SOURCE)
 
@@ -112,6 +114,78 @@ class MarkerOnlyTests(unittest.TestCase):
              patch.object(mod,"cmd",side_effect=fake):
             with self.assertRaisesRegex(RuntimeError,"ACCEPTED_HUB_IMAGE_OR_HEALTH_CHANGED"):
                 mod.check_runtime()
+
+
+    def synthetic_ledger(self, wrong=None):
+        import subprocess
+        jobs, tasks, events = [], [], []
+        created = "2026-10-28T09:00:00Z"
+        approved = "2026-10-28T09:01:00Z"
+        done = "2026-10-28T09:02:00Z"
+        expires = "2026-10-28T10:00:00Z"
+        for i in range(5):
+            jid = "test-job-" + str(i)
+            digest = "0" * 63 + str(i)
+            sysname = "tiquet" if i == 4 else "hub"
+            actor = "owner-test" if i == 3 else "coo-worker"
+            jobs.append({"id":jid,"operation":"create_work_item","status":"succeeded",
+                         "system":sysname,"organizationId":"test-org",
+                         "digest":digest,"createdBy":"owner-test","createdAt":created,
+                         "approval":{"by":"owner-test","digest":digest,"at":approved,
+                                     "expiresAt":expires},
+                         "result":{"taskId":"test-task-"+str(i),"at":done}})
+            tasks.append({"id":"test-task-"+str(i),"jobId":jid,"organizationId":"test-org",
+                          "system":sysname,"createdAt":done})
+            events.extend([
+               {"id":"proposed-"+str(i),"type":"proposed","jobId":jid,
+                "actor":"owner-test","digest":digest,"at":created},
+               {"id":"approved-"+str(i),"type":"approved","jobId":jid,
+                "actor":"owner-test","digest":digest,"at":approved},
+               {"id":"created-"+str(i),"type":"work_item_created","jobId":jid,
+                "actor":actor,"digest":digest,"at":done}
+            ])
+        jobs.append({"id":"test-job-rejected","operation":"create_work_item",
+                     "status":"rejected","createdAt":created})
+        if wrong=="unexpected_actor":
+            events[-1]["actor"]="not-approved-owner"
+        if wrong=="cross_link":
+            tasks[-1]["jobId"]="test-job-0"
+        if wrong=="post_marker":
+            events[-1]["at"]="2026-10-28T16:00:00Z"
+        if wrong=="wrong_counts":
+            jobs.append({"id":"unexpected","operation":"create_work_item",
+                         "status":"approved","createdAt":created})
+        state={"jobs":jobs,"tasks":tasks,"events":events,"paused":False}
+        code=mod.READER.replace(
+           "import {createWorkActionStore} from './server/workforce-action-store.mjs';",
+           "const createWorkActionStore=()=>({read:async()=>("
+           + json.dumps(state) + "),close:async()=>{}});"
+        )
+        result=subprocess.run(
+          ["node","--input-type=module","-e",code,mod.STAMP],
+          capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        return json.loads(result.stdout)
+
+    def test_exact_crossed_provenance_valid(self):
+        v=self.synthetic_ledger()
+        self.assertTrue(v["safe"])
+        self.assertTrue(v["linked"])
+        self.assertEqual(v["groups"],
+                         {"hubWorker":3,"hubOwner":1,"otherWorker":1,
+                          "otherOwner":0,"invalid":0})
+
+    def test_wrong_execution_actor_is_rejected(self):
+        self.assertFalse(self.synthetic_ledger("unexpected_actor")["safe"])
+
+    def test_swapped_task_link_is_rejected(self):
+        self.assertFalse(self.synthetic_ledger("cross_link")["safe"])
+
+    def test_post_marker_event_is_rejected(self):
+        self.assertFalse(self.synthetic_ledger("post_marker")["safe"])
+
+    def test_unresolved_extra_job_is_rejected(self):
+        self.assertFalse(self.synthetic_ledger("wrong_counts")["safe"])
 
 
 if __name__ == "__main__":
