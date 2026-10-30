@@ -117,6 +117,11 @@ def preflight():
             need(env.is_file() and not env.is_symlink() and env.stat().st_size < 2_000_000,
                  "ENV_FILE_INVALID")
             files[str(env)] = digest(env)
+    # Fail before pausing if any writable application mount cannot be archived safely.
+    for app in APPS:
+        for mount in records[app].get("Mounts") or []:
+            if mount.get("RW"):
+                host_app_archive_args(app, mount)
     need(KEY.is_file() and not KEY.is_symlink() and KEY.stat().st_size < 100_000,
          "PUBLIC_KEY_MISSING")
     need(OLD_MANIFEST.is_file(), "ACCEPTED_RECIPIENT_MANIFEST_MISSING")
