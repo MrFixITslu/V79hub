@@ -134,6 +134,32 @@ def preflight():
         need(bool(names) and set(names) <= {"postgres", database} and database in names,
              "EXTRA_OR_MISSING_DATABASE_" + db)
     return records, files
+
+def host_app_archive_args(name, mount):
+    """Archive only pinned writable application data from canonical host paths.
+
+    Never tar a live PostgreSQL volume: databases are captured by pg_dump above.
+    A paused container may reject docker cp, so read its already-pinned host mount.
+    """
+    destination = mount.get("Destination")
+    source = mount.get("Source")
+    need(name in APPS and mount.get("RW") is True and
+         (name, destination) in MOUNTS, "HOST_ARCHIVE_SCOPE")
+    need(mount.get("Type") in ("bind", "volume") and
+         isinstance(source, str) and source.startswith("/"), "HOST_ARCHIVE_SOURCE_INVALID")
+    path = Path(source)
+    try:
+        canonical = path.resolve(strict=True)
+        safe = (path.is_dir() and not path.is_symlink() and
+                canonical == path and path != Path("/"))
+    except (OSError, RuntimeError):
+        safe = False
+    need(safe, "HOST_ARCHIVE_SOURCE_INVALID")
+    need(hashlib.sha256(source.encode()).hexdigest()[:12] ==
+         MOUNTS[(name, destination)], "HOST_ARCHIVE_SOURCE_DRIFT")
+    return ["tar", "--acls", "--xattrs", "--numeric-owner",
+            "-C", source, "-cf", "-", "."]
+
 def encrypt_stream(args, output, keyring, timeout):
     partial = output.with_suffix(output.suffix + ".partial")
     need(not output.exists() and not partial.exists(), "ARCHIVE_EXISTS")
@@ -245,7 +271,7 @@ def capture():
                 need(time.monotonic() < deadline - 20, "PAUSE_DEADLINE")
                 label = name + "-mount-" + f"{index:02d}"
                 encrypted[label] = encrypt_stream(
-                    ["docker", "cp", name + ":" + mount["Destination"], "-"],
+                    host_app_archive_args(name, mount),
                     dest / (label + ".gpg"), temp,
                     min(45, max(1, int(deadline - time.monotonic()))))
         finally:
