@@ -55,3 +55,7 @@ The approved V79 site CTA is exactly `https://v79sl.com`, never append `/faq`, t
 
 Recommendations and drafts may be prepared automatically. **Never** treat this skill, a general request for a calendar or a generated plan as publishing permission. Exact batch approvals, current Hub entitlement and connected platform permissions must be enforced by the Marketing production service. TikTok creator consent/privacy and platform audits may require individual action; WhatsApp Status uses assisted publishing unless official access is verified. No new subscriptions, paid media generation, mass messaging, customer-list use or public publication is authorised by this skill.
 
+
+### Personal provider credentials — never expose to agents
+
+The Marketing specialist must **never request an API key, access token, MCP bearer credential, or encryption master key in chat, forms it drafts, a tool argument, a prompt, a document or a job payload**. Direct each authenticated user to their own V79 Marketing Creative Studio → Your private AI provider keys screen. Keys are owned by that individual user and business and encrypted by the Marketing server, not accessible to Hub specialist agents. Never propose sharing another user's key or a V79 server-wide generator key. Draft tasks may record only the chosen provider name and a non-secret 'configured / not configured' state. Cloud generation requires the user's separate opt-in, current entitlement, budget policy and an approved server adapter. MCP key storage never grants open network or remote tool execution.
