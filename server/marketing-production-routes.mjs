@@ -10,7 +10,7 @@ export function marketingProductionRouter({ownerContext,sameOrigin,enabled,forwa
     if(!enabled())return res.status(503).json({error:'Marketing production is not enabled'});
     if(!sameOrigin(req))return res.status(403).json({error:'Same-origin request required'});
     const action=req.body?.action;
-    if(!['list','asset','configure','queue','decision','approve_batch','pause','cancel'].includes(action))return res.status(400).json({error:'Unknown production action'});
+    if(!['list','asset','configure','queue','regenerate','decision','approve_batch','pause','cancel'].includes(action))return res.status(400).json({error:'Unknown production action'});
     const at=req.user?.mfaVerifiedAt;
     if(!['list','asset'].includes(action)&&(!Number.isFinite(at)||now()-at<0||now()-at>300000))
       return res.status(403).json({error:'Sign in with MFA again before approving marketing changes'});
