@@ -9,7 +9,7 @@ const ROLES:readonly Role[] = [
  {id:'coo',name:'V79 COO',scope:'owner',skillSha:'46f5e0fe40c328aa4b66ad137e9b58b7bab703e1'},
  {id:'finance',name:'V79 Finance',scope:'finance',skillSha:'be38136760e41013f0106d5a244807726d7999a5'},
  {id:'strategy',name:'V79 Strategy',scope:'owner',skillSha:'5ec7c3214bc29bba8fe8e83eb2a5589790154dee'},
- {id:'marketing',name:'V79 Marketing',scope:'growth',skillSha:'5265265024fe382d199043f4e70c3536730b21a6'},
+ {id:'marketing',name:'V79 Marketing',scope:'growth',skillSha:'7f932cb33ed380ae00aef638f9c5c73cdaf901f5'},
  {id:'customer-service',name:'V79 Customer Service',scope:'customer',systems:['tiquet'],skillSha:'9b98a8adf527784a69e9927b829e39f9cf44f0a8'},
  {id:'technical-security',name:'V79 Technical & Security',scope:'technology',skillSha:'4dfdff55fc274fab3af00223f49cf42b267119b5'},
  {id:'sales',name:'V79 Sales',scope:'growth',systems:['website'],skillSha:'0a3024ef6f2f612fc44fe07fa6a7110f709a08c8'},
