@@ -9,7 +9,15 @@ type Delivery={id:string;digest:string;channel:string;providerAccountId:string;s
 type Job={id:string;status:string;factId:string;angle:string;failure?:string;deliveries:Delivery[];bundle?:{
   source:string;brand?:Brand;materials:{channel:string;title:string;caption:string;videoScript:string;altText:string}[];
   assets:{name:string;sha256:string;mime:string}[];review:{method:string;blockers:string[];warnings:string[]}}};
-type Status={mode:string;paused:boolean;configRevision:number;brand:Brand|null;plan:Plan|null;publishEnabled:boolean;jobs:Job[]};
+type ApprovalItem={jobId:string;deliveryId:string;digest:string;channel:string;providerAccountId:string;
+  accountId:string;scheduledAt:string;payload:Record<string,unknown>;
+  assets:{name:string;sha256:string;mime:string}[];
+  material:{title:string;caption:string;altText:string;videoScript:string}|null};
+type ApprovalBatch={batchDigest:string|null;deliveries:ApprovalItem[]};
+type Status={mode:string;paused:boolean;configRevision:number;brand:Brand|null;plan:Plan|null;
+  publishEnabled:boolean;jobs:Job[];approvalBatch?:ApprovalBatch};
+const localSchedule=(iso:string)=>new Intl.DateTimeFormat('en-GB',{timeZone:'America/St_Lucia',
+  weekday:'short',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(iso));
 function packageStatus(job:Job){
   if(job.status!=='awaiting_owner')return ({queued:'Queued for production',generating:'Creating materials',blocked:'Blocked',cancelled:'Canceled'} as Record<string,string>)[job.status]||job.status;
   const states=job.deliveries.map(d=>d.status);
@@ -105,6 +113,16 @@ export function MarketingProductionPanel(){
     if(decision==='approve'&&!window.confirm(`Approve this exact ${d.channel} publication?\n\nDestination: ${d.providerAccountId}${audience}\nWhen: ${new Date(d.scheduledAt).toLocaleString()}\n\n${material?.caption}\n\nReview the rendered assets before confirming. This approval covers only this package, account/segment and schedule. Image/video source files may be publicly reachable briefly for provider ingestion, including private YouTube uploads.`))return;
     await request({action:'decision',jobId:job.id,deliveryId:d.id,decision,digest:d.digest});setNotice(decision==='approve'?'Exact publication approved and waiting for its scheduled time.':'Publication rejected.');
   });
+  const approveBatch=()=>perform(async()=>{
+    const batch=status?.approvalBatch;
+    if(!status?.publishEnabled||status.paused||!batch?.batchDigest||!batch.deliveries.length)
+      throw Error('No active exact approval batch is available.');
+    // Everything in these cards is frozen by a digest that also commits to the
+    // destination, media versions and approved schedule.
+    if(!window.confirm(`Approve these ${batch.deliveries.length} exact publications together?\n\nReview every caption, asset, account and Saint Lucia time shown in the batch preview first.\n\nThe worker will publish them automatically at their individual approved times. This is not permission for future campaigns.`))return;
+    const result=await request({action:'approve_batch',batchDigest:batch.batchDigest});
+    setNotice(`${result.approved} exact publication(s) approved and scheduled. No future campaigns were authorised.`);
+  });
   const failedJobs=status?.jobs.filter(failedUnstarted)||[];
   const cancelledCount=status?.jobs.filter(job=>job.status==='cancelled').length||0;
   const clearFailed=()=>perform(async()=>{
@@ -123,7 +141,7 @@ export function MarketingProductionPanel(){
   return <section className="border-b border-slate-800 bg-slate-900/80 px-5 py-3 text-sm">
     <button className="font-semibold text-cyan-200" aria-expanded={open} onClick={()=>setOpen(!open)}>V79 marketing · Production and approvals</button>
     {open&&<div className="mt-3 space-y-4">
-      <p className="text-xs text-slate-300">COO prepares campaign packages. CEO checks brand, claims, links and accessibility. You review the actual materials and approve each destination and schedule.</p>
+      <p className="text-xs text-slate-300">COO prepares campaign packages. CEO checks brand, claims, links and accessibility. You review exact materials, destinations and schedules, then approve a whole batch once or handle individual exceptions.</p>
       {syncError&&<p role="status" className="text-amber-200">{syncError}</p>}
       {error&&<p role="alert" className="text-red-300">{error}</p>}{notice&&<p role="status" className="text-emerald-300">{notice}</p>}
       <div className="flex flex-wrap gap-2"><button disabled={busy} onClick={()=>perform(async()=>{})} className="rounded border border-slate-600 px-3 py-1">Refresh</button>
@@ -172,6 +190,30 @@ export function MarketingProductionPanel(){
         <label className="block text-xs">Campaign angle<input value={angle} maxLength={200} onChange={e=>setAngle(e.target.value)} className="mt-1 w-full rounded bg-slate-800 p-2"/></label>
         {dirtyRef.current&&<p className="text-xs text-amber-200">Approve your edited brand and plan before producing a package.</p>}
         <button disabled={busy||status.paused||logoLoading||dirtyRef.current} onClick={()=>perform(async()=>{await request({action:'queue',request:{factId,angle,idempotencyKey:'package_'+crypto.randomUUID().replaceAll('-','')}});setNotice('Queued for the production worker. This panel updates automatically when the materials are ready.');})} className="rounded bg-cyan-300 px-3 py-2 font-semibold text-slate-950">Produce a campaign package</button></div>}
+      {status?.approvalBatch&&status.approvalBatch.deliveries.length>0&&
+        <section aria-label="Campaign batch approval" className="space-y-3 rounded-2xl border border-teal-500/40 bg-slate-950 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div><h3 className="text-lg font-bold text-white">Review and approve your campaign batch</h3>
+              <p className="text-sm text-slate-300">One approval for {status.approvalBatch.deliveries.length} exact post(s). Automatic publishing starts only after approval, and only when provider publishing is enabled.</p></div>
+            <button type="button" disabled={busy||status.paused||!status.publishEnabled}
+              onClick={approveBatch} className="rounded-xl bg-teal-400 px-5 py-3 text-sm font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
+              Approve all {status.approvalBatch.deliveries.length} scheduled posts
+            </button>
+          </div>
+          {!status.publishEnabled&&<p className="text-sm text-amber-200">Publication is disabled. Your drafts remain private and cannot be batch approved.</p>}
+          {status.approvalBatch.deliveries.map(item=><article key={item.deliveryId} className="space-y-2 rounded-xl border border-slate-700 bg-slate-900 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <strong className="capitalize text-teal-200">{item.channel} · {item.providerAccountId}</strong>
+              <time className="text-sm font-semibold text-white" dateTime={item.scheduledAt}>{localSchedule(item.scheduledAt)} AST</time>
+            </div>
+            <p className="text-xs text-slate-400">Destination account: {item.accountId} · Channel: {item.channel}</p>
+            {item.material&&<><h4 className="font-semibold text-white">{item.material.title}</h4>
+              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-slate-200">{item.material.caption}</pre>
+              <p className="text-xs text-slate-400">Alt text: {item.material.altText}</p></>}
+            {item.assets.length>0&&<p className="text-xs text-slate-400">Media versions: {item.assets.map(a=>`${a.name} (${a.sha256.slice(0,10)})`).join(' · ')}</p>}
+            <p className="text-xs text-slate-500">Exact approval digest: {item.digest.slice(0,16)}…</p>
+          </article>)}
+        </section>}
       {preview&&<div className="rounded border border-slate-700 p-3"><button onClick={()=>setPreview(null)} className="mb-2 underline">Close preview</button>{preview.mime==='video/mp4'?<video controls src={preview.url} className="max-h-96 w-full"/>:<img src={preview.url} alt={preview.name} className="max-h-96 w-full object-contain"/>}</div>}
       {(failedJobs.length>0||cancelledCount>0)&&<div className="flex flex-wrap items-center gap-2">
         {failedJobs.length>0&&<button disabled={busy} onClick={clearFailed} className="rounded border border-slate-600 px-3 py-1">Clear failed attempts ({failedJobs.length})</button>}
