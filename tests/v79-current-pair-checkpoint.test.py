@@ -1,4 +1,8 @@
 import importlib.util
+import hashlib
+import io
+import subprocess
+import tarfile
 import os
 import sys
 import tempfile
@@ -50,5 +54,66 @@ class CheckpointSafety(unittest.TestCase):
                     capture.encrypt_stream([sys.executable, "-c", "raise SystemExit(7)"],
                                            root / "failed.gpg", root, 30)
                 self.assertFalse((root / "failed.gpg").exists())
+
+
+    def test_pinned_host_mount_tar_preserves_data_and_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "app-data"
+            (source / "nested").mkdir(parents=True)
+            (source / "nested" / "item.txt").write_bytes(b"disposable-test-bytes")
+            (source / "shortcut").symlink_to("nested/item.txt")
+            name, dest = "v79-hub", "/app/data"
+            digest = hashlib.sha256(str(source).encode()).hexdigest()[:12]
+            mount = {"Type": "bind", "RW": True,
+                     "Source": str(source), "Destination": dest}
+            with patch.dict(capture.MOUNTS, {(name, dest): digest}):
+                command = capture.host_app_archive_args(name, mount)
+                self.assertEqual(command[0], "tar")
+                self.assertNotIn("docker", command)
+                output = subprocess.check_output(command, stderr=subprocess.DEVNULL)
+            with tarfile.open(fileobj=io.BytesIO(output), mode="r:") as tar:
+                self.assertEqual(tar.extractfile("./nested/item.txt").read(),
+                                 b"disposable-test-bytes")
+                link = tar.getmember("./shortcut")
+                self.assertTrue(link.issym())
+                self.assertEqual(link.linkname, "nested/item.txt")
+
+    def test_host_archive_fails_closed_for_database_and_unpinned_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            approved = root / "approved"
+            substitute = root / "substitute"
+            approved.mkdir()
+            substitute.mkdir()
+            name, dest = "v79-hub", "/app/data"
+            digest = hashlib.sha256(str(approved).encode()).hexdigest()[:12]
+            mount = {"Type": "bind", "RW": True,
+                     "Source": str(substitute), "Destination": dest}
+            with patch.dict(capture.MOUNTS, {(name, dest): digest}):
+                with self.assertRaisesRegex(capture.Stop, "HOST_ARCHIVE_SOURCE_DRIFT"):
+                    capture.host_app_archive_args(name, mount)
+                with self.assertRaisesRegex(capture.Stop, "HOST_ARCHIVE_SCOPE"):
+                    capture.host_app_archive_args("v79-hub-postgres", {
+                        "Type": "volume", "RW": True, "Source": str(approved),
+                        "Destination": "/var/lib/postgresql/data"})
+
+    def test_host_archive_rejects_source_symlink_and_non_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "real"
+            real.mkdir()
+            symlink = root / "link"
+            symlink.symlink_to(real, target_is_directory=True)
+            file = root / "file"
+            file.write_text("not a directory")
+            name, dest = "v79-hub", "/app/data"
+            for bad in (symlink, file):
+                mount = {"Type": "bind", "RW": True,
+                         "Source": str(bad), "Destination": dest}
+                digest = hashlib.sha256(str(bad).encode()).hexdigest()[:12]
+                with patch.dict(capture.MOUNTS, {(name, dest): digest}):
+                    with self.assertRaisesRegex(capture.Stop, "HOST_ARCHIVE_SOURCE_INVALID"):
+                        capture.host_app_archive_args(name, mount)
 
 if __name__ == "__main__": unittest.main()
