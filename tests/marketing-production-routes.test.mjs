@@ -20,6 +20,8 @@ test('production bridge binds real founder context and fresh MFA; never forwards
     assert.equal(calls,0);
     assert.equal((await call({action:'decision',digest:'exact'},{owner:'yes',fresh:'yes'})).status,200);
     assert.equal(forwarded.organizationId,'real-owner-org');assert.equal(forwarded.actorHubUserId,'real-owner-user');assert.equal(forwarded.mfaVerifiedAt,10000);
+    assert.equal((await call({action:'approve_batch',batchDigest:'b'.repeat(64)},{owner:'yes',fresh:'yes'})).status,200);
+    assert.equal(forwarded.request.action,'approve_batch');
   }finally{await new Promise(r=>server.close(r));}
 });
 
