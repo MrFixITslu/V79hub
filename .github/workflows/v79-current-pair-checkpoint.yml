@@ -17,7 +17,7 @@ jobs:
       - name: Syntax and synthetic fail-closed checks
         run: |
           python3 -m py_compile scripts/v79-current-pair-checkpoint.py
-          python3 -m unittest discover -s tests -p 'v79-current-pair-checkpoint.test.py' -v
+          python3 tests/v79-current-pair-checkpoint.test.py -v
       - name: Host guard must stop on CI
         run: |
           set +e
