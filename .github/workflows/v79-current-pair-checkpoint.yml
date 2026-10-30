@@ -1,0 +1,29 @@
+name: V79 current-pair checkpoint safety
+on:
+  pull_request:
+    branches: [ops/v79-pair-baseline-20261030]
+    paths:
+      - scripts/v79-current-pair-checkpoint.py
+      - tests/v79-current-pair-checkpoint.test.py
+      - .github/workflows/v79-current-pair-checkpoint.yml
+  workflow_dispatch:
+jobs:
+  isolated-safety:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and synthetic fail-closed checks
+        run: |
+          python3 -m py_compile scripts/v79-current-pair-checkpoint.py
+          python3 tests/v79-current-pair-checkpoint.test.py -v
+      - name: Host guard must stop on CI
+        run: |
+          set +e
+          python3 scripts/v79-current-pair-checkpoint.py --preflight >guard.stdout 2>guard.stderr
+          code=$?
+          set -e
+          test "$code" -eq 2
+          test ! -s guard.stdout
+          grep -Fx 'STOP=WRONG_HOST_OR_ROOT_USER' guard.stderr
