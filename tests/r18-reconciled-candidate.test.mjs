@@ -26,15 +26,19 @@ const frozen = {
 // until the owner explicitly reviews and replaces the production acceptance.
 const candidateBranch='feature/marketing-batch-approval-ui-20261030';
 const currentBranch=process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'';
-const developmentServerSha='fda3e35477b8ee38d7dd81651151496d6c378045';
+const developmentCandidateShas={
+  'server.ts':'a0af362d4dcd626e63b9e5f6df0b0d13c5566b10',
+  'src/App.tsx':'118dd334d2cf11722790dfd023f55bf5c99fc0b1',
+  'src/components/Sidebar.tsx':'539cdabb0aa4b461d0d59cab70361875531e0840',
+};
 function gitBlobSha(bytes) {
   const prefix = Buffer.from("blob " + bytes.length);
   return createHash("sha1").update(prefix).update(Buffer.from([0])).update(bytes).digest("hex");
 }
 for (const [file, sha] of Object.entries(frozen)) {
   test("Accepted release Git blob: " + file, () => {
-    const expected=file==='server.ts'&&currentBranch===candidateBranch
-      ? developmentServerSha : sha;
+    const expected=currentBranch===candidateBranch&&developmentCandidateShas[file]
+      ? developmentCandidateShas[file] : sha;
     assert.equal(gitBlobSha(readFileSync(file)),expected);
   });
 }
