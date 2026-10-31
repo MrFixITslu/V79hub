@@ -1,6 +1,7 @@
 import { createPricingRequestStore } from "./server/pricing-request-store.mjs";
 import { pricingRequestRouter } from "./server/pricing-request-routes.mjs";
 import { marketingProductionRouter, marketingWorkerAuthorization } from "./server/marketing-production-routes.mjs";
+import { marketingStudioApprovalRouter } from "./server/marketing-studio-approval-routes.mjs";
 import express, { Request, Response } from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -4867,6 +4868,49 @@ app.use("/api/agent/google", workforceGoogleRouter({
   ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
   enabled: googleEnabled, client: googleClient, ledger: workforceLedger,
   receiptDirectory: path.join(DATA_DIR, "google-workforce-receipts"),
+}));
+// Customer publishing approvals are independent of founder agent controls.
+// Browser identity is a live Hub session; a *fresh* MFA attestation and active
+// owner/manager membership are mandatory before a signed service request.
+app.use("/api/studio/marketing",marketingStudioApprovalRouter({
+  approverContext:(req:Request)=>{
+    const session=(req as any).user as HubSession|undefined;
+    const now=Date.now();
+    if(!session?.userId||!session.organizationId||!session.mfaVerified||
+       !Number.isFinite(session.mfaVerifiedAt)||
+       now-Number(session.mfaVerifiedAt)<0||now-Number(session.mfaVerifiedAt)>300000)
+      return null;
+    const user=store.users.find(x=>x.id===session.userId);
+    const membership=activeMembership(store,session.userId,session.organizationId);
+    const organization=store.organizations.find(x=>x.id===session.organizationId);
+    if(!user?.mfaEnabled||!organization||!membership||
+       !['owner','manager'].includes(String(membership.role))||
+       !rawEntitledAppIds(store,organization.id).includes('app-marketing'))
+      return null;
+    return {organizationId:organization.id,
+      actorHubUserId:posUserId(session.userId,organization.id),
+      mfaVerifiedAt:Number(session.mfaVerifiedAt)};
+  },
+  sameOrigin:sameOriginMutation,
+  enabled:()=>process.env.V79_STUDIO_PUBLISH_ENABLED==='1'&&
+    String(process.env.V79_STUDIO_HUB_SHARED_SECRET||'').length>=32,
+  forward:async(envelope:unknown)=>{
+    const secret=String(process.env.V79_STUDIO_HUB_SHARED_SECRET||'');
+    if(secret.length<32)throw Error('Missing dedicated Studio publishing service key');
+    const pathname='/api/platform/studio-publishing/approve';
+    const body=JSON.stringify(envelope),timestamp=String(Date.now());
+    const response=await fetch(new URL(pathname,
+      process.env.MARKETING_INTERNAL_URL||'http://v79marketing-app:3070'),{
+      method:'POST',redirect:'error',signal:AbortSignal.timeout(15000),
+      headers:{'content-type':'application/json','x-v79-service-id':'v79-hub',
+        'x-v79-timestamp':timestamp,
+        'x-v79-signature':signPlatformRequest({method:'POST',pathname,timestamp,body,secret})},
+      body,
+    });
+    // NO automatic retries: request may have committed before the response
+    // was lost. A replay needs explicit reconciliation, not a duplicate post.
+    return {status:response.status,body:await response.json()};
+  }
 }));
 app.use("/api/agent/marketing-production", marketingProductionRouter({
   ownerContext: (req: Request) => {
