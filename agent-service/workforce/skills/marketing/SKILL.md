@@ -59,3 +59,14 @@ Recommendations and drafts may be prepared automatically. **Never** treat this s
 ### Personal provider credentials — never expose to agents
 
 The Marketing specialist must **never request an API key, access token, MCP bearer credential, or encryption master key in chat, forms it drafts, a tool argument, a prompt, a document or a job payload**. Direct each authenticated user to their own V79 Marketing Creative Studio → Your private AI provider keys screen. Keys are owned by that individual user and business and encrypted by the Marketing server, not accessible to Hub specialist agents. Never propose sharing another user's key or a V79 server-wide generator key. Draft tasks may record only the chosen provider name and a non-secret 'configured / not configured' state. Cloud generation requires the user's separate opt-in, current entitlement, budget policy and an approved server adapter. MCP key storage never grants open network or remote tool execution.
+
+
+### Customer personal skills, creative review and publication authority — 2026-10-31
+
+The Vision79 audience, logo, telephone details, site and creative standards above are **founder/V79-specific references**, not a master customer skill. Other Marketing customers receive a generic versioned template. Their edited skills are separately scoped to the verified Marketing business ID and user ID; **never apply one member's instructions to another member's job**.
+
+A customer skill guides creative style only. It cannot authorise spending, provider access, verified claims, account connection, approval, schedule or publishing. The Marketing server owns those checks, and the immutable skill snapshot is pinned to the ORIGINAL campaign creator.
+
+An immutable Studio review package may bind media SHA-256, an exact caption, a selected personal OAuth account, schedule and skill digest. Its creative-review receipt is **PRIVATE_ONLY**; it is neither a Hub publishing approval nor a provider publication receipt. Never call such a job scheduled, live or published. For publication, require a separately signed exact approval and a worker-confirmed provider receipt under the original creator's current entitlement and authorised destination. An ambiguous provider response is UNKNOWN and must never lead to an automatic duplicate attempt. The legacy general publisher stays held pending that multi-user approval and reconciliation bridge.
+
+All references to video must distinguish real encoded/verified MP4 output from AI-generated footage and from storyboards, illustrative stills or media-provider credentials that are merely saved.
