@@ -329,7 +329,7 @@ export function WorkforceSkillManager() {
             <textarea readOnly className={inputClass+" min-h-[140px] font-mono"}
               aria-label="Historical skill instructions" value={viewedVersion?.content||""}/>
             {activeVersion && selected.latestVersion!==selected.activeVersion &&
-              <p className="text-xs text-amber-200">Current assigned version and latest draft differ. Review both before activation.</p> 
+              <p className="text-xs text-amber-200">Current assigned version and latest draft differ. Review both before activation.</p>}
             <div className="flex flex-wrap gap-2">
               <select className={inputClass+" max-w-xs"} aria-label="Version to restore" value={restoreVersion}
                 onChange={e=>setRestoreVersion(Number(e.target.value))}>
