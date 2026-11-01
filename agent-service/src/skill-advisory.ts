@@ -7,7 +7,7 @@ const STEP_START=/^(?:Consider|Review|Draft|Compare|Check|Identify|Ask|Evaluate|
 const UNSAFE=/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|<[^>]+>|\x60{3}|!\[|\]\(|MFA_BYPASS|CANARY|ignore (?:all |any |the )?(?:previous|prior|system|developer) instructions|(?:has|have|was|were|already|successfully)\s+(?:sent|deployed|published|paid|booked|executed|deleted|approved|completed)|\b(?:token|api.?key|private.?key)\s*[:=])/i;
 function boundedLine(value:unknown,max:number){
  return typeof value==="string"&&value.length>=12&&value.length<=max&&value===value.trim()&&
-  !/[\r\n\x00-\x1f\x7f]/.test(value)&&!UNSAFE.test(value)&&!/\b(?:[$£€]|EC\$)\s*[\d,]+/.test(value);
+  !/[\r\n\x00-\x1f\x7f]/.test(value)&&!UNSAFE.test(value)&&!/\d/.test(value);
 }
 /** Owner skill guidance informs review drafts, never verified facts, permissions or actions. */
 export function validateAdvisoryDraft(value:unknown):Draft|null{
@@ -51,7 +51,8 @@ export async function runSkillAdvisoryDraft(ownerRequest:string,ledger:EvidenceL
     "suggestions, each beginning Consider/Review/Draft/Compare/Check/Identify/Ask/",
     "Evaluate/Verify/Plan/Outline/Explore/Document/Assess/Confirm/Propose/Prepare/",
     "Discuss/Map/Test/Prioritise/Determine/Define), questions (0-3 unanswered",
-    "questions ending in '?'). Do not add links, email addresses, invented figures,",
+    "questions ending in '?'). Spell out numerical concepts; no digits in the advice.",
+    "Do not add links, email addresses, invented figures,",
     "system commands, approval assertions, deployed/sent/completed claims or secrets.",
     "All suggestions are unverified drafts for owner review and never authorise actions."
    ].join(" "),
