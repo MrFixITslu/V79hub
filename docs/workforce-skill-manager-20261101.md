@@ -14,6 +14,14 @@ This implementation extends **Hub → Owner Assistant → Skill Library** withou
 - Audit events contain metadata, actor and action, not raw instructions or credentials. Do not paste secrets into skills.
 - Front-end does **not** call automatic code execution or claim static validation is a penetration test.
 
+## Owner-only advisory mode
+
+- When a selected local Ollama chat role has an approved and assigned custom skill, open-ended planning requests can produce **model-authored draft review suggestions** even when no live business metrics are available. This is not automatic task execution.
+- Current business measurements remain separately rendered from allowlisted, fresh, source-verified evidence. No model-generated figures are accepted as verified business facts.
+- The agent requests structured JSON; only bounded review-step and question fields are rendered. Unknown output fields are ignored, while claims of approval, execution authority, authentication bypass, credential transfer and unverified numeric measurements fail closed.
+- If the model is unavailable or its output is rejected, the user receives a read-only fallback with no suggestion that the skill was applied. Deterministic direct factual and priority-brief answers retain their original evidence path.
+- An accepted advisory draft is explicitly labelled as **for owner review only**, with an on-screen notice that no action occurred. Semantic model errors remain possible; the bounded output filter is an extra safeguard, not a certification of correctness.
+
 ## Config / release gating
 Both Hub and agent images need the paired candidate; shipping only Hub will cause agent request errors when skills are supplied.
 The flag is disabled by default:
