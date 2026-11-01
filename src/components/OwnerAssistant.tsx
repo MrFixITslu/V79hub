@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Bot, ClipboardCheck, FileText, LayoutList, MessageSquare, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
+import { ArrowRight, BookOpen, Bot, ClipboardCheck, FileText, LayoutList, MessageSquare, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
+import { WorkforceSkillManager } from "./WorkforceSkillManager";
 import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
 import { WorkforceBriefingHistory } from "./WorkforceBriefingHistory";
@@ -38,13 +39,14 @@ const specialistPrompts = [
   { label: "CombatZone", prompt: "Review CombatZone laser tag bookings and event readiness." },
 ];
 
-type WorkspaceView = "agents" | "tasks" | "delivery" | "briefings" | "tools";
+type WorkspaceView = "agents" | "tasks" | "delivery" | "briefings" | "tools" | "skills";
 const workspaceViews = [
   { id: "agents", label: "Agents", icon: MessageSquare },
   { id: "tasks", label: "Tasks & approvals", icon: ClipboardCheck },
   { id: "delivery", label: "Delivery board", icon: LayoutList },
   { id: "briefings", label: "Briefings", icon: FileText },
   { id: "tools", label: "More tools", icon: Wrench },
+  { id: "skills", label: "Skill Library", icon: BookOpen },
 ] as const;
 
 export function OwnerAssistant() {
@@ -309,6 +311,9 @@ export function OwnerAssistant() {
         </section>
         <section id="workspace-briefings" aria-label="Briefings" hidden={view !== "briefings"}>
           {visited.has("briefings") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Reports & executive review</h2><p className="mt-1 text-sm text-slate-400">Read scheduled briefings or request an executive review of available evidence.</p></div><WorkforceBriefingHistory /><ExecutiveReviewPanel /></>}
+        </section>
+        <section id="workspace-skills" aria-label="Skill Library" hidden={view !== "skills"}>
+          {visited.has("skills") && <WorkforceSkillManager />}
         </section>
         <section id="workspace-tools" aria-label="More tools" hidden={view !== "tools"}>
           {visited.has("tools") && <><div className="px-5 py-5"><h2 className="text-lg font-semibold">Specialist tools</h2><p className="mt-1 text-sm text-slate-400">Review email, appointments, planning proposals, Marketing production and signed Tiquet evidence.</p></div><div className="px-5 pb-5"><GoogleWorkforcePanel /></div><AgentApprovalInbox suggested={suggestedDraft} onSuggestionHandled={() => setSuggestedDraft(null)} /><MarketingProductionPanel /><SignedTiquetEvidencePanel /></>}
