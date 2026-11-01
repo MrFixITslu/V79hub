@@ -4,6 +4,7 @@ on:
     branches: ["feature/skill-manager-prod-baseline-20261101"]
     paths:
       - "server/workforce-skill-*"
+      - "server/workforce-builtins.mjs"
       - "agent-service/src/managed-skills.ts"
       - "agent-service/src/index.ts"
       - "agent-service/tests/managed-skills.test.ts"
@@ -11,10 +12,12 @@ on:
       - "src/components/OwnerAssistant.tsx"
       - "server.ts"
       - "tests/workforce-skill-*.test.mjs"
+      - "tests/workforce-builtins.test.mjs"
       - ".github/workflows/workforce-skill-manager-isolated.yml"
   pull_request:
     paths:
       - "server/workforce-skill-*"
+      - "server/workforce-builtins.mjs"
       - "agent-service/src/managed-skills.ts"
       - "agent-service/src/index.ts"
       - "agent-service/tests/managed-skills.test.ts"
@@ -22,6 +25,7 @@ on:
       - "src/components/OwnerAssistant.tsx"
       - "server.ts"
       - "tests/workforce-skill-*.test.mjs"
+      - "tests/workforce-builtins.test.mjs"
       - ".github/workflows/workforce-skill-manager-isolated.yml"
   workflow_dispatch:
 permissions:
@@ -41,7 +45,7 @@ jobs:
       - name: Install locked Hub dependencies
         run: npm ci --no-audit --no-fund
       - name: New isolated skill registry and auth regressions
-        run: node --test tests/workforce-skill-registry.test.mjs tests/workforce-skill-routes.test.mjs
+        run: node --test tests/workforce-skill-registry.test.mjs tests/workforce-skill-routes.test.mjs tests/workforce-builtins.test.mjs
       - name: Type-check changed Hub and build preview
         run: |
           npm run lint
