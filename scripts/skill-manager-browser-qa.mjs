@@ -12,6 +12,16 @@ try {
     page.on("pageerror",e=>clientErrors.push(e.message));
     const original="# Website security\nCreate a clean accessible law firm website. Review against OWASP and WCAG.";
     const sha=createHash("sha256").update(original).digest("hex");
+    const builtins=[
+      {id:"ceo",name:"CEO",focus:"Leadership review",skillSha:"synthetic-ceo",bytes:39,protected:true},
+      {id:"coo",name:"COO",focus:"Service delivery",skillSha:"synthetic-coo",bytes:39,protected:true},
+      {id:"finance",name:"Finance",focus:"Budget review",skillSha:"synthetic-finance",bytes:39,protected:true},
+      {id:"strategy",name:"Strategy",focus:"Portfolio review",skillSha:"synthetic-strategy",bytes:39,protected:true},
+      {id:"marketing",name:"Marketing",focus:"Campaign review",skillSha:"synthetic-marketing",bytes:39,protected:true},
+      {id:"customer-service",name:"Customer Service",focus:"Support review",skillSha:"synthetic-customer",bytes:39,protected:true},
+      {id:"technical-security",name:"Technical & Security",focus:"Technical review",skillSha:"synthetic-tech",bytes:39,protected:true},
+      {id:"sales",name:"Sales",focus:"Sales review",skillSha:"synthetic-sales",bytes:39,protected:true},
+    ];
     let record=null, activates=0;
     await page.route("**/api/**",async route=>{
       const u=new URL(route.request().url()),p=u.pathname.replace(/\/$/, ""),m=route.request().method();
@@ -26,6 +36,11 @@ try {
         id:record.id,name:record.name,revision:record.revision,activeVersion:record.activeVersion,
         latestVersion:record.latestVersion,workers:record.workers,status:record.status,updatedAt:record.updatedAt
       }]:[],audit:[],limits:{maxContentBytes:6000,maxPerWorker:2}});
+      if(p==="/api/agent/skills/builtins" && m==="GET")return json({skills:builtins});
+      if(p.startsWith("/api/agent/skills/builtins/") && m==="GET"){
+        const id=p.split("/").at(-1),role=builtins.find(x=>x.id===id);
+        return role?json({skill:{...role,content:"# Original safe role guidance for "+role.name}}):json({error:"Unknown role"},404);
+      }
       if(p==="/api/agent/skills/validate" && m==="POST")return json({name:"Law Firm Website",bytes:Buffer.byteLength(original),sha256:sha,warnings:[],
         result:"format-only",note:"Synthetic browser test only"});
       if(p==="/api/agent/skills" && m==="POST"){
@@ -53,6 +68,13 @@ try {
     await page.goto("http://127.0.0.1:4178/?view=assistant",{waitUntil:"domcontentloaded"});
     await page.getByRole("button",{name:"Skill Library"}).click();
     await page.getByRole("heading",{name:"Skill Library"}).waitFor();
+    await page.getByText("Protected built-in skills (8)").waitFor();
+    await page.getByRole("button",{name:/Technical & Security Verified original/}).click();
+    await page.getByRole("textbox",{name:"Protected Technical & Security instructions"}).waitFor();
+    await page.getByRole("button",{name:"Improve this skill"}).click();
+    await page.getByRole("textbox",{name:"Skill instructions"}).waitFor();
+    assert.match(await page.getByRole("textbox",{name:"Skill name"}).inputValue(),/Technical & Security/);
+    await page.getByRole("button",{name:"New skill"}).click();
     await page.getByRole("textbox",{name:"Skill name"}).fill("Law Firm Website");
     await page.getByRole("textbox",{name:"Skill instructions"}).fill(original);
     await page.getByRole("button",{name:"Check draft"}).click();
