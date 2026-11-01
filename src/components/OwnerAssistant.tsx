@@ -28,7 +28,7 @@ type InvestigationBrief = {
   findings: InvestigationFinding[];
   missing: {system: string; reason: "stale" | "unavailable" | "unknown"}[];
 };
-type Message = { role: "user" | "assistant"; text: string; specialist?: string; evidence?: EvidenceLedger; investigation?: InvestigationBrief };
+type Message = { role: "user" | "assistant"; text: string; specialist?: string; appliedSkills?: string[]; evidence?: EvidenceLedger; investigation?: InvestigationBrief };
 
 const specialistPrompts = [
   { label: "Operations", prompt: "Review inventory, shipments and operational bottlenecks." },
@@ -110,6 +110,9 @@ export function OwnerAssistant() {
         ...items,
         { role: "assistant", text: response.ok ? data.output : data.error || "Assistant request failed.",
           specialist: response.ok ? data.specialist : undefined,
+          appliedSkills: response.ok && Array.isArray(data.managedSkillVersionsApplied)
+            ? data.managedSkillVersionsApplied.filter((item: unknown) => typeof item === "string").slice(0, 2)
+            : undefined,
           evidence: response.ok && data.evidence?.mode === "read-only" ? data.evidence : undefined,
           investigation: response.ok && data.investigation?.mode === "read-only" ? data.investigation : undefined },
       ]);
@@ -194,6 +197,11 @@ export function OwnerAssistant() {
                 <div className="text-xs text-cyan-300 mb-1 font-semibold">{message.specialist} · Read-only</div>
               )}
               <span className="whitespace-pre-wrap">{message.text}</span>
+              {message.role === "assistant" && message.appliedSkills && message.appliedSkills.length > 0 && (
+                <div className="mt-2 text-xs text-emerald-300" aria-label="Applied custom skill versions">
+                  Custom skill guidance applied: {message.appliedSkills.join(", ")}
+                </div>
+              )}
               {message.role === "user" && <button type="button" onClick={() => prepareTask({ sourceId: "chat", system: "hub", summary: message.text.trim().slice(0, 180), detail: message.text.trim().slice(0, 2000) })}
                 className="mt-3 block min-h-10 rounded-lg border border-cyan-200/40 px-3 py-2 text-xs font-medium hover:bg-cyan-700 focus-visible:ring-2 focus-visible:ring-white">Prepare as task</button>}
               {message.role === "assistant" && message.investigation && (
