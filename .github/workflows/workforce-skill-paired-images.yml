@@ -55,7 +55,9 @@ jobs:
           docker run --rm --read-only --network none --entrypoint sh v79-skill-agent:stage -c '
             test -f /app/src/managed-skills.ts
             test -f /app/src/chat-roles.ts
+            test -f /app/workforce/skills/ceo/SKILL.md
           '
+          docker run --rm --read-only --network none --entrypoint node v79-skill-agent:stage tests/image-runtime-skill-pins.mjs
           docker image inspect v79-skill-hub:stage --format 'HUB_IMAGE={{.Id}} REVISION={{index .Config.Labels "org.opencontainers.image.revision"}}'
           docker image inspect v79-skill-agent:stage --format 'AGENT_IMAGE={{.Id}} REVISION={{index .Config.Labels "org.opencontainers.image.revision"}}'
           echo 'PAIRED_IMAGE_STAGE=PASS NO_PRODUCTION_CHANGE=YES'
