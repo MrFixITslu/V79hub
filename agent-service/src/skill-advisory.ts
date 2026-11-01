@@ -5,8 +5,8 @@ import type {EvidenceLedger} from "./evidence.js";
 type Draft={steps:string[];questions:string[]};
 const STEP_START=/^(?:Consider|Review|Draft|Compare|Check|Identify|Ask|Evaluate|Verify|Plan|Outline|Explore|Document|Assess|Confirm|Propose|Prepare|Discuss|Map|Test|Prioritise|Prioritize|Determine|Define|Outline|List|Summarise|Summarize|Suggest)\b/i;
 const UNSAFE=/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|<[^>]+>|\x60{3}|!\[|\]\(|MFA_BYPASS|CANARY|ignore (?:all |any |the )?(?:previous|prior|system|developer) instructions|(?:has|have|was|were|already|successfully)\s+(?:sent|deployed|published|paid|booked|executed|deleted|approved|completed)|\b(?:token|api.?key|private.?key)\s*[:=])/i;
-const SECURITY_BYPASS=/\b(?:disable|bypass|ignore|skip|remove|weaken)\b.{0,48}\b(?:mfa|2fa|multi.factor|security|audit|logging|approval|access controls?|authentication|authorization|firewall|rate limiting)\b/i;
-const DATA_EXFIL=/\b(?:upload|share|expose|send|publish|post|deploy|transmit|export)\b.{0,60}\b(?:private keys?|passwords?|access tokens?|credentials?|secrets?|customer lists?|confidential|pii)\b/i;
+const SECURITY_BYPASS=/\b(?:disabl\w*|bypass\w*|ignor\w*|skip\w*|remov\w*|weaken\w*)\b.{0,48}\b(?:mfa|2fa|multi.factor|security|audit|logging|approval|access controls?|authentication|authorization|firewall|rate limiting)\b/i;
+const DATA_EXFIL=/\b(?:upload\w*|shar\w*|expos\w*|send\w*|publish\w*|post\w*|deploy\w*|transmit\w*|export\w*)\b.{0,60}\b(?:private keys?|passwords?|access tokens?|credentials?|secrets?|customer lists?|confidential|pii)\b/i;
 function boundedLine(value:unknown,max:number){
  return typeof value==="string"&&value.length>=12&&value.length<=max&&value===value.trim()&&
   !/[\r\n\x00-\x1f\x7f]/.test(value)&&!UNSAFE.test(value)&&!/\d/.test(value)&&!SECURITY_BYPASS.test(value)&&!DATA_EXFIL.test(value);
