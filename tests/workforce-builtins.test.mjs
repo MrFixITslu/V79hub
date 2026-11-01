@@ -27,7 +27,7 @@ test("all eight built-in skills expose exact pinned full text with no mutation",
 test("Hub built-in pin manifest matches the independent AI-agent role manifest",()=>{
  const source=readFileSync(new URL("../agent-service/src/chat-roles.ts",import.meta.url),"utf8");
  for(const role of builtinSkillCatalog()){
-  const id=role.id.replace(/[.*+?^${}()|[\]\\]/g,"\\test("protected skill source tampering fails closed instead of showing incorrect text",()=>{");
+  const id=role.id;
   const fragment=source.match(new RegExp("id:'"+id+"'[^\\n]*skillSha:'([a-f0-9]{40})'"));
   assert.ok(fragment,"Missing independent agent skill pin for "+role.id);
   assert.equal(role.skillSha,fragment[1],"Hub and agent built-in pin drift for "+role.id);
