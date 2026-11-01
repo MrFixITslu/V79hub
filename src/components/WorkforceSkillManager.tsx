@@ -8,6 +8,41 @@ const WORKERS:readonly {id:Worker;name:string}[] = [
   {id:"marketing",name:"Marketing"}, {id:"customer-service",name:"Customer Service"},
   {id:"technical-security",name:"Technical & Security"}, {id:"sales",name:"Sales"}
 ];
+// Suggested improvements are editable proposals, never changes to protected core skills.
+const ROLE_IMPROVEMENTS:Record<Worker,string[]> = {
+  ceo:[
+    "Verify the current live/beta status of every V79 product before prioritising it. Do not assume earlier P1/P2 labels reflect today's release state.",
+    "Balance Caribbean-wide recurring revenue, customer trust, service capacity and operational risk; identify what is still unverified."
+  ],
+  coo:[
+    "Use actual current deployment receipts and Tiquet/Hub/POS/Marketing/FFPRO health evidence; do not repeat completed tests without changed inputs.",
+    "Distinguish incident recovery from full root-cause closure and surface customer-impacting performance risks."
+  ],
+  finance:[
+    "Reconcile XCD and USD explicitly; use verified FFPRO and subscription records, keeping WiPay sandbox separate from actual settlements.",
+    "Flag unknown payment fees, receivables and recurring-revenue churn rather than inventing them."
+  ],
+  strategy:[
+    "Evaluate Caribbean-wide SME needs, AI-assisted workflows, document digitisation and managed ICT services without assuming market size or customer uptake.",
+    "Revalidate product maturity and release dependencies before recommending expansion."
+  ],
+  marketing:[
+    "Use the current V79 website positioning and evidence-backed Caribbean SME messages. Keep ICT services visible alongside digital transformation.",
+    "Only propose content or lead campaigns with reviewable claims, consent-aware targeting, real assets and measurable customer enquiries."
+  ],
+  "customer-service":[
+    "Review ticket intake, self-service portal experience, welcome emails and escalation workflows as proposals until deployment receipts exist.",
+    "Separate published SLA commitments from internal targets, and confirm tenancy before referencing any customer."
+  ],
+  "technical-security":[
+    "Verify live container images, Nginx routes, MicroK8s, encrypted off-host restore receipts, disk I/O and rollback parity before declaring release readiness.",
+    "Treat static checks as insufficient for penetration testing, owner MFA and authenticated browser acceptance."
+  ],
+  sales:[
+    "Qualify Caribbean SME leads by industry, fit and consent using verified CRM records; do not imply that a scraped contact has opted in.",
+    "Propose scoped consultations, subscriptions and ICT packages with verified prices and evidence of buyer need."
+  ],
+};
 type Metadata = {
   id:string; name:string; revision:number; activeVersion:number|null;
   latestVersion:number; workers:Worker[]; status:"draft"|"active"|"paused"; updatedAt:string;
@@ -170,8 +205,8 @@ export function WorkforceSkillManager() {
     setContent([
       "# Additional guidance for "+role.name,
       "",
-      "## What to improve",
-      "Describe the new workflow, analysis standards or output quality you want.",
+      "## Proposed improvements — edit before saving",
+      ...ROLE_IMPROVEMENTS[role.id].map(line=>"- "+line),
       "",
       "## Review checks",
       "Explain how to validate proposed answers and identify unknown information.",
