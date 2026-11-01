@@ -82,6 +82,7 @@ export function OwnerAssistant() {
     },
   ]);
   const [input, setInput] = useState("");
+  const [selectedWorker, setSelectedWorker] = useState("auto");
   const [busy, setBusy] = useState(false);
   const [suggestedDraft, setSuggestedDraft] = useState<AgentDraftSuggestion | null>(null);
   const [preparedCooWork, setPreparedCooWork] = useState<CooWorkItemDraft | null>(null);
@@ -102,7 +103,7 @@ export function OwnerAssistant() {
       const response = await fetch("/api/agent/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message: selectedWorker === "auto" ? message : selectedWorker + ": " + message }),
       });
       const data = await response.json();
       setMessages((items) => [
@@ -272,7 +273,21 @@ export function OwnerAssistant() {
           ))}
           {busy && <div className="text-xs text-slate-500">Working...</div>}
         </div>
-        <div className="p-4 border-t border-slate-800 bg-slate-900/70 flex gap-3">
+        <div className="px-4 pt-3 border-t border-slate-800 bg-slate-900/70">
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            Ask worker
+            <select aria-label="Choose AI worker" value={selectedWorker} onChange={event => setSelectedWorker(event.target.value)}
+              className="rounded-lg border border-slate-700 bg-slate-950 text-slate-100 px-3 py-2">
+              <option value="auto">Automatic routing</option>
+              <option value="ceo">CEO</option><option value="coo">COO</option>
+              <option value="finance">Finance</option><option value="strategy">Strategy</option>
+              <option value="marketing">Marketing</option><option value="sales">Sales</option>
+              <option value="customer-service">Customer Service</option>
+              <option value="technical-security">Technical &amp; Security</option>
+            </select>
+          </label>
+        </div>
+        <div className="p-4 bg-slate-900/70 flex gap-3">
           <textarea
             ref={composer}
             aria-label="Message to your agents"
