@@ -56,7 +56,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
       throw e;
     }
     try {
-      if (fs.fstatSync(fd).size > 10 * 1024 * 1024) throw fail("Skill registry too large", 503);
+      if (fs.fstatSync(fd).size > 24 * 1024 * 1024) throw fail("Skill registry too large", 503);
       const envelope = JSON.parse(fs.readFileSync(fd, "utf8"));
       if (!envelope || !envelope.state || typeof envelope.mac !== "string" ||
           !/^[a-f0-9]{64}$/.test(envelope.mac)) throw fail("Skill registry envelope invalid", 503);
