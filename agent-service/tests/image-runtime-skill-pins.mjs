@@ -9,7 +9,7 @@ for (const role of roles) {
   const expected = re.exec(roleDefinitions)?.[1];
   if (!expected) throw Error("Missing pinned role SHA: " + role);
   const bytes = fs.readFileSync(new URL("../workforce/skills/" + role + "/SKILL.md", import.meta.url));
-  const actual = createHash("sha1").update("blob " + bytes.length + "\\0").update(bytes).digest("hex");
+  const actual = createHash("sha1").update("blob " + bytes.length).update(Buffer.from([0])).update(bytes).digest("hex");
   if (actual !== expected) throw Error("Runtime built-in skill SHA mismatch: " + role);
 }
 console.log("PINNED_ROLE_SKILLS_IN_IMAGE=8/8_PASS");
