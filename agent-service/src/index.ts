@@ -166,18 +166,6 @@ app.post("/api/agent/executive-handoff", async (req, res) => {
   if (!context || !isValidOwnerContext(context)) {
     return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
   }
-  let attachedSkills: ReturnType<typeof verifyManagedSkills> | null = null;
-  if (Object.prototype.hasOwnProperty.call(req.body || {}, "managedSkills")) {
-    // Dev mode without the internal service token may answer basic chat, but
-    // MUST NOT accept managed instructions from an unauthenticated caller.
-    const apiToken = readApiToken();
-    if (!apiToken || req.header("x-v79-agent-token") !== apiToken)
-      return res.status(403).json({ error: "Trusted Hub service required for managed skills" });
-    try { attachedSkills = verifyManagedSkills(req.body.managedSkills); }
-    catch { return res.status(400).json({ error: "Managed skill integrity check failed" }); }
-    if (agentModelRuntime.provider !== "ollama" && Object.values(attachedSkills).some(items => items.length))
-      return res.status(503).json({ error: "Managed skills require local Ollama mode" });
-  }
   try {
     const snapshot = await readBusinessSnapshot(context);
     const evidence = buildEvidenceLedger(snapshot, getWorkforceSpecialist("owner"));
@@ -252,6 +240,18 @@ app.post("/api/agent/chat", async (req, res) => {
   if (message.length > 12000) return res.status(413).json({ error: "message is too long" });
   if (!context || !isValidOwnerContext(context)) {
     return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
+  }
+  let attachedSkills: ReturnType<typeof verifyManagedSkills> | null = null;
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "managedSkills")) {
+    // Dev mode without the internal service token may answer basic chat, but
+    // MUST NOT accept managed instructions from an unauthenticated caller.
+    const apiToken = readApiToken();
+    if (!apiToken || req.header("x-v79-agent-token") !== apiToken)
+      return res.status(403).json({ error: "Trusted Hub service required for managed skills" });
+    try { attachedSkills = verifyManagedSkills(req.body.managedSkills); }
+    catch { return res.status(400).json({ error: "Managed skill integrity check failed" }); }
+    if (agentModelRuntime.provider !== "ollama" && Object.values(attachedSkills).some(items => items.length))
+      return res.status(503).json({ error: "Managed skills require local Ollama mode" });
   }
   try {
     const snapshot = await readBusinessSnapshot(context);
