@@ -74,6 +74,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
             !validRevision(skill.revision)) throw fail("Skill registry record invalid", 503);
         for (const ver of skill.versions) {
           if (!Number.isSafeInteger(ver.version) || ver.version < 1 ||
+              typeof ver.name !== "string" || ver.name.length < 3 || ver.name.length > 80 ||
               typeof ver.content !== "string" || Buffer.byteLength(ver.content) > SKILL_MAX_CONTENT ||
               ver.sha256 !== digest(ver.content)) throw fail("Skill version integrity check failed", 503);
         }
@@ -164,7 +165,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
         const timestamp = new Date(now()).toISOString();
         const item = { id: "skill-" + crypto.randomBytes(8).toString("hex"), name: checked.name,
           revision: 1, activeVersion: null, workers: [], updatedAt: timestamp,
-          versions: [{ version: 1, content: checked.content, sha256: checked.sha256, createdAt: timestamp }] };
+          versions: [{ version: 1, name: checked.name, content: checked.content, sha256: checked.sha256, createdAt: timestamp }] };
         state.skills.push(item);
         audit(state, "create-draft", item, actor);
         return metadata(item);
@@ -180,7 +181,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
         item.name = checked.name;
         item.revision++;
         item.updatedAt = timestamp;
-        item.versions.push({ version: item.versions.at(-1).version + 1, content: checked.content,
+        item.versions.push({ version: item.versions.at(-1).version + 1, name: checked.name, content: checked.content,
           sha256: checked.sha256, createdAt: timestamp });
         audit(state, "new-draft-version", item, actor);
         return metadata(item);
@@ -225,7 +226,8 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
         const historic = item.versions.find(v => v.version === version);
         if (!historic) throw fail("Historical version not found", 404);
         if (item.versions.length >= MAX_VERSIONS) throw fail("Version limit reached", 409);
-        item.versions.push({ version: item.versions.at(-1).version + 1, content: historic.content,
+        item.name = historic.name;
+        item.versions.push({ version: item.versions.at(-1).version + 1, name: historic.name, content: historic.content,
           sha256: historic.sha256, createdAt: new Date(now()).toISOString(), restoredFrom: version });
         item.revision++;
         item.updatedAt = new Date(now()).toISOString();
@@ -239,7 +241,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
         if (item.activeVersion === null) continue;
         const version = item.versions.find(v => v.version === item.activeVersion);
         for (const role of item.workers) {
-          result[role].push({ id: item.id, name: item.name, version: version.version,
+          result[role].push({ id: item.id, name: version.name, version: version.version,
             sha256: version.sha256, content: version.content });
           if (result[role].length > SKILL_MAX_PER_WORKER) throw fail("Worker assignment integrity error", 503);
         }
