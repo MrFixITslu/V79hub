@@ -55,7 +55,7 @@ test("no unknown worker, duplicated worker or older version can activate",async(
   const created=await env.registry.create(draft(),"owner");
   await env.registry.revise(created.id,draft("Website Developer","# latest"),1,"owner");
   for(const workers of [["unknown"],["coo","coo"],[]]){
-   await assert.rejects(env.registry.activate(created.id,2,workers,2,"owner"));
+   assert.throws(()=>env.registry.activate(created.id,2,workers,2,"owner"));
   }
   await assert.rejects(env.registry.activate(created.id,1,["coo"],2,"owner"),{status:409});
   assert.equal(env.registry.get(created.id).activeVersion,null);
