@@ -1,5 +1,5 @@
 import {useEffect, useState} from "react";
-import {BookOpen, Check, FileUp, LockKeyhole, Plus, RotateCcw, ShieldCheck, UploadCloud} from "lucide-react";
+import {BookOpen, Check, FileUp, LockKeyhole, Plus, RotateCcw, ShieldCheck} from "lucide-react";
 
 type Worker = "ceo"|"coo"|"finance"|"strategy"|"marketing"|"customer-service"|"technical-security"|"sales";
 const WORKERS:readonly {id:Worker;name:string}[] = [
