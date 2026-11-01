@@ -23,6 +23,8 @@ import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.m
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
+import { createSkillRegistry } from "./server/workforce-skill-registry.mjs";
+import { workforceSkillRouter } from "./server/workforce-skill-routes.mjs";
 import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
 import { googleWorkforceClient } from "./server/workforce-google.mjs";
 import { workforceGoogleRouter } from "./server/workforce-google-routes.mjs";
@@ -4869,6 +4871,23 @@ const workforceRouters = workforceActionRouters({
 });
 app.use("/api/agent/work-actions", workforceRouters.owner);
 app.use("/internal/workforce", workforceRouters.worker);
+// Isolated owner skills: do not replace the built-in workforce or its permissions.
+const skillRegistryKey = String(process.env.V79_WORKFORCE_SKILL_REGISTRY_KEY || "");
+const skillRegistry = skillRegistryKey.length >= 32 ? createSkillRegistry({
+  file: path.join(DATA_DIR, "workforce-skill-registry.json"), secret: skillRegistryKey,
+}) : null;
+const skillManagerEnabled = () => process.env.V79_WORKFORCE_SKILL_MANAGER_ENABLED === "1";
+app.use("/api/agent/skills", workforceSkillRouter({
+  registry: skillRegistry, enabled: skillManagerEnabled,
+  ownerContext: ownerAssistantContext,
+  freshOwnerContext: (req: Request) => {
+    if (!ownerApprovalContext(req)) return null;
+    const at = (req as any).user?.mfaVerifiedAt;
+    return Number.isFinite(at) && Date.now() >= at && Date.now() - at <= 5 * 60 * 1000
+      ? ownerApprovalContext(req) : null;
+  },
+  sameOrigin: sameOriginMutation,
+}));
 // Owner-only Google boundary. Tokens remain in Hub, never in the model service.
 const googleEnabled = () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1";
 const googleCredentials = googleCredentialBroker({
@@ -5231,12 +5250,18 @@ app.post("/api/agent/chat", async (req, res) => {
   if (!agentApiToken) return res.status(503).json({ error: "Owner Assistant service is not configured." });
   const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
   if (!message) return res.status(400).json({ error: "message is required" });
+  let managedSkills: ReturnType<NonNullable<typeof skillRegistry>["assignedSkills"]> | undefined;
+  if (skillManagerEnabled()) {
+    if (!skillRegistry) return res.status(503).json({ error: "Skill registry key is unavailable" });
+    try { managedSkills = skillRegistry.assignedSkills(); }
+    catch { return res.status(503).json({ error: "Skill registry verification failed" }); }
+  }
 
   try {
     const response = await fetch(`${agentInternalUrl}/api/agent/chat`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-v79-agent-token": agentApiToken },
-      body: JSON.stringify({ message, context }),
+      body: JSON.stringify({ message, context, ...(managedSkills ? { managedSkills } : {}) }),
       signal: AbortSignal.timeout(90000),
     });
     const body = await response.text();
