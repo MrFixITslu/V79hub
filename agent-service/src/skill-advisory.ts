@@ -3,7 +3,7 @@ import {answerCandidates,renderEvidenceAnswer} from "./evidence-answer.js";
 import type {EvidenceLedger} from "./evidence.js";
 
 type Draft={steps:string[];questions:string[]};
-const STEP_START=/^(?:Consider|Review|Draft|Compare|Check|Identify|Ask|Evaluate|Verify|Plan|Outline|Explore|Document|Assess|Confirm|Propose|Prepare|Discuss|Map|Test|Prioritise|Prioritize|Determine|Define)\b/i;
+const STEP_START=/^(?:Consider|Review|Draft|Compare|Check|Identify|Ask|Evaluate|Verify|Plan|Outline|Explore|Document|Assess|Confirm|Propose|Prepare|Discuss|Map|Test|Prioritise|Prioritize|Determine|Define|Outline|List|Summarise|Summarize|Suggest)\b/i;
 const UNSAFE=/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|<[^>]+>|\x60{3}|!\[|\]\(|MFA_BYPASS|CANARY|ignore (?:all |any |the )?(?:previous|prior|system|developer) instructions|(?:has|have|was|were|already|successfully)\s+(?:sent|deployed|published|paid|booked|executed|deleted|approved|completed)|\b(?:token|api.?key|private.?key)\s*[:=])/i;
 function boundedLine(value:unknown,max:number){
  return typeof value==="string"&&value.length>=12&&value.length<=max&&value===value.trim()&&
@@ -15,14 +15,17 @@ export function validateAdvisoryDraft(value:unknown):Draft|null{
  let parsed:unknown;try{parsed=JSON.parse(value);}catch{return null;}
  if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))return null;
  const obj=parsed as Record<string,unknown>;
- if(Object.keys(obj).sort().join(",")!=="questions,steps"||
-  !Array.isArray(obj.steps)||!Array.isArray(obj.questions)||
-  obj.steps.length<1||obj.steps.length>5||obj.questions.length>3)return null;
+ // The small local model may add surplus keys. They are NEVER rendered.
+ // Authority/action fields always reject the entire draft, not just the field.
+ const keys=Object.keys(obj);
+ if(keys.length>8||keys.some(k=>/^(?:approved?|authorization|authority|execute|execution|tools?|permissions?|actions?|status|fact|results?)$/i.test(k)))return null;
+ if(!Array.isArray(obj.steps)||!Array.isArray(obj.questions)||
+  obj.steps.length<1||obj.steps.length>8||obj.questions.length>6)return null;
  if(!obj.steps.every(s=>boundedLine(s,240)&&STEP_START.test(s as string)))return null;
  if(!obj.questions.every(q=>boundedLine(q,180)&&(q as string).endsWith("?")))return null;
  const all=[...obj.steps,...obj.questions] as string[];
  if(new Set(all.map(s=>s.toLocaleLowerCase())).size!==all.length)return null;
- return{steps:obj.steps as string[],questions:obj.questions as string[]};
+ return{steps:(obj.steps as string[]).slice(0,5),questions:(obj.questions as string[]).slice(0,3)};
 }
 
 export async function runSkillAdvisoryDraft(ownerRequest:string,ledger:EvidenceLedger,options:{
@@ -50,10 +53,11 @@ export async function runSkillAdvisoryDraft(ownerRequest:string,ledger:EvidenceL
     "Return ONLY JSON with exactly these keys: steps (1-5 short actionable review",
     "suggestions, each beginning Consider/Review/Draft/Compare/Check/Identify/Ask/",
     "Evaluate/Verify/Plan/Outline/Explore/Document/Assess/Confirm/Propose/Prepare/",
-    "Discuss/Map/Test/Prioritise/Determine/Define), questions (0-3 unanswered",
+    "Discuss/Map/Test/Prioritise/Determine/Define/Outline), questions (0-3 unanswered",
     "questions ending in '?'). Spell out numerical concepts; no digits in the advice.",
     "Do not add links, email addresses, invented figures,",
     "system commands, approval assertions, deployed/sent/completed claims or secrets.",
+    "Do not add any additional JSON fields such as proposedNext or status.",
     "All suggestions are unverified drafts for owner review and never authorise actions."
    ].join(" "),
   });
