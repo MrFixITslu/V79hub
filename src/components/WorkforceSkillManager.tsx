@@ -13,6 +13,8 @@ type Metadata = {
   latestVersion:number; workers:Worker[]; status:"draft"|"active"|"paused"; updatedAt:string;
 };
 type Version = {version:number;content:string;sha256:string;createdAt:string;restoredFrom?:number};
+type BuiltIn = {id:Worker;name:string;focus:string;skillSha:string;bytes:number;protected:true};
+type BuiltInDetail = BuiltIn & {content:string};
 type Detail = Metadata & {versions:Version[]};
 type Audit = {at:string;action:string;id:string;revision:number;actor:string};
 type Validation = {sha256:string;bytes:number;warnings:string[];result:"format-only";note:string};
@@ -38,6 +40,10 @@ async function callApi<T>(url:string, data?:Record<string, unknown>):Promise<T> 
 }
 export function WorkforceSkillManager() {
   const [catalog,setCatalog] = useState<Metadata[]>([]);
+  const [builtins,setBuiltins] = useState<BuiltIn[]>([]);
+  const [selectedBuiltin,setSelectedBuiltin] = useState<BuiltInDetail|null>(null);
+  const [builtInError,setBuiltInError] = useState("");
+  const [previewVersion,setPreviewVersion] = useState(1);
   const [audit,setAudit] = useState<Audit[]>([]);
   const [selected,setSelected] = useState<Detail|null>(null);
   const [name,setName] = useState("");
@@ -55,10 +61,14 @@ export function WorkforceSkillManager() {
     const response = await callApi<{skills:Metadata[];audit:Audit[]}>("/");
     setCatalog(response.skills);
     setAudit(response.audit);
+    try { const result=await callApi<{skills:BuiltIn[]}>("/builtins");setBuiltins(result.skills);setBuiltInError("");}
+    catch(e) {setBuiltins([]);setBuiltInError(e instanceof Error?e.message:"Protected skill catalog is unavailable");}
   };
   const readDetail = async (id:string) => {
     const detail = await callApi<Detail>("/" + encodeURIComponent(id));
+    setSelectedBuiltin(null);
     setSelected(detail);
+    setPreviewVersion(detail.activeVersion || detail.latestVersion);
     setName(detail.name);
     setContent(detail.versions.at(-1)?.content || "");
     setWorkers(detail.workers);
@@ -68,14 +78,18 @@ export function WorkforceSkillManager() {
   };
   useEffect(() => {
     let active = true;
-    callApi<{skills:Metadata[];audit:Audit[]}>("/")
-      .then(data => { if(active) {setCatalog(data.skills);setAudit(data.audit);} })
+    Promise.all([
+      callApi<{skills:Metadata[];audit:Audit[]}>("/"),
+      callApi<{skills:BuiltIn[]}>("/builtins")
+    ]).then(([data,verified]) => {
+      if(active){setCatalog(data.skills);setAudit(data.audit);setBuiltins(verified.skills);}
+    })
       .catch(e => {if(active) setError(String(e.message || e));})
       .finally(() => {if(active) setLoading(false);});
     return () => {active=false;};
   }, []);
   const resetDraft = () => {
-    setSelected(null);setName("");setContent("");setWorkers([]);
+    setSelected(null);setSelectedBuiltin(null);setName("");setContent("");setWorkers([]);
     setReview(null);setAcknowledged(false);setMessage("");setError("");
   };
   const act = async (run:()=>Promise<void>, success:string) => {
@@ -109,7 +123,9 @@ export function WorkforceSkillManager() {
       await readDetail(result.skill.id);
     } else {
       const result = await callApi<{skill:Metadata}>("/",{name,content});
+      const pendingWorkers=[...workers];
       await readDetail(result.skill.id);
+      setWorkers(pendingWorkers);
     }
   },"Immutable draft version saved. Active workers are unchanged.");
   const apply = () => {
@@ -137,7 +153,35 @@ export function WorkforceSkillManager() {
       await readDetail(selected.id);
     },"Historical content restored as a NEW draft; activation is still separate.");
   };
+  const openBuiltin = (id:Worker) => act(async ()=>{
+    const response=await callApi<{skill:BuiltInDetail}>("/builtins/"+id);
+    setSelectedBuiltin(response.skill);
+    setSelected(null);setReview(null);setAcknowledged(false);
+  },"");
+  const improveBuiltin = () => {
+    if(!selectedBuiltin)return;
+    const role=selectedBuiltin;
+    resetDraft();
+    setName(role.name+" — My improvements");
+    setContent([
+      "# Additional guidance for "+role.name,
+      "",
+      "## What to improve",
+      "Describe the new workflow, analysis standards or output quality you want.",
+      "",
+      "## Review checks",
+      "Explain how to validate proposed answers and identify unknown information.",
+      "",
+      "## Safety boundaries",
+      "Treat this as lower-trust guidance. Keep the protected built-in instructions,",
+      "the read-only access rules and all existing approvals unchanged."
+    ].join("\n"));
+    setWorkers([role.id]);
+    setMessage("Improvement draft prepared for "+role.name+". Review, save and validate it before fresh-MFA activation.");
+  };
   const latest = selected?.versions.at(-1);
+  const activeVersion=selected?.versions.find(v=>v.version===selected.activeVersion);
+  const viewedVersion=selected?.versions.find(v=>v.version===previewVersion);
   const unchanged = !!selected && latest?.content === content && selected.name === name;
   const safeToActivate = selected && latest && unchanged && review?.sha256 === latest.sha256 &&
     acknowledged && workers.length > 0;
@@ -159,7 +203,7 @@ export function WorkforceSkillManager() {
     {loading ? <p className="text-sm text-slate-400">Loading library…</p> :
     <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
       <aside className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3 self-start">
-        <h3 className="mb-2 px-2 text-sm font-bold">Your skills ({catalog.length})</h3>
+        <h3 className="mb-2 px-2 text-sm font-bold">Your custom skills ({catalog.length})</h3>
         <div className="space-y-1 max-h-[550px] overflow-y-auto">
           {catalog.map(item => <button type="button" key={item.id}
             onClick={() => act(async () => {await readDetail(item.id);},"")}
@@ -171,12 +215,43 @@ export function WorkforceSkillManager() {
           {!catalog.length && <p className="px-2 py-4 text-sm text-slate-400">No custom skills yet. Import a Markdown skill or paste your instructions.</p>}
         </div>
         <div className="mt-4 border-t border-slate-800 pt-3 px-2">
-          <p className="font-semibold text-sm">Protected built-in skills</p>
-          <p className="text-xs text-slate-400 mt-1">{WORKERS.map(w=>w.name).join(" · ")}</p>
-          <p className="text-xs text-slate-500 mt-2">Add-on skills cannot replace or weaken these workers.</p>
+          <p className="font-semibold text-sm">Protected built-in skills ({builtins.length})</p>
+          <p className="text-xs text-slate-400 mt-1">Select a specialist to inspect the exact verified instructions.</p>
+          {builtInError && <p role="alert" className="text-xs text-red-200">{builtInError}</p>}
+          <div className="mt-2 space-y-1">
+            {builtins.map(role=><button type="button" key={role.id}
+              disabled={busy}
+              onClick={()=>openBuiltin(role.id)}
+              className={"w-full rounded-lg border px-3 py-2 text-left text-sm "+
+                (selectedBuiltin?.id===role.id?"border-cyan-500 bg-cyan-950/40":"border-transparent hover:bg-slate-800")}>
+              <span className="block font-semibold">{role.name}</span>
+              <span className="text-xs text-slate-400">Verified original · {role.bytes} bytes</span>
+            </button>)}
+          </div>
+          <p className="text-xs text-slate-500 mt-2">These originals cannot be overwritten. Create versioned improvements instead.</p>
         </div>
       </aside>
       <div className="rounded-2xl border border-slate-800 p-4 sm:p-5 space-y-5 min-w-0">
+        {selectedBuiltin ? <section className="space-y-4" aria-label="Protected built-in skill">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><div className="text-xs font-semibold uppercase tracking-wide text-cyan-300">Verified protected original</div>
+              <h3 className="text-xl font-bold">{selectedBuiltin.name}</h3>
+              <p className="text-sm text-slate-400 mt-1">{selectedBuiltin.focus}</p></div>
+            <span className="text-xs rounded-lg border border-slate-700 px-2 py-1">Read-only</span>
+          </div>
+          <label className="block space-y-2">
+            <span className="font-semibold text-sm">Original SKILL.md instructions</span>
+            <textarea className={inputClass+" min-h-[330px] font-mono"} value={selectedBuiltin.content}
+              readOnly aria-label={"Protected "+selectedBuiltin.name+" instructions"}/>
+          </label>
+          <p className="text-xs text-slate-400">Source verified against pinned Git blob {selectedBuiltin.skillSha}.
+            Core safety rules and runtime permissions cannot be replaced by custom guidance.</p>
+          <button type="button" className={primaryButton} onClick={improveBuiltin}>
+            <Plus size={16} className="inline mr-1"/>Improve this skill
+          </button>
+          <p className="text-sm text-slate-400">This creates an editable add-on draft for {selectedBuiltin.name}.
+            Nothing changes for the AI until you save, check and activate an exact version with fresh MFA.</p>
+        </section> : <>
         <div className="flex items-center justify-between gap-3">
           <h3 className="font-bold">{selected ? "Edit custom skill" : "Create custom skill"}</h3>
           {selected && <span className="text-xs text-slate-400">Revision {selected.revision} · {selected.status}</span>}
@@ -215,6 +290,15 @@ export function WorkforceSkillManager() {
           </label>
         </div>}
         {selected && <div className="border-t border-slate-800 pt-5 space-y-3">
+          {selected.activeVersion !== null && <div role="status"
+            className="rounded-xl border border-slate-700 bg-slate-900/70 p-3 text-sm">
+            <strong>AI currently uses version {selected.activeVersion}</strong>
+            {selected.latestVersion !== selected.activeVersion &&
+              <p className="mt-1 text-amber-200">Version {selected.latestVersion} is a newer draft, not active.
+                Saving or restoring does not update the AI until you explicitly activate it.</p>}
+            {selected.status==="paused" && <p className="mt-1 text-amber-200">Assignments are paused; no custom skill is currently applied.</p>}
+            <p className="mt-1 text-slate-400">Active workers: {selected.workers.length?selected.workers.join(", "):"None"}</p>
+          </div>}
           <h3 className="font-bold">Assign to workers</h3>
           <p className="text-xs text-slate-400">Maximum 2 active custom skills per worker. These add guidance to the existing protected skill.</p>
           <div className="grid sm:grid-cols-2 gap-2">
@@ -233,6 +317,19 @@ export function WorkforceSkillManager() {
           <p className="text-xs text-slate-500">Activation or pausing requires a founder session with MFA verified within the last five minutes. Changes do not grant tools, spending or publishing access.</p>
           <div className="border-t border-slate-800 pt-4 space-y-3">
             <h3 className="font-bold">Version history and rollback</h3>
+            <label className="block space-y-1">
+              <span className="text-sm">Preview immutable version</span>
+              <select className={inputClass+" max-w-xs"} aria-label="Version to preview"
+                value={previewVersion} onChange={e=>setPreviewVersion(Number(e.target.value))}>
+                {selected.versions.map(v=><option key={v.version} value={v.version}>
+                  Version {v.version} {selected.activeVersion===v.version?"(assigned)":""}
+                </option>)}
+              </select>
+            </label>
+            <textarea readOnly className={inputClass+" min-h-[140px] font-mono"}
+              aria-label="Historical skill instructions" value={viewedVersion?.content||""}/>
+            {activeVersion && selected.latestVersion!==selected.activeVersion &&
+              <p className="text-xs text-amber-200">Current assigned version and latest draft differ. Review both before activation.</p> 
             <div className="flex flex-wrap gap-2">
               <select className={inputClass+" max-w-xs"} aria-label="Version to restore" value={restoreVersion}
                 onChange={e=>setRestoreVersion(Number(e.target.value))}>
@@ -243,6 +340,7 @@ export function WorkforceSkillManager() {
             <p className="text-xs text-slate-400">Restoration creates a new immutable draft; workers keep their current active version until you explicitly activate another.</p>
           </div>
         </div>}
+        </>}
       </div>
     </div>}
     <details className="rounded-2xl border border-slate-800 px-4 py-3">
