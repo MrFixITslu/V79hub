@@ -27,12 +27,12 @@ export function createWebsiteSsoGrants({ now = Date.now, maxEntries = 500 } = {}
   }
   function consume({ code, verifier }) {
     prune();
-    if (typeof code !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(code) ||
-        typeof verifier !== "string" || !/^[A-Za-z0-9_-]{43,128}$/.test(verifier)) return null;
+    if (typeof code !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(code)) return null;
     const key = hash(code);
     const item = grants.get(key);
     if (!item) return null;
-    grants.delete(key); // Burn on first redemption, including an invalid proof.
+    grants.delete(key); // Burn before checking malformed/incorrect verifier.
+    if (typeof verifier !== "string" || !/^[A-Za-z0-9_-]{43,128}$/.test(verifier)) return null;
     const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
     if (!same(item.challenge, challenge)) return null;
     const handle = crypto.randomBytes(32).toString("base64url");
