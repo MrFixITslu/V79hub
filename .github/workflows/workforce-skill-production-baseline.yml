@@ -1,0 +1,30 @@
+name: Skill Manager live-baseline reconciliation (NO DEPLOY)
+
+on:
+  push:
+    branches:
+      - feature/skill-manager-prod-baseline-20261101
+  pull_request:
+    branches:
+      - release/v79-hub-prod-baseline-20261101
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-baseline-attestation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out reviewed candidate and complete commit ancestry
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch immutable live-baseline branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/release/v79-hub-prod-baseline-20261101:refs/remotes/origin/release/v79-hub-prod-baseline-20261101
+      - name: Verify scope, frozen security contracts, paired image source
+        run: node scripts/skill-manager-prod-baseline-attestation.mjs

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Bot, ClipboardCheck, LayoutList, MessageSquare, Sun, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
+import { ArrowRight, BookOpen, Bot, ClipboardCheck, LayoutList, MessageSquare, Sun, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
+import { WorkforceSkillManager } from "./WorkforceSkillManager";
 import { SignedTiquetEvidencePanel } from "./SignedTiquetEvidencePanel";
 import { ExecutiveReviewPanel } from "./ExecutiveReviewPanel";
 import { OwnerToday } from "./OwnerToday";
@@ -27,7 +28,7 @@ type InvestigationBrief = {
   findings: InvestigationFinding[];
   missing: {system: string; reason: "stale" | "unavailable" | "unknown"}[];
 };
-type Message = { role: "user" | "assistant"; text: string; specialist?: string; evidence?: EvidenceLedger; investigation?: InvestigationBrief };
+type Message = { role: "user" | "assistant"; text: string; specialist?: string; appliedSkills?: string[]; evidence?: EvidenceLedger; investigation?: InvestigationBrief };
 
 const specialistPrompts = [
   { label: "Operations", prompt: "Review inventory, shipments and operational bottlenecks." },
@@ -38,12 +39,13 @@ const specialistPrompts = [
   { label: "CombatZone", prompt: "Review CombatZone laser tag bookings and event readiness." },
 ];
 
-type WorkspaceView = "today" | "agents" | "tasks" | "delivery" | "tools";
+type WorkspaceView = "today" | "agents" | "tasks" | "delivery" | "tools" | "skills";
 const workspaceViews = [
   { id: "today", label: "Today", icon: Sun },
   { id: "agents", label: "Ask Assistant", icon: MessageSquare },
   { id: "tasks", label: "Tasks & approvals", icon: ClipboardCheck },
   { id: "delivery", label: "Delivery board", icon: LayoutList },
+  { id: "skills", label: "Skill Library", icon: BookOpen },
 
 ] as const;
 
@@ -82,6 +84,7 @@ export function OwnerAssistant() {
     },
   ]);
   const [input, setInput] = useState("");
+  const [selectedWorker, setSelectedWorker] = useState("auto");
   const [busy, setBusy] = useState(false);
   const [suggestedDraft, setSuggestedDraft] = useState<AgentDraftSuggestion | null>(null);
   const [preparedCooWork, setPreparedCooWork] = useState<CooWorkItemDraft | null>(null);
@@ -102,13 +105,16 @@ export function OwnerAssistant() {
       const response = await fetch("/api/agent/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message: selectedWorker === "auto" ? message : selectedWorker + ": " + message }),
       });
       const data = await response.json();
       setMessages((items) => [
         ...items,
         { role: "assistant", text: response.ok ? data.output : data.error || "Assistant request failed.",
           specialist: response.ok ? data.specialist : undefined,
+          appliedSkills: response.ok && Array.isArray(data.managedSkillVersionsApplied)
+            ? data.managedSkillVersionsApplied.filter((item: unknown) => typeof item === "string").slice(0,2)
+            : undefined,
           evidence: response.ok && data.evidence?.mode === "read-only" ? data.evidence : undefined,
           investigation: response.ok && data.investigation?.mode === "read-only" ? data.investigation : undefined },
       ]);
@@ -190,6 +196,11 @@ export function OwnerAssistant() {
                 <div className="text-xs text-cyan-300 mb-1 font-semibold">{message.specialist} · Read-only</div>
               )}
               <span className="whitespace-pre-wrap">{message.text}</span>
+              {message.role === "assistant" && message.appliedSkills && message.appliedSkills.length > 0 && (
+                <div className="mt-2 text-xs text-emerald-300" aria-label="Applied custom skill versions">
+                  Custom skill guidance applied: {message.appliedSkills.join(", ")}
+                </div>
+              )}
               {message.role === "user" && <button type="button" onClick={() => prepareTask({ sourceId: "chat", system: "hub", summary: message.text.trim().slice(0, 180), detail: message.text.trim().slice(0, 2000) })}
                 className="mt-3 block min-h-10 rounded-lg border border-cyan-200/40 px-3 py-2 text-xs font-medium hover:bg-cyan-700 focus-visible:ring-2 focus-visible:ring-white">Prepare as task</button>}
               {message.role === "assistant" && message.investigation && (
@@ -269,7 +280,21 @@ export function OwnerAssistant() {
           ))}
           {busy && <div className="text-xs text-slate-500">Working...</div>}
         </div>
-        <div className="p-4 border-t border-slate-800 bg-slate-900/70 flex gap-3">
+        <div className="px-4 pt-3 border-t border-slate-800 bg-slate-900/70">
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            Ask worker
+            <select aria-label="Choose AI worker" value={selectedWorker} onChange={event => setSelectedWorker(event.target.value)}
+              className="rounded-lg border border-slate-700 bg-slate-950 text-slate-100 px-3 py-2">
+              <option value="auto">Automatic routing</option>
+              <option value="ceo">CEO</option><option value="coo">COO</option>
+              <option value="finance">Finance</option><option value="strategy">Strategy</option>
+              <option value="marketing">Marketing</option><option value="sales">Sales</option>
+              <option value="customer-service">Customer Service</option>
+              <option value="technical-security">Technical &amp; Security</option>
+            </select>
+          </label>
+        </div>
+        <div className="p-4 bg-slate-900/70 flex gap-3">
           <textarea
             ref={composer}
             aria-label="Message to your agents"
@@ -305,6 +330,9 @@ export function OwnerAssistant() {
         </section>
         <section id="workspace-delivery" className="v79-legacy-panel" aria-label="Delivery board" hidden={view !== "delivery"}>
           {visited.has("delivery") && <><div className="px-5 pt-5"><h2 className="text-lg font-semibold">Engineering delivery board</h2><p className="mt-1 text-sm text-slate-400">Review GitHub work and prepare a task for COO. Preparing a task opens a draft for you to review.</p></div><OwnerCooWorkboardPanel embedded active={view === "delivery"} onPrepareTask={prepareTask} /></>}
+        </section>
+        <section id="workspace-skills" className="v79-legacy-panel" aria-label="Skill Library" hidden={view !== "skills"}>
+          {visited.has("skills") && <WorkforceSkillManager />}
         </section>
         <section id="workspace-tools" className="v79-legacy-panel v79-tools" aria-label="Tools and reports" hidden={view !== "tools"}>
           <div className="v79-area-heading"><div><h2>Tools & reports</h2><p>Open a focused workspace for each capability.</p></div></div>
