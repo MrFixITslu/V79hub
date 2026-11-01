@@ -11,6 +11,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
+import { createWebsiteSsoGrants } from "./server/website-sso.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -3481,6 +3482,94 @@ app.post("/api/security/mfa/disable", requireAuth, async (req, res) => {
   onboardingAudit(store, "mfa_disabled", {}, user.id, session.organizationId);
   await saveStore(store);
   res.json({ success: true, enabled: false });
+});
+
+
+/**
+ * Scoped SSO for the Vision79 website admin. This is not a general-purpose
+ * OAuth provider; no Hub cookies, MFA seeds, passwords or refresh tokens leave Hub.
+ * Endpoint remains unavailable until deliberately enabled on BOTH applications.
+ */
+const websiteSsoGrants = createWebsiteSsoGrants();
+const websiteSsoReady = () => process.env.V79_HUB_WEBSITE_SSO_ENABLED === "1" &&
+  String(process.env.V79_WEBSITE_SSO_SHARED_SECRET || "").length >= 32;
+const websiteSsoCallback = "https://v79sl.com/api/admin/hub-sso/callback";
+function websiteSsoAuth(req: Request, res: Response): boolean {
+  if (!websiteSsoReady()) { res.status(404).json({ error: "Not found" }); return false; }
+  const configured = String(process.env.V79_WEBSITE_SSO_SHARED_SECRET || "");
+  const provided = String(req.get("x-v79-website-sso-key") || "");
+  if (!provided || provided.length !== configured.length ||
+      !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(configured))) {
+    res.status(401).json({ error: "Service authentication required" }); return false;
+  }
+  return true;
+}
+function validWebsiteSsoSession(sessionKeyHash: string, recent = false) {
+  const session = sessions.get(sessionKeyHash);
+  if (!session || session.expiresAt <= Date.now() || session.mfaVerified !== true ||
+      !Number.isFinite(session.mfaVerifiedAt)) return null;
+  if (Date.now() - session.mfaVerifiedAt! > (recent ? 15 : 45) * 60_000 ||
+      session.mfaVerifiedAt! > Date.now() + 60_000 ||
+      !isPlatformOperatorIdentity(session.userId, session.organizationId)) return null;
+  const user = store.users.find(u => u.id === session.userId);
+  if (!user?.mfaEnabled || !activeMembership(store, session.userId, session.organizationId)) return null;
+  return { userId: session.userId, organizationId: session.organizationId,
+    email: normalizeEmail(user.email), mfaVerifiedAt: session.mfaVerifiedAt };
+}
+app.get("/api/website-sso/authorize", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  if (!websiteSsoReady()) return res.status(404).send("Not found");
+  // Browser login only; never accept bearer tokens for this redirect route.
+  const token = cookieToken(req.headers.cookie);
+  const session = token ? validWebsiteSsoSession(sessionKey(token), true) : null;
+  if (!session) {
+    return res.status(403).type("text/plain").send(
+      "Sign in to hub.v79sl.com with MFA, then return to v79sl.com/admin and select Sign in with V79 Hub again."
+    );
+  }
+  const state = String(req.query.state || "");
+  const challenge = String(req.query.code_challenge || "");
+  const callback = String(req.query.redirect_uri || "");
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(state) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(challenge) || callback !== websiteSsoCallback) {
+    return res.status(400).json({ error: "Invalid website sign-in request" });
+  }
+  const code = websiteSsoGrants.issue({ challenge, sessionHash: sessionKey(token) });
+  const dest = new URL(websiteSsoCallback);
+  dest.searchParams.set("code", code);
+  dest.searchParams.set("state", state);
+  return res.redirect(302, dest.toString());
+});
+app.post("/api/website-sso/exchange", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!websiteSsoAuth(req, res)) return;
+  const handle = websiteSsoGrants.consume({
+    code: req.body?.code, verifier: req.body?.code_verifier
+  });
+  const identity = handle && validWebsiteSsoSession(websiteSsoGrants.lookup(handle) || "", true);
+  if (!handle || !identity) {
+    if (handle) websiteSsoGrants.revoke(handle);
+    return res.status(401).json({ error: "Invalid or expired website sign-in code" });
+  }
+  return res.json({ handle, subject: identity.userId, organizationId: identity.organizationId,
+    mfaVerifiedAt: identity.mfaVerifiedAt, email: identity.email, issuer: "V79 Hub",
+    audience: "V79website-admin" });
+});
+app.post("/api/website-sso/introspect", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!websiteSsoAuth(req, res)) return;
+  const handle = String(req.body?.handle || "");
+  const key = websiteSsoGrants.lookup(handle);
+  const identity = key ? validWebsiteSsoSession(key) : null;
+  if (!identity) return res.status(401).json({ active: false });
+  return res.json({ active: true, subject: identity.userId, organizationId: identity.organizationId,
+    mfaVerifiedAt: identity.mfaVerifiedAt, email: identity.email });
+});
+app.post("/api/website-sso/revoke", (req, res) => {
+  if (!websiteSsoAuth(req, res)) return;
+  websiteSsoGrants.revoke(req.body?.handle);
+  return res.json({ revoked: true });
 });
 
 app.use("/api", requireAuth);
