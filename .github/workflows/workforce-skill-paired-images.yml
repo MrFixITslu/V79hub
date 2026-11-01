@@ -1,0 +1,61 @@
+name: Skill Manager paired image staging (NO DEPLOY)
+on:
+  push:
+    branches: ["feature/skill-manager-prod-baseline-20261101"]
+    paths:
+      - "Dockerfile"
+      - "agent-service/**"
+      - "src/components/OwnerAssistant.tsx"
+      - "src/components/WorkforceSkillManager.tsx"
+      - "server.ts"
+      - "server/workforce-skill-*.mjs"
+      - ".github/workflows/workforce-skill-paired-images.yml"
+  pull_request:
+    paths:
+      - "agent-service/**"
+      - "src/components/OwnerAssistant.tsx"
+      - "src/components/WorkforceSkillManager.tsx"
+      - "server.ts"
+      - "server/workforce-skill-*.mjs"
+      - ".github/workflows/workforce-skill-paired-images.yml"
+permissions:
+  contents: read
+jobs:
+  paired-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reconcile pinned source and intended scope
+        run: |
+          test -f server/workforce-skill-registry.mjs
+          test -f server/workforce-skill-routes.mjs
+          test -f agent-service/src/managed-skills.ts
+          test -f src/components/WorkforceSkillManager.tsx
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if grep -Fq 'marketingStudioApprovalRouter' server.ts; then
+            echo 'STOP: pending Marketing Studio route found in release source'
+            exit 1
+          fi
+          echo "RELEASE_SOURCE=$GITHUB_SHA"
+      - name: Build paired images but never push or deploy
+        run: |
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" -t v79-skill-hub:stage .
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" -t v79-skill-agent:stage ./agent-service
+      - name: Inspect staged images without running applications
+        run: |
+          docker run --rm --read-only --network none --entrypoint sh v79-skill-hub:stage -c '
+            test -f /app/server/workforce-skill-registry.mjs
+            test -f /app/server/workforce-skill-routes.mjs
+            test -f /app/src/components/WorkforceSkillManager.tsx
+            test -x /app/node_modules/.bin/tsx
+          '
+          docker run --rm --read-only --network none --entrypoint sh v79-skill-agent:stage -c '
+            test -f /app/src/managed-skills.ts
+            test -f /app/src/chat-roles.ts
+          '
+          docker image inspect v79-skill-hub:stage --format 'HUB_IMAGE={{.Id}} REVISION={{index .Config.Labels "org.opencontainers.image.revision"}}'
+          docker image inspect v79-skill-agent:stage --format 'AGENT_IMAGE={{.Id}} REVISION={{index .Config.Labels "org.opencontainers.image.revision"}}'
+          echo 'PAIRED_IMAGE_STAGE=PASS NO_PRODUCTION_CHANGE=YES'
