@@ -22,12 +22,14 @@ test("skill drafts are immutable, active version is pinned through later edits, 
   const active=await r.activate(created.id,1,["technical-security","marketing"],1,"owner");
   assert.equal(active.status,"active");
   assert.equal(r.assignedSkills()["technical-security"][0].content,draft().content);
-  const revised=await r.revise(created.id,draft("Website Developer","# Changed proposal"),2,"owner");
+  const revised=await r.revise(created.id,draft("Renamed Website Developer","# Changed proposal"),2,"owner");
   assert.equal(revised.latestVersion,2);
   assert.equal(r.assignedSkills().marketing[0].version,1);
+  assert.equal(r.assignedSkills().marketing[0].name,"Website Developer");
   assert.equal(r.get(created.id).versions[0].content,draft().content);
   const restored=await r.restore(created.id,1,3,"owner");
   assert.equal(restored.latestVersion,3);
+  assert.equal(r.get(created.id).versions[2].name,"Website Developer");
   assert.equal(r.assignedSkills().marketing[0].version,1);
   const changed=await r.activate(created.id,3,["marketing"],4,"owner");
   assert.equal(changed.activeVersion,3);
