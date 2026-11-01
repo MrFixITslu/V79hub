@@ -25,6 +25,7 @@ import { runEvidenceBoundOwnerAssistant } from "./evidence-answer.js";
 
 import { resolveChatRole, chatRoleRoster } from "./chat-roles.js";
 import { verifyManagedSkills, managedSkillGuidance } from "./managed-skills.js";
+import { runSkillAdvisoryDraft } from "./skill-advisory.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -318,6 +319,27 @@ app.post("/api/agent/chat", async (req, res) => {
           model: agentModelRuntime.model,
           responseMode: "deterministic-facts",
           domain: factual.domain,
+        });
+      }
+      if (managed?.versions.length) {
+        const proposal = await runSkillAdvisoryDraft(message, evidence, {
+          specialistInstructions: [chatRole?.instructions || specialistInstructions(chosenSpecialist), managed.instructions]
+            .filter(Boolean).join("\n\n"),
+        });
+        return res.json({
+          output: proposal.output,
+          evidence,
+          investigation,
+          specialist: chosenSpecialist.name,
+          roleId: chatRole?.id,
+          skillSha: chatRole?.skillSha,
+          evidenceScopeId: chosenSpecialist.id,
+          mode: "read-only",
+          modelProvider: "ollama",
+          model: agentModelRuntime.model,
+          responseMode: proposal.responseMode,
+          advisoryOutcome: proposal.advisoryOutcome,
+          managedSkillVersionsApplied: proposal.advisoryOutcome === "accepted" ? managed.versions : [],
         });
       }
       const result = await runEvidenceBoundOwnerAssistant(message, evidence, {
