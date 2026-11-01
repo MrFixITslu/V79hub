@@ -1,4 +1,5 @@
 import express from "express";
+import {builtinSkillCatalog,builtinSkillDetail} from "./workforce-builtins.mjs";
 import { validateSkillDraft } from "./workforce-skill-registry.mjs";
 
 // A model instruction is never an authorization grant. Owner-only, no external
@@ -30,6 +31,10 @@ export function workforceSkillRouter({ registry, enabled, ownerContext, freshOwn
     return false;
   };
   router.get("/", wrap(async (_req, res) => res.json(registry.list())));
+  // Founder-only read endpoints; built-in files are verified against the exact
+  // pinned Git blob IDs before disclosure. No route may modify a built-in skill.
+  router.get("/builtins", wrap(async (_req,res) => res.json({skills:builtinSkillCatalog()})));
+  router.get("/builtins/:role", wrap(async (req,res) => res.json({skill:builtinSkillDetail(req.params.role)})));
   router.get("/:id", wrap(async (req, res) => res.json(registry.get(req.params.id))));
   router.post("/validate", wrap(async (req, res) => {
     if (!body(req.body, ["name", "content"])) return res.status(400).json({ error: "Invalid draft" });
