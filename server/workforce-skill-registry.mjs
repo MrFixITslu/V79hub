@@ -90,8 +90,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
   }
   function persist(state) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    // Exclusive lock: second Hub writer fails closed; an abandoned lock needs operator review.
-    fs.mkdirSync(lockPath, { mode: 0o700 });
+    // Caller holds the cross-process exclusive write lock.
     const tmp = path.join(dir, "." + path.basename(file) + "." + crypto.randomBytes(12).toString("hex") + ".tmp");
     try {
       const fd = fs.openSync(tmp, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW, 0o600);
@@ -104,7 +103,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
       try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
     } finally {
       try { fs.unlinkSync(tmp); } catch (e) { if (e.code !== "ENOENT") throw e; }
-      fs.rmdirSync(lockPath);
+
     }
   }
   // Read and write under one exclusive local queue; a separate process writer
@@ -112,13 +111,19 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
   async function transact(update) {
     const run = pending.catch(() => {}).then(() => {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      // The current process queue serializes edits; lock conflicts refuse rather than retry.
-      const before = load();
-      const state = structuredClone(before);
-      const result = update(state);
-      state.revision++;
-      persist(state);
-      return result;
+      // Lock BEFORE reading: otherwise a second process can replay a stale read.
+      // An abandoned lock fails closed for operator review rather than guessing.
+      fs.mkdirSync(lockPath, { mode: 0o700 });
+      try {
+        const before = load();
+        const state = structuredClone(before);
+        const result = update(state);
+        state.revision++;
+        persist(state);
+        return result;
+      } finally {
+        fs.rmdirSync(lockPath);
+      }
     });
     pending = run;
     return run;
