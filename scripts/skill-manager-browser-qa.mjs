@@ -14,7 +14,7 @@ try {
     const sha=createHash("sha256").update(original).digest("hex");
     let record=null, activates=0;
     await page.route("**/api/**",async route=>{
-      const u=new URL(route.request().url()),p=u.pathname,m=route.request().method();
+      const u=new URL(route.request().url()),p=u.pathname.replace(/\/$/, ""),m=route.request().method();
       const json=(body,status=200)=>route.fulfill({status,contentType:"application/json",body:JSON.stringify(body)});
       if(p==="/api/auth/me")return json({user:{
         id:"synthetic-owner",username:"test",fullName:"Synthetic Owner",role:"admin",
