@@ -22,6 +22,15 @@ This implementation extends **Hub → Owner Assistant → Skill Library** withou
 - If the model is unavailable or its output is rejected, the user receives a read-only fallback with no suggestion that the skill was applied. Deterministic direct factual and priority-brief answers retain their original evidence path.
 - An accepted advisory draft is explicitly labelled as **for owner review only**, with an on-screen notice that no action occurred. Semantic model errors remain possible; the bounded output filter is an extra safeguard, not a certification of correctness.
 
+## Built-in Skill Library inspection and improvement review
+
+- The eight **protected original** skills (CEO, COO, Finance, Strategy, Marketing, Customer Service, Technical & Security, Sales) are now viewable by the authenticated owner. The Hub reads exact `workforce/skills/<role>/SKILL.md` content from a fixed known path and checks its pinned Git-blob hash; it fails closed if any original is modified unexpectedly.
+- Read-only built-in catalog: `GET /api/agent/skills/builtins`. A specific protected original: `GET /api/agent/skills/builtins/:role`. Neither endpoint accepts a mutation. Both use existing owner-only access controls; ordinary users cannot list or read the protected source.
+- **Improve this skill** creates a role-specific editable add-on draft (not an overwrite). The draft incorporates suggestions to check current product state and evidence, rather than trusting older Hub/Tiquet-only P1/P2 assumptions. Original source bytes and protected system instructions never change.
+- The editor explicitly distinguishes the **active assigned version** from the newest draft; a read-only selector previews any historical version before restoration or activation. Suggestions remain inactive until reviewed, saved, revalidated, assigned and activated with fresh owner MFA.
+- New UI and API tests verify all eight roles, source pin parity with the independent agent, anonymous API denial, desktop/mobile built-in previews and the existing custom skill activation flow.
+- Scope limit: this updates **owner chat advisory skills only**. Scheduled CEO/COO jobs and customer-facing marketing skills are separate processes and are **not updated** by these add-on drafts.
+
 ## Config / release gating
 Both Hub and agent images need the paired candidate; shipping only Hub will cause agent request errors when skills are supplied.
 The flag is disabled by default:
