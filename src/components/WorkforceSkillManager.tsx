@@ -78,11 +78,15 @@ export function WorkforceSkillManager() {
   };
   useEffect(() => {
     let active = true;
-    Promise.all([
+    Promise.allSettled([
       callApi<{skills:Metadata[];audit:Audit[]}>("/"),
       callApi<{skills:BuiltIn[]}>("/builtins")
-    ]).then(([data,verified]) => {
-      if(active){setCatalog(data.skills);setAudit(data.audit);setBuiltins(verified.skills);}
+    ]).then(([custom,verified]) => {
+      if(!active)return;
+      if(custom.status==="fulfilled"){setCatalog(custom.value.skills);setAudit(custom.value.audit);}
+      else setError(custom.reason instanceof Error?custom.reason.message:"Could not read your custom skill library");
+      if(verified.status==="fulfilled"){setBuiltins(verified.value.skills);setBuiltInError("");}
+      else {setBuiltins([]);setBuiltInError("Protected skills unavailable. Integrity or server access must be checked.");}
     })
       .catch(e => {if(active) setError(String(e.message || e));})
       .finally(() => {if(active) setLoading(false);});
@@ -292,7 +296,7 @@ export function WorkforceSkillManager() {
         {selected && <div className="border-t border-slate-800 pt-5 space-y-3">
           {selected.activeVersion !== null && <div role="status"
             className="rounded-xl border border-slate-700 bg-slate-900/70 p-3 text-sm">
-            <strong>AI currently uses version {selected.activeVersion}</strong>
+            <strong>{selected.status==="active"?"AI currently uses version ":"Last assigned version "}{selected.activeVersion}</strong>
             {selected.latestVersion !== selected.activeVersion &&
               <p className="mt-1 text-amber-200">Version {selected.latestVersion} is a newer draft, not active.
                 Saving or restoring does not update the AI until you explicitly activate it.</p>}
