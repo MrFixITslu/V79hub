@@ -23,7 +23,7 @@ export function verifyManagedSkills(payload:unknown):AttachedSkills {
         throw Error("Unexpected skill field");
       if (typeof item.id !== "string" || !/^skill-[a-f0-9]{16}$/.test(item.id) || seen.has(item.id) ||
           typeof item.name !== "string" || item.name.length > 80 ||
-          !Number.isSafeInteger(item.version) || Number(item.version) < 1 ||
+          typeof item.version !== "number" || !Number.isSafeInteger(item.version) || item.version < 1 ||
           typeof item.content !== "string" || typeof item.sha256 !== "string" ||
           !/^[a-f0-9]{64}$/.test(item.sha256)) throw Error("Invalid skill metadata");
       const len = Buffer.byteLength(item.content);
