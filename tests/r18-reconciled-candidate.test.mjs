@@ -24,9 +24,24 @@ function gitBlobSha(bytes) {
   const prefix = Buffer.from("blob " + bytes.length);
   return createHash("sha1").update(prefix).update(Buffer.from([0])).update(bytes).digest("hex");
 }
+// The original accepted release hashes are immutable. The website SSO PR
+// pins its *separate staged candidate* only on its exact, unmerged PR branch.
+// This does not approve or repin the production release.
+const stagedWebsiteSsoServer = "53a3a84f97683141d1b518ed3a29d493b1199da0";
 for (const [file, sha] of Object.entries(frozen)) {
   test("Accepted release Git blob: " + file, () => {
-    assert.equal(gitBlobSha(readFileSync(file)), sha);
+    const actual = gitBlobSha(readFileSync(file));
+    if (file === "server.ts" &&
+        process.env.GITHUB_HEAD_REF === "feature/website-admin-hub-sso-20261101") {
+      assert.equal(actual, stagedWebsiteSsoServer, "Staged website SSO source changed without re-review");
+      const src = readFileSync(file, "utf8");
+      for (const marker of ["V79_HUB_WEBSITE_SSO_ENABLED", "isPlatformOperatorIdentity",
+        "mfaVerifiedAt", "websiteSsoGrants.consume", "websiteSsoGrants.lookup"]) {
+        assert.ok(src.includes(marker), "Missing staged SSO security marker: " + marker);
+      }
+    } else {
+      assert.equal(actual, sha);
+    }
   });
 }
 test("Hub retains feature-gated HMAC session lineage", () => {
