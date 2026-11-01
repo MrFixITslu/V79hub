@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 
 const BASELINE="2e5f872914bb85f98651ce00a4a90b1880e44076";
-const HUB_IMAGE_SOURCE="2bb34e78d9bb8c93ddb9b788f01e0574fe60a2cb";
+const HUB_IMAGE_SOURCE="24813fbd89377bdac4b45e3d0d2b5291698b3dd1";
 const AGENT_IMAGE_SOURCE="674d210bd4bdb7061add04250271025403220736";
 const EXPECTED=new Set([
  ".github/workflows/hub-isolated-browser-preview.yml",
@@ -24,10 +24,12 @@ const EXPECTED=new Set([
  "scripts/skill-manager-browser-qa.mjs",
  "scripts/skill-manager-prod-baseline-attestation.mjs",
  "server.ts",
+ "server/workforce-builtins.mjs",
  "server/workforce-skill-registry.mjs",
  "server/workforce-skill-routes.mjs",
  "src/components/OwnerAssistant.tsx",
  "src/components/WorkforceSkillManager.tsx",
+ "tests/workforce-builtins.test.mjs",
  "tests/workforce-skill-registry.test.mjs",
  "tests/workforce-skill-routes.test.mjs",
 ]);
@@ -67,5 +69,6 @@ console.log("BASELINE_LIVE_SHA="+BASELINE);
 console.log("ALLOWLISTED_CHANGED_FILES="+changed.length);
 console.log("LEGACY_CONTRACT_FILES_UNCHANGED="+protectedLegacy.length);
 console.log("HUB_AND_AGENT_CODE_MATCH_STAGED_IMAGE_REVISIONS=PASS");
+console.log("BUILTIN_CATALOG_ROUTING_AND_TESTS_WHITELISTED=PASS");
 console.log("HISTORICAL_SOURCE_PINS_NOT_DISABLED_OR_REWRITTEN=PASS");
 console.log("RELEASE_SCOPE_ONLY_NO_DEPLOY=YES");
