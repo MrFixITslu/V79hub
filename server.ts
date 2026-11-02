@@ -3522,7 +3522,7 @@ function validWebsiteSsoSession(sessionKeyHash: string, recent = false) {
   const session = sessions.get(sessionKeyHash);
   if (!session || session.expiresAt <= Date.now() || session.mfaVerified !== true ||
       !Number.isFinite(session.mfaVerifiedAt)) return null;
-  if (Date.now() - session.mfaVerifiedAt! > (recent ? 15 : 45) * 60_000 ||
+  if (Date.now() - session.mfaVerifiedAt! > (recent ? 15 : 8 * 60) * 60_000 ||
       session.mfaVerifiedAt! > Date.now() + 60_000 ||
       !isPlatformOperatorIdentity(session.userId, session.organizationId)) return null;
   const user = store.users.find(u => u.id === session.userId);
@@ -3536,7 +3536,9 @@ app.get("/api/website-sso/authorize", (req, res) => {
   if (!websiteSsoReady()) return res.status(404).send("Not found");
   // Browser login only; never accept bearer tokens for this redirect route.
   const token = cookieToken(req.headers.cookie);
-  const session = token ? validWebsiteSsoSession(sessionKey(token), true) : null;
+  // Routine website access may reuse the existing MFA-verified Hub session;
+   // sensitive payment approvals retain their independent 15-minute MFA check.
+   const session = token ? validWebsiteSsoSession(sessionKey(token)) : null;
   if (!session) {
     return res.status(403).type("text/plain").send(
       "Sign in to hub.v79sl.com with MFA, then return to v79sl.com/admin and select Sign in with V79 Hub again."
@@ -3561,7 +3563,7 @@ app.post("/api/website-sso/exchange", (req, res) => {
   const handle = websiteSsoGrants.consume({
     code: req.body?.code, verifier: req.body?.code_verifier
   });
-  const identity = handle && validWebsiteSsoSession(websiteSsoGrants.lookup(handle) || "", true);
+  const identity = handle && validWebsiteSsoSession(websiteSsoGrants.lookup(handle) || "");
   if (!handle || !identity) {
     if (handle) websiteSsoGrants.revoke(handle);
     return res.status(401).json({ error: "Invalid or expired website sign-in code" });
