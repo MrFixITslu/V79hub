@@ -23,7 +23,7 @@ test("single-use PKCE code: correct verifier, replay rejected, independent sessi
   assert.equal(grants.lookup(handle), null, "handle revocation is enforced");
 });
 
-test("60-second authorisation grant TTL and 30-minute handle expiry", () => {
+test("60-second PKCE code and eight-hour MFA-bound handle expiry", () => {
   let clock = 1_000_000;
   const grants = createWebsiteSsoGrants({ now: () => clock });
   const code = grants.issue({ challenge: challenge(verifier), sessionHash });
@@ -31,8 +31,10 @@ test("60-second authorisation grant TTL and 30-minute handle expiry", () => {
   assert.equal(grants.consume({ code, verifier }), null);
   const code2 = grants.issue({ challenge: challenge(verifier), sessionHash });
   const handle = grants.consume({ code: code2, verifier });
-  clock += 30 * 60_000 + 1;
-  assert.equal(grants.lookup(handle), null);
+  clock += 7 * 60 * 60_000;
+  assert.equal(grants.lookup(handle), sessionHash, "active workday handle must remain usable");
+  clock += 60 * 60_000 + 1;
+  assert.equal(grants.lookup(handle), null, "workday handle has absolute expiry");
 });
 
 test("reject malformed PKCE challenges and missing session identity", () => {
