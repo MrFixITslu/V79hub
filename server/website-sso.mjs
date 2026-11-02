@@ -8,6 +8,8 @@ const same = (a, b) => typeof a === "string" && typeof b === "string" &&
 export function createWebsiteSsoGrants({ now = Date.now, maxEntries = 500 } = {}) {
   const grants = new Map();
   const handles = new Map();
+  // One workday maximum; always bound to the original MFA-verified Hub session.
+  const HANDLE_MAX_AGE_MS = 8 * 60 * 60_000;
   function prune() {
     const time = now();
     for (const [key, row] of grants) if (row.expires <= time) grants.delete(key);
@@ -36,7 +38,7 @@ export function createWebsiteSsoGrants({ now = Date.now, maxEntries = 500 } = {}
     const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
     if (!same(item.challenge, challenge)) return null;
     const handle = crypto.randomBytes(32).toString("base64url");
-    handles.set(hash(handle), { sessionHash: item.sessionHash, expires: now() + 30 * 60_000 });
+    handles.set(hash(handle), { sessionHash: item.sessionHash, expires: now() + HANDLE_MAX_AGE_MS });
     return handle;
   }
   function lookup(handle) {
