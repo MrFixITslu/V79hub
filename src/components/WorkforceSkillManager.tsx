@@ -1,5 +1,6 @@
 import {useEffect, useState} from "react";
 import {BookOpen, Check, FileUp, LockKeyhole, Plus, RotateCcw, ShieldCheck} from "lucide-react";
+import {IMPECCABLE_PRESET} from "../lib/impeccablePreset";
 
 type Worker = "ceo"|"coo"|"finance"|"strategy"|"marketing"|"customer-service"|"technical-security"|"sales";
 const WORKERS:readonly {id:Worker;name:string}[] = [
@@ -197,6 +198,14 @@ export function WorkforceSkillManager() {
     setSelectedBuiltin(response.skill);
     setSelected(null);setReview(null);setAcknowledged(false);
   },"");
+  const loadImpeccablePreset = () => {
+    resetDraft();
+    setName(IMPECCABLE_PRESET.name);
+    setContent(IMPECCABLE_PRESET.content);
+    setWorkers(["technical-security"]);
+    setMessage("Impeccable v" + IMPECCABLE_PRESET.sourceVersion +
+      " advisory template loaded. Review, save the draft, check it, and use fresh MFA before assignment. No scripts are installed or run from the Skill Library.");
+  };
   const improveBuiltin = () => {
     if(!selectedBuiltin)return;
     const role=selectedBuiltin;
@@ -312,6 +321,10 @@ export function WorkforceSkillManager() {
             <input className="sr-only" type="file" accept=".md,.txt,text/plain,text/markdown"
               onChange={async e=>{await loadFile(e.target.files?.[0]);e.target.value="";}}/>
           </label>
+          <button type="button" onClick={loadImpeccablePreset} disabled={busy}
+            className={secondaryButton} aria-label="Load Impeccable UI and UX advisory template">
+            <BookOpen size={16} className="inline mr-2"/>Impeccable UI/UX template
+          </button>
           <span className="text-xs text-slate-400">{new TextEncoder().encode(content).length}/6000 bytes</span>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -391,6 +404,6 @@ export function WorkforceSkillManager() {
         {!audit.length && <p className="text-xs text-slate-500">No changes recorded.</p>}
       </div>
     </details>
-    <p className="text-xs text-slate-500">Text-only imports. No ZIP execution, external tool installation or automatic worker actions. Model evaluation and AI-assisted authoring remain separate acceptance work.</p>
+    <p className="text-xs text-slate-500">Text-only imports and curated advisory templates. The Impeccable preset does not include or execute the original package's scripts, hooks or binary. Assignments affect only selected owner-chat workers, not scheduled agents or production development. No ZIP execution or automatic worker actions.</p>
   </div>;
 }

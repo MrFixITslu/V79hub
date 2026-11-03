@@ -47,3 +47,14 @@ Source tests are not actual local-model evaluation. Before a guarded production 
 - An unclean shutdown leaving a .lock directory needs owner investigation; do not bypass it by disabling integrity checks. A second Hub replica must not write to the same file without an appropriate distributed locking/storage migration.
 - Existing scheduled agents are separate products; a specialist's chat guidance must not be misrepresented as an installed scheduling skill.
 - A history cap keeps the most recent 1000 metadata audit events. Requirements for long-term compliance should use an independently preserved audit sink.
+
+
+## 3 November 2026 — live Skill Manager / Impeccable integration
+- The existing owner-only Skill Library is live on Hub and paired with its current Business Agent. The sealed persistent registry passed a live HMAC integrity read; the app remains healthy.
+- Hub has been updated to include an owner-selectable **Impeccable v4.8.0 UI/UX advisory template**. This loads an editable text draft in the Skill Library, with the Technical & Security chat worker selected as an initial suggestion. Saving creates a new version; review/validation and fresh MFA are still required before activation.
+- The original 63-file Impeccable skill is installed at `/home/firelion/.agents/skills/impeccable/` for future coding-agent workflows, but its executable helpers, downloads and hooks are **not** used by the owner-chat Skill Manager.
+- A repository `AGENTS.md` routes approved UI development work to the full installed skill's guidance on the server. That guidance file alone does not grant code execution or deploy capabilities to a worker.
+- The Hub-only guarded cutover retained the old Hub container for rollback, preserved all seven mounts and existing environment/network/health settings, and verified six protected peer services.
+- The candidate image was built from an explicitly filtered context and passed 11 focused isolated image tests, including role/permission boundaries, stale MFA, cross-origin and preset safety tests. The production public endpoint and unauthenticated skill APIs passed smoke checks.
+- Scope remains **text-only skills for selected founder owner-chat workers**. No executable ZIP import, automatic publication, scheduled COO/CEO skill injection, customer Marketing Studio inheritance, or unrestricted development execution is implied.
+- Activation of the new preset requires a fresh owner MFA challenge through the existing UI; the release itself never bypasses that approval.
