@@ -1,6 +1,7 @@
 import {useEffect, useState} from "react";
 import {BookOpen, Check, FileUp, LockKeyhole, Plus, RotateCcw, ShieldCheck} from "lucide-react";
 import {IMPECCABLE_PRESET} from "../lib/impeccablePreset";
+import {SkillPackageManager} from "./SkillPackageManager";
 
 type Worker = "ceo"|"coo"|"finance"|"strategy"|"marketing"|"customer-service"|"technical-security"|"sales";
 const WORKERS:readonly {id:Worker;name:string}[] = [
@@ -395,6 +396,7 @@ export function WorkforceSkillManager() {
         </>}
       </div>
     </div>}
+    <SkillPackageManager/>
     <details className="rounded-2xl border border-slate-800 px-4 py-3">
       <summary className="cursor-pointer text-sm font-semibold">Skill audit history</summary>
       <div className="mt-3 space-y-2 max-h-64 overflow-auto">

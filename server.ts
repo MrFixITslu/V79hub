@@ -25,6 +25,8 @@ import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAge
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
 import { createSkillRegistry } from "./server/workforce-skill-registry.mjs";
+import { createPackageStore } from "./server/workforce-skill-packages.mjs";
+import {scheduledSkillRouter} from "./server/workforce-skill-scheduled.mjs";
 import { workforceSkillRouter } from "./server/workforce-skill-routes.mjs";
 import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
 import { googleWorkforceClient } from "./server/workforce-google.mjs";
@@ -4960,15 +4962,23 @@ const workforceRouters = workforceActionRouters({
   },
 });
 app.use("/api/agent/work-actions", workforceRouters.owner);
-app.use("/internal/workforce", workforceRouters.worker);
 // Isolated owner skills: do not replace the built-in workforce or its permissions.
 const skillRegistryKey = String(process.env.V79_WORKFORCE_SKILL_REGISTRY_KEY || "");
 const skillRegistry = skillRegistryKey.length >= 32 ? createSkillRegistry({
   file: path.join(DATA_DIR, "workforce-skill-registry.json"), secret: skillRegistryKey,
 }) : null;
 const skillManagerEnabled = () => process.env.V79_WORKFORCE_SKILL_MANAGER_ENABLED === "1";
+const skillPackages = skillRegistry ? createPackageStore({
+  directory: path.join(DATA_DIR,"workforce-skill-packages"),
+  secret: skillRegistryKey,
+}) : null;
+app.use("/internal/workforce/skill-guidance",scheduledSkillRouter({
+  packages:skillPackages,enabled:skillManagerEnabled,workerToken:readWorkforceToken,
+}));
+// Keep approved action endpoints separate from advisory-only scheduled guidance.
+app.use("/internal/workforce", workforceRouters.worker);
 app.use("/api/agent/skills", workforceSkillRouter({
-  registry: skillRegistry, enabled: skillManagerEnabled,
+  registry: skillRegistry, packages: skillPackages, enabled: skillManagerEnabled,
   ownerContext: ownerAssistantContext,
   freshOwnerContext: (req: Request) => {
     if (!ownerApprovalContext(req)) return null;

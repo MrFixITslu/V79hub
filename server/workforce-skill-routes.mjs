@@ -4,7 +4,7 @@ import { validateSkillDraft } from "./workforce-skill-registry.mjs";
 
 // A model instruction is never an authorization grant. Owner-only, no external
 // tool execution, no model-supplied assignment IDs, no browser-supplied actor.
-export function workforceSkillRouter({ registry, enabled, ownerContext, freshOwnerContext, sameOrigin }) {
+export function workforceSkillRouter({ registry, packages, enabled, ownerContext, freshOwnerContext, sameOrigin }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
@@ -35,6 +35,43 @@ export function workforceSkillRouter({ registry, enabled, ownerContext, freshOwn
   // pinned Git blob IDs before disclosure. No route may modify a built-in skill.
   router.get("/builtins", wrap(async (_req,res) => res.json({skills:builtinSkillCatalog()})));
   router.get("/builtins/:role", wrap(async (req,res) => res.json({skill:builtinSkillDetail(req.params.role)})));
+  // Executable assets are never evaluated inside Hub. Import quarantines a
+  // content-addressed ZIP; approval and assignments demand fresh founder MFA.
+  router.get("/packages", wrap(async (_req,res) => {
+    if(!packages) return res.status(503).json({error:"Package quarantine unavailable"});
+    return res.json(packages.list());
+  }));
+  router.get("/packages/scheduled/:job", wrap(async (req,res) => {
+    if(!packages) return res.status(503).json({error:"Package quarantine unavailable"});
+    return res.json(packages.scheduledSnapshot(req.params.job));
+  }));
+  router.get("/packages/:id", wrap(async (req,res) => {
+    if(!packages) return res.status(503).json({error:"Package quarantine unavailable"});
+    return res.json({package:packages.read(req.params.id)});
+  }));
+  router.post("/packages/import", wrap(async (req,res) => {
+    if(!packages) return res.status(503).json({error:"Package quarantine unavailable"});
+    if(!body(req.body,["name","archive"]))return res.status(400).json({error:"Invalid ZIP upload"});
+    return res.status(201).json({package:await packages.import(req.body,req.skillOwner.userId)});
+  }));
+  router.post("/packages/:id/approve", wrap(async (req,res) => {
+    if(!mfa(req,res))return;
+    if(!packages)return res.status(503).json({error:"Package quarantine unavailable"});
+    if(!body(req.body,["sha256","expectedRevision"]))return res.status(400).json({error:"Invalid package approval"});
+    return res.json({package:await packages.approve(req.params.id,req.body,req.skillOwner.userId)});
+  }));
+  router.post("/packages/:id/revoke", wrap(async (req,res) => {
+    if(!mfa(req,res))return;
+    if(!packages)return res.status(503).json({error:"Package quarantine unavailable"});
+    if(!body(req.body,["expectedRevision"]))return res.status(400).json({error:"Invalid revocation"});
+    return res.json({package:await packages.revoke(req.params.id,req.body,req.skillOwner.userId)});
+  }));
+  router.post("/packages/:id/configure", wrap(async (req,res) => {
+    if(!mfa(req,res))return;
+    if(!packages)return res.status(503).json({error:"Package quarantine unavailable"});
+    if(!body(req.body,["hooks","schedules","expectedRevision"]))return res.status(400).json({error:"Invalid package policy"});
+    return res.json({package:await packages.configure(req.params.id,req.body,req.skillOwner.userId)});
+  }));
   router.get("/:id", wrap(async (req, res) => res.json(registry.get(req.params.id))));
   router.post("/validate", wrap(async (req, res) => {
     if (!body(req.body, ["name", "content"])) return res.status(400).json({ error: "Invalid draft" });

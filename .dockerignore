@@ -11,3 +11,10 @@ backups
 *.tar.gz
 *.pem
 *.key
+.agents
+**/.agents
+.codex
+**/.codex
+.impeccable
+**/.impeccable
+**/__pycache__
