@@ -13,7 +13,7 @@ for(const role of chatRoleRoster())test(role.id+" produces a bounded local draft
  assert.equal(spy.body.tools,undefined);assert.equal(spy.body.options.num_predict,400);assert.match(spy.body.messages[0].content,/read.only/i);
 });
 test("untrusted roles, missing owner context, extra fields and modified skill pins fail before model invocation",async()=>{
- for(const change of [x=>x.role="shell",x=>x.context={...context,ownerAgent:false},x=>x.skillSha="a".repeat(40),x=>x.execute=true]){
+ for(const change of [(x:any)=>x.role="shell",(x:any)=>x.context={...context,ownerAgent:false},(x:any)=>x.skillSha="a".repeat(40),(x:any)=>x.execute=true]){
   const input:any=body();change(input);let called=false;await assert.rejects(reviewSpecialistTask(input,{readSnapshot:(async()=>{called=true;return snapshot();}) as any,fetchImpl:fake(valid)}));assert.equal(called,false);
  }
 });
