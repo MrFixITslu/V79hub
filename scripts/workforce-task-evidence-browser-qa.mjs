@@ -31,7 +31,7 @@ try{
  await page.getByText("Saved draft · awaiting owner review. Saving evidence does not complete the task.",{exact:true}).waitFor();assert.equal(saved,1);assert.equal(task.status,"open");
  await page.getByRole("button",{name:"Accept saved deliverable",exact:true}).click();await page.getByText("A fresh owner MFA session is required.",{exact:true}).waitFor();assert.equal(task.status,"open");assert.equal(accepted,0);
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),"No horizontal overflow");await page.screenshot({path:"preview-artifacts/task-evidence/"+label+"-draft.png",fullPage:true});
- await page.getByRole("button",{name:"Refresh",exact:true}).click();await delivery.getByText("Evidence and closure",{exact:true}).nth(0).click();await page.getByRole("button",{name:"Accept saved deliverable",exact:true}).click();await page.getByText("Owner accepted this saved deliverable.",{exact:true}).waitFor();assert.equal(accepted,1);
+ await page.getByRole("button",{name:"Refresh status",exact:true}).click();await delivery.getByText("Evidence and closure",{exact:true}).nth(0).click();await page.getByRole("button",{name:"Accept saved deliverable",exact:true}).click();await page.getByText("Owner accepted this saved deliverable.",{exact:true}).waitFor();assert.equal(accepted,1);
  await delivery.getByText("Evidence and closure",{exact:true}).nth(1).click();
  const reconcile=page.getByRole("form",{name:"Reconcile "+test.title});
  await reconcile.getByLabel("Reason and evidence",{exact:true}).fill("Verified original approved create_work_item job and recorded task identity in the synthetic fixture.");
