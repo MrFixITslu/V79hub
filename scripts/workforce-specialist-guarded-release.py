@@ -30,7 +30,11 @@ def assert_parity(original,staged,spec):
  if original['Image']!=spec['old'] or original['State']['Status']!='running' or original['State'].get('Health',{}).get('Status')!='healthy':raise RuntimeError('Baseline image/health drift')
  if staged['Image']!=spec['image'] or staged['State']['Status']!='created':raise RuntimeError('Candidate image/state drift')
  if staged['Config']!=expected['Config']:raise RuntimeError('Candidate process/environment/labels drift')
- if staged['HostConfig']!=original['HostConfig']:raise RuntimeError('Candidate host security/ports/restart drift')
+ host_original=copy.deepcopy(original['HostConfig']);host_staged=copy.deepcopy(staged['HostConfig'])
+ # Docker API normalizes an unset OOM kill disable flag to false. Never allow true.
+ for host in (host_original,host_staged):
+  if host.get('OomKillDisable') is None:host['OomKillDisable']=False
+ if host_staged!=host_original:raise RuntimeError('Candidate host security/ports/restart drift')
  if mount_signature(staged)!=mount_signature(original) or len(staged['Mounts'])!=spec['mounts']:raise RuntimeError('Candidate persistent mounts drift')
  if set(staged['NetworkSettings']['Networks'])!=set(original['NetworkSettings']['Networks']):raise RuntimeError('Candidate networks drift')
  if not all(spec['name'] in n.get('Aliases',[]) for n in staged['NetworkSettings']['Networks'].values()):raise RuntimeError('Canonical service network alias missing')

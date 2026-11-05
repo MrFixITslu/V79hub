@@ -29,6 +29,11 @@ class GuardedRelease(unittest.TestCase):
    with self.subTest(change=change):
     old,new,spec=self.pair();change(new)
     with self.assertRaises(RuntimeError):m.assert_parity(old,new,spec)
+ def test_docker_oom_default_normalization_preserves_oom_protection(self):
+  old,new,spec=self.pair();old['HostConfig']['OomKillDisable']=None;new['HostConfig']['OomKillDisable']=False
+  m.assert_parity(old,new,spec)
+  new['HostConfig']['OomKillDisable']=True
+  with self.assertRaises(RuntimeError):m.assert_parity(old,new,spec)
  def test_unhealthy_or_unpinned_baseline_rejected(self):
   for change in [lambda o:o.update(Image='drifted'),lambda o:o['State'].update(Status='exited'),lambda o:o['State']['Health'].update(Status='unhealthy')]:
    old,new,spec=self.pair();change(old)
