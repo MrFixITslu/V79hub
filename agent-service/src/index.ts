@@ -1,3 +1,4 @@
+import {specialistIntegrationReport} from './specialist-integrations.js';
 import {reviewSpecialistTask} from "./specialist-task-review.js";
 import "dotenv/config";
 import express from "express";
@@ -118,6 +119,13 @@ app.post("/api/policy/check", (req, res) => {
     return res.status(400).json({ error: "Unknown risk category." });
   }
   return res.json(checkApproval(risk));
+});
+
+app.post('/api/agent/specialist-integrations',async(req,res)=>{
+ res.setHeader('Cache-Control','no-store');
+ if(req.get('origin')||req.get('cookie')||!req.body||Object.keys(req.body).join(',')!=='context'||!isValidOwnerContext(req.body.context||{}))return res.status(403).json({error:'Trusted owner context required'});
+ try{return res.json(specialistIntegrationReport(await readBusinessSnapshot(req.body.context),req.body.context));}
+ catch{return res.status(502).json({error:'Verified specialist integration evidence is unavailable'});}
 });
 
 app.post("/api/agent/evidence", async (req, res) => {

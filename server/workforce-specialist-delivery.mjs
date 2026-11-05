@@ -1,3 +1,4 @@
+import {assertSpecialistSystem} from './workforce-specialist-scopes.mjs';
 import {createHash, randomUUID} from "node:crypto";
 import {builtinSkillDetail} from "./workforce-builtins.mjs";
 
@@ -23,6 +24,7 @@ export function verifiedReviewTask(state,payload,org) {
    origin.result?.taskId!==task.id||!origin.approval||origin.approval.digest!==origin.digest||
    taskDigest(task)!==payload.taskDigest||builtinSkillDetail(payload.specialist).skillSha!==payload.skillSha)
    throw Error("Task or protected skill changed; queue a new review");
+ assertSpecialistSystem(payload.specialist,task.system);
  return task;
 }
 export function assertReviewCanBeProposed(state,payload,org) {

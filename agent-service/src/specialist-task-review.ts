@@ -21,7 +21,7 @@ export async function reviewSpecialistTask(body:unknown,options:Options){
   typeof b.detail!=="string"||b.detail.length<8||b.detail.length>2000||
   /[\x00-\x1f\x7f]/.test(b.title+b.detail)||!b.context||!isValidOwnerContext(b.context as AgentContext))throw Error("INVALID_REVIEW");
  const role=resolveChatRole(String(b.role)+":");
- if(role.id!==b.role||role.skillSha!==b.skillSha)throw Error("SKILL_CHANGED");
+ if(role.id!==b.role||role.skillSha!==b.skillSha||!role.specialist.systems.includes(String(b.system)))throw Error("SKILL_CHANGED");
  const snapshot=await options.readSnapshot(b.context as AgentContext);
  const evidence=buildEvidenceLedger(snapshot,role.specialist);
  const scopedEvidence={...evidence,records:evidence.records.filter(record=>record.system===b.system)};

@@ -7,7 +7,7 @@ type Job = { id: string; operation: string; system: string; summary: string;
   digest: string; revision: number; status: string; approval: { expiresAt: string } | null; claim?: {at:string};
   result: { taskId?: string; receiptSha256?: string; output?: string; outputSha256?: string; kind?: string; ownerAccepted?: boolean; model?: string; specialist?: string } | null };
 type DeliveryTask = {id:string;title:string;status:string;system:string;taskDigest:string;lastReviewJobId?:string};
-type Specialist = {id:string;name:string;skillSha:string};
+type Specialist = {id:string;name:string;skillSha:string;systems?:string[]};
 type QueueFilter = "all" | "review" | "active" | "history";
 const systems = ["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag"];
 const operations: Record<string, string> = { run_specialist_review: "Specialist advisory review", create_work_item: "Create work item", validate_release: "Test exact release", deploy_release: "Deploy tested release", rollback_release: "Roll back exact release" };
@@ -120,7 +120,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
     });
   };
   const queueReview = (task:DeliveryTask) => perform(async()=>{
-    const role=specialists.find(r=>r.id===(selectedRoles[task.id]||"coo"));
+    const role=specialists.find(r=>r.id===(selectedRoles[task.id]||"coo")&&(!r.systems||r.systems.includes(task.system)));
     if(!role)throw new Error("Select an available specialist.");
     await request("",{operation:"run_specialist_review",system:task.system,
       summary:("Review: "+task.title).slice(0,180),payload:{taskId:task.id,taskDigest:task.taskDigest,specialist:role.id,skillSha:role.skillSha},
@@ -172,7 +172,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
             <div className="min-w-0 flex-1"><h4 className="break-words font-medium">{task.title}</h4><p className="mt-1 text-xs text-slate-400">{task.system} · {task.status==="completed"?"Advisory deliverable accepted":unresolved?"Specialist review in progress":"Open · delivery outstanding"}</p></div>
             {task.status==="open" && reviewsEnabled && <div className="flex w-full flex-wrap gap-2 sm:w-auto">
               <label className="sr-only" htmlFor={"specialist-"+task.id}>Specialist for {task.title}</label>
-              <select id={"specialist-"+task.id} disabled={busy||unresolved} value={selectedRoles[task.id]||"coo"} onChange={e=>setSelectedRoles({...selectedRoles,[task.id]:e.target.value})} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm focus-visible:ring-2 focus-visible:ring-cyan-300">{specialists.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>
+              <select id={"specialist-"+task.id} disabled={busy||unresolved} value={selectedRoles[task.id]||"coo"} onChange={e=>setSelectedRoles({...selectedRoles,[task.id]:e.target.value})} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm focus-visible:ring-2 focus-visible:ring-cyan-300">{specialists.filter(r=>!r.systems||r.systems.includes(task.system)).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>
               <button type="button" disabled={busy||unresolved||!enabled||paused} onClick={()=>void queueReview(task)} className="min-h-11 rounded-lg border border-cyan-700 px-3 py-2 text-cyan-200 disabled:opacity-50">Queue specialist review</button>
             </div>}
           </article>;

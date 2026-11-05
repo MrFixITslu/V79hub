@@ -6,7 +6,7 @@ import {builtinSkillDetail} from "../server/workforce-builtins.mjs";
 const org="synthetic-org",actor="synthetic-founder",now=Date.now();
 function created(){
  const state=initialWorkState();
- const j=proposeWork(state,{operation:"create_work_item",system:"hub",summary:"Review customer support workflow",payload:{detail:"Prepare a review of support risks and missing evidence."},idempotencyKey:"synthetic-delivery-task-001"},{organizationId:org,actor,now});
+ const j=proposeWork(state,{operation:"create_work_item",system:"tiquet",summary:"Review customer support workflow",payload:{detail:"Prepare a review of support risks and missing evidence."},idempotencyKey:"synthetic-delivery-task-001"},{organizationId:org,actor,now});
  decideWork(state,j.id,"approve",{organizationId:org,actor,expectedRevision:1,digest:j.digest,now});
  createApprovedWorkItem(state,j.id,{organizationId:org,actor,expectedRevision:2,now});
  const task=state.tasks[0];
@@ -14,7 +14,7 @@ function created(){
  return{state,task,input};
 }
 function approved(){const x=created();const job=proposeWork(x.state,x.input,{organizationId:org,actor,now});decideWork(x.state,job.id,"approve",{organizationId:org,actor,expectedRevision:1,digest:job.digest,now});return{...x,job};}
-function claimed(){const x=approved();claimWork(x.state,{organizationId:org,worker:REVIEW_WORKER,operations:[REVIEW_OPERATION],systems:["hub"],now});return x;}
+function claimed(){const x=approved();claimWork(x.state,{organizationId:org,worker:REVIEW_WORKER,operations:[REVIEW_OPERATION],systems:["tiquet"],now});return x;}
 function receipt(job){return{claimToken:job.claim.token,digest:job.digest,status:"succeeded",output:"DRAFT ADVICE — Review support hand-offs and identify missing response-time evidence. No action has been performed.",model:"synthetic-model",skillSha:job.payload.skillSha};}
 function finished(){const x=claimed();finishSpecialistReview(x.state,x.job.id,receipt(x.job),{organizationId:org,now});return x;}
 test("task creation is separate from model result and owner accepted completion",()=>{
@@ -34,7 +34,7 @@ test("idempotent proposals return same job while different duplicate review is r
  assert.throws(()=>proposeWork(x.state,{...x.input,idempotencyKey:"synthetic-different-key-002"},{organizationId:org,actor,now}));
 });
 test("unapproved, expired, paused and already claimed jobs cannot execute",()=>{
- const x=created();proposeWork(x.state,x.input,{organizationId:org,actor,now});const claim=s=>claimWork(s,{organizationId:org,worker:REVIEW_WORKER,operations:[REVIEW_OPERATION],systems:["hub"],now});assert.equal(claim(x.state),null);
+ const x=created();proposeWork(x.state,x.input,{organizationId:org,actor,now});const claim=s=>claimWork(s,{organizationId:org,worker:REVIEW_WORKER,operations:[REVIEW_OPERATION],systems:["tiquet"],now});assert.equal(claim(x.state),null);
  const y=approved();y.job.approval.expiresAt=new Date(now-1).toISOString();assert.equal(claim(y.state),null);
  const z=approved();pauseWork(z.state,true,{actor,now});assert.equal(claim(z.state),null);
  const a=claimed();assert.equal(claim(a.state),null);

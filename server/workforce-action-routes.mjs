@@ -1,3 +1,4 @@
+import {specialistSystems} from './workforce-specialist-scopes.mjs';
 import {REVIEW_OPERATION, REVIEW_WORKER, REVIEW_ROLES, publicReviewTask, verifiedReviewTask, finishSpecialistReview, acceptSpecialistReview, reconcileSpecialistReview} from "./workforce-specialist-delivery.mjs";
 import {builtinSkillCatalog} from "./workforce-builtins.mjs";
 import express from "express";
@@ -32,7 +33,7 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
   owner.get("/", wrap(async (req, res) => {
     const state = await ledger.read(), org = req.workOwner.organizationId;
     return res.json({ mode: "owner-approved-actions", enabled: enabled(), paused: state.paused,
-      specialistReviewsEnabled: specialistEnabled(), specialists: builtinSkillCatalog().map(({id,name,skillSha})=>({id,name,skillSha})),
+      specialistReviewsEnabled: specialistEnabled(), specialists: builtinSkillCatalog().map(({id,name,skillSha})=>({id,name,skillSha,systems:specialistSystems(id)})),
       operations: WORK_OPERATIONS.filter(op=>(specialistEnabled() || op!==REVIEW_OPERATION) && (googleEnabled() || !GOOGLE_OPERATIONS.includes(op))),
       systems: WORK_SYSTEMS.filter(system=>googleEnabled() || !['gmail','calendar'].includes(system)),
       jobs: state.jobs.filter(j => j.organizationId === org).slice(-200).reverse().map(publicWorkJob),

@@ -5396,6 +5396,8 @@ const executiveProxyDeps = {
   readServiceToken: readAgentApiToken,
   agentBaseUrl: agentInternalUrl,
 };
+app.get("/api/agent/specialist-integrations",
+  createOwnerExecutiveProxy("integrations", executiveProxyDeps));
 app.get("/api/agent/executive-structure",
   createOwnerExecutiveProxy("structure", executiveProxyDeps));
 app.post("/api/agent/executive-handoff",

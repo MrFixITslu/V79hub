@@ -23,13 +23,14 @@ test("specialist lifecycle HTTP: exact approval, isolated worker, saved result, 
  const owner={"x-owner":"synthetic",origin:"https://synthetic.test"},worker={"x-v79-workforce-token":token};
  const call=(url,body,headers={})=>fetch(base+url,{method:body===undefined?"GET":"POST",headers:{"content-type":"application/json",...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
  const json=async r=>(await r).json();
- const proposed=await json(call("/owner",{operation:"create_work_item",system:"hub",summary:"Review safe customer support handoff",payload:{detail:"Prepare a support review and list missing evidence."},idempotencyKey:"synthetic-http-task-001"},owner));
+ const proposed=await json(call("/owner",{operation:"create_work_item",system:"tiquet",summary:"Review safe customer support handoff",payload:{detail:"Prepare a support review and list missing evidence."},idempotencyKey:"synthetic-http-task-001"},owner));
  await call("/owner/"+proposed.job.id+"/decision",{decision:"approve",expectedRevision:1,digest:proposed.job.digest},owner);
  await call("/owner/"+proposed.job.id+"/execute",{expectedRevision:2},owner);
  const queue=await json(call("/owner",undefined,owner)),task=queue.tasks[0],role=queue.specialists.find(x=>x.id==="customer-service");
- const input={operation:"run_specialist_review",system:"hub",summary:"Review support work with specialist",payload:{taskId:task.id,taskDigest:task.taskDigest,specialist:role.id,skillSha:role.skillSha},idempotencyKey:"synthetic-http-review-001"};
+ const input={operation:"run_specialist_review",system:"tiquet",summary:"Review support work with specialist",payload:{taskId:task.id,taskDigest:task.taskDigest,specialist:role.id,skillSha:role.skillSha},idempotencyKey:"synthetic-http-review-001"};
  enabled=false;assert.equal((await call("/owner",input,owner)).status,503);enabled=true;
  assert.equal((await call("/worker/propose",input,worker)).status,403);
+ const wrong=queue.specialists.find(x=>x.id==="finance");assert.equal((await call("/owner",{...input,payload:{...input.payload,specialist:wrong.id,skillSha:wrong.skillSha}},owner)).status,409);
  const j=(await json(call("/owner",input,owner))).job;
  const decision={decision:"approve",expectedRevision:1,digest:j.digest};
  assert.equal((await call("/owner/"+j.id+"/decision",decision,{...owner,"x-stale":"1"})).status,403);

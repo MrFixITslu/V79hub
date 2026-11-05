@@ -6,7 +6,7 @@ const context={userId:"synthetic-founder",email:"vision79slu@gmail.com",organiza
 const snapshot=()=>({generatedAt:new Date().toISOString(),owner:{email:context.email,organizationId:context.organizationId},hubAdmin:{},business:{},platform:{},connections:{}});
 const valid=JSON.stringify({steps:["Review the assigned task and identify gaps in the available evidence.","Prepare a short recommendation for the owner's review before any external changes."],questions:["What evidence would demonstrate the requested outcome?"]});
 const fake=(raw:string,spy?:{body:any})=>(async(_url:any,req:any)=>{if(spy)spy.body=JSON.parse(req.body);return new Response(JSON.stringify({message:{content:raw}}));}) as typeof fetch;
-const body=(role=chatRoleRoster()[0]!)=>({context,system:"tiquet",role:role.id,skillSha:role.skillSha,title:"Review the approved task scope",detail:"Prepare a bounded advisory review and identify missing evidence."});
+const body=(role=chatRoleRoster()[0]!)=>({context,system:role.systems[0]!,role:role.id,skillSha:role.skillSha,title:"Review the approved task scope",detail:"Prepare a bounded advisory review and identify missing evidence."});
 for(const role of chatRoleRoster())test(role.id+" produces a bounded local draft using its protected skill",async()=>{
  const spy={body:null as any};const result=await reviewSpecialistTask(body(role),{readSnapshot:(async()=>snapshot()) as any,fetchImpl:fake(valid,spy)});
  assert.equal(result.roleId,role.id);assert.equal(result.skillSha,role.skillSha);assert.equal(result.ownerAccepted,false);assert.equal(result.mode,"read-only");assert.match(result.output,/DRAFT ADVICE/);
@@ -33,4 +33,10 @@ test("task-specific evidence excludes unrelated application observations",async(
  const result=await reviewSpecialistTask({...body(),system:"tiquet"},{readSnapshot:(async()=>data) as any,fetchImpl:fake(valid,spy)});
  const request=JSON.parse(spy.body.messages[1].content);assert.equal(request.task.system,"tiquet");
  assert.ok(request.verifiedFacts.length>0,"App filtering must happen before the global candidate limit");assert.ok(request.verifiedFacts.every((x:any)=>x.system==="tiquet"));assert.ok(!result.output.includes("active campaigns"));
+});
+
+test("out-of-scope specialist task is rejected before fetching business data",async()=>{
+ const role=chatRoleRoster().find(r=>r.id==='sales')!;let called=false;
+ await assert.rejects(reviewSpecialistTask({...body(role),system:'ffpro'},{readSnapshot:(async()=>{called=true;return snapshot();}) as any,fetchImpl:fake(valid)}));
+ assert.equal(called,false);
 });
