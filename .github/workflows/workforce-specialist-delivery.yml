@@ -18,7 +18,7 @@ jobs:
         with: {node-version: "24", cache: npm}
       - run: npm ci --no-audit --no-fund
       - name: Durable lifecycle and HTTP boundaries
-        run: node --test tests/workforce-specialist-delivery*.test.mjs tests/workforce-specialist-scopes.test.mjs tests/agent-executive-owner-proxy.test.mjs tests/workforce-actions.test.mjs tests/workforce-action-routes.test.mjs
+        run: node --test tests/workforce-specialist-delivery*.test.mjs tests/workforce-specialist-scopes.test.mjs tests/agent-executive-owner-proxy.test.mjs tests/evidence-gateway-owner-bridge.test.mjs tests/workforce-actions.test.mjs tests/workforce-action-routes.test.mjs
       - name: Hub type check and build
         run: npm run lint && npm run build
       - name: Agent role safety and type check

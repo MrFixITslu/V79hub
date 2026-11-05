@@ -1,3 +1,4 @@
+import {TaskEvidencePanel,type EvidenceTask} from "./TaskEvidencePanel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, ClipboardCheck, Plus, RefreshCcw, Search } from "lucide-react";
 import type { CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
@@ -5,8 +6,8 @@ import type { CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
 type Job = { id: string; operation: string; system: string; summary: string;
   payload: { taskId?: string; taskDigest?: string; specialist?: string; skillSha?: string; detail?: string; commitSha?: string; manifestSha256?: string; to?: string; subject?: string; body?: string; start?: string; end?: string; attendees?: string[]; eventId?: string; etag?: string; threadId?: string; messageId?: string; summary?: string };
   digest: string; revision: number; status: string; approval: { expiresAt: string } | null; claim?: {at:string};
-  result: { taskId?: string; receiptSha256?: string; output?: string; outputSha256?: string; kind?: string; ownerAccepted?: boolean; model?: string; specialist?: string } | null };
-type DeliveryTask = {id:string;title:string;status:string;system:string;taskDigest:string;lastReviewJobId?:string};
+  result: { taskId?: string; receiptSha256?: string; output?: string; outputSha256?: string; kind?: string; ownerAccepted?: boolean; model?: string; specialist?: string; supersededByDeliverable?:string } | null };
+type DeliveryTask = EvidenceTask & {lastReviewJobId?:string};
 type Specialist = {id:string;name:string;skillSha:string;systems?:string[]};
 type QueueFilter = "all" | "review" | "active" | "history";
 const systems = ["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag"];
@@ -18,6 +19,7 @@ function expired(job: Job) {
 }
 function statusLabel(job: Job) {
   if (expired(job)) return "Approval expired";
+  if(job.result?.supersededByDeliverable)return "Superseded by accepted deliverable";
   if(job.operation === "run_specialist_review" && job.status === "succeeded") return job.result?.ownerAccepted ? "Review accepted" : "Draft ready for your review";
   if (job.status === "succeeded" && job.operation === "create_work_item") return "Work item created";
   return ({ pending: "Needs your approval", approved: "Approved · awaiting execution", running: "Running", succeeded: "Succeeded", failed: "Failed", uncertain: "Needs reconciliation", rejected: "Rejected", cancelled: "Cancelled" } as Record<string, string>)[job.status] || job.status;
@@ -32,7 +34,7 @@ async function request(suffix = "", body?: unknown) {
   const res = await fetch("/api/agent/work-actions" + suffix, { credentials: "same-origin", cache: "no-store",
     ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
   const data = await res.json();
-  if (!res.ok) throw new Error(res.status === 403 ? "Sign in with your owner account to view or change actions." : data.error || "Approved actions unavailable");
+  if (!res.ok) throw new Error(data.error || (res.status === 403 ? "Sign in with your owner account to view or change actions." : "Approved actions unavailable"));
   return data;
 }
 export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embedded = false, active = true }: {
@@ -163,18 +165,19 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
       {checkedAt && !enabled && <p className="rounded-xl border border-slate-700 p-4 text-slate-300">Task actions are disabled. You can review available history; an operator must enable actions before queueing work.</p>}
       {checkedAt && <section aria-label="Task delivery" className="space-y-3 border-y border-slate-800 py-4">
         <h3 className="text-base font-semibold">Task delivery</h3>
-        <p className="text-sm text-slate-400">{tasks.filter(t=>t.status==="open").length} open · {tasks.filter(t=>t.status==="completed").length} accepted. Task creation, a saved specialist draft, and your acceptance are separate stages.</p>
+        <p className="text-sm text-slate-400">{tasks.filter(t=>t.status==="open").length} open · {tasks.filter(t=>t.status==="completed").length} completed · {tasks.filter(t=>t.status==="superseded").length} superseded. Task creation, a saved specialist draft, and your acceptance are separate stages.</p>
         {!reviewsEnabled && <p className="text-sm text-amber-200">Specialist delivery is not enabled. Existing task records remain available.</p>}
         {!tasks.length && <p className="text-sm text-slate-400">Create and approve a work item to begin tracking delivery.</p>}
         <div className="divide-y divide-slate-800">{tasks.map(task=>{
           const unresolved=jobs.some(j=>j.operation==="run_specialist_review"&&j.payload.taskId===task.id&&["pending","approved","running","uncertain"].includes(j.status));
           return <article key={task.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-            <div className="min-w-0 flex-1"><h4 className="break-words font-medium">{task.title}</h4><p className="mt-1 text-xs text-slate-400">{task.system} · {task.status==="completed"?"Advisory deliverable accepted":unresolved?"Specialist review in progress":"Open · delivery outstanding"}</p></div>
+            <div className="min-w-0 flex-1"><h4 className="break-words font-medium">{task.title}</h4><p className="mt-1 text-xs text-slate-400">{task.system} · {task.status==="completed"?(task.completion?.kind==="verified-task-creation-test"?"Task creation test verified":"Deliverable accepted"):task.status==="superseded"?"Superseded by linked task":task.status==="cancelled"?"Cancelled":unresolved?"Specialist review in progress":"Open · delivery outstanding"}</p></div>
             {task.status==="open" && reviewsEnabled && <div className="flex w-full flex-wrap gap-2 sm:w-auto">
               <label className="sr-only" htmlFor={"specialist-"+task.id}>Specialist for {task.title}</label>
               <select id={"specialist-"+task.id} disabled={busy||unresolved} value={selectedRoles[task.id]||"coo"} onChange={e=>setSelectedRoles({...selectedRoles,[task.id]:e.target.value})} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm focus-visible:ring-2 focus-visible:ring-cyan-300">{specialists.filter(r=>!r.systems||r.systems.includes(task.system)).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>
               <button type="button" disabled={busy||unresolved||!enabled||paused} onClick={()=>void queueReview(task)} className="min-h-11 rounded-lg border border-cyan-700 px-3 py-2 text-cyan-200 disabled:opacity-50">Queue specialist review</button>
             </div>}
+            <TaskEvidencePanel task={task} tasks={tasks} disabled={busy||unresolved||!enabled||paused} run={perform} send={request} notice={setNotice}/>
           </article>;
         })}</div>
       </section>}
@@ -231,8 +234,8 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
               <h5 className="font-semibold">Saved specialist result</h5>
               <p className="text-xs text-amber-200">Advisory output requires your review. Generated text does not establish that an external action occurred.</p>
               <p className="whitespace-pre-wrap break-words text-sm leading-6">{job.result.output}</p>
-              <p className="text-xs text-slate-400">Local model: {job.result.model} · {job.result.ownerAccepted ? "Accepted by you" : "Awaiting your acceptance"}</p>
-              {reviewsEnabled && enabled && job.status === "succeeded" && !job.result.ownerAccepted && <button type="button" disabled={busy || paused} onClick={()=>acceptReview(job)} className="min-h-11 rounded-lg border border-emerald-700 px-3 py-2 text-emerald-200 disabled:opacity-50">Accept advisory review as task deliverable</button>}
+              <p className="text-xs text-slate-400">Local model: {job.result.model} · {job.result.supersededByDeliverable ? "Replaced by accepted task deliverable" : job.result.ownerAccepted ? "Accepted by you" : "Awaiting your acceptance"}</p>
+              {reviewsEnabled && enabled && job.status === "succeeded" && !job.result.ownerAccepted && !job.result.supersededByDeliverable && <button type="button" disabled={busy || paused} onClick={()=>acceptReview(job)} className="min-h-11 rounded-lg border border-emerald-700 px-3 py-2 text-emerald-200 disabled:opacity-50">Accept advisory review as task deliverable</button>}
             </div>}
             {job.result && !job.result.output && <details className="text-xs text-slate-400"><summary className="cursor-pointer">Result reference</summary><p className="mt-2 break-all font-mono">{job.result.taskId ? "Work item: " + job.result.taskId : "Receipt: " + job.result.receiptSha256}</p></details>}
           </article>)}</div>

@@ -29,5 +29,5 @@ export function specialistIntegrationReport(snapshot:unknown,context:AgentContex
  const receiptSha256=createHash('sha256').update(JSON.stringify({collectedAt:snapshot.generatedAt,roles})).digest('hex');
  return {mode:'read-only',kind:'specialist-integration-report',collectedAt:snapshot.generatedAt,roles,receiptSha256,
   provenance:'Authenticated Hub snapshot; existing signed product-summary contracts. This receipt is a content digest, not independent source attestation.',
-  evidenceGateway:{status:'not-connected',reason:'Standalone authenticated MCP Gateway is separate from these Hub integrations.'}};
+  evidenceGateway:{status:'managed-separately',reason:'Standalone authenticated MCP Gateway is separate from these Hub integrations.'}};
 }

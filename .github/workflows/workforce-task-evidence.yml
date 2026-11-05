@@ -1,0 +1,33 @@
+name: Task evidence and WiPay sandbox correction
+on:
+  push:
+    branches: ["feature/workforce-specialist-delivery-20261105"]
+    paths: ["server/workforce-task-lifecycle.mjs", "src/components/TaskEvidencePanel.tsx", "server/wipay-provider.mjs", "scripts/workforce-task-evidence-browser-qa.mjs", ".github/workflows/workforce-task-evidence.yml"]
+permissions:
+  contents: read
+jobs:
+  focused-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: "24", cache: npm}
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/workforce-task-lifecycle*.test.mjs tests/wipay-provider.test.mjs
+      - run: npm run lint && npm run build
+      - run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - run: |
+          python3 -m http.server 4178 --bind 127.0.0.1 --directory dist > /tmp/task-evidence-preview.log 2>&1 &
+          for n in $(seq 1 30); do curl --fail --silent http://127.0.0.1:4178/ >/dev/null && exit 0; sleep 1; done
+          exit 1
+      - run: node scripts/workforce-task-evidence-browser-qa.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: task-evidence-synthetic-browser
+          path: preview-artifacts/task-evidence/
+          retention-days: 7

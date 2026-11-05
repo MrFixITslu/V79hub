@@ -153,7 +153,7 @@ export function verifyWipayReturn({ query, expectedOrder, config }) {
 
   if (!config?.ready) return { ok: false, reason: "wipay_not_ready", status, transactionId, orderId };
   if (status !== "success") return { ok: false, reason: "provider_status_not_success", status, transactionId, orderId };
-  if (!verifyWipayResponse({ transactionId, total: totalRaw, apiKey: config.apiKey, hash })) {
+  if (!verifyWipayResponse({ transactionId, total: expectedAmount === null ? "" : expectedAmount.toFixed(2), apiKey: config.apiKey, hash })) {
     return { ok: false, reason: "provider_hash_invalid", status, transactionId, orderId };
   }
   if (!expectedOrder?.id || orderId !== expectedOrder.id) {

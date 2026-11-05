@@ -10,7 +10,7 @@ test('all eight protected roles use their exact application scopes and expose no
  for(const role of report.roles){assert.equal(role.approvalAuthority,'none');assert.equal(role.mode,'read-only');assert.ok(role.sources.every(s=>role.systems.includes(s.system)));assert.ok(role.skillSha.length===40);}
  assert.deepEqual(report.roles.find(r=>r.id==='sales')!.sources.map(s=>s.system),['website']);
  assert.deepEqual(report.roles.find(r=>r.id==='customer-service')!.sources.map(s=>s.system),['tiquet']);
- assert.ok(!JSON.stringify(report).includes('private@example.invalid'));assert.equal(report.evidenceGateway.status,'not-connected');
+ assert.ok(!JSON.stringify(report).includes('private@example.invalid'));assert.equal(report.evidenceGateway.status,'managed-separately');
 });
 test('unavailable, stale and undated sources stay explicit rather than becoming zero or ready',()=>{
  const data=snapshot();data.business.website.sourceReportedAt=new Date(now-900001).toISOString();

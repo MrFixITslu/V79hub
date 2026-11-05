@@ -21,6 +21,7 @@ export function SpecialistIntegrationsPanel({active=true}:{active?:boolean}){
     <ul className="mt-3 space-y-2 text-sm">{role.sources.map(source=><li key={source.system} className="border-t pt-2"><strong>{source.name}</strong> · {source.state} · {source.metricKeys.length} approved metrics<br/><span>{source.reportedAt?'Source reported '+new Date(source.reportedAt).toLocaleString('en-GB',{timeZone:'America/St_Lucia'}):'Source timestamp unavailable'}</span></li>)}</ul>
     <p className="mt-3 text-sm">{role.limitations.join(' ')}</p><details className="mt-3 text-xs"><summary>Protected skill version</summary><p className="break-all">{role.skillSha}</p></details>
    </article>)}</div><details className="text-xs"><summary>Evidence receipt</summary><p className="break-all">{report.receiptSha256}</p><p>Content digest of this report. It does not independently certify source measurements.</p></details></>}
-  <p className="text-sm">The standalone Evidence Gateway is not connected. Sentinel integration is reserved for the next phase.</p>
+  <a className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2" href="/api/agent/evidence-gateway/access" target="_blank" rel="noopener noreferrer">Manage Evidence Gateway access</a>
+  <p className="text-sm">The Evidence Gateway uses a separate owner-approved connection. Sentinel integration is reserved for the next phase.</p>
  </section>;
 }

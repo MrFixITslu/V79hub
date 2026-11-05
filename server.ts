@@ -1,3 +1,4 @@
+import {registerEvidenceGatewayBridge} from './server/evidence-gateway-owner-bridge.mjs';
 import { createPricingRequestStore } from "./server/pricing-request-store.mjs";
 import { pricingRequestRouter } from "./server/pricing-request-routes.mjs";
 import { marketingProductionRouter, marketingWorkerAuthorization } from "./server/marketing-production-routes.mjs";
@@ -5391,6 +5392,14 @@ app.post("/api/agent/chat", async (req, res) => {
 
 // G1.2: owner-MFA-only read-only executive endpoints. A browser-supplied
 // context, URL or model command is never accepted as authority.
+registerEvidenceGatewayBridge(app,{
+ ownerMfaContext:ownerApprovalContext,sameOrigin:sameOriginMutation,
+ readBridgeToken:()=>{let fd:number|null=null;try{fd=fs.openSync(path.join(DATA_DIR,'evidence-gateway-bridge.token'),fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.size>256||(stat.mode&0o077)!==0)return '';return fs.readFileSync(fd,'utf8').trim();}catch{return '';}finally{if(fd!==null)fs.closeSync(fd);}},
+ ownerSubject:()=>posIdentity.ownerUserId,
+ ownerActive:()=>{const user=store.users.find(u=>u.id===posIdentity.ownerUserId);const membership=activeMembership(store,posIdentity.ownerUserId,posIdentity.organizationId);return Boolean(user?.mfaEnabled&&hasOwnerAssistantAccess({user,membership,organizationId:posIdentity.organizationId,ownerOrganizationId:posIdentity.organizationId,ownerUserId:posIdentity.ownerUserId,ownerEmail:process.env.V79_HUB_ADMIN_EMAIL})&&membership?.role==='owner'&&store.organizations.some(o=>o.id===posIdentity.organizationId&&o.status==='active'));},
+ gatewayBaseUrl:'http://172.25.0.1:8765',
+});
+
 const executiveProxyDeps = {
   ownerMfaContext: ownerApprovalContext,
   readServiceToken: readAgentApiToken,
