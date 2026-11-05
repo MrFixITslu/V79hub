@@ -5,6 +5,7 @@ import { runOllamaOwnerAssistant } from './ollama-native.js';
 // Application-owned labels and advice. Neither model prose nor retrieved strings
 // can become a fact, a suggested action, or an authorization through this path.
 const LABELS: Record<string, Record<string, string>> = {
+  hub:{users:"active workspace members",activeSessions:"active owner workspace sessions"},
   pos: { products:'products', locations:'locations', sales:'sales', sales30d:'sales in the last 30 days', revenue30d:'revenue in the last 30 days', openPurchaseOrders:'open purchase orders', criticalReplenishmentItems:'critical replenishment items', delayedShipments:'delayed shipments', unresolvedInventoryExceptions:'unresolved inventory exceptions' },
   ffpro: { currentMonthIncome:'current-month income', currentMonthExpenses:'current-month expenses', currentMonthNet:'current-month net', yearToDateIncome:'year-to-date income', yearToDateExpenses:'year-to-date expenses', yearToDateNet:'year-to-date net' },
   tiquet: { clients:'clients', jobs:'jobs', teamMembers:'team members', jobValueTotal:'total job value', unreadNotifications:'unread notifications' },
@@ -15,6 +16,7 @@ const LABELS: Record<string, Record<string, string>> = {
   games: { portalViews:'portal views', sessions:'sessions', players:'players', spellingCompletions:'spelling completions', wordsMastered:'words mastered' },
 };
 const NEXT: Record<string, string> = {
+  hub:"Review the Hub workspace records before changing access or memberships.",
   pos:'Review the corresponding POS records before deciding on stock or purchases.',
   ffpro:'Review the corresponding FFPRO records before making a financial decision.',
   tiquet:'Review ticket statuses and assign follow-up through the normal support workflow.',
@@ -36,7 +38,7 @@ export function answerCandidates(ledger: EvidenceLedger, nowMs = Date.now()): An
   const candidates: AnswerCandidate[] = [];
   const seen = new Set<string>();
   for (const record of ledger.records) {
-    if (record.source !== 'signed_product_summary' || record.state !== 'available' || !record.reportedAt ||
+    if (!(record.source === 'signed_product_summary' || (record.system === 'hub' && record.source === 'hub_owner_summary')) || record.state !== 'available' || !record.reportedAt ||
         !Object.hasOwn(LABELS, record.system)) continue;
     const reported = Date.parse(record.reportedAt);
     if (!Number.isFinite(reported) || nowMs-reported > 900_000 || nowMs-reported < -120_000 || reported-envelope > 120_000) continue;

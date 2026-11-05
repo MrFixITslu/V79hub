@@ -1,0 +1,9 @@
+[Unit]
+Description=Check for V79 approved specialist reviews
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=90s
+RandomizedDelaySec=15s
+Unit=v79-specialist-review.service
+[Install]
+WantedBy=timers.target

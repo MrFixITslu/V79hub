@@ -107,3 +107,11 @@ test("native Ollama keeps specialist instructions in a system role rather than r
   assert.equal(sentBody.messages[1].content, "Owner question with scoped snapshot");
   assert.equal(sentBody.tools, undefined);
 });
+
+test("configured local inference profile is shared by prewarm and chat to prevent reload churn", async () => {
+ const bodies:any[]=[];
+ const fetchImpl=(async (_url:any,init:any)=>{bodies.push(JSON.parse(init.body));return new Response(JSON.stringify({done:true,message:{content:"Review the available evidence."}}));}) as typeof fetch;
+ const env={OLLAMA_AGENT_MODEL:"qwen2.5:3b",OLLAMA_CONTEXT_SIZE:"3072",OLLAMA_NUM_THREADS:"2",OLLAMA_USE_MMAP:"0"};
+ await prewarmOllamaOwnerAssistant({env,fetchImpl});await runOllamaOwnerAssistant("Review evidence",{env,fetchImpl});
+ for(const b of bodies){assert.equal(b.options.num_ctx,3072);assert.equal(b.options.num_thread,2);assert.equal(b.options.use_mmap,false);}
+});

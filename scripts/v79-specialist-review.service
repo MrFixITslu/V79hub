@@ -1,0 +1,9 @@
+[Unit]
+Description=V79 owner-approved read-only specialist review
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec v79-hub node /app/scripts/workforce-specialist-review-worker.mjs
+TimeoutStartSec=145
+UMask=0077
+NoNewPrivileges=true

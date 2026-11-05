@@ -122,3 +122,9 @@ test("arbitrary agent paths, URL credentials and unsupported executive operation
   assert.throws(() => make("structure", {agentBaseUrl:"http://user:secret@synthetic-agent.invalid"}), /Invalid internal agent service URL/);
   assert.throws(() => make("structure", {agentBaseUrl:"file:///etc/passwd"}), /Invalid internal agent service URL/);
 });
+
+test("specialist integrations ignore client context and use the fixed internal evidence path",async()=>{
+ const {handler,calls}=make('integrations');const res=response();await handler({body:{context:{organizationId:'foreign'},url:'https://evil.invalid'}},res);
+ assert.equal(res.statusCode,200);assert.equal(calls[0].url,'http://synthetic-agent.invalid:3055/api/agent/specialist-integrations');
+ assert.deepEqual(JSON.parse(calls[0].options.body),{context:owner});
+});

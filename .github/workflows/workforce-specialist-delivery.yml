@@ -1,0 +1,47 @@
+name: Workforce specialist delivery (nondeploying)
+on:
+  push:
+    branches: ["feature/workforce-specialist-delivery-20261105"]
+    paths-ignore: ["scripts/workforce-specialist-guarded-release.py", "tests/workforce-specialist-guarded-release.test.py", ".github/workflows/workforce-specialist-release-guard.yml", "docs/**"]
+  pull_request:
+    paths: ["server/workforce-specialist-delivery.mjs", "agent-service/src/specialist-task-review.ts", "tests/workforce-specialist-delivery*.mjs", "scripts/workforce-specialist-delivery-browser-qa.mjs"]
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: "24", cache: npm}
+      - run: npm ci --no-audit --no-fund
+      - name: Durable lifecycle and HTTP boundaries
+        run: node --test tests/workforce-specialist-delivery*.test.mjs tests/workforce-specialist-scopes.test.mjs tests/agent-executive-owner-proxy.test.mjs tests/evidence-gateway-owner-bridge.test.mjs tests/workforce-actions.test.mjs tests/workforce-action-routes.test.mjs tests/workforce-task-lifecycle*.test.mjs tests/wipay-provider.test.mjs
+      - name: Hub type check and build
+        run: npm run lint && npm run build
+      - name: Agent role safety and type check
+        working-directory: agent-service
+        run: |
+          npm ci --no-audit --no-fund
+          node --import tsx --test tests/specialist-task-review.test.ts tests/specialist-integrations.test.ts tests/chat-roles.test.ts tests/evidence-answer.test.ts tests/skill-advisory.test.ts tests/managed-skills.test.ts
+          npm run lint
+      - name: Install isolated browser
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Serve synthetic browser fixture
+        run: |
+          python3 -m http.server 4178 --bind 127.0.0.1 --directory dist > /tmp/specialist-preview.log 2>&1 &
+          for n in $(seq 1 30); do curl --fail --silent http://127.0.0.1:4178/ >/dev/null && exit 0; sleep 1; done
+          exit 1
+      - run: node scripts/workforce-specialist-delivery-browser-qa.mjs
+      - run: node scripts/workforce-task-evidence-browser-qa.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: specialist-delivery-synthetic-browser
+          path: preview-artifacts/specialist-delivery/
+          retention-days: 7
+          if-no-files-found: warn

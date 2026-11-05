@@ -1,0 +1,18 @@
+name: Workforce paired release guard (source only)
+on:
+  push:
+    branches: ["feature/workforce-specialist-delivery-20261105"]
+    paths: ["scripts/workforce-specialist-guarded-release.py", "tests/workforce-specialist-guarded-release.test.py", ".github/workflows/workforce-specialist-release-guard.yml"]
+  pull_request:
+    paths: ["scripts/workforce-specialist-guarded-release.py", "tests/workforce-specialist-guarded-release.test.py", ".github/workflows/workforce-specialist-release-guard.yml"]
+permissions:
+  contents: read
+jobs:
+  guard-invariants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - run: python3 -m py_compile scripts/workforce-specialist-guarded-release.py
+      - run: python3 tests/workforce-specialist-guarded-release.test.py

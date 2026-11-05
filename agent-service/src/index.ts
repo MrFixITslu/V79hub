@@ -1,3 +1,5 @@
+import {specialistIntegrationReport} from './specialist-integrations.js';
+import {reviewSpecialistTask} from "./specialist-task-review.js";
 import "dotenv/config";
 import express from "express";
 import fs from "node:fs";
@@ -119,6 +121,13 @@ app.post("/api/policy/check", (req, res) => {
   return res.json(checkApproval(risk));
 });
 
+app.post('/api/agent/specialist-integrations',async(req,res)=>{
+ res.setHeader('Cache-Control','no-store');
+ if(req.get('origin')||req.get('cookie')||!req.body||Object.keys(req.body).join(',')!=='context'||!isValidOwnerContext(req.body.context||{}))return res.status(403).json({error:'Trusted owner context required'});
+ try{return res.json(specialistIntegrationReport(await readBusinessSnapshot(req.body.context),req.body.context));}
+ catch{return res.status(502).json({error:'Verified specialist integration evidence is unavailable'});}
+});
+
 app.post("/api/agent/evidence", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const context = req.body?.context as AgentContext | undefined;
@@ -231,6 +240,18 @@ app.post("/api/agent/development-proposal", async (req, res) => {
   } finally {
     developmentProposalInFlight = false;
   }
+});
+
+app.post("/api/agent/task-review", async (req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  const token=readApiToken();
+  if(!token || req.header("x-v79-agent-token")!==token || req.get("origin") || req.get("cookie"))
+    return res.status(403).json({error:"Trusted internal caller required"});
+  if(agentModelRuntime.provider!=="ollama")return res.status(503).json({error:"Local model required"});
+  try{
+    const review=await reviewSpecialistTask(req.body,{readSnapshot:readBusinessSnapshot});
+    return res.json(review);
+  }catch{return res.status(503).json({error:"Specialist review unavailable; task remains incomplete"});}
 });
 
 app.post("/api/agent/chat", async (req, res) => {

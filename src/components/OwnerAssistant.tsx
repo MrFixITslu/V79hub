@@ -1,3 +1,4 @@
+import {SpecialistIntegrationsPanel} from './SpecialistIntegrationsPanel';
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Bot, ClipboardCheck, LayoutList, MessageSquare, Sun, Plus, Send, ShieldCheck, Wrench } from "lucide-react";
 import { AgentApprovalInbox, type AgentDraftSuggestion } from "./AgentApprovalInbox";
@@ -337,8 +338,9 @@ export function OwnerAssistant() {
         <section id="workspace-tools" className="v79-legacy-panel v79-tools" aria-label="Tools and reports" hidden={view !== "tools"}>
           <div className="v79-area-heading"><div><h2>Tools & reports</h2><p>Open a focused workspace for each capability.</p></div></div>
           <nav className="v79-subnav" aria-label="Specialist tools">{[
-            ["communications", "Email & calendar"], ["marketing", "Marketing"], ["evidence", "Tiquet evidence"], ["executive", "Executive review"],
+            ["integrations", "Specialist integrations"], ["communications", "Email & calendar"], ["marketing", "Marketing"], ["evidence", "Tiquet evidence"], ["executive", "Executive review"],
           ].map(([id, label]) => <button key={id} aria-current={tool === id ? "page" : undefined} onClick={() => { setTool(id); setVisitedTools(current => new Set([...current, id])); }}>{label}</button>)}</nav>
+          <div hidden={tool !== "integrations"}>{visited.has("tools") && visitedTools.has("integrations") && <SpecialistIntegrationsPanel active={view === "tools" && tool === "integrations"} />}</div>
           <div hidden={tool !== "communications"}>{visited.has("tools") && visitedTools.has("communications") && <GoogleWorkforcePanel />}</div>
           <div hidden={tool !== "marketing"}>{visited.has("tools") && visitedTools.has("marketing") && <MarketingProductionPanel />}</div>
           <div hidden={tool !== "evidence"}>{visited.has("tools") && visitedTools.has("evidence") && <SignedTiquetEvidencePanel />}</div>

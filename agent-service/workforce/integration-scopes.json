@@ -1,0 +1,60 @@
+{
+  "ceo": [
+    "hub",
+    "pos",
+    "ffpro",
+    "tiquet",
+    "marketing",
+    "academy",
+    "lasertag",
+    "website",
+    "games"
+  ],
+  "coo": [
+    "hub",
+    "pos",
+    "ffpro",
+    "tiquet",
+    "marketing",
+    "academy",
+    "lasertag",
+    "website",
+    "games"
+  ],
+  "customer-service": [
+    "tiquet"
+  ],
+  "finance": [
+    "ffpro",
+    "pos"
+  ],
+  "marketing": [
+    "marketing",
+    "website"
+  ],
+  "sales": [
+    "website"
+  ],
+  "strategy": [
+    "hub",
+    "pos",
+    "ffpro",
+    "tiquet",
+    "marketing",
+    "academy",
+    "lasertag",
+    "website",
+    "games"
+  ],
+  "technical-security": [
+    "hub",
+    "pos",
+    "ffpro",
+    "tiquet",
+    "marketing",
+    "academy",
+    "lasertag",
+    "website",
+    "games"
+  ]
+}

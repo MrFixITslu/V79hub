@@ -91,3 +91,9 @@ test("model unavailable uses read-only fallback",async()=>{
  assert.match(r.output,/Advisory draft unavailable/);
  assert.deepEqual(r.verifiedFindingIds,[]);
 });
+
+test("literal V79 brand is allowed while figures and unsafe review advice remain rejected",()=>{
+ assert.ok(validateAdvisoryDraft(JSON.stringify({steps:["Review V79 Digital support handoffs and identify missing evidence."],questions:[]})));
+ assert.ok(validateAdvisoryDraft(JSON.stringify({steps:["Examine support handoffs and identify missing evidence before proposing changes."],questions:[]})));
+ for(const step of ["Review V79 Digital's 999 customers before continuing.","Examine disabling MFA before proceeding with the review.","Examine sending private keys to another service.","Examine the payment that was sent successfully."])assert.equal(validateAdvisoryDraft(JSON.stringify({steps:[step],questions:[]})),null);
+});
