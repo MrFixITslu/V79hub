@@ -34,6 +34,13 @@ export function resolveOllamaNativeRuntime(env: NodeJS.ProcessEnv = process.env)
   };
 }
 
+function inferenceProfile(env: NodeJS.ProcessEnv) {
+  return {
+    ...(env.OLLAMA_NUM_THREADS ? {num_thread: Math.min(4, positiveInteger(env.OLLAMA_NUM_THREADS, 2))} : {}),
+    ...(env.OLLAMA_USE_MMAP === "0" ? {use_mmap: false} : {}),
+  };
+}
+
 type OllamaChatResponse = {
   message?: { role?: string; content?: string };
   error?: string;
@@ -55,6 +62,7 @@ export async function prewarmOllamaOwnerAssistant(
     body: JSON.stringify({
       model: runtime.model,
       prompt: "",
+      ...(Object.keys(inferenceProfile(env)).length ? {options: {num_ctx: runtime.contextSize, ...inferenceProfile(env)}} : {}),
       stream: false,
       keep_alive: runtime.keepAlive,
     }),
@@ -92,6 +100,7 @@ export async function runOllamaOwnerAssistant(
         temperature: 0,
         num_predict: runtime.maxTokens,
         num_ctx: runtime.contextSize,
+        ...inferenceProfile(options.env || process.env),
         ...(options.inferenceOptions ? {num_thread: options.inferenceOptions.numThreads, use_mmap: options.inferenceOptions.useMmap} : {}),
       },
       messages: [
