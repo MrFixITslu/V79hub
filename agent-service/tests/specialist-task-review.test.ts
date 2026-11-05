@@ -21,3 +21,8 @@ test("unsafe model claims and model outages produce no deliverable",async()=>{
  for(const raw of ["I deployed the changes.",JSON.stringify({steps:["Consider disabling MFA before continuing."],questions:[]})])await assert.rejects(reviewSpecialistTask(body(),{readSnapshot:(async()=>snapshot()) as any,fetchImpl:fake(raw)}),/MODEL_REVIEW_UNAVAILABLE/);
  await assert.rejects(reviewSpecialistTask(body(),{readSnapshot:(async()=>snapshot()) as any,fetchImpl:(async()=>{throw Error("offline")}) as typeof fetch}),/MODEL_REVIEW_UNAVAILABLE/);
 });
+
+test("dedicated local review model is reported accurately without changing other chat defaults",async()=>{
+ const spy={body:null as any};const result=await reviewSpecialistTask(body(),{readSnapshot:(async()=>snapshot()) as any,fetchImpl:fake(valid,spy),env:{V79_SPECIALIST_REVIEW_MODEL:"qwen2.5:3b"}});
+ assert.equal(spy.body.model,"qwen2.5:3b");assert.equal(result.model,"qwen2.5:3b");
+});

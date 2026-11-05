@@ -242,7 +242,7 @@ app.post("/api/agent/task-review", async (req,res)=>{
   if(agentModelRuntime.provider!=="ollama")return res.status(503).json({error:"Local model required"});
   try{
     const review=await reviewSpecialistTask(req.body,{readSnapshot:readBusinessSnapshot});
-    return res.json({...review,model:agentModelRuntime.model});
+    return res.json(review);
   }catch{return res.status(503).json({error:"Specialist review unavailable; task remains incomplete"});}
 });
 
