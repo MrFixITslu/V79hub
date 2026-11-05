@@ -64,8 +64,9 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
         !data.jobs.every((j: Job) => j && typeof j.id === "string" && typeof j.summary === "string" && typeof j.status === "string" &&
           typeof j.operation === "string" && typeof j.system === "string" && j.payload && typeof j.payload === "object" &&
           Number.isInteger(j.revision) && typeof j.digest === "string")) throw new Error("Unexpected action queue response");
-      if(!Array.isArray(data.tasks) || data.tasks.some((t:DeliveryTask)=>!t || typeof t.id!=="string" || typeof t.taskDigest!=="string" || typeof t.title!=="string")) throw new Error("Unexpected task delivery response");
-      setTasks(data.tasks);setSpecialists(Array.isArray(data.specialists)?data.specialists:[]);setReviewsEnabled(data.specialistReviewsEnabled===true);
+      const reviewTasks = data.tasks === undefined && data.specialistReviewsEnabled !== true ? [] : data.tasks;
+      if(!Array.isArray(reviewTasks) || reviewTasks.some((t:DeliveryTask)=>!t || typeof t.id!=="string" || typeof t.title!=="string" || (data.specialistReviewsEnabled===true && typeof t.taskDigest!=="string"))) throw new Error("Unexpected task delivery response");
+      setTasks(reviewTasks);setSpecialists(Array.isArray(data.specialists)?data.specialists:[]);setReviewsEnabled(data.specialistReviewsEnabled===true);
       setEnabled(data.enabled === true); setPaused(data.paused === true); setJobs(data.jobs); setCheckedAt(new Date()); setError("");
     } catch (e) {
       if (current === serial.current) {
