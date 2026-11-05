@@ -4,12 +4,12 @@ import copy,fcntl,hashlib,importlib.util,json,os,re,subprocess,sys,time
 from pathlib import Path
 ROOT=Path('/home/firelion/.v79-workforce-delivery-release-20261105')
 SOURCE=Path('/home/firelion/v79-workforce-completion-20261105')
-APP_SHA='01691b7e72c75192801a94291477cf493594ee7b'
+APP_SHA='c957a24020894f7160e0dd15853cf13c39d61c13'
 CHECKPOINT='c9c6dd9c3f546720681358aee864135a391b56b26fc6ec702d3552e5c98e4524'
 TIMERS=['v79-g2-approved-task-worker.timer','v79-workforce-morning.timer','v79-workforce-evening.timer']
 SPECS={
- 'v79-business-agent':{'old':'sha256:8c12d67b45486c30adca3e19dde88e1654995b15a26c6cb7a52e51fd7b62691f','tag':'localhost/v79-workforce-agent:01691b7','stage':'v79-workforce-agent-stage-20261105','previous':'v79-workforce-agent-rollback-20261105','mounts':1,'url':'https://hub.v79sl.com/','flags':{'OLLAMA_AGENT_MODEL':'qwen2.5:3b','V79_SPECIALIST_REVIEW_MODEL':'qwen2.5:3b'}},
- 'v79-hub':{'old':'sha256:96a0b3cc2455d1a02c508c8db30f9856660bc26d8892b50f65829f942bdb6de3','tag':'localhost/v79-workforce-hub:01691b7','stage':'v79-workforce-hub-stage-20261105','previous':'v79-workforce-hub-rollback-20261105','mounts':7,'url':'https://hub.v79sl.com/','flags':{'V79_WORKFORCE_SPECIALIST_REVIEWS_ENABLED':'1'}},
+ 'v79-business-agent':{'old':'sha256:8c12d67b45486c30adca3e19dde88e1654995b15a26c6cb7a52e51fd7b62691f','tag':'localhost/v79-workforce-agent:c957a24','stage':'v79-workforce-agent-stage-20261105','previous':'v79-workforce-agent-rollback-20261105','mounts':1,'url':'https://hub.v79sl.com/','flags':{'OLLAMA_AGENT_MODEL':'qwen2.5:3b','V79_SPECIALIST_REVIEW_MODEL':'qwen2.5:3b'}},
+ 'v79-hub':{'old':'sha256:96a0b3cc2455d1a02c508c8db30f9856660bc26d8892b50f65829f942bdb6de3','tag':'localhost/v79-workforce-hub:c957a24','stage':'v79-workforce-hub-stage-20261105','previous':'v79-workforce-hub-rollback-20261105','mounts':7,'url':'https://hub.v79sl.com/','flags':{'V79_WORKFORCE_SPECIALIST_REVIEWS_ENABLED':'1'}},
 }
 
 def expected_runtime(original,spec):
