@@ -38,7 +38,7 @@ try{
   assert.equal(task.status,"open");await page.screenshot({path:"preview-artifacts/specialist-delivery/"+label+"-draft.png",fullPage:true});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),"No horizontal page overflow");
   await page.getByRole("button",{name:"Accept advisory review as task deliverable"}).click();
-  await delivery.getByText(/Advisory deliverable accepted/).waitFor();assert.equal(accepted,1);assert.equal(proposals,1);assert.deepEqual(errors,[]);
+  await delivery.getByText(/Deliverable accepted/).waitFor();assert.equal(accepted,1);assert.equal(proposals,1);assert.deepEqual(errors,[]);
   await page.screenshot({path:"preview-artifacts/specialist-delivery/"+label+"-accepted.png",fullPage:true});
   await page.getByRole('button',{name:'Tools & reports',exact:true}).click();await page.getByRole('button',{name:'Specialist integrations',exact:true}).click();
   const integrations=page.getByRole('region',{name:'Specialist integrations',exact:true});await integrations.getByText(/8 of 8 specialists/).waitFor();
