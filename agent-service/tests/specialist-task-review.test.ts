@@ -10,7 +10,7 @@ const body=(role=chatRoleRoster()[0]!)=>({context,system:"tiquet",role:role.id,s
 for(const role of chatRoleRoster())test(role.id+" produces a bounded local draft using its protected skill",async()=>{
  const spy={body:null as any};const result=await reviewSpecialistTask(body(role),{readSnapshot:(async()=>snapshot()) as any,fetchImpl:fake(valid,spy)});
  assert.equal(result.roleId,role.id);assert.equal(result.skillSha,role.skillSha);assert.equal(result.ownerAccepted,false);assert.equal(result.mode,"read-only");assert.match(result.output,/DRAFT ADVICE/);
- assert.equal(spy.body.tools,undefined);assert.equal(spy.body.options.num_predict,256);assert.equal(spy.body.options.num_ctx,3072);assert.match(spy.body.messages[0].content,/read.only/i);assert.equal(spy.body.format.additionalProperties,false);assert.equal(spy.body.format.properties.steps.minItems,1);
+ assert.equal(spy.body.tools,undefined);assert.equal(spy.body.options.num_predict,256);assert.equal(spy.body.options.num_thread,2);assert.equal(spy.body.options.use_mmap,false);assert.equal(spy.body.options.num_ctx,3072);assert.match(spy.body.messages[0].content,/read.only/i);assert.equal(spy.body.format.additionalProperties,false);assert.equal(spy.body.format.properties.steps.minItems,1);
 });
 test("untrusted roles, missing owner context, extra fields and modified skill pins fail before model invocation",async()=>{
  for(const change of [(x:any)=>x.role="shell",(x:any)=>x.context={...context,ownerAgent:false},(x:any)=>x.skillSha="a".repeat(40),(x:any)=>x.execute=true]){

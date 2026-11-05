@@ -75,6 +75,7 @@ export async function runOllamaOwnerAssistant(
     fetchImpl?: typeof fetch;
     specialistInstructions?: string;
     responseFormat?: "json" | Record<string,unknown>;
+    inferenceOptions?: {numThreads: number; useMmap: boolean};
   } = {},
 ) {
   const runtime = resolveOllamaNativeRuntime(options.env);
@@ -91,6 +92,7 @@ export async function runOllamaOwnerAssistant(
         temperature: 0,
         num_predict: runtime.maxTokens,
         num_ctx: runtime.contextSize,
+        ...(options.inferenceOptions ? {num_thread: options.inferenceOptions.numThreads, use_mmap: options.inferenceOptions.useMmap} : {}),
       },
       messages: [
         {
