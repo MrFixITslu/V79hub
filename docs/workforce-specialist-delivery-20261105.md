@@ -1,4 +1,4 @@
-# Specialist task delivery candidate
+# Specialist task review — deployed with acceptance outstanding
 
 Existing G2 task creation leaves an open COO task. This candidate adds a separate exact owner-approved specialist advisory review, one-at-a-time local model execution, a durable result, and fresh-MFA acceptance of that advisory result as the linked task deliverable. It does not implement engineering changes, independently attest security, deploy software, send messages or execute uploaded packages.
 
@@ -23,3 +23,11 @@ A dedicated `V79_SPECIALIST_REVIEW_MODEL` may select an installed local model. T
 
 ## Paired release control
 The guarded release tool pins the application source separately from release-tool documentation commits. It requires the fresh encrypted checkpoint SHA and an actual off-host PostgreSQL restore receipt. Stopped candidates must preserve the complete process configuration, mounts, host security, network membership, ports and restart policy, allowing only explicitly listed local-model/feature flags and source labels. Existing worker/report timers pause and drain before cutover, original containers remain available, and unrelated running container IDs/images must remain unchanged. Unit tests reject process, environment, MFA, capability, data-mount, port, network and source drift. No release is established by this runbook; use the actual deployment receipt and owner-MFA acceptance.
+
+## Observed deployment status, 5 November 2026
+
+Application source c957a24020894f7160e0dd15853cf13c39d61c13 is deployed to Hub and Business Agent. The paired release journal records successful cutover, restored existing timers, retained rollback containers and unchanged protected services. The specialist review user timer is installed and active. Recovery ciphertext was independently restored on Acer in isolated PostgreSQL before cutover. These establish deployment and recovery evidence, not owner acceptance.
+
+The actual deployed internal endpoint rejected unauthenticated calls with HTTP 401 and authenticated browser-origin calls with HTTP 403. Its first authorised read-only smoke request returned HTTP 503 after 93,477 ms. A subsequent source-level diagnostic also timed out. No task was accepted and no queue mutation was made by these probes. Earlier eight-role source/model checks passed, but do not establish deployed endpoint reliability under current host contention. The owner browser sign-in was interrupted; authenticated queue-to-draft-to-accept browser acceptance remains outstanding.
+
+Current Sentinel monitor and NOC containers have no signing/alert/receiver configuration names or extra mounts. The staged Unix receiver package remains a prototype, not a production incident-delivery service. The wider workforce must remain labelled incomplete.
