@@ -74,7 +74,7 @@ export async function runOllamaOwnerAssistant(
     env?: NodeJS.ProcessEnv;
     fetchImpl?: typeof fetch;
     specialistInstructions?: string;
-    responseFormat?: "json";
+    responseFormat?: "json" | Record<string,unknown>;
   } = {},
 ) {
   const runtime = resolveOllamaNativeRuntime(options.env);
