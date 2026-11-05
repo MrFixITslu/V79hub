@@ -28,7 +28,7 @@ try{
  const r=await fetch("http://v79-business-agent:3055/api/agent/task-review",{
   method:"POST",redirect:"error",headers:{"content-type":"application/json","x-v79-agent-token":agentToken},
   body:JSON.stringify({context,role:job.payload.specialist,skillSha:job.payload.skillSha,
-   title:claim.task.title,detail:claim.task.detail}),signal:AbortSignal.timeout(65000)});
+   title:claim.task.title,detail:claim.task.detail}),signal:AbortSignal.timeout(110000)});
  const raw=await r.text();if(Buffer.byteLength(raw)>16000)throw Error("OVERSIZED_REVIEW");
  const review=JSON.parse(raw);
  if(!r.ok||review.mode!=="read-only"||review.kind!=="specialist-review-draft"||review.modelProvider!=="ollama"||

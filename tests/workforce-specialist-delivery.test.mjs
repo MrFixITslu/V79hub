@@ -58,7 +58,7 @@ test("JSON roundtrip preserves draft and permits only explicit owner acceptance"
 test("interrupted review needs owner reconciliation, denies late receipts and permits a new approval",()=>{
  const x=claimed(),r=receipt(x.job),args={organizationId:org,actor,expectedRevision:x.job.revision,digest:x.job.digest,now};
  assert.throws(()=>reconcileSpecialistReview(x.state,x.job.id,args));
- reconcileSpecialistReview(x.state,x.job.id,{...args,now:now+120001});assert.equal(x.task.status,"open");assert.equal(x.job.status,"failed");
- assert.throws(()=>finishSpecialistReview(x.state,x.job.id,r,{organizationId:org,now:now+120002}));
- const retry=proposeWork(x.state,{...x.input,idempotencyKey:"synthetic-owner-retry-002"},{organizationId:org,actor,now:now+120003});assert.equal(retry.status,"pending");
+ reconcileSpecialistReview(x.state,x.job.id,{...args,now:now+180001});assert.equal(x.task.status,"open");assert.equal(x.job.status,"failed");
+ assert.throws(()=>finishSpecialistReview(x.state,x.job.id,r,{organizationId:org,now:now+180002}));
+ const retry=proposeWork(x.state,{...x.input,idempotencyKey:"synthetic-owner-retry-002"},{organizationId:org,actor,now:now+180003});assert.equal(retry.status,"pending");
 });

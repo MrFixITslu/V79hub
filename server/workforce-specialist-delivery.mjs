@@ -74,7 +74,7 @@ export function reconcileSpecialistReview(state,id,{organizationId,actor,expecte
  const job=state.jobs.find(j=>j.id===id&&j.organizationId===organizationId);
  if(!actor||!job||job.operation!==REVIEW_OPERATION||!["running","uncertain"].includes(job.status)||
    job.revision!==expectedRevision||job.digest!==digest||!Number.isFinite(Date.parse(job.claim?.at))||
-   now-Date.parse(job.claim.at)<120000)throw Error("Review is not eligible for interrupted-run reconciliation");
+   now-Date.parse(job.claim.at)<180000)throw Error("Review is not eligible for interrupted-run reconciliation");
  if(state.events.length>=16000)throw Error("Audit capacity reached");
  const at=new Date(now).toISOString();job.status="failed";job.revision++;
  job.result={kind:"specialist-review-interrupted",at,ownerAccepted:false,
