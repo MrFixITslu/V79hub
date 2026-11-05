@@ -1,3 +1,4 @@
+import {reviewSpecialistTask} from "./specialist-task-review.js";
 import "dotenv/config";
 import express from "express";
 import fs from "node:fs";
@@ -231,6 +232,18 @@ app.post("/api/agent/development-proposal", async (req, res) => {
   } finally {
     developmentProposalInFlight = false;
   }
+});
+
+app.post("/api/agent/task-review", async (req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  const token=readApiToken();
+  if(!token || req.header("x-v79-agent-token")!==token || req.get("origin") || req.get("cookie"))
+    return res.status(403).json({error:"Trusted internal caller required"});
+  if(agentModelRuntime.provider!=="ollama")return res.status(503).json({error:"Local model required"});
+  try{
+    const review=await reviewSpecialistTask(req.body,{readSnapshot:readBusinessSnapshot});
+    return res.json({...review,model:agentModelRuntime.model});
+  }catch{return res.status(503).json({error:"Specialist review unavailable; task remains incomplete"});}
 });
 
 app.post("/api/agent/chat", async (req, res) => {

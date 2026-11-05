@@ -1,8 +1,9 @@
+import {REVIEW_OPERATION, validateReviewPayload, assertReviewCanBeProposed} from "./workforce-specialist-delivery.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { GOOGLE_OPERATIONS, validateGooglePayload } from './workforce-google.mjs';
 
 export const WORK_SYSTEMS = Object.freeze(["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag", "gmail", "calendar"]);
-export const WORK_OPERATIONS = Object.freeze(["create_work_item", "validate_release", "deploy_release", "rollback_release", ...GOOGLE_OPERATIONS]);
+export const WORK_OPERATIONS = Object.freeze([REVIEW_OPERATION, "create_work_item", "validate_release", "deploy_release", "rollback_release", ...GOOGLE_OPERATIONS]);
 const SHA = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const MAX = 2000;
@@ -19,7 +20,9 @@ export function validateWorkRequest(input) {
   if (!exact(input, ["operation", "system", "summary", "payload", "idempotencyKey"]) ||
       !WORK_OPERATIONS.includes(input.operation) || !WORK_SYSTEMS.includes(input.system) ||
       !text(input.summary, 180) || !/^[A-Za-z0-9_-]{16,96}$/.test(input.idempotencyKey)) throw new Error("Invalid action request");
-  if (GOOGLE_OPERATIONS.includes(input.operation)) {
+  if (input.operation === REVIEW_OPERATION) {
+    validateReviewPayload(input.payload);
+  } else if (GOOGLE_OPERATIONS.includes(input.operation)) {
     validateGooglePayload(input.operation, input.system, input.payload);
   } else if (["gmail", "calendar"].includes(input.system)) {
     throw new Error("Google systems require a bounded Google operation");
@@ -33,7 +36,7 @@ export function workDigest(input) {
   const request = validateWorkRequest(input);
   return createHash("sha256").update(JSON.stringify([
     request.operation, request.system, request.summary,
-    GOOGLE_OPERATIONS.includes(request.operation) ? Object.keys(request.payload).sort().map(k=>[k,request.payload[k]]) :
+    (request.operation === REVIEW_OPERATION || GOOGLE_OPERATIONS.includes(request.operation)) ? Object.keys(request.payload).sort().map(k=>[k,request.payload[k]]) :
       request.operation === "create_work_item" ? request.payload.detail : [request.payload.commitSha, request.payload.manifestSha256],
     request.idempotencyKey,
   ])).digest("hex");
@@ -58,6 +61,7 @@ export function proposeWork(state, input, { organizationId, actor, now = Date.no
   const request = validateWorkRequest(input), digest = workDigest(request);
   const prior = state.jobs.find(j => j.organizationId === organizationId && j.idempotencyKey === request.idempotencyKey);
   if (prior) { if (prior.digest !== digest) fail("Idempotency conflict"); return prior; }
+  if (request.operation === REVIEW_OPERATION && assertReviewCanBeProposed(state, request.payload, organizationId).system !== request.system) fail("Task system mismatch");
   if (state.jobs.length >= MAX) fail("Action capacity reached");
   const job = { ...request, id: randomUUID(), organizationId, createdBy: actor, digest,
     status: "pending", revision: 1, createdAt: new Date(now).toISOString(),

@@ -3,12 +3,14 @@ import { Check, ChevronRight, ClipboardCheck, Plus, RefreshCcw, Search } from "l
 import type { CooWorkItemDraft } from "./OwnerCooWorkboardPanel";
 
 type Job = { id: string; operation: string; system: string; summary: string;
-  payload: { detail?: string; commitSha?: string; manifestSha256?: string; to?: string; subject?: string; body?: string; start?: string; end?: string; attendees?: string[]; eventId?: string; etag?: string; threadId?: string; messageId?: string; summary?: string };
-  digest: string; revision: number; status: string; approval: { expiresAt: string } | null;
-  result: { taskId?: string; receiptSha256?: string } | null };
+  payload: { taskId?: string; taskDigest?: string; specialist?: string; skillSha?: string; detail?: string; commitSha?: string; manifestSha256?: string; to?: string; subject?: string; body?: string; start?: string; end?: string; attendees?: string[]; eventId?: string; etag?: string; threadId?: string; messageId?: string; summary?: string };
+  digest: string; revision: number; status: string; approval: { expiresAt: string } | null; claim?: {at:string};
+  result: { taskId?: string; receiptSha256?: string; output?: string; outputSha256?: string; kind?: string; ownerAccepted?: boolean; model?: string; specialist?: string } | null };
+type DeliveryTask = {id:string;title:string;status:string;system:string;taskDigest:string;lastReviewJobId?:string};
+type Specialist = {id:string;name:string;skillSha:string};
 type QueueFilter = "all" | "review" | "active" | "history";
 const systems = ["hub", "tiquet", "marketing", "ffpro", "pos", "academy", "website", "games", "sentinel", "lasertag"];
-const operations: Record<string, string> = { create_work_item: "Create work item", validate_release: "Test exact release", deploy_release: "Deploy tested release", rollback_release: "Roll back exact release" };
+const operations: Record<string, string> = { run_specialist_review: "Specialist advisory review", create_work_item: "Create work item", validate_release: "Test exact release", deploy_release: "Deploy tested release", rollback_release: "Roll back exact release" };
 const googleOperations: Record<string,string> = {create_email_draft:'Save Gmail reply draft',create_calendar_event:'Create appointment',update_calendar_event:'Change appointment',delete_calendar_event:'Cancel appointment'};
 const priority: Record<string, number> = { pending: 0, uncertain: 1, failed: 2, approved: 3, running: 4 };
 function expired(job: Job) {
@@ -16,6 +18,7 @@ function expired(job: Job) {
 }
 function statusLabel(job: Job) {
   if (expired(job)) return "Approval expired";
+  if(job.operation === "run_specialist_review" && job.status === "succeeded") return job.result?.ownerAccepted ? "Review accepted" : "Draft ready for your review";
   if (job.status === "succeeded" && job.operation === "create_work_item") return "Work item created";
   return ({ pending: "Needs your approval", approved: "Approved · awaiting execution", running: "Running", succeeded: "Succeeded", failed: "Failed", uncertain: "Needs reconciliation", rejected: "Rejected", cancelled: "Cancelled" } as Record<string, string>)[job.status] || job.status;
 }
@@ -39,6 +42,8 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
   active?: boolean;
 } = {}) {
   const [open, setOpen] = useState(false), [enabled, setEnabled] = useState(false), [paused, setPaused] = useState(false);
+  const [tasks,setTasks] = useState<DeliveryTask[]>([]), [specialists,setSpecialists] = useState<Specialist[]>([]);
+  const [reviewsEnabled,setReviewsEnabled] = useState(false), [selectedRoles,setSelectedRoles] = useState<Record<string,string>>({});
   const [jobs, setJobs] = useState<Job[]>([]), [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState("");
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [notice, setNotice] = useState("");
@@ -59,10 +64,12 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
         !data.jobs.every((j: Job) => j && typeof j.id === "string" && typeof j.summary === "string" && typeof j.status === "string" &&
           typeof j.operation === "string" && typeof j.system === "string" && j.payload && typeof j.payload === "object" &&
           Number.isInteger(j.revision) && typeof j.digest === "string")) throw new Error("Unexpected action queue response");
+      if(!Array.isArray(data.tasks) || data.tasks.some((t:DeliveryTask)=>!t || typeof t.id!=="string" || typeof t.taskDigest!=="string" || typeof t.title!=="string")) throw new Error("Unexpected task delivery response");
+      setTasks(data.tasks);setSpecialists(Array.isArray(data.specialists)?data.specialists:[]);setReviewsEnabled(data.specialistReviewsEnabled===true);
       setEnabled(data.enabled === true); setPaused(data.paused === true); setJobs(data.jobs); setCheckedAt(new Date()); setError("");
     } catch (e) {
       if (current === serial.current) {
-        setJobs([]); setEnabled(false); setCheckedAt(null);
+        setJobs([]);setTasks([]);setReviewsEnabled(false); setEnabled(false); setCheckedAt(null);
         setError(e instanceof Error ? e.message : "Action queue unavailable");
       }
       throw e;
@@ -89,7 +96,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
     if (mutation.current) return;
     mutation.current = true; serial.current++; setBusy(true); setError(""); setNotice("");
     try { await fn(); await refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : "Action unavailable"); setJobs([]); setEnabled(false); setCheckedAt(null); }
+    catch (e) { setError(e instanceof Error ? e.message : "Action unavailable"); setJobs([]);setTasks([]);setReviewsEnabled(false); setEnabled(false); setCheckedAt(null); }
     finally { mutation.current = false; setBusy(false); }
   };
   const queue = () => perform(async () => {
@@ -110,6 +117,20 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
       setNotice(decision === "approve" ? "Exact action approved. Track it in Active. An eligible worker must be running to execute it; refreshing this page does not execute actions." : "Action rejected.");
       setFilter(decision === "approve" ? "active" : "history");
     });
+  };
+  const queueReview = (task:DeliveryTask) => perform(async()=>{
+    const role=specialists.find(r=>r.id===(selectedRoles[task.id]||"coo"));
+    if(!role)throw new Error("Select an available specialist.");
+    await request("",{operation:"run_specialist_review",system:task.system,
+      summary:("Review: "+task.title).slice(0,180),payload:{taskId:task.id,taskDigest:task.taskDigest,specialist:role.id,skillSha:role.skillSha},
+      idempotencyKey:"review-"+crypto.randomUUID()});
+    setNotice("Specialist review queued. Review and approve its exact task and protected skill before it runs.");setFilter("review");
+  });
+  const acceptReview = (job:Job) => {
+    if(!window.confirm("Accept this advisory review as the complete deliverable for its linked task?\n\nRead the saved result first. Acceptance does not prove code was changed, deployed, or independently security-tested."))return;
+    void perform(async()=>{await request("/"+encodeURIComponent(job.id)+"/accept-review",{
+      expectedRevision:job.revision,digest:job.digest,outputSha256:job.result?.outputSha256});
+      setNotice("You accepted the advisory deliverable. Its linked task is now completed.");});
   };
   const counts = {
     all: jobs.length, review: jobs.filter(j => j.status === "pending").length,
@@ -139,6 +160,23 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
       {notice && <p role="status" className="rounded-lg border border-cyan-800 bg-cyan-950/40 p-3 text-sm text-cyan-100">{notice}</p>}
       {error && <p role="alert" className="rounded-lg border border-red-800 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
       {checkedAt && !enabled && <p className="rounded-xl border border-slate-700 p-4 text-slate-300">Task actions are disabled. You can review available history; an operator must enable actions before queueing work.</p>}
+      {checkedAt && <section aria-label="Task delivery" className="space-y-3 border-y border-slate-800 py-4">
+        <h3 className="text-base font-semibold">Task delivery</h3>
+        <p className="text-sm text-slate-400">{tasks.filter(t=>t.status==="open").length} open · {tasks.filter(t=>t.status==="completed").length} accepted. Task creation, a saved specialist draft, and your acceptance are separate stages.</p>
+        {!reviewsEnabled && <p className="text-sm text-amber-200">Specialist delivery is not enabled. Existing task records remain available.</p>}
+        {!tasks.length && <p className="text-sm text-slate-400">Create and approve a work item to begin tracking delivery.</p>}
+        <div className="divide-y divide-slate-800">{tasks.map(task=>{
+          const unresolved=jobs.some(j=>j.operation==="run_specialist_review"&&j.payload.taskId===task.id&&["pending","approved","running","uncertain"].includes(j.status));
+          return <article key={task.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div className="min-w-0 flex-1"><h4 className="break-words font-medium">{task.title}</h4><p className="mt-1 text-xs text-slate-400">{task.system} · {task.status==="completed"?"Advisory deliverable accepted":unresolved?"Specialist review in progress":"Open · delivery outstanding"}</p></div>
+            {task.status==="open" && reviewsEnabled && <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+              <label className="sr-only" htmlFor={"specialist-"+task.id}>Specialist for {task.title}</label>
+              <select id={"specialist-"+task.id} disabled={busy||unresolved} value={selectedRoles[task.id]||"coo"} onChange={e=>setSelectedRoles({...selectedRoles,[task.id]:e.target.value})} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm focus-visible:ring-2 focus-visible:ring-cyan-300">{specialists.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>
+              <button type="button" disabled={busy||unresolved||!enabled||paused} onClick={()=>void queueReview(task)} className="min-h-11 rounded-lg border border-cyan-700 px-3 py-2 text-cyan-200 disabled:opacity-50">Queue specialist review</button>
+            </div>}
+          </article>;
+        })}</div>
+      </section>}
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
         <form aria-label="New work item" onSubmit={e => { e.preventDefault(); if (enabled && checkedAt && !busy && summary.trim().length >= 8 && (operation !== "create_work_item" || detail.trim().length >= 8)) void queue(); }} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4 sm:p-5">
           <fieldset disabled={busy} className="min-w-0 space-y-4 disabled:opacity-60">
@@ -152,7 +190,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
             <label className="block text-sm font-medium">Reviewed release manifest SHA-256<input required pattern="[a-f0-9]{64}" value={manifestSha256} onChange={e => setManifestSha256(e.target.value)} maxLength={64} className={field + " font-mono"} /></label>
           </>}
           <details className="rounded-lg border border-slate-700 p-3"><summary className="cursor-pointer text-xs text-slate-300">Advanced · release actions</summary><p className="mt-2 text-xs leading-5 text-amber-200">Use only with a reviewed release manifest and an eligible release worker. Task worker installation does not enable release execution.</p>
-            <label className="mt-3 block text-xs">Action<select value={operation} onChange={e => setOperation(e.target.value)} className={field}>{Object.entries(operations).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label className="mt-3 block text-xs">Action<select value={operation} onChange={e => setOperation(e.target.value)} className={field}>{Object.entries(operations).filter(([value])=>value!=="run_specialist_review").map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           </details>
           {operation !== "create_work_item" && <p role="status" className="text-sm font-medium text-amber-200">You are queueing: {operations[operation]}. This is a release action.</p>}
           <button type="submit" disabled={!enabled || !checkedAt || busy || summary.trim().length < 8 || (operation === "create_work_item" && detail.trim().length < 8)} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-3 font-semibold text-slate-950 hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40">Queue for review<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
@@ -167,6 +205,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
           <div className="space-y-3">{visibleJobs.map(job => <article key={job.id} aria-label={job.summary} className="space-y-3 rounded-xl border border-slate-700 bg-slate-900/50 p-4">
             <div className="flex flex-wrap items-start justify-between gap-2"><h4 className="min-w-0 break-words font-semibold">{job.summary}</h4><span className={"rounded-full border px-2.5 py-1 text-xs " + statusStyle(job)}>{statusLabel(job)}</span></div>
             <p className="text-xs text-slate-400">{job.system} · {operations[job.operation] || googleOperations[job.operation] || job.operation.replaceAll("_", " ")}</p>
+            {job.payload.specialist && <p className="text-sm text-cyan-200">Specialist: {specialists.find(r=>r.id===job.payload.specialist)?.name || job.payload.specialist} · read-only advisory scope</p>}
             {job.payload.detail && <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">{job.payload.detail}</p>}
             {googleOperations[job.operation] ? <div className="space-y-2 rounded-lg border border-slate-700 p-3 text-sm">
               {job.payload.to&&<p>To: {job.payload.to}</p>}{job.payload.subject&&<p>Subject: {job.payload.subject}</p>}
@@ -175,7 +214,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
               {job.payload.start&&job.payload.end&&<p>{new Intl.DateTimeFormat('en-LC',{timeZone:'America/St_Lucia',dateStyle:'medium',timeStyle:'short'}).format(new Date(job.payload.start))} – {new Intl.DateTimeFormat('en-LC',{timeZone:'America/St_Lucia',dateStyle:'medium',timeStyle:'short'}).format(new Date(job.payload.end))} · Saint Lucia</p>}
               {job.payload.attendees&&<p>Attendees: {job.payload.attendees.join(', ')||'Only you'}</p>}
               <p className="text-amber-200">{job.operation==='create_email_draft'?'Saves a Gmail draft. You review and send it.':'This action can notify appointment attendees.'}</p>
-            </div> : job.operation !== "create_work_item" && <dl className="space-y-1 break-all text-xs text-slate-300"><dt className="text-slate-400">Reviewed commit</dt><dd className="font-mono">{job.payload.commitSha}</dd><dt className="pt-1 text-slate-400">Manifest SHA-256</dt><dd className="font-mono">{job.payload.manifestSha256}</dd></dl>}
+            </div> : !["create_work_item","run_specialist_review"].includes(job.operation) && <dl className="space-y-1 break-all text-xs text-slate-300"><dt className="text-slate-400">Reviewed commit</dt><dd className="font-mono">{job.payload.commitSha}</dd><dt className="pt-1 text-slate-400">Manifest SHA-256</dt><dd className="font-mono">{job.payload.manifestSha256}</dd></dl>}
             {job.status === "pending" && <p className="text-xs text-amber-200">Next: review the scope above, then approve or reject this exact action.</p>}
             {job.status === "approved" && <p className="text-xs text-amber-200">{expired(job) ? "Approval has expired. This action cannot execute; cancel it and queue a fresh review if still needed." : "Waiting for an eligible worker or manual execution. Approval expires " + new Date(job.approval!.expiresAt).toLocaleString() + "."}</p>}
             {job.status === "uncertain" && <p className="text-xs text-amber-200">Execution outcome is uncertain. An operator must reconcile the result before any retry.</p>}
@@ -183,7 +222,18 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
             {enabled && job.status === "pending" && <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => decide(job, "approve")} className="min-h-11 rounded-lg bg-emerald-300 px-3 py-2 font-semibold text-slate-950 disabled:opacity-50">Approve exact action</button><button type="button" disabled={busy} onClick={() => decide(job, "reject")} className="min-h-11 rounded-lg border border-slate-600 px-3 py-2 disabled:opacity-50">Reject</button></div>}
             {enabled && job.status === "approved" && job.operation === "create_work_item" && !expired(job) && <details className="rounded-lg border border-slate-700 p-3"><summary className="cursor-pointer text-xs text-slate-300">Manual execution option</summary><p className="mt-2 text-xs leading-5 text-slate-400">Use only if you intend to execute this approved creation manually. Leave this untouched when verifying the scheduled worker.</p><button type="button" disabled={busy || paused} onClick={() => void perform(async () => { await request("/" + encodeURIComponent(job.id) + "/execute", { expectedRevision: job.revision }); setNotice("Engineering work item created and assigned to COO. Underlying delivery remains separate."); })} className="mt-2 min-h-11 rounded-lg border border-emerald-700 px-3 py-2 text-emerald-200 disabled:opacity-50">Create approved work item</button></details>}
             {enabled && ["pending", "approved"].includes(job.status) && <button type="button" disabled={busy} onClick={() => void perform(async () => { await request("/" + encodeURIComponent(job.id) + "/cancel", { expectedRevision: job.revision }); setNotice("Action cancelled."); })} className="min-h-10 rounded-lg px-2 py-2 text-xs text-slate-400 underline underline-offset-4 hover:text-white disabled:opacity-50">Cancel action</button>}
-            {job.result && <details className="text-xs text-slate-400"><summary className="cursor-pointer">Result reference</summary><p className="mt-2 break-all font-mono">{job.result.taskId ? "Work item: " + job.result.taskId : "Receipt: " + job.result.receiptSha256}</p></details>}
+            {reviewsEnabled && enabled && job.operation === "run_specialist_review" && ["running","uncertain"].includes(job.status) && Date.now()-Date.parse(job.claim?.at||"")>=120000 && <button type="button" disabled={busy} onClick={()=>{
+              if(!window.confirm("Close this interrupted read-only review as failed? No deliverable will be accepted. A new attempt will need a new approval."))return;
+              void perform(async()=>{await request("/"+encodeURIComponent(job.id)+"/reconcile-review",{expectedRevision:job.revision,digest:job.digest});setNotice("Interrupted review closed as failed. You may queue a fresh review.");});
+            }} className="min-h-11 rounded-lg border border-amber-700 px-3 py-2 text-amber-200 disabled:opacity-50">Close interrupted review as failed</button>}
+            {job.result?.kind === "specialist-review-draft" && <div className="space-y-3 border-t border-slate-700 pt-3">
+              <h5 className="font-semibold">Saved specialist result</h5>
+              <p className="text-xs text-amber-200">Advisory output requires your review. Generated text does not establish that an external action occurred.</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-6">{job.result.output}</p>
+              <p className="text-xs text-slate-400">Local model: {job.result.model} · {job.result.ownerAccepted ? "Accepted by you" : "Awaiting your acceptance"}</p>
+              {reviewsEnabled && enabled && job.status === "succeeded" && !job.result.ownerAccepted && <button type="button" disabled={busy || paused} onClick={()=>acceptReview(job)} className="min-h-11 rounded-lg border border-emerald-700 px-3 py-2 text-emerald-200 disabled:opacity-50">Accept advisory review as task deliverable</button>}
+            </div>}
+            {job.result && !job.result.output && <details className="text-xs text-slate-400"><summary className="cursor-pointer">Result reference</summary><p className="mt-2 break-all font-mono">{job.result.taskId ? "Work item: " + job.result.taskId : "Receipt: " + job.result.receiptSha256}</p></details>}
           </article>)}</div>
           {jobs.length === 200 && <p className="text-xs text-slate-400">Showing the latest 200 actions. Counts apply to this loaded history.</p>}
         </div>

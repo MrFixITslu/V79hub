@@ -4948,6 +4948,7 @@ function readWorkforceToken() {
 }
 const workforceRouters = workforceActionRouters({
   ledger: workforceLedger,
+  specialistEnabled: () => process.env.V79_WORKFORCE_SPECIALIST_REVIEWS_ENABLED === "1",
   enabled: () => process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
   ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
   googleEnabled: () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1",

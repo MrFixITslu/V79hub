@@ -1,0 +1,52 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import express from "express";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {createWorkActionStore} from "../server/workforce-action-store.mjs";
+import {workforceActionRouters} from "../server/workforce-action-routes.mjs";
+
+test("specialist lifecycle HTTP: exact approval, isolated worker, saved result, fresh owner acceptance",async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),"v79-review-http-"));
+ const ledger=createWorkActionStore({file:path.join(dir,"ledger.json"),secret:"SYNTHETIC-KEY-DO-NOT-USE-IN-PRODUCTION"});
+ const now=Date.now(),token="SYNTHETIC-WORKER-TOKEN-NOT-A-REAL-SECRET";
+ let enabled=true;
+ const app=express();app.use(express.json());app.use((req,_res,next)=>{req.user={mfaVerifiedAt:now-(req.get("x-stale")?360000:0)};next();});
+ const routers=workforceActionRouters({ledger,enabled:()=>true,specialistEnabled:()=>enabled,
+  ownerContext:r=>r.get("x-owner")==="synthetic"?{userId:"founder",organizationId:"owner-org"}:null,
+  sameOrigin:r=>r.get("origin")==="https://synthetic.test",workerToken:()=>token,ownerOrganizationId:()=>"owner-org",ownerReady:()=>true,now:()=>now});
+ app.use("/owner",routers.owner);app.use("/worker",routers.worker);
+ const server=app.listen(0,"127.0.0.1");await new Promise(r=>server.once("listening",r));
+ t.after(async()=>{await new Promise(r=>server.close(r));await fs.rm(dir,{recursive:true,force:true});});
+ const base="http://127.0.0.1:"+server.address().port;
+ const owner={"x-owner":"synthetic",origin:"https://synthetic.test"},worker={"x-v79-workforce-token":token};
+ const call=(url,body,headers={})=>fetch(base+url,{method:body===undefined?"GET":"POST",headers:{"content-type":"application/json",...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
+ const json=async r=>(await r).json();
+ const proposed=await json(call("/owner",{operation:"create_work_item",system:"hub",summary:"Review safe customer support handoff",payload:{detail:"Prepare a support review and list missing evidence."},idempotencyKey:"synthetic-http-task-001"},owner));
+ await call("/owner/"+proposed.job.id+"/decision",{decision:"approve",expectedRevision:1,digest:proposed.job.digest},owner);
+ await call("/owner/"+proposed.job.id+"/execute",{expectedRevision:2},owner);
+ const queue=await json(call("/owner",undefined,owner)),task=queue.tasks[0],role=queue.specialists.find(x=>x.id==="customer-service");
+ const input={operation:"run_specialist_review",system:"hub",summary:"Review support work with specialist",payload:{taskId:task.id,taskDigest:task.taskDigest,specialist:role.id,skillSha:role.skillSha},idempotencyKey:"synthetic-http-review-001"};
+ enabled=false;assert.equal((await call("/owner",input,owner)).status,503);enabled=true;
+ assert.equal((await call("/worker/propose",input,worker)).status,403);
+ const j=(await json(call("/owner",input,owner))).job;
+ const decision={decision:"approve",expectedRevision:1,digest:j.digest};
+ assert.equal((await call("/owner/"+j.id+"/decision",decision,{...owner,"x-stale":"1"})).status,403);
+ assert.equal((await call("/owner/"+j.id+"/decision",decision,owner)).status,200);
+ assert.equal((await call("/worker/claim-specialist-review",{},{})).status,403);
+ assert.equal((await call("/worker/claim-specialist-review",{},{...worker,origin:"https://evil.test"})).status,403);
+ assert.equal((await call("/worker/claim-specialist-review",{role:"sales"},worker)).status,400);
+ const claimed=await json(call("/worker/claim-specialist-review",{},worker));assert.equal(claimed.task.id,task.id);
+ assert.equal((await json(call("/worker/claim-specialist-review",{},worker))).job,null);
+ const receipt={claimToken:claimed.job.claim.token,digest:j.digest,status:"succeeded",output:"Review support handoffs and identify unavailable response-time evidence. Draft only; no action performed.",model:"synthetic-model",skillSha:role.skillSha};
+ assert.equal((await call("/worker/"+j.id+"/specialist-receipt",{...receipt,claimToken:"forged"},worker)).status,409);
+ const done=(await json(call("/worker/"+j.id+"/specialist-receipt",receipt,worker))).job;
+ const before=await json(call("/owner",undefined,owner));assert.equal(before.tasks[0].status,"open");assert.equal(before.jobs.find(x=>x.id===j.id).claim.token,undefined);
+ const acceptance={expectedRevision:done.revision,digest:done.digest,outputSha256:done.result.outputSha256};
+ assert.equal((await call("/owner/"+j.id+"/accept-review",acceptance,{...owner,"x-stale":"1"})).status,403);
+ assert.equal((await call("/owner/"+j.id+"/accept-review",acceptance,{...owner,origin:"https://evil.test"})).status,403);
+ assert.equal((await call("/owner/"+j.id+"/accept-review",acceptance,owner)).status,200);
+ assert.equal((await call("/owner/"+j.id+"/accept-review",acceptance,owner)).status,409);
+ assert.equal((await json(call("/owner",undefined,owner))).tasks[0].status,"completed");
+});
