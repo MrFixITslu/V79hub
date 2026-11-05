@@ -29,8 +29,8 @@ test("dedicated local review model is reported accurately without changing other
 
 test("task-specific evidence excludes unrelated application observations",async()=>{
  const spy={body:null as any},stamp=new Date().toISOString();
- const data={...snapshot(),business:{marketing:{status:"ok",sourceReportedAt:stamp,metrics:{activeCampaigns:7}},tiquet:{status:"ok",sourceReportedAt:stamp,metrics:{openTickets:3}}}};
+ const data={...snapshot(),business:{marketing:{status:"ok",sourceReportedAt:stamp,metrics:{posts:2,scheduledPosts:2,publishedPosts:1,campaigns:2,activeCampaigns:1,customers:4,repeatCustomers:1,connectedSocialAccounts:2,aiCreditsRemaining:2}},academy:{status:"ok",sourceReportedAt:stamp,metrics:{publishedCourses:4,enrolledCourses:2,totalLessons:40}},ffpro:{status:"ok",sourceReportedAt:stamp,metrics:{currentMonthIncome:100,currentMonthExpenses:20,currentMonthNet:80}},tiquet:{status:"ok",sourceReportedAt:stamp,metrics:{clients:2,jobs:3,teamMembers:4,unreadNotifications:0,jobValueTotal:10}}}};
  const result=await reviewSpecialistTask({...body(),system:"tiquet"},{readSnapshot:(async()=>data) as any,fetchImpl:fake(valid,spy)});
  const request=JSON.parse(spy.body.messages[1].content);assert.equal(request.task.system,"tiquet");
- assert.ok(request.verifiedFacts.every((x:any)=>x.system==="tiquet"));assert.ok(!result.output.includes("active campaigns"));
+ assert.ok(request.verifiedFacts.length>0,"App filtering must happen before the global candidate limit");assert.ok(request.verifiedFacts.every((x:any)=>x.system==="tiquet"));assert.ok(!result.output.includes("active campaigns"));
 });

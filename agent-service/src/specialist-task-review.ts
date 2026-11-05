@@ -24,7 +24,8 @@ export async function reviewSpecialistTask(body:unknown,options:Options){
  if(role.id!==b.role||role.skillSha!==b.skillSha)throw Error("SKILL_CHANGED");
  const snapshot=await options.readSnapshot(b.context as AgentContext);
  const evidence=buildEvidenceLedger(snapshot,role.specialist);
- const candidates=answerCandidates(evidence).filter(c=>c.system===b.system).slice(0,3);
+ const scopedEvidence={...evidence,records:evidence.records.filter(record=>record.system===b.system)};
+ const candidates=answerCandidates(scopedEvidence).slice(0,3);
  const verifiedFacts=candidates.map(c=>({system:c.system,metric:c.metric,value:c.value}));
  const env=options.env||process.env;
  const model=String(env.V79_SPECIALIST_REVIEW_MODEL||env.OLLAMA_AGENT_MODEL||"qwen2.5:1.5b");
