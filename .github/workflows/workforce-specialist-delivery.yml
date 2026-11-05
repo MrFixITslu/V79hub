@@ -2,6 +2,7 @@ name: Workforce specialist delivery (nondeploying)
 on:
   push:
     branches: ["feature/workforce-specialist-delivery-20261105"]
+    paths-ignore: ["scripts/workforce-specialist-guarded-release.py", "tests/workforce-specialist-guarded-release.test.py", ".github/workflows/workforce-specialist-release-guard.yml", "docs/**"]
   pull_request:
     paths: ["server/workforce-specialist-delivery.mjs", "agent-service/src/specialist-task-review.ts", "tests/workforce-specialist-delivery*.mjs", "scripts/workforce-specialist-delivery-browser-qa.mjs"]
 permissions:

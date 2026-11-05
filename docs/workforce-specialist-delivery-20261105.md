@@ -15,3 +15,11 @@ Focused lifecycle, HTTP, role-model contract, existing approval regressions and 
 
 ## Workforce completion remains broader
 This review workflow alone does not close Sentinel signed incident-to-owner delivery, the Evidence Gateway, all product-specific specialist capabilities, actual engineering delivery, scheduled briefing notification delivery, or full recovery acceptance. These must be tracked separately and must not be labelled complete because this candidate passes.
+
+## Scoped evidence and model runtime
+The internal agent review request includes the approved task's app. Only candidates from that app and the selected specialist's evidence scope are supplied as current facts; unavailable evidence stays unknown. The literal V79 brand is permitted in advice, while numeric claims and unsafe action/approval instructions remain rejected. Local structured output is followed by independent application validation; provider JSON-schema support is never treated as sufficient.
+
+A dedicated `V79_SPECIALIST_REVIEW_MODEL` may select an installed local model. The response and saved result identify the actual model used. The proposed rollout uses the installed qwen2.5:3b model and a single loaded model to avoid observed cold-load memory contention. Review requests remain bounded; model failures leave tasks open and require a new owner-approved attempt.
+
+## Paired release control
+The guarded release tool pins the application source separately from release-tool documentation commits. It requires the fresh encrypted checkpoint SHA and an actual off-host PostgreSQL restore receipt. Stopped candidates must preserve the complete process configuration, mounts, host security, network membership, ports and restart policy, allowing only explicitly listed local-model/feature flags and source labels. Existing worker/report timers pause and drain before cutover, original containers remain available, and unrelated running container IDs/images must remain unchanged. Unit tests reject process, environment, MFA, capability, data-mount, port, network and source drift. No release is established by this runbook; use the actual deployment receipt and owner-MFA acceptance.
