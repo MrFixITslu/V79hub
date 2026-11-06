@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import {customerHelpRouter} from '../server/customer-help-routes.mjs';
-import {createHelpService} from '../server/customer-help.mjs';
+import {createHelpService,knowledge} from '../server/customer-help.mjs';
 
 test('authenticated customer help over HTTP: identity, origin, schema, privacy and isolated rate budgets',async t=>{
  let now=100;const app=express();app.use(express.json());
@@ -38,4 +38,25 @@ test('parallel asks by the same customer cannot consume simultaneous inference s
  const call=()=>fetch('http://127.0.0.1:'+server.address().port+'/help/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:'POS refund'})});
  const pending=call();while(!release)await new Promise(r=>setTimeout(r,5));
  assert.equal((await call()).status,429);assert.equal(count,1);release();assert.equal((await pending).status,200);
+});
+
+test('guide actions and screen context obey the same identity, origin, schema and per-customer limits',async t=>{
+ const app=express();app.use(express.json());
+ app.use('/help',customerHelpRouter({maxPerMinute:2,service:createHelpService({env:{}}),
+  context:req=>req.get('x-user')?{userId:req.get('x-user'),organizationId:req.get('x-org')||'one'}:null,sameOrigin:req=>req.get('origin')==='https://hub.synthetic.test'}));
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+ t.after(()=>new Promise(r=>{server.closeAllConnections();server.close(r);}));
+ const body={message:'Walk me through this',guide:{articleId:'manual-3-3',version:knowledge.version,action:'start'}};
+ const call=(payload=body,headers={})=>fetch(`http://127.0.0.1:${server.address().port}/help/chat`,{method:'POST',headers:{'content-type':'application/json',origin:'https://hub.synthetic.test','x-user':'viewer',...headers},body:JSON.stringify(payload)});
+ assert.equal((await call(body,{'x-user':''})).status,401);
+ assert.equal((await call(body,{origin:'https://evil.test'})).status,403);
+ assert.equal((await call({...body,guide:{...body.guide,articleId:'manual-1-6'}})).status,400);
+ assert.equal((await call({...body,context:{articleId:'manual-3-3',tenantId:'other'}})).status,400);
+ const first=await call();assert.equal(first.headers.get('cache-control'),'no-store');const guide=(await first.json()).guide;
+ assert.equal(guide.stage,'before');
+ const stepBody={message:'Start steps',guide:{articleId:guide.articleId,version:guide.version,stage:guide.stage,index:guide.index,action:'next'}};
+ assert.equal((await (await call(stepBody)).json()).guide.stage,'step');
+ assert.equal((await call(stepBody)).status,429);
+ // A second tenant starts at its own explicit state, never another caller's step.
+ assert.equal((await (await call(body,{'x-org':'two'})).json()).guide.stage,'before');
 });

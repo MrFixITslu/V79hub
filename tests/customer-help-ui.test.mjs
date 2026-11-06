@@ -23,6 +23,7 @@ const {writeFile}=await import('node:fs/promises');await writeFile(output,bundle
 const browser=new Window({url:'https://hub.synthetic.test'});
 for(const key of ['document','HTMLElement','Event','MouseEvent','DOMException'])globalThis[key]=browser[key];
 globalThis.window=browser;globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:browser.navigator});
 const {createRoot}=await import('react-dom/client');
 const {CustomerAppHelp}=await import(pathToFileURL(output).href);
 test.after(async()=>{await rm(temp,{recursive:true,force:true});await browser.happyDOM.abort();});
@@ -93,4 +94,70 @@ test('changing apps aborts a pending question and discards its late answer',asyn
  assert.equal(h.calls[1].opts.signal.aborted,true);
  await act(async()=>release(await createHelpService({env:{}}).answer({message:'POS refund'})));
  assert.equal(h.box.querySelectorAll('.help-turn').length,0);assert.equal(h.box.querySelector('select').value,'academy');
+});
+
+test('walkthrough UI moves through prerequisites, exact steps, blocking, review and customer-confirmed resolution',async t=>{
+ const h=await mount(t);
+ await h.click('How do I open the POS register?');await h.click('Walk me through this');
+ assert.match(h.box.querySelector('.help-turn:last-child .help-walkthrough').textContent,/Before you start/);
+ assert.equal(h.box.querySelector('.help-turn:last-child .help-app-link').getAttribute('href'),'/?view=connections');
+ await h.click('Start steps');
+ assert.match(h.box.querySelector('.help-turn:last-child .help-step-instruction').textContent,/confirm the intended register/);
+ await h.click('Done, next step');await h.click('I am stuck');
+ assert.match(h.box.querySelector('.help-turn:last-child .help-step-heading').textContent,/Stuck at step 2/);
+ await h.click('Review this step');assert.match(h.box.querySelector('.help-turn:last-child .help-step-heading').textContent,/Step 2 of 4/);
+ await h.click('Done, next step');await h.click('Done, next step');await h.click('Check my result');
+ assert.match(h.box.querySelector('.help-turn:last-child .help-step-heading').textContent,/Check the result/);
+ await h.click('Yes, resolved');assert.match(h.box.querySelector('.help-turn:last-child .help-step-instruction').textContent,/You marked.*not checked/);
+ assert.equal(h.box.querySelectorAll('.help-turn:not(:last-child) .help-step-actions').length,0);
+ const requests=h.calls.filter(c=>c.url.endsWith('/chat')).map(c=>JSON.parse(c.opts.body));
+ assert.equal(requests[1].guide.action,'start');assert.equal(requests.at(-1).guide.action,'solved');
+});
+
+test('support draft is reviewed locally, excludes transcript by default, masks obvious secrets and clears on reset',async t=>{
+ const copied=[];Object.defineProperty(browser.navigator,'clipboard',{configurable:true,value:{writeText:async text=>copied.push(text)}});
+ const h=await mount(t);await h.click('How do I open the POS register?');await h.click('Walk me through this');await h.click('Start steps');await h.click('I am stuck');
+ await h.click('Prepare support summary');
+ const preview=()=>h.box.querySelector('#help-support-preview').value;
+ assert.match(preview(),/Customer reported: blocked at step 1/);assert.match(preview(),/Displayed does not mean completed/);
+ assert.match(preview(),/Conversation: not included/);assert.doesNotMatch(preview(),/Customer:|Help:/);
+ const requestCount=h.calls.length;
+ // Exercise React's controlled inputs using its native value setter.
+ const input=h.box.querySelector('#help-support-actual');
+ await act(async()=>{
+  Object.getOwnPropertyDescriptor(browser.HTMLTextAreaElement.prototype,'value').set.call(input,'Failed; password=example-secret token: example-token 4111 1111 1111 1111');
+  input.dispatchEvent(new browser.Event('input',{bubbles:true}));
+  input.dispatchEvent(new browser.Event('change',{bubbles:true}));
+ });
+ await act(async()=>h.box.querySelector('.help-transcript input').click());
+ assert.match(preview(),/customer chose to include/);
+ assert.match(preview(),/Failed; password: \[removed\]/);
+ assert.doesNotMatch(preview(),/example-secret|example-token|4111/);
+ await h.click('Copy reviewed summary');assert.equal(copied.length,1);assert.equal(copied[0],preview());assert.equal(h.calls.length,requestCount);
+ assert.match(h.box.textContent,/Summary copied/);
+ await h.click('New conversation');assert.equal(h.box.querySelector('#help-support-preview'),null);
+ await h.click('Prepare support summary');assert.doesNotMatch(preview(),/blocked at step|register/);assert.equal(h.box.querySelector('.help-transcript input').checked,false);
+ assert.equal(browser.localStorage.length,0);assert.equal(browser.sessionStorage.length,0);
+});
+
+test('customer-selected screen context sends only a reviewed ID and produces a focused guide choice',async t=>{
+ const h=await mount(t);const select=h.box.querySelector('#help-screen');
+ await act(async()=>{select.value='manual-2-5';select.dispatchEvent(new browser.Event('change',{bubbles:true}));});
+ // A guide topic still uses the ordinary article selection, with minimal context.
+ await h.click('Update job details and internal notes');
+ assert.deepEqual(JSON.parse(h.calls.at(-1).opts.body).context,{articleId:'manual-2-5'});
+ assert.equal(h.box.querySelector('#help-screen').value,'manual-2-5');
+ await h.click('Walk me through this');assert.equal(JSON.parse(h.calls.at(-1).opts.body).guide.articleId,'manual-2-5');
+});
+
+test('failed guide requests retry the same action, and expired sessions disable guide and sharing controls',async t=>{
+ let fail=false;
+ const h=await mount(t,async(url,opts)=>url.endsWith('/catalog')?helpCatalog():fail?new Response(JSON.stringify({error:'Guide temporarily unavailable'}),{status:503}):await createHelpService({env:{}}).answer(JSON.parse(opts.body)));
+ await h.click('How do I open the POS register?');await h.click('Walk me through this');
+ fail=true;await h.click('Start steps');const original=JSON.parse(h.calls.at(-1).opts.body).guide;
+ fail=false;await h.click('Try again');assert.deepEqual(JSON.parse(h.calls.at(-1).opts.body).guide,original);
+ globalThis.fetch=async()=>new Response('{}',{status:401});await h.click('I am stuck');
+ assert.equal(h.box.querySelector('.help-turn:last-child .help-step-actions button').disabled,true);
+ assert.equal([...h.box.querySelectorAll('button')].find(b=>b.textContent==='Prepare support summary').disabled,true);
+ assert.ok(h.box.querySelector('a[href="/"]'));
 });

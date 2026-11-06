@@ -11,7 +11,6 @@ const cases=[
  ['How can I invite a colleague to Hub?','1.3'],
  ['How do I enable MFA in Hub?','1.4'],
  ['Where can I see my Hub plan?','1.5'],
- ['The app is stuck loading after Hub launch','1.2'],
  ['How do I open the POS register?','3.3'],
  ['How do I add a POS product?','3.2'],
  ['How do I process a POS refund?','3.6'],

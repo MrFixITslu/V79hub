@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {validateGuide,buildGuide,diagnoseProblem,vagueProblem} from './customer-help-guidance.mjs';
 
 // The owner manual is deliberately not a runtime input. Only this reviewed
 // customer derivative can enter retrieval, model context or a response.
@@ -102,11 +103,13 @@ export function helpCatalog() {
 }
 export function findArticle(id) { const a=articleMap.get(id);return a?publicArticle(a):null; }
 export function validateQuestion(body) {
-  if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(k=>!['message','app','articleId','history'].includes(k))) return 'Use message, app, articleId and history only.';
+  if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(k=>!['message','app','articleId','history','context','guide'].includes(k))) return 'Use documented help fields only.';
   if(typeof body.message!=='string'||!body.message.trim()||body.message.length>1200||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(body.message)) return 'Enter a question between 1 and 1,200 characters.';
   if(body.app!==undefined&&body.app!==null&&!appIds.has(body.app)) return 'Choose a documented app.';
   if(body.articleId!==undefined&&body.articleId!==null&&(typeof body.articleId!=='string'||!articleMap.has(body.articleId))) return 'Choose a documented help article.';
   if(body.history!==undefined&&(!Array.isArray(body.history)||body.history.length>6||body.history.some(m=>typeof m!=='string'||m.length>1200))) return 'History must contain up to six user questions.';
+  if(body.context!==undefined&&(!body.context||typeof body.context!=='object'||Array.isArray(body.context)||Object.keys(body.context).length!==1||!articleMap.has(body.context.articleId)))return 'Choose a documented screen.';
+  if(body.guide!==undefined)return validateGuide(body.guide,articleMap,knowledge.version);
   return null;
 }
 const guardPattern = /(?:ignore|override|forget|disregard|replace).{0,45}(?:instruct|rules|previous|system|manual)|(?:system|developer)\s*(?:prompt|message)|\b(?:platform admin|owner assistant|skill library|owner.?only|delivery board|specialist approvals?|internal bridge|api keys?|recovery codes?|mfa codes?|access tokens?|private keys?)\b|(?:show|reveal|give|list).{0,25}\bpasswords?\b|(?:other|another|all)\s+(?:customers?|tenants?|businesses?)[’']?\s+(?:data|records?|invoices?|balances?)|\bbypass.{0,20}(?:mfa|permission|login|access)\b|\b(?:ssh|sudo|docker|deploy|execute|shell|sql)\b/i;
@@ -185,6 +188,10 @@ export function createHelpService({env=process.env,fetchImpl=globalThis.fetch,cl
     const productApps=explicitApps.filter(a=>a!=='hub');
     let app=(productApps.length===1?productApps[0]:explicitApps.length===1?explicitApps[0]:null)||body.app||null;
     if(guardPattern.test(message)) return envelope('restricted','I can explain customer app procedures. I cannot access private records, reveal credentials, change permissions or carry out actions. Use your authorised administrator for account or access problems.',app);
+    if(body.guide){
+      const article=articleMap.get(body.guide.articleId);
+      return envelope('answered',article.summary,article.app,[article],{guide:buildGuide(article,knowledge.version,body.guide)});
+    }
     if(productApps.length>1) return envelope('clarify','Which app would you like to start with? Choose one below.',null,[],{suggestions:productApps.map(id=>({label:HELP_APPS.find(a=>a.id===id).name,app:id}))});
     const previous=body.articleId?articleMap.get(body.articleId):null;
     if(previous&&message===previous.title&&(!app||previous.app===app))return answerArticle(previous);
@@ -194,14 +201,23 @@ export function createHelpService({env=process.env,fetchImpl=globalThis.fetch,cl
       }
     }
     if(!app&&previous)app=previous.app;
+    const screen=body.context?articleMap.get(body.context.articleId):null;
+    if(!app&&screen)app=screen.app;
     if(/^(?:hi|hello|hey|good (?:morning|afternoon|evening)|thanks?|thank you)[!.\s]*$/i.test(message)) return envelope('clarify','Hello. Which V79 app or task can I help you with? Choose an app or ask a question such as “How do I create a Tiquet service request?”',app);
-    if(previous&&(!app||previous.app===app)&&followUp.test(message)) return answerArticle(previous);
+    if(screen&&(!app||screen.app===app)&&vagueProblem.test(message))return envelope('clarify','Would you like to walk through the procedure for this screen?',screen.app,[],{suggestions:[{label:screen.title,articleId:screen.id,app:screen.app,mode:'guide'}]});
+    if(previous&&(!app||previous.app===app)&&followUp.test(message)) {
+      if(/(?:didn.t|doesn.t|won.t|failed)/i.test(message))return envelope('clarify','Let’s find the step that is blocking you. Start this guide, then mark where you get stuck.',previous.app,[],{suggestions:[{label:previous.title,articleId:previous.id,app:previous.app,mode:'guide'}]});
+      return answerArticle(previous);
+    }
     const terms=tokens(withoutApps(message));
     if(!terms.length||/^(?:help|getting started|start|getting start|tutorial|guide|features|overview)$/i.test(withoutApps(message).trim())) {
       if(app) return envelope('clarify',`${HELP_APPS.find(a=>a.id===app).description} What would you like to do?`,app);
       return envelope('clarify','Choose an app or describe the task you want to complete.',null,[],{suggestions:HELP_APPS.map(a=>({label:a.name,app:a.id}))});
     }
     let candidates=searchArticles(message,app);
+    const unsupported=tokens(message).some(t=>Object.hasOwn(documentedOperations,t)&&!candidates.some(c=>documentedOperations[t].includes(c.article.section)))||/\b(?:quickbooks|shopify|stripe|zapier|offline)\b/i.test(message);
+    const diagnosis=unsupported?null:diagnoseProblem(message,app);
+    if(diagnosis)return envelope('clarify',diagnosis.question,app,[],{suggestions:diagnosis.choices.map(([label,id])=>{const a=articleMap.get(id);return {label,articleId:id,app:a.app,mode:'guide'};})});
     if(!candidates.length) return envelope('not_documented','I could not find a supported answer in the customer guide. Tell me the app and exact screen, or contact V79 support. I cannot check live account status, payments or availability.',app);
     if(!app&&candidates[1]&&candidates[0].article.app!==candidates[1].article.app&&candidates[1].score>=candidates[0].score*0.65) {
       return envelope('clarify','Which app is this for? These guide sections may help.',null,[],{suggestions:candidates.slice(0,4).map(c=>({label:`${HELP_APPS.find(a=>a.id===c.article.app).name}: ${c.article.title}`,articleId:c.article.id,app:c.article.app}))});
