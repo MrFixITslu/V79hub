@@ -1,11 +1,27 @@
 // Run only for a local visual review. Synthetic customer, ephemeral storage,
 // isolated outbound fetch and no real app credentials or publishing actions.
 import {spawn} from 'node:child_process';
+import crypto from 'node:crypto';
+import {verifyPlatformRequest} from '../server/platform-contract.mjs';
 import {fileURLToPath} from 'node:url';
 import {createServer,request} from 'node:http';
 import {helpFixture} from './customer-help-fixture.mjs';
 const ownerPreview=process.argv.includes('--owner');
 const fixture=helpFixture({ownerMfa:ownerPreview});
+// Visual-only receipt simulator; actual PostgreSQL integration is verified separately.
+const supportPreview=process.argv.includes('--support');
+let supportServer=null;
+if(supportPreview){
+ const secret=crypto.randomBytes(48).toString('hex'),receipts=new Map();
+ supportServer=createServer(async(req,res)=>{
+  const chunks=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();
+  if(!verifyPlatformRequest({method:req.method,pathname:req.url,timestamp:req.headers['x-v79-timestamp'],signature:req.headers['x-v79-signature'],body,secret})){res.writeHead(401).end();return;}
+  const event=JSON.parse(body);let reference=receipts.get(event.requestId);if(!reference){reference='HELP-'+crypto.randomUUID();receipts.set(event.requestId,reference);}
+  res.setHeader('content-type','application/json');res.end(JSON.stringify({accepted:true,requestId:event.requestId,reference,priority:'high'}));
+ });await new Promise(r=>supportServer.listen(0,'127.0.0.1',r));
+ Object.assign(fixture.env,{V79_HELP_SUPPORT_ENABLED:'1',V79_HELP_SUPPORT_SHARED_SECRET:secret,V79_HELP_SUPPORT_TIQUET_URL:'http://127.0.0.1:'+supportServer.address().port});
+}
+
 const cwd=fileURLToPath(new URL('..',import.meta.url));
 const portIndex=process.argv.indexOf('--port');
 const port=portIndex>=0?process.argv[portIndex+1]:process.env.PORT||'3040';
@@ -34,4 +50,4 @@ const preview=createServer((req,res)=>{
 });
 preview.listen(Number(port),'0.0.0.0');
 const stop=()=>child.kill();process.on('SIGTERM',stop);process.on('SIGINT',stop);
-child.on('exit',code=>{preview.close();fixture.cleanup();process.exit(code||0);});
+child.on('exit',code=>{supportServer?.close();preview.close();fixture.cleanup();process.exit(code||0);});

@@ -145,3 +145,20 @@
 @media(max-width:1100px) { .app-help { padding:24px; } .help-layout { grid-template-columns:minmax(0,1fr) 240px; gap:20px; } .help-log,.help-composer,.help-suggestions { padding-left:18px; padding-right:18px; } }
 @media(max-width:760px) { .app-help { padding:24px 16px; } .help-layout { grid-template-columns:minmax(0,1fr); gap:24px; } .help-heading { flex-direction:column; gap:14px; } .help-heading h1 { font-size:25px; } .help-chat { height:auto; min-height:0; } .help-log { flex:auto; max-height:54dvh; min-height:250px; padding:18px 16px; } .help-composer,.help-suggestions { padding:14px 16px; } .help-chat-title { padding:14px 16px; } .help-guide { padding:0 2px; } .help-topics { max-height:260px; } .help-controls>span { flex-basis:100%; } .help-question { max-width:100%; } .help-error { margin:12px 16px; } }
 @media(prefers-reduced-motion:reduce) { .app-help * { scroll-behavior:auto!important; } }
+
+.help-support-fields{border:0;padding:0;margin:0;min-width:0}.help-support-fields label{display:block}.help-support-fields select{width:100%;margin:6px 0 14px}.help-ticket-submit{margin-top:24px;padding-top:16px;border-top:1px solid var(--v79-line)}.help-ticket-submit p,.help-ticket-receipt p{max-width:72ch;overflow-wrap:anywhere}.help-ticket-receipt{margin-top:24px}.help-ticket-receipt strong{overflow-wrap:anywhere}.help-support-fields:disabled{opacity:.78}
+
+.help-support select{min-height:44px;padding:8px 12px;border:1px solid var(--v79-line);border-radius:8px;background:var(--v79-surface);color:var(--v79-ink);font:inherit}
+
+.help-support-expanded .help-support-draft{grid-template-columns:minmax(0,1fr)}
+.help-support-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px}
+.help-support-fields label{display:grid;gap:6px;font-size:13px;font-weight:650;min-width:0}
+.help-support-fields label[for=help-support-kind],.help-support-fields label[for=help-support-evidence],.help-support-fields .help-transcript{grid-column:1/-1}
+.help-support-fields select{margin:0}
+.help-support-draft>button{align-self:start}
+.help-ticket-submit{margin-top:4px;padding-top:20px}
+.help-ticket-submit .help-transcript{margin:12px 0;font-size:14px}
+.help-ticket-submit input[type=checkbox]{flex-shrink:0}
+.help-ticket-submit [role=alert]{color:var(--v79-danger)}
+.help-ticket-receipt h3{font-size:18px}
+@media(max-width:600px){.help-support-fields{grid-template-columns:minmax(0,1fr)}.help-support-draft textarea,.help-support-draft input:not([type=checkbox]),.help-support select{font-size:16px}}

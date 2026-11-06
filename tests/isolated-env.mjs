@@ -1,7 +1,7 @@
 // Test-only preload, inherited by spawned Hub processes. No live destinations,
 // even when a fixture forgets an internal URL override or inherits a real env.
 const keys=['POS_BASE_URL','ACADEMY_INTERNAL_URL','TIQUET_INTERNAL_URL','FFPRO_INTERNAL_URL',
-  'MARKETING_INTERNAL_URL','LASERTAG_INTERNAL_URL','WEBSITE_INTERNAL_URL','GAMES_INTERNAL_URL','V79_AGENT_INTERNAL_URL'];
+  'V79_HELP_SUPPORT_TIQUET_URL','MARKETING_INTERNAL_URL','LASERTAG_INTERNAL_URL','WEBSITE_INTERNAL_URL','GAMES_INTERNAL_URL','V79_AGENT_INTERNAL_URL'];
 const loopback=new Set(['127.0.0.1','localhost','[::1]','::1']);
 for(const key of keys){
   let safe=false;try{safe=loopback.has(new URL(process.env[key]||'').hostname);}catch{}
