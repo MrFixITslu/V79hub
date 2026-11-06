@@ -21,6 +21,11 @@ test('full Hub: customer/viewer help works without owner or app permissions; ses
  const me=await (await call('/api/auth/me')).json();assert.equal(me.user.ownerAgent,false);assert.equal(me.user.platformOperator,false);assert.equal(me.user.role,'viewer');
  const a=await call('/api/help/chat',{message:'How do I create a Tiquet service request?'});assert.equal(a.status,200);const answer=await a.json();assert.equal(answer.articles[0].section,'2.3');
  const b=await call('/api/help/chat',{message:'How do I create a Tiquet service request?'},'viewer-b');assert.equal(b.status,200);assert.deepEqual(await b.json(),answer);
+ const guideBody={message:'Walk me through this',guide:{articleId:'manual-2-3',version:answer.version,action:'start'}};
+ const guide=await call('/api/help/chat',guideBody);assert.equal(guide.status,200);assert.equal((await guide.json()).guide.stage,'before');
+ assert.equal((await call('/api/help/chat',guideBody,'revoked')).status,401);
+ assert.equal((await call('/api/help/chat',guideBody,'suspended')).status,401);
+ const screenHelp=await call('/api/help/chat',{message:"It won't save",context:{articleId:'manual-2-5'}});assert.equal(screenHelp.status,200);assert.equal((await screenHelp.json()).suggestions[0].articleId,'manual-2-5');
  assert.equal((await call('/api/help/chat',{message:'POS refund'},'viewer-a',{origin:'https://evil.test'})).status,403);
  assert.equal((await call('/api/help/chat',{message:'POS refund',userId:'admin'})).status,400);
  assert.equal((await call('/api/help/articles/manual-1-6')).status,404);
