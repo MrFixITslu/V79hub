@@ -2,13 +2,14 @@ import {useEffect, useRef, useState} from 'react';
 import {ArrowUp, BookOpen, Check, Copy, MessageCircle, RotateCcw, Search, X} from 'lucide-react';
 import './customer-app-help.css';
 import {GuidedSteps,SupportSummary,type Guide,type GuideRequest} from './CustomerGuidedSupport';
+import {HelpFeedback,HelpFeedbackReport,type FeedbackTicket,type FeedbackReason} from './CustomerHelpFeedback';
 
 type AppId = 'hub'|'tiquet'|'pos'|'ffpro'|'marketing'|'academy'|'combatzone';
 type Article = {id:string;app:AppId;section:string;title:string;route:string;summary:string;before:string;steps:string[];check:string;note:string};
 type Topic = Pick<Article,'id'|'app'|'title'|'route'|'section'>;
 type Suggestion = {label:string;app:AppId;articleId?:string;mode?:'guide'};
-type HelpAnswer = {guide?:Guide;status:string;answer:string;app:AppId|null;articles:Article[];version:string;reviewedAt:string;engine:'manual'|'local-ai';suggestions:Suggestion[];support:{url:string;label:string;template:string}};
-type Catalog = {apps:{id:AppId;name:string;description:string}[];articles:Topic[];version:string;reviewedAt:string};
+type HelpAnswer = {feedback?:FeedbackTicket;guide?:Guide;status:string;answer:string;app:AppId|null;articles:Article[];version:string;reviewedAt:string;engine:'manual'|'local-ai';suggestions:Suggestion[];support:{url:string;label:string;template:string}};
+type Catalog = {feedback?:{enabled:boolean;workspace:boolean;all:boolean;reasons:FeedbackReason[]};apps:{id:AppId;name:string;description:string}[];articles:Topic[];version:string;reviewedAt:string};
 type Turn = {id:number;question:string;response:HelpAnswer};
 const examples = ['How do I create a Tiquet service request?', 'How do I open the POS register?', 'How do I import an FFPRO statement?', 'How do I schedule a Marketing post?'];
 
@@ -29,6 +30,7 @@ export function CustomerAppHelp() {
   const [topicSearch,setTopicSearch]=useState('');
   const [screen,setScreen]=useState('');
   const [supportOpen,setSupportOpen]=useState(false);
+  const [reportOpen,setReportOpen]=useState(false);
   const [conversationVersion,setConversationVersion]=useState(0);
   const [question,setQuestion]=useState('');
   const [turns,setTurns]=useState<Turn[]>([]);
@@ -122,8 +124,9 @@ export function CustomerAppHelp() {
   return <section className="app-help" aria-labelledby="app-help-heading">
     <header className="help-heading">
       <div><h1 id="app-help-heading">How can we help?</h1><p>Practical answers for your V79 apps, with the guide behind every step.</p></div>
-      <button type="button" className="help-secondary" onClick={reset} disabled={expired}><RotateCcw size={16} aria-hidden="true"/>New conversation</button>
+      <div className="help-heading-actions">{catalog?.feedback?.workspace&&<button type="button" className="help-secondary" disabled={expired} onClick={()=>setReportOpen(v=>!v)}>Help feedback report</button>}<button type="button" className="help-secondary" onClick={reset} disabled={expired}><RotateCcw size={16} aria-hidden="true"/>New conversation</button></div>
     </header>
+    {reportOpen&&!expired&&catalog?.feedback?.workspace&&<HelpFeedbackReport apps={catalog.apps} reasons={catalog.feedback.reasons} canReadAll={catalog.feedback.all} onExpired={message=>{setExpired(true);setError(message);}} onClose={()=>setReportOpen(false)}/>}
     <div className="help-controls">
       <label htmlFor="help-app">Help me with</label>
       <select id="help-app" value={app} onChange={e=>chooseApp(e.target.value as AppId|'')} disabled={expired}>
@@ -177,6 +180,7 @@ export function CustomerAppHelp() {
                 <span>{turn.response.engine==='local-ai'?'Local AI matched this guide':'Customer guide'}</span>
                 <button type="button" onClick={()=>copy(answerText(turn.response),turn.id)} aria-label={copied===turn.id?'Answer copied':'Copy answer'}>{copied===turn.id?<Check size={15}/>:<Copy size={15}/>} {copied===turn.id?'Copied':'Copy answer'}</button>
               </div>
+              {turn.id===turns.at(-1)?.id&&turn.response.feedback&&<HelpFeedback key={turn.id} feedback={turn.response.feedback} disabled={pending||expired} onExpired={message=>{setExpired(true);setError(message);}}/>}
             </article>
           </div>)}
           {pending&&<div className="help-loading" role="status"><span/>Finding the right guide section…</div>}

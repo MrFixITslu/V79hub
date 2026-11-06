@@ -30,6 +30,7 @@ export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [organizationName, setOrganizationName] = useState("V79 Digital");
+  const [helpOrganizationId,setHelpOrganizationId]=useState("");
   const [isVerifyingSession, setIsVerifyingSession] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [ecosystemApps, setEcosystemApps] = useState<EcosystemApp[]>([]);
@@ -97,10 +98,11 @@ export default function App() {
           const data = await res.json();
           setUser(data.user);
           setOrganizationName(data.organization?.name || "V79 Digital");
+          setHelpOrganizationId(data.organization?.id || "");
         } else {
           setAuthToken(null);
           setUser(null);
-          setOrganizationName("V79 Digital");
+          setOrganizationName("V79 Digital");setHelpOrganizationId("");
         }
       } catch (err) {
         console.error("Session verification failed:", err);
@@ -180,7 +182,7 @@ export default function App() {
     }
     setAuthToken(null);
     setUser(null);
-    setOrganizationName("V79 Digital");
+    setOrganizationName("V79 Digital");setHelpOrganizationId("");
     setUsers([]);
     setCurrentViewState("overview");
     window.history.replaceState(window.history.state, "", hubViewUrl(window.location.href, "overview"));
@@ -430,7 +432,7 @@ export default function App() {
         {currentView === "billing" && canView("billing") && <WorkspaceBilling onNavigate={setCurrentView} />}
         {currentView === "admin" && canView("admin") && <AdminConsole ecosystemApps={ecosystemApps} />}
         {currentView === "assistant" && canView("assistant") && <OwnerAssistant />}
-        {currentView === "help" && canView("help") && <CustomerAppHelp key={user.id} />}
+        {currentView === "help" && canView("help") && <CustomerAppHelp key={`${user.id}:${helpOrganizationId}:${user.workspaceOwner}:${user.platformOperator}`} />}
 
         {currentView === "users" && isAdmin && (
           <UserManagement

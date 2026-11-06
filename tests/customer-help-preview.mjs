@@ -4,18 +4,19 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createServer,request} from 'node:http';
 import {helpFixture} from './customer-help-fixture.mjs';
-const fixture=helpFixture();
+const ownerPreview=process.argv.includes('--owner');
+const fixture=helpFixture({ownerMfa:ownerPreview});
 const cwd=fileURLToPath(new URL('..',import.meta.url));
 const portIndex=process.argv.indexOf('--port');
 const port=portIndex>=0?process.argv[portIndex+1]:process.env.PORT||'3040';
 const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));
 const childPort=reserve.address().port;await new Promise(r=>reserve.close(r));
 const child=spawn(process.execPath,['--import','tsx','server.ts'],{cwd,env:{...process.env,...fixture.env,V79_HUB_BIND_HOST:'127.0.0.1',PORT:String(childPort),APP_URL:`http://127.0.0.1:${port}`},stdio:'inherit'});
-// Test-only session entry: the disposable viewer has no real records, no app
-// entitlements and no owner privileges. No password is entered into browser QA.
+// Test-only session entry: disposable viewer by default, or explicitly synthetic
+// owner with --owner to review reports. No real credentials or records are used.
 const preview=createServer((req,res)=>{
  if(req.url==='/__qa-entry'){
-  res.writeHead(302,{'set-cookie':`v79_hub_session=${fixture.tokens['viewer-a']}; Path=/; HttpOnly; SameSite=Strict`,'location':'/?view=help'});res.end();return;
+  res.writeHead(302,{'set-cookie':`v79_hub_session=${fixture.tokens[ownerPreview?'synthetic-owner':'viewer-a']}; Path=/; HttpOnly; SameSite=Strict`,'location':'/?view=help'});res.end();return;
  }
  if(req.url.startsWith('/__qa-frame/')){
   const width=Number(req.url.split('/').at(-1));
