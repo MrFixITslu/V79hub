@@ -204,3 +204,31 @@ test('ordinary customers do not receive a report control or trigger report reads
  assert.equal([...h.box.querySelectorAll('button')].some(b=>b.textContent==='Help feedback report'),false);
  await h.click('How do I open the POS register?');assert.ok(h.box.querySelector('.help-feedback'));assert.equal(h.calls.some(c=>c.url.includes('/feedback/report')),false);
 });
+
+const ticketCatalog=()=>({...helpCatalog(),supportTickets:{enabled:true}});
+const ticketAck={submitted:true,reference:'HELP-12345678-1234-4234-8234-123456789012',priority:'high'};
+async function reviewTicket(h){await h.click('How do I open the POS register?');await h.click('Prepare support summary');const consent=h.box.querySelector('.help-ticket-submit input');assert.ok(consent);await act(async()=>consent.click());}
+test('reviewed support submits once, freezes an uncertain request, retries identical bytes and confirms real receipt',async t=>{
+ let fail=true,release;const h=await mount(t,(url,opts)=>url.endsWith('/catalog')?ticketCatalog():url.endsWith('/support/tickets')?fail?new Response(JSON.stringify({error:'Receipt is uncertain. Retry this request.'}),{status:503}):new Promise(r=>release=()=>r(ticketAck)):createHelpService({env:{}}).answer(JSON.parse(opts.body)));
+ await reviewTicket(h);const preview=h.box.querySelector('#help-support-preview').value;await h.click('Submit high-priority ticket');
+ assert.match(h.box.querySelector('.help-ticket-submit [role=alert]').textContent,/Receipt is uncertain/);
+ assert.equal(h.box.querySelector('#help-support-issue').disabled,true);assert.equal([...h.box.querySelectorAll('button')].find(b=>b.textContent==='Close draft').disabled,true);
+ assert.equal([...h.box.querySelectorAll('button')].find(b=>b.textContent.includes('New conversation')).disabled,true);assert.equal(h.box.querySelector('#help-app').disabled,true);
+ fail=false;await h.click('Retry the same request');assert.ok(release);assert.equal([...h.box.querySelectorAll('button')].find(b=>b.textContent==='Submitting ticket…').disabled,true);
+ assert.equal(h.box.querySelector('.help-ticket-receipt'),null);await act(async()=>release());
+ const sent=h.calls.filter(c=>c.url.endsWith('/support/tickets'));assert.equal(sent.length,2);assert.equal(sent[0].opts.body,sent[1].opts.body);
+ const payload=JSON.parse(sent[0].opts.body);assert.equal(payload.summary,preview);assert.equal(payload.app,'pos');assert.equal(payload.kind,'unresolved');assert.deepEqual(Object.keys(payload).sort(),['app','idempotencyKey','kind','summary']);
+ assert.match(h.box.querySelector('.help-ticket-receipt').textContent,/Priority: High/);assert.match(h.box.querySelector('.help-ticket-receipt').textContent,/HELP-12345678/);assert.equal(h.box.querySelector('.help-ticket-submit'),null);assert.equal(document.activeElement,h.box.querySelector('.help-ticket-receipt h3'));
+ assert.equal(browser.localStorage.length,0);assert.equal(browser.sessionStorage.length,0);
+});
+test('support requires review, can report an error, keeps the draft after validation failure, and handles expired sessions',async t=>{
+ let status=400;const h=await mount(t,(url,opts)=>url.endsWith('/catalog')?ticketCatalog():url.endsWith('/support/tickets')?new Response(JSON.stringify({error:'Review your issue'}),{status}):createHelpService({env:{}}).answer(JSON.parse(opts.body)));
+ await h.click('How do I open the POS register?');await h.click('Prepare support summary');
+ assert.equal([...h.box.querySelectorAll('button')].find(b=>b.textContent==='Submit high-priority ticket').disabled,true);
+ const kind=h.box.querySelector('#help-support-kind');await act(async()=>{kind.value='error';kind.dispatchEvent(new browser.Event('change',{bubbles:true}));h.box.querySelector('.help-ticket-submit input').click();});
+ await h.click('Submit high-priority ticket');assert.equal(JSON.parse(h.calls.at(-1).opts.body).kind,'error');assert.equal(h.box.querySelector('#help-support-issue').disabled,false);assert.match(h.box.querySelector('#help-support-preview').value,/register/);
+ status=401;await h.click('Submit high-priority ticket');assert.ok(h.box.querySelector('a[href="/"]'));assert.equal(h.box.querySelector('#help-question').disabled,true);assert.match(h.box.textContent,/Your session has expired/);
+});
+test('disabled support integration offers copying and no send control',async t=>{
+ const h=await mount(t);await h.click('Prepare support summary');assert.match(h.box.textContent,/Ticket submission is currently unavailable/);assert.equal(h.box.querySelector('.help-ticket-submit'),null);
+});

@@ -20,6 +20,7 @@ export function helpFixture({ownerMfa=false}={}) {
  const tokens=Object.fromEntries(users.map(u=>[u.id,randomBytes(32).toString('hex')]));
  writeFileSync(join(root,'hub-sessions.json'),JSON.stringify({sessions:users.map(u=>({tokenHash:createHash('sha256').update(tokens[u.id]).digest('hex'),userId:u.id,username:u.username,organizationId:memberships.find(m=>m.userId===u.id).organizationId,role:'viewer',expiresAt:Date.now()+3600000,mfaVerified:ownerMfa&&u.id==='synthetic-owner'}))}),{mode:0o600});
  return {root,password,tokens,cleanup:()=>rmSync(root,{recursive:true,force:true}),env:{
+  V79_HELP_SUPPORT_ENABLED:'0',V79_HELP_SUPPORT_SHARED_SECRET:'',V79_HELP_SUPPORT_TIQUET_URL:'http://127.0.0.1:9',
   NODE_ENV:'production',V79_HUB_STORE_BACKEND:'json',DATA_DIR:root,
   V79_HUB_ADMIN_PASSWORD:randomBytes(32).toString('hex'),V79_HUB_ADMIN_EMAIL:'vision79slu@gmail.com',
   V79_HUB_SECURITY_KEY:randomBytes(32).toString('hex'),V79_PLATFORM_SHARED_SECRET:randomBytes(32).toString('hex'),

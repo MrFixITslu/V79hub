@@ -14,6 +14,7 @@ import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { createWebsiteSsoGrants } from "./server/website-sso.mjs";
 import { customerHelpRouter } from "./server/customer-help-routes.mjs";
+import { createHelpTicketBridge } from "./server/customer-help-tickets.mjs";
 import { createHelpFeedback } from "./server/customer-help-feedback.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
@@ -3598,6 +3599,12 @@ app.use("/api", requireAuth);
 // Customer documentation is independent of the privileged Owner Assistant.
 // General guidance grants no entitlement and reads no business record.
 app.use("/api/help", customerHelpRouter({
+  supportTickets: createHelpTicketBridge({identity: actor => {
+    const user=store.users.find(u=>u.id===actor.userId);
+    const org=store.organizations.find(o=>o.id===actor.organizationId&&o.status==="active");
+    if(!user||!org||!activeMembership(store,actor.userId,actor.organizationId))return null;
+    return {name:user.fullName||user.username,email:user.email||"",workspace:org.name};
+  }}),
   feedbackStore: createHelpFeedback({file:path.join(DATA_DIR,"help-feedback-v1.json"),secret:hubSecurityKey,
     beginWrite:()=>sentinelWriteFence.beginStoreSave({sentinel:false})}),
   reportAccess: (req: Request) => {
