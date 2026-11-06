@@ -4,6 +4,7 @@ import {
   CreditCard,
   Grid3X3,
   Home,
+  CircleHelp,
   LogOut,
   MoreHorizontal,
   Settings2,
@@ -49,6 +50,7 @@ export function Sidebar({
     { view: "team", label: "Team & Access", icon: Users, visible: can("team") },
     { view: "security", label: "Security", icon: ShieldCheck, visible: can("security") },
     { view: "billing", label: "Billing", icon: CreditCard, visible: can("billing") },
+    { view: "help", label: "App Help", icon: CircleHelp, visible: true },
   ];
 
   const active = (view: ViewState) =>

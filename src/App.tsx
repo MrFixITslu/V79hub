@@ -19,6 +19,7 @@ import { WorkspaceSecurity } from "./components/WorkspaceSecurity";
 import { WorkspaceBilling } from "./components/WorkspaceBilling";
 import { AdminConsole } from "./components/AdminConsole";
 import { OwnerAssistant } from "./components/OwnerAssistant";
+import { CustomerAppHelp } from "./components/CustomerAppHelp";
 import { CheckCircle2, AlertCircle, RotateCw, Bell, Sun, Moon, ShieldCheck, LogOut, ChevronDown } from "lucide-react";
 
 export default function App() {
@@ -272,6 +273,7 @@ export default function App() {
     admin: "Platform Admin",
     users: "User Management",
     assistant: "Owner Assistant",
+    help: "App Help",
   };
 
   return (
@@ -428,6 +430,7 @@ export default function App() {
         {currentView === "billing" && canView("billing") && <WorkspaceBilling onNavigate={setCurrentView} />}
         {currentView === "admin" && canView("admin") && <AdminConsole ecosystemApps={ecosystemApps} />}
         {currentView === "assistant" && canView("assistant") && <OwnerAssistant />}
+        {currentView === "help" && canView("help") && <CustomerAppHelp key={user.id} />}
 
         {currentView === "users" && isAdmin && (
           <UserManagement

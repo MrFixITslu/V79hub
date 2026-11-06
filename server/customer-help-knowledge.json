@@ -1,0 +1,890 @@
+{
+  "version": "customer-manual-v2.1-20261105",
+  "sourceEdition": "V79 Hub Apps User Manual v2",
+  "reviewedAt": "2026-11-05",
+  "audience": "customer",
+  "articles": [
+    {
+      "id": "manual-1-1",
+      "section": "1.1",
+      "app": "hub",
+      "title": "Read the workspace overview",
+      "route": "Hub > Overview",
+      "summary": "Use the overview to decide which product needs attention before starting daily work.",
+      "before": "Sign in to the correct Hub workspace. Allow the app summaries to finish loading.",
+      "steps": [
+        "Check the workspace name at the top and the account name at the right. Confirm that you are working in the intended organisation.",
+        "Read Today’s Focus and Needs your attention. Open the relevant source app from its card or the attention item.",
+        "Read the period printed beside each metric. POS sales use the last 30 days; finance and other summaries can use different periods.",
+        "Use Refresh Hub data or Refresh dashboard when the displayed information needs updating. Then check each product’s reported date."
+      ],
+      "check": "A completed summary shows the reporting sources and their dates. An em dash, Unknown or Awaiting data means the value is unavailable.",
+      "note": "Dashboard summaries are not service-uptime or security certificates. Check each source and reporting date.",
+      "tags": "dashboard metrics unknown em dash data refresh overview figures"
+    },
+    {
+      "id": "manual-1-2",
+      "section": "1.2",
+      "app": "hub",
+      "title": "Launch and return between apps",
+      "route": "Hub > My Apps",
+      "summary": "Open the correct app with the account and workspace information supplied by Hub.",
+      "before": "You need an assigned app and a valid signed-in Hub session.",
+      "steps": [
+        "Select My Apps. Read the How sign-in works panel before choosing a product.",
+        "Select Launch on Tiquet, FFPRO, Marketing or POS. Let the secure launch finish before deciding that access has failed.",
+        "For Academy, use its separate learner account. CombatZone opens its own public booking experience.",
+        "Use Back to Vision79 Hub or Back to Hub inside the product when you need the launcher again. If a direct product bookmark returns you to Hub, launch the product again from My Apps."
+      ],
+      "check": "The destination shows the expected product name and the correct workspace. A loading screen alone does not confirm successful access.",
+      "note": "App access is determined by account role and assigned modules. A link being visible does not mean every operation is permitted.",
+      "tags": "login sign in access launch app loading stuck return bookmark"
+    },
+    {
+      "id": "manual-1-3",
+      "section": "1.3",
+      "app": "hub",
+      "title": "Invite a team member",
+      "route": "Hub > Team & Access > Invite Team Member",
+      "summary": "Prepare a staff invitation with the correct role and explicitly selected applications.",
+      "before": "Use an account allowed to manage team access. Confirm the recipient’s email address and required duties.",
+      "steps": [
+        "Open Team & Access and select Invite Team Member or New invitation. This requires permission to manage team access.",
+        "Enter the intended email address. Choose Manager, Staff or Viewer after reading the role description.",
+        "Select only the assigned apps that the person needs.",
+        "Review the email, role and apps, then choose Create invitation. Check the saved invitation and its expiry."
+      ],
+      "check": "The invitation appears in Team invitations. Creating an invitation does not mean it has been accepted.",
+      "note": "Only selected apps appear for that member. FFPRO access is isolated to the member’s identity and explicitly shared projects. Check current app choices and invitation expiry on screen.",
+      "tags": "invite colleague employee team staff add user role permissions access"
+    },
+    {
+      "id": "manual-1-4",
+      "section": "1.4",
+      "app": "hub",
+      "title": "Check account security",
+      "route": "Hub > Security",
+      "summary": "Confirm the account’s two-factor authentication status and understand workspace access.",
+      "before": "Open Security while signed in as the account you intend to review.",
+      "steps": [
+        "Wait for the Security screen to load, then read Two-factor authentication for your own account.",
+        "Review the Authenticator app panel and follow the account’s current security requirements.",
+        "Read Workspace permissions. App access follows role and assigned modules; finance visibility is more restricted.",
+        "Sign out on shared devices. If the account or MFA status is unexpected, ask your authorised administrator to investigate."
+      ],
+      "check": "Your own account displays its expected security status.",
+      "note": "Never share authenticator secrets, MFA codes or recovery codes in chat or screenshots.",
+      "tags": "mfa 2fa two factor authenticator account security password recovery"
+    },
+    {
+      "id": "manual-1-5",
+      "section": "1.5",
+      "app": "hub",
+      "title": "Review billing and plan access",
+      "route": "Hub > Billing",
+      "summary": "Read the workspace plan, included apps and saved billing records before requesting a change.",
+      "before": "You need billing visibility for the intended workspace.",
+      "steps": [
+        "Open Billing. Read Current plan, Plan status, Renewal and Enabled V79 apps.",
+        "Review the package and app choices before requesting a subscription. Check billing period, app allowances, staff capacity, supplements and any setup charge.",
+        "Use Refresh saved requests or Refresh invoice history when you need the latest saved records. Check each record’s own currency and status.",
+        "For a customer payment, follow the official instructions shown for that workspace and wait for verified payment confirmation before expecting access to change."
+      ],
+      "check": "The saved billing record and the workspace entitlement agree. A browser redirect or a bank-transfer claim alone does not activate access.",
+      "note": "Follow the workspace’s current official payment instructions. Sandbox transactions are tests and do not establish paid access. A display currency label does not convert an invoice’s stored currency.",
+      "tags": "billing plan subscription upgrade renewal payment paid invoice sandbox currency pricing cost"
+    },
+    {
+      "id": "manual-2-1",
+      "section": "2.1",
+      "app": "tiquet",
+      "title": "Triage the service workload",
+      "route": "Hub > Tiquet > Overview",
+      "summary": "Find overdue, unassigned and high-priority service work quickly.",
+      "before": "Launch Tiquet from Hub and confirm the active workspace.",
+      "steps": [
+        "Read Active jobs and Overdue jobs. Compare Outstanding invoices with Cash collected; they describe different things.",
+        "Work through Attention Required. Select a job title to inspect its owner, due date, scope and stage.",
+        "Use Pipeline Distribution to see where work is accumulating, then open Jobs Pipeline for the full list.",
+        "Review Recent Activity before making a change so you understand the latest action and who recorded it."
+      ],
+      "check": "Every urgent job has an understood next step, responsible person and realistic service date.",
+      "note": "Cash collected is based on the confirmed payment ledger. A completed job is not automatically a settled invoice.",
+      "tags": "dashboard overdue unassigned workload priority"
+    },
+    {
+      "id": "manual-2-2",
+      "section": "2.2",
+      "app": "tiquet",
+      "title": "Create and maintain client records",
+      "route": "Tiquet > Clients > Add Client",
+      "summary": "Create a client once and reuse that record for service requests.",
+      "before": "Have the client’s approved contact details. Search for an existing record first.",
+      "steps": [
+        "Open Clients and search by name, company or email to avoid duplicates.",
+        "Select Add Client. Enter Full Name, Company, Email Address and Phone Number.",
+        "Choose Industry if an appropriate category exists, then enter the Address. Check spelling, country code and contact ownership.",
+        "Select Create Client, then find the saved record. Use Edit Client for later corrections and confirm the revised details remain visible."
+      ],
+      "check": "The client appears in Client Management and is available in the New Request client selector.",
+      "note": "Industry choices are managed in Settings. Use a fictional example during training, such as Example Services Ltd, and avoid sending welcome emails or broadcasts unless that action is intended.",
+      "tags": "add create client customer company contact industry edit"
+    },
+    {
+      "id": "manual-2-3",
+      "section": "2.3",
+      "app": "tiquet",
+      "title": "Create a new service request",
+      "route": "Tiquet > New Request",
+      "summary": "Capture the requested outcome, customer, priority, owner and deadline in one job.",
+      "before": "The client should already exist. Confirm the scope and urgency with the requester.",
+      "steps": [
+        "Enter a clear Job Title and select the correct Client. For example, “Investigate intermittent office Wi-Fi”.",
+        "Choose Low, Medium or High priority based on business impact. Add Estimated Budget only when you have a supported estimate.",
+        "Choose Assigned To and a Due Date. Use Job Description to record the problem, location, impact and the agreed next step.",
+        "Select Submit Request. Return to Jobs Pipeline and search the title to confirm the new job."
+      ],
+      "check": "The job appears in Incoming Request with the expected client, priority, assignee and due date.",
+      "note": "A useful description states what is happening, who is affected, when it began and what success looks like. Do not put passwords or sensitive access credentials in the job.",
+      "tags": "create new ticket job request assign due date budget description"
+    },
+    {
+      "id": "manual-2-4",
+      "section": "2.4",
+      "app": "tiquet",
+      "title": "Find jobs and move them through the pipeline",
+      "route": "Tiquet > Jobs Pipeline",
+      "summary": "Keep the service stage aligned with the actual work completed.",
+      "before": "Read the job’s current scope and activity before changing its stage.",
+      "steps": [
+        "Use the title/client search, priority filter and assignee filter to narrow the workload. Choose List for tabular detail or Board for stages.",
+        "Open the intended job card. Confirm the client, owner, due date and required action.",
+        "On Board, use Advance or the back control when the real service milestone has been reached. The inspected sequence is Incoming Request, Estimation, In Progress, Review, Invoiced, Completed and Paid.",
+        "Reopen the job and inspect its stage and activity log. Review the invoice and payment ledger before expecting a job to reach Paid."
+      ],
+      "check": "The updated stage matches the evidence of work, and any payment-related transition is supported by recorded payments.",
+      "note": "The board scrolls horizontally to later stages. Moving a card changes the record; opening a card or switching List/Board only changes your view.",
+      "tags": "pipeline stage move advance paid completed board list search filter"
+    },
+    {
+      "id": "manual-2-5",
+      "section": "2.5",
+      "app": "tiquet",
+      "title": "Update job details and internal notes",
+      "route": "Tiquet > Jobs Pipeline > Open job",
+      "summary": "Keep the job’s operational record useful to the next team member.",
+      "before": "Open the exact job. Confirm that the title and client match the work you intend to update.",
+      "steps": [
+        "Review the summary, Assigned To, Tags and Description. Check the due date and the job value before relying on them.",
+        "Record a concise Job Note describing the action, outcome and next step. Use the adjacent add control, then check that the note appears.",
+        "For an internal planning brief, use Internal reply drafts and Save draft only. Read the on-screen statement that no customer message or email is sent.",
+        "Review Activity Log after an update and reopen the job if needed to confirm that the saved information remains."
+      ],
+      "check": "The correct job shows the intended note or internal draft. An internal draft remains separate from customer-visible communication.",
+      "note": "Example note: “Checked access-point power and uplink. Issue remains on the first floor. Next: review radio settings with the engineer tomorrow.” Avoid vague entries such as “done”.",
+      "tags": "note save notes job tags description draft activity log edit"
+    },
+    {
+      "id": "manual-2-6",
+      "section": "2.6",
+      "app": "tiquet",
+      "title": "Prepare documents and review invoice exposure",
+      "route": "Tiquet > Open job > Automated Business Documents; Invoices",
+      "summary": "Prepare a job document and check the difference between invoicing and money received.",
+      "before": "Check the business profile, currency, tax defaults and payment terms before generating a document.",
+      "steps": [
+        "Open the job and locate Automated Business Documents. Choose ESTIMATE, WORK ORDER or INVOICE for the intended purpose.",
+        "Review the generated document against the client, scope, price, tax and terms before sharing it.",
+        "Open Invoices. Search for the relevant job or client and compare Invoice value, Received, Outstanding and Status.",
+        "Check recorded payment evidence before treating the invoice as settled. The interface requires payments to cover the job value before it becomes Paid."
+      ],
+      "check": "The document is correct, and the ledger supports the displayed payment status. No invoice should be treated as cash received solely because it was generated.",
+      "note": "If the payment ledger cannot load, use Retry and contact support if the issue persists. Unavailable does not mean zero. The manual does not verify the final payment-entry controls.",
+      "tags": "invoice estimate work order payment outstanding received settled paid ledger retry document"
+    },
+    {
+      "id": "manual-2-7",
+      "section": "2.7",
+      "app": "tiquet",
+      "title": "Store files and use the payroll tracker",
+      "route": "Tiquet > Files; Payroll Tracker",
+      "summary": "Maintain project assets and internal compensation records.",
+      "before": "Have the correct file or approved employee details ready. Payroll records require authorised staff access.",
+      "steps": [
+        "In Files, use Upload Files to select the intended asset. Search the repository afterwards and verify that the correct filename is present.",
+        "In Payroll Tracker, choose Employees to review roles, compensation type, rate, payment method and status.",
+        "Use Add Employee for a new authorised record. Review details before generating Payroll Records.",
+        "Check the period and the employee list before Generate Payroll Records. Use the records tab to verify the saved result and internal payment status."
+      ],
+      "check": "The intended file or payroll record is visible and belongs to the correct workspace and period.",
+      "note": "Tiquet states that it does not transfer payroll funds or calculate statutory deductions. A tracked payment status must be reconciled with the actual payment made outside the app.",
+      "tags": "upload file payroll employee wages salary statutory deductions funds"
+    },
+    {
+      "id": "manual-2-8",
+      "section": "2.8",
+      "app": "tiquet",
+      "title": "Configure service business defaults",
+      "route": "Tiquet > Settings",
+      "summary": "Set the details used by client records, generated documents and broadcasts.",
+      "before": "Only change approved business details. Some controls, such as logo upload, take effect immediately.",
+      "steps": [
+        "Review Business Profile: name, email, phone, website and address. The logo accepts PNG, JPEG, WEBP or GIF up to 5 MB.",
+        "Set Invoice Defaults, including Currency, Default tax rate and Default payment terms. Use the business’s approved figures.",
+        "Maintain Industries and review Welcome Email and Newsletter templates. Use plain text as instructed by the screen.",
+        "Choose Save Settings after reviewing changes. For a newsletter, separately check the selected opted-in audience before using Broadcast."
+      ],
+      "check": "Reopen Settings and confirm the saved defaults. Preview a generated document before relying on the changes.",
+      "note": "Broadcast sends customer email and needs its own deliberate review. Users & Roles can be unavailable when Hub ownership verification fails; use the displayed Retry verification and escalate rather than bypassing Hub access.",
+      "tags": "settings logo invoice tax currency industry newsletter welcome email broadcast users roles verification"
+    },
+    {
+      "id": "manual-3-1",
+      "section": "3.1",
+      "app": "pos",
+      "title": "Understand the commerce dashboard",
+      "route": "Hub > V79 POS > Overview",
+      "summary": "Review sales, refunds, gross profit and incoming stock in one place.",
+      "before": "Launch POS from Hub and check the workspace role and currency.",
+      "steps": [
+        "Read Net revenue, Completed sales, Average sale and Gross profit with their reporting periods.",
+        "Remember that net revenue is after refunds, while gross profit is before operating expenses. Read each label rather than assuming all cards use the same definition.",
+        "Open Recent sales or View all to inspect transactions. Use Review stock signals for supply concerns.",
+        "Open Purchasing for incoming orders and Inventory for current balances. Use Refresh when the screen needs an updated snapshot."
+      ],
+      "check": "The dashboard figures can be traced to sales or stock records in the same workspace.",
+      "note": "The documented POS currency is XCD (EC$). Check the current currency label. Refunds can make the original sale total differ from net revenue.",
+      "tags": "dashboard revenue gross profit refunds overview currency"
+    },
+    {
+      "id": "manual-3-2",
+      "section": "3.2",
+      "app": "pos",
+      "title": "Add a product or service",
+      "route": "POS > Products > Add product",
+      "summary": "Create a catalogue item with the correct selling price, cost and stock behaviour.",
+      "before": "Prepare a unique SKU, product category, approved price, cost and tax rate.",
+      "steps": [
+        "Enter Product name, SKU and Category. Use a name staff can recognise at the register.",
+        "Enter Selling price (XCD), Unit cost (XCD) and Tax rate (%). Check decimal places and whether your business’s price includes any expected tax treatment.",
+        "Choose Product type: Stocked product, Service or Non-stock item. Check Track stock only when quantity control is intended.",
+        "Select Create product. Verify the product, variant, SKU and price in the catalogue, then check its register availability."
+      ],
+      "check": "The item appears under Products with the correct price and stock-tracking behaviour.",
+      "note": "Creating the product does not establish the physical opening balance. Use a supported inventory movement or receipt to record stock; do not invent quantities to make the register available.",
+      "tags": "create add product service sku barcode price cost tax track stock catalogue"
+    },
+    {
+      "id": "manual-3-3",
+      "section": "3.3",
+      "app": "pos",
+      "title": "Open the register and prepare a sale",
+      "route": "POS > Register > Open register",
+      "summary": "Start the correct till session with a physically counted cash float.",
+      "before": "Have the authorised register selected and the opening cash counted.",
+      "steps": [
+        "Open Register and confirm the intended register and location.",
+        "If the register is closed, choose Open register. Enter Opening cash float (XCD) using the cash actually present.",
+        "Review the amount before submitting Open register. Confirm that the closed-register warning clears.",
+        "Search the Catalogue by name, SKU or barcode. Select the correct product and check Current sale before proceeding to payment."
+      ],
+      "check": "The register is open and the current sale contains the intended items and quantities.",
+      "note": "Opening a till records an operational cash session. Only open the register when authorised to begin that cash session.",
+      "tags": "open register till closed cash float search barcode sale"
+    },
+    {
+      "id": "manual-3-4",
+      "section": "3.4",
+      "app": "pos",
+      "title": "Check a sale before taking payment",
+      "route": "POS > Register",
+      "summary": "Review the basket and server-calculated payment total before charging the customer.",
+      "before": "Use an open register. Confirm stock availability and the selected product/variant.",
+      "steps": [
+        "Search for each item and add it to Current sale. Verify the quantities and remove any accidental selection before continuing.",
+        "Check Subtotal, Estimated tax and Total. The screen states that final pricing and tax are calculated by the server at checkout.",
+        "Select Charge for the intended basket, then review the payment details and final total shown on the next screen before confirming.",
+        "After an authorised payment, verify the saved sale in Sales and reconcile the payment record with the money or external terminal result."
+      ],
+      "check": "A completed sale has a saved transaction record and matching payment evidence. A clicked Charge button alone is not a completed sale.",
+      "note": "The manual documents the basket and Charge controls. Exact final payment-confirmation and register-closing controls require a verified walkthrough; follow the current screen or ask support.",
+      "tags": "checkout charge sale basket payment total tax price confirm receipt"
+    },
+    {
+      "id": "manual-3-5",
+      "section": "3.5",
+      "app": "pos",
+      "title": "Create quotes, orders, invoices and layaway",
+      "route": "POS > Orders > New order",
+      "summary": "Record an order with the correct commercial type, item and payment dates.",
+      "before": "Have the product, location, quantity and agreed terms ready.",
+      "steps": [
+        "Choose Location and optionally Customer. Walk-in customer is available when no named customer is selected.",
+        "Choose Order type: Quote, Order, Invoice or Layaway. Select Product and enter Quantity.",
+        "Enter any Line discount (XCD), Deposit required, Valid until, Payment due and Notes. Confirm that the amount is an approved discount, not an accidental price reduction.",
+        "Select Create order, then open the saved order and check its type, amount, dates and status."
+      ],
+      "check": "The intended order appears in Customer orders with the correct commercial terms.",
+      "note": "A required deposit is a term on the order; it does not prove payment has been received. Quotes and orders should not be reported as completed sales without the relevant fulfilment and payment evidence.",
+      "tags": "quote order invoice layaway deposit discount due date"
+    },
+    {
+      "id": "manual-3-6",
+      "section": "3.6",
+      "app": "pos",
+      "title": "Review sales and process an authorised return",
+      "route": "POS > Sales > Return / refund",
+      "summary": "Record the correct return quantity and stock disposition against the original sale.",
+      "before": "Find the original transaction and confirm the customer’s return is authorised.",
+      "steps": [
+        "In Sales, open Return / refund for the intended sale. Confirm the transaction identifier and original item.",
+        "Select the Item and Quantity to return. Check any previous returns; the server validates them before posting stock or money.",
+        "Choose whether to Return to sellable stock. Select Refund method and enter the external refund reference for a non-cash refund, plus a clear Return reason.",
+        "Review all details before Complete return. Then verify the sale’s revised status, refund record and any returned inventory."
+      ],
+      "check": "The refund and stock movement agree with the authorised return and actual refund payment.",
+      "note": "The documented methods are Cash, External card terminal, Bank transfer and Mobile wallet. Damaged or unusable goods should not return to sellable stock. Recording a refund reference does not itself transfer money.",
+      "tags": "refund return damaged sellable sale quantity payment cash card transfer wallet"
+    },
+    {
+      "id": "manual-3-7",
+      "section": "3.7",
+      "app": "pos",
+      "title": "Record a stock adjustment",
+      "route": "POS > Inventory > Adjust stock",
+      "summary": "Record a justified change to stock without confusing it with a sale or supplier order.",
+      "before": "Count the affected goods and identify the correct location and SKU.",
+      "steps": [
+        "Review Inventory first, including On hand and Available quantities.",
+        "Open Adjust stock. Choose Location, Product and Movement: Add stock, Remove stock, Damage or Expired.",
+        "Enter a positive Quantity for the selected movement and a specific Reason. Check the movement direction before committing.",
+        "Choose Record adjustment and verify the revised balance at the intended location."
+      ],
+      "check": "The stock balance changes in the expected direction and by the supported quantity.",
+      "note": "Example: record 2 units as Damage after confirming they are unusable. Avoid entering a negative quantity and a removal movement together. A clear reason helps the owner reconcile stock later.",
+      "tags": "adjust inventory damage expired add remove stock quantity reason"
+    },
+    {
+      "id": "manual-3-8",
+      "section": "3.8",
+      "app": "pos",
+      "title": "Use cycle counts and stock transfers",
+      "route": "POS > Stock Control",
+      "summary": "Reconcile counted stock and move inventory between assigned locations.",
+      "before": "Use a controlled count period and identify the source/destination locations for a transfer.",
+      "steps": [
+        "Choose Cycle count when you need to compare physical quantities with the stock record. Count the selected items before posting variances.",
+        "Review count differences with the responsible person. Confirm approved corrections rather than automatically accepting every discrepancy.",
+        "Choose Transfer stock for movement between locations. Confirm the product, quantity and the correct destination.",
+        "Inspect the saved cycle count or transfer afterwards and check the affected Inventory balances."
+      ],
+      "check": "The stock-control record explains why the balances changed, and the physical movement agrees with the system.",
+      "note": "The manual does not verify later approval/posting screens. Follow the current controls and ask an authorised supervisor before posting an unfamiliar stock correction.",
+      "tags": "cycle count transfer stock locations variance reconcile"
+    },
+    {
+      "id": "manual-3-9",
+      "section": "3.9",
+      "app": "pos",
+      "title": "Prepare suppliers and purchase orders",
+      "route": "POS > Purchasing",
+      "summary": "Set up supply relationships before creating a draft order.",
+      "before": "Have supplier details, a product SKU, delivery location, quantity and expected delivery date ready.",
+      "steps": [
+        "Use Add supplier to prepare the supplier record. Then use Link supplier product to establish which product that supplier provides.",
+        "Choose Purchase order. Select Supplier, Delivery location and Product.",
+        "Enter Order quantity, Expected delivery and Notes. Verify that the product is linked to the chosen supplier.",
+        "Select Create draft order and review the saved draft before sending or progressing it through any later purchasing process."
+      ],
+      "check": "A draft purchase order exists with the correct supplier, item, quantity and delivery location.",
+      "note": "A purchase order is separate from stock receipt and supplier payment. The manual does not verify downstream receiving controls.",
+      "tags": "supplier purchase order draft po receiving receipt incoming stock"
+    },
+    {
+      "id": "manual-3-10",
+      "section": "3.10",
+      "app": "pos",
+      "title": "Set a replenishment policy",
+      "route": "POS > Replenishment > Set reorder policy",
+      "summary": "Create stock-planning inputs that match real demand and supplier lead time.",
+      "before": "Use a linked supplier/product where appropriate and confirm normal demand and supply delays.",
+      "steps": [
+        "Choose Location and Product, then the Preferred supplier if it is available in linked products.",
+        "Set Safety stock units, Review period (days) and Planning lead time (days). Use a Daily demand override only when you can justify it.",
+        "Select Save policy, then use Recalculate from Smart replenishment.",
+        "Review recommendations before Create draft POs. Check quantities, supplier constraints and cash availability before progressing any resulting order."
+      ],
+      "check": "The recommendation can be explained by the saved policy and current stock/demand information.",
+      "note": "Choose review periods and lead times for your business. Caribbean import delays and supplier reliability should inform the actual settings.",
+      "tags": "reorder replenishment safety stock lead time demand policy draft purchase"
+    },
+    {
+      "id": "manual-4-1",
+      "section": "4.1",
+      "app": "ffpro",
+      "title": "Review money and understand the figures",
+      "route": "Hub > FFPRO > Money",
+      "summary": "Review cash, commitments and objectives before recording or planning financial activity.",
+      "before": "Use your own FFPRO identity or an explicitly shared project. Check display currency.",
+      "steps": [
+        "Read Net Worth, Cash Available, Monthly Cashflow and Daily spending guide with their definitions.",
+        "Review Projects & Planner Summary, Schedule & Calendar Highlights and Financial Objectives Progress.",
+        "Use Overview for a summary and Analysis for detailed records, budgets and spending views.",
+        "Use the Hide amounts control before screen-sharing, then verify visually that sensitive values are masked."
+      ],
+      "check": "You understand the source and period of the values you intend to use. A spending guide is an estimate, particularly before unpaid commitments.",
+      "note": "Switching the display currency changes labels; the interface explicitly states that it does not convert stored amounts. Check transaction currency and account data before comparing figures.",
+      "tags": "money net worth cash available monthly cashflow daily spending hide amounts currency conversion"
+    },
+    {
+      "id": "manual-4-2",
+      "section": "4.2",
+      "app": "ffpro",
+      "title": "Record an expense, income or transfer",
+      "route": "FFPRO > Money > Add Transaction",
+      "summary": "Save a transaction with the correct type, account, date and category.",
+      "before": "Have the original receipt or transaction evidence. Check whether the entry already exists.",
+      "steps": [
+        "Select EXPENSE, INCOME or TRANSFER at the top of the Transaction form.",
+        "Enter Amount and select Payment source. Check the displayed currency and the account that actually received or spent the money.",
+        "Set Date, Category and Description. TODAY and YESTERDAY help with recent entries, but confirm the final date.",
+        "Review the complete entry before CONFIRM ENTRY. Return to Analysis and locate the transaction to check that it saved once."
+      ],
+      "check": "The ledger has one accurate entry and the expected account/category impact. A transfer should not be mistaken for new operating income.",
+      "note": "Example description: “Office router replacement, supplier invoice 1042”. Record the real amount once; adding it manually and then importing the same statement can create duplicates.",
+      "tags": "add record transaction expense income transfer category account date duplicates ledger"
+    },
+    {
+      "id": "manual-4-3",
+      "section": "4.3",
+      "app": "ffpro",
+      "title": "Capture receipts and review statement imports",
+      "route": "FFPRO > Money > Review-first capture or Import Statement",
+      "summary": "Turn source documents into reviewed ledger candidates.",
+      "before": "Prepare a readable receipt or PDF/CSV statement. Check the account and date range you intend to import.",
+      "steps": [
+        "Use Import Statement or the upload control in Review-first capture to choose the intended document.",
+        "For typed capture, describe the transaction clearly, including amount, date and purpose. Use the manual form if the interpretation is uncertain.",
+        "Read every extracted candidate against the original source. Correct amounts, date, description, category and account; check for duplicates.",
+        "Approve only the entries you intend to add. Verify the resulting ledger after import and retain the original source for reconciliation."
+      ],
+      "check": "Only approved, checked entries appear in the ledger. The screen states that imports remain outside the ledger until approval.",
+      "note": "Review extraction against the source. The manual does not verify extraction accuracy or the exact final approval controls; ask support if these differ from the screen.",
+      "tags": "import upload receipt statement csv pdf voice capture extract approval duplicates"
+    },
+    {
+      "id": "manual-4-4",
+      "section": "4.4",
+      "app": "ffpro",
+      "title": "Analyse spending and control category budgets",
+      "route": "FFPRO > Money > Analysis",
+      "summary": "Compare periods and trace unusual amounts back to transactions.",
+      "before": "Make sure transactions and account balances are current enough for the question you are asking.",
+      "steps": [
+        "Choose the reporting Period: Week, Month, Year or Custom. Set Compare to Prior Period, Prior Year or None.",
+        "Switch between Overview, Spending, Cashflow and More views. Check the displayed range before reading a variance.",
+        "In Category Spend Matrix & Budget Control, sort by spending, variance, budget usage or transaction volume. Use Drill into transactions to inspect the underlying entries.",
+        "Use Edit budget limit for an approved category limit, then verify the saved value and progress indicator."
+      ],
+      "check": "The transaction list, selected range and budget explain the conclusion you draw.",
+      "note": "If generated wording uses a different currency label, reconcile with the ledger currency and original amounts before relying on it.",
+      "tags": "analysis budget limit spending period compare variance categories drill transactions"
+    },
+    {
+      "id": "manual-4-5",
+      "section": "4.5",
+      "app": "ffpro",
+      "title": "Manage recurring bills and income",
+      "route": "FFPRO > Settings > RECURRING",
+      "summary": "Keep planned commitments and expected income visible.",
+      "before": "Know the amount, category and next expected date. Verify that a similar commitment does not already exist.",
+      "steps": [
+        "Open the settings gear and select RECURRING. Review existing Fixed expenses and Recurring inflows.",
+        "Under Register new recurring bill, enter the description, amount, category and date. Review before AUTHORIZE COMMITMENT.",
+        "For income, use Register recurring income with the expected next receipt date and choose REGISTER INFLOW.",
+        "Use the edit control for corrections. Check that the saved amount and next date appear correctly in Settings and relevant finance views."
+      ],
+      "check": "The intended commitment or inflow appears once with the correct amount and due date.",
+      "note": "A recurring commitment is a plan. It does not establish that a bill has been paid, and an expected inflow is not confirmed cash. Reconcile actual receipts and payments separately.",
+      "tags": "recurring bill expense income inflow commitment dates paid"
+    },
+    {
+      "id": "manual-4-6",
+      "section": "4.6",
+      "app": "ffpro",
+      "title": "Set savings goals and finance preferences",
+      "route": "FFPRO > Settings > TARGETS or CORE",
+      "summary": "Track a named savings objective and configure financial assumptions.",
+      "before": "Decide the target amount and how actual progress will be recorded.",
+      "steps": [
+        "In TARGETS, review Active Saving Goals. Enter Goal name and Target amount under Initialise new objective.",
+        "Choose ACTIVATE GOAL MATRIX after reviewing the objective. Confirm the saved goal and its progress.",
+        "In CORE, review opening cash ledger, spending thresholds and the finance currency labels.",
+        "Check the saved result after any change. Compare starting balances with real records so targets and dashboards begin from supported data."
+      ],
+      "check": "The goal has a clear amount and the baseline supports the financial view.",
+      "note": "Goal progress is a record in FFPRO; it is not proof that money is held in a separate bank account. Keep the goal’s recorded progress aligned with the evidence of actual savings.",
+      "tags": "savings goal target preferences currency opening cash thresholds"
+    },
+    {
+      "id": "manual-4-7",
+      "section": "4.7",
+      "app": "ffpro",
+      "title": "Use projects, calendars and scenario forecasts",
+      "route": "FFPRO > Projects; Calendar; Forecast",
+      "summary": "Connect tasks and commitments with a realistic planning scenario.",
+      "before": "Keep project and calendar information current. Treat future returns and contributions as assumptions.",
+      "steps": [
+        "Open Projects to review active plans, closed projects and the Idea Bin. Use Start new project or Start planning for an intended new plan.",
+        "Open Calendar to inspect dates, the day’s operational agenda and available Google Meet links. Check times on the source event.",
+        "Open Forecast and adjust Time horizon, Monthly contribution and Expected ROI only for a deliberate scenario.",
+        "Read the forecast as an estimate. Compare the contribution with Available surplus and reconcile contradictory feedback before taking action."
+      ],
+      "check": "The scenario’s inputs and resulting projection are understood. A projected milestone is not a guaranteed outcome.",
+      "note": "If forecast feedback conflicts with available surplus, review the underlying cash flow and commitments. Scenario returns are assumptions, not guaranteed outcomes.",
+      "tags": "forecast roi investment return surplus projects calendar scenario"
+    },
+    {
+      "id": "manual-4-8",
+      "section": "4.8",
+      "app": "ffpro",
+      "title": "Check gateways and funding sources",
+      "route": "FFPRO > Settings > GATEWAYS; Funding",
+      "summary": "Understand which data connections are real, manual or unavailable.",
+      "before": "Use the approved integration settings and your own authorised credentials.",
+      "steps": [
+        "In GATEWAYS, read the connection type and status for each bank or investment portal. A MANUAL label does not establish live bank synchronisation.",
+        "Read the Google Workspace gateway scope. The documented Calendar integration is one-way and read-only from Google into FFPRO.",
+        "Check local AI status and configuration. Read any cloud-fallback settings before processing sensitive information.",
+        "In Funding, choose a status filter and sort order. Verify each opportunity’s eligibility, deadline and original source."
+      ],
+      "check": "Connection claims match the displayed scope and the data can be traced to its source.",
+      "note": "If funding cannot load, retry when available or contact support. A load error does not prove there are no opportunities.",
+      "tags": "gateway bank banking linked manual sync ollama ai funding opportunities load integration"
+    },
+    {
+      "id": "manual-4-9",
+      "section": "4.9",
+      "app": "ffpro",
+      "title": "Create a project plan and manage its lifecycle",
+      "route": "FFPRO > Projects > Start new project",
+      "summary": "Organise a project under an appropriate planning type.",
+      "before": "Decide the project’s purpose, title and initial scope before creating it.",
+      "steps": [
+        "Select Start new project and choose Standard Event, Vacation / Trip Plan or Startup Planner.",
+        "Enter Plan title / Project designation. Check the selected type and the final action label before submitting the new plan.",
+        "Open the saved plan from Active Projects and review its phases, assets and checklist before using generated figures or documents.",
+        "Use Close project when archiving an ended plan and Reopen when resuming it. Use sharing controls only for collaborators who should access that plan."
+      ],
+      "check": "The saved title and planning type match the intended project. Existing projects remain separate from the Idea Bin.",
+      "note": "Startup Planner describes price modelling and 1/3/5-year P&L statements. Those outputs require review against the business’s real assumptions before a bank or funding submission.",
+      "tags": "create project startup event vacation trip plan close reopen share collaborator idea bin"
+    },
+    {
+      "id": "manual-4-10",
+      "section": "4.10",
+      "app": "ffpro",
+      "title": "Use the calendar and source event links",
+      "route": "FFPRO > Calendar",
+      "summary": "Review meetings, project dates and the daily operational agenda.",
+      "before": "Confirm the correct month and the device timezone before interpreting event times.",
+      "steps": [
+        "Use Previous month, Today and Next month to navigate the calendar.",
+        "Select a day and inspect Day Operational Agenda. Use + more View when the day contains additional events.",
+        "Open the source Google Calendar link for authoritative event details or Join Google Meet for the correct meeting.",
+        "Use Sync Google Calendar when a source change has not appeared, then compare the updated details with the source event."
+      ],
+      "check": "The event date, time, title and meeting link agree with the source calendar.",
+      "note": "The documented gateway is Google-to-app read-only synchronisation. A local schedule edit or removal does not establish that the original Google Calendar event changed.",
+      "tags": "calendar google meet meeting sync day agenda month timezone event"
+    },
+    {
+      "id": "manual-5-1",
+      "section": "5.1",
+      "app": "marketing",
+      "title": "Navigate the growth workspace",
+      "route": "Hub > Marketing > Home",
+      "summary": "Choose the correct tool for creating content, following enquiries or checking performance.",
+      "before": "Confirm the business name and profile before generating content.",
+      "steps": [
+        "Read workspace readiness, connected channels, scheduled content and verified audience as separate measures.",
+        "Use Create for One Idea to Campaign, Zero-Prompt Creator and Graphic Studio. Use Calendar for planned posts and delivery results.",
+        "Use Customers for the pipeline and reviews, Growth for analytics and planning, and Business for profile, memory and Brand Kit.",
+        "Follow Recommended next actions when they reflect a real gap in your workspace, such as an incomplete profile."
+      ],
+      "check": "The selected screen matches the task you intend to complete and the business is correct.",
+      "note": "Visible credits and an online engine label do not by themselves prove that every provider connection can publish. Check Social and the channel-specific readiness information.",
+      "tags": "navigate home workspace growth create customers business calendar"
+    },
+    {
+      "id": "manual-5-2",
+      "section": "5.2",
+      "app": "marketing",
+      "title": "Complete the business profile",
+      "route": "Marketing > Business > Business Profile",
+      "summary": "Provide factual business information used by content and the public storefront.",
+      "before": "Have approved contact details, products, opening hours and brand assets ready.",
+      "steps": [
+        "Review Core Business Details: name, URL slug, industry, address, phone, WhatsApp, email, website and business story.",
+        "Use Brand Colors & AI Voice to configure presentation. Review Opening Hours and Products & Services Catalog for the actual offer.",
+        "Check logo and cover URLs and use Preview Public Page to inspect the storefront before relying on it.",
+        "Choose Save Profile, then reopen the saved fields and preview the page again."
+      ],
+      "check": "Saved information and the preview agree, especially phone numbers, website, opening hours and offers.",
+      "note": "Treat the public profile as customer-facing. Changing a URL slug can affect links you already distribute. Do not describe an unconfirmed service, price or guarantee as part of the business profile.",
+      "tags": "profile opening hours phone whatsapp website email public storefront contact save business logo slug"
+    },
+    {
+      "id": "manual-5-3",
+      "section": "5.3",
+      "app": "marketing",
+      "title": "Maintain business memory and Brand Kit",
+      "route": "Marketing > Business > Business Memory; Brand Kit",
+      "summary": "Store reusable facts, voice and audience context for more consistent output.",
+      "before": "Separate verified business facts from creative preferences and untested claims.",
+      "steps": [
+        "In Business Memory, review Brand Core & Voice and the Primary description, voice, colours and preferred posting times.",
+        "Review Products & Services, Audience & Goals, Stored FAQs and Campaign Learnings & Memory. Keep facts specific and current.",
+        "Select Save Brain after reviewing edits. Auto-Optimize Knowledge displays a credit charge; inspect the proposed effect before using it.",
+        "Open Brand Kit to review palette, typography and logo. Use its style-guide download when the saved identity is correct."
+      ],
+      "check": "The saved memory describes the intended business and the Brand Kit matches its approved identity.",
+      "note": "The manual documents Business Memory and Brand Kit. It does not verify a My marketing skill editor; use the actual navigation or contact support.",
+      "tags": "memory brand kit colours voice audience faq marketing skill save brain"
+    },
+    {
+      "id": "manual-5-4",
+      "section": "5.4",
+      "app": "marketing",
+      "title": "Build a campaign plan from one idea",
+      "route": "Marketing > Create > One Idea to Campaign",
+      "summary": "Turn a confirmed offer into a reviewable campaign plan.",
+      "before": "Know the offer, audience and next action you want customers to take.",
+      "steps": [
+        "Complete “What are you promoting?”, “Who needs it?” and “What should they do next?”.",
+        "Expand Add confirmed offer details when you have a verified price, discount or other terms to include.",
+        "Choose Build campaign plan. Review the proposed audience, claims, steps and calls to action against the information you supplied.",
+        "Choose Save campaign plan only when it is accurate. Find it under Growth > 30-Day Growth Plans and prepare individual content from the reviewed plan."
+      ],
+      "check": "The saved plan reflects the business’s real offer and a clear next step for the audience.",
+      "note": "This screen creates a plan only. Nothing is published or scheduled here. Example: promote managed ICT support to small Caribbean businesses and invite them to request a service review; do not invent a discount.",
+      "tags": "campaign plan idea promote offer audience cta save growth"
+    },
+    {
+      "id": "manual-5-5",
+      "section": "5.5",
+      "app": "marketing",
+      "title": "Create channel copy and choose destinations",
+      "route": "Marketing > Calendar > Create & Schedule",
+      "summary": "Prepare a post for specific channels using verified offer details.",
+      "before": "Complete the business profile and confirm the offer. Have an approved media URL if the chosen channel needs it.",
+      "steps": [
+        "Choose a promotion type, then fill Promotion / Product Title, Verified Details / Offer and Extra direction.",
+        "Choose Generate Channel Copy. Review each platform preview, including factual claims, spelling, media and the call to action.",
+        "Select exactly the intended publishing channels. Read each connection status and media requirement.",
+        "Enter Public HTTPS media URL where required and review Schedule date & time. Check the browser/device timezone against Saint Lucia time before scheduling."
+      ],
+      "check": "Every selected channel has reviewed copy and the required media. The date/time corresponds to the intended Saint Lucia schedule.",
+      "note": "Instagram and TikTok require a public HTTPS media URL; TikTok also needs the URL/domain verified in its developer console. The visible WhatsApp preview is labelled Copy Only.",
+      "tags": "post copy content generate channel instagram tiktok whatsapp media url domain preview"
+    },
+    {
+      "id": "manual-5-6",
+      "section": "5.6",
+      "app": "marketing",
+      "title": "Schedule content and verify provider delivery",
+      "route": "Marketing > Calendar",
+      "summary": "Follow a scheduled item through the provider’s actual delivery result.",
+      "before": "Approve the exact post, media, channels and schedule first. Check current provider readiness.",
+      "steps": [
+        "From Create & Schedule a Post, review the final selection and use Schedule Selected Channels for the intended post.",
+        "Return to Calendar. Use the channel filters and month navigation to find the saved item.",
+        "Read Provider delivery status for each destination. A queued or waiting item is still pending delivery.",
+        "After the scheduled time, inspect each provider result and verify the public post where appropriate. Investigate failed or attention-required deliveries before retrying."
+      ],
+      "check": "A published result is supported by a separate provider delivery record for that channel.",
+      "note": "Check providers separately. One channel’s success or failure does not establish the result for the other destinations.",
+      "tags": "schedule publish calendar delivery status queue pending failed timezone post"
+    },
+    {
+      "id": "manual-5-7",
+      "section": "5.7",
+      "app": "marketing",
+      "title": "Connect a social account and review readiness",
+      "route": "Marketing > Social",
+      "summary": "Make sure the intended business account is authorised to publish.",
+      "before": "You need administrator rights on the relevant provider account and approved application credentials.",
+      "steps": [
+        "Open Social Media Connections and inspect current accounts, last verification and token-expiry information.",
+        "Choose Connect New Account for the intended provider. Complete the provider’s official authorisation flow with the correct business account.",
+        "Return to Marketing and verify the account identity and available publishing readiness.",
+        "Prepare a reviewed post and check the delivery result before treating the connection as operational."
+      ],
+      "check": "The right provider account is listed and its required permissions and credentials are current.",
+      "note": "A Connected label alone does not prove publishing readiness. Verify the intended account, permissions, credentials and token expiry.",
+      "tags": "connect facebook instagram youtube tiktok social account oauth credentials token expired permissions ready"
+    },
+    {
+      "id": "manual-5-8",
+      "section": "5.8",
+      "app": "marketing",
+      "title": "Capture customer enquiries and attribution",
+      "route": "Marketing > Customers > Customer Pipeline > Add New Customer Inquiry",
+      "summary": "Keep enquiries and their evidenced source in a manageable pipeline.",
+      "before": "Confirm the customer details and how they found the business.",
+      "steps": [
+        "Enter Customer Full Name and Phone / WhatsApp Number.",
+        "Choose Channel Source: WhatsApp Direct, Facebook Page Message, Google Business Profile or Website Form.",
+        "Choose a Related marketing campaign only when the customer reported it or reliable evidence supports it. Otherwise retain Unknown or no campaign.",
+        "Select Save Inquiry, then find the record in the pipeline and review its follow-up stage."
+      ],
+      "check": "The saved enquiry has accurate contact details and a justified source. Pipeline stages include New Inquiries, Interested, Follow Up Needed, Customers and VIP Repeat.",
+      "note": "This is manual attribution, not verified ad-click tracking. Do not assign every enquiry to the latest campaign just to improve a campaign’s reported performance.",
+      "tags": "customer inquiry enquiry crm pipeline attribution campaign source lead contact follow up"
+    },
+    {
+      "id": "manual-5-9",
+      "section": "5.9",
+      "app": "marketing",
+      "title": "Read reviews, analytics and planning drafts",
+      "route": "Marketing > Customers > Review Management; Growth",
+      "summary": "Use verified results to decide what to improve next.",
+      "before": "Check the relevant reporting period and provider connection before interpreting results.",
+      "steps": [
+        "In Review Management, use the sentiment filters and inspect actual reviews from connected sources.",
+        "In Simple Analytics, select Last 7d, Last 30d or Last 90d and inspect reach, impressions, engagement and clicks.",
+        "Use Market Benchmarks only with public competitor evidence. Its regional audit displays a credit charge; review before starting it.",
+        "Use Internal Agent Drafts to save a Title and Planning brief with Save internal draft only. Review the saved draft before converting it into any live campaign."
+      ],
+      "check": "Your decision is supported by provider data or clearly labelled internal planning information.",
+      "note": "Drafts and queued posts do not produce verified reach. Internal drafts cannot send, schedule, publish or charge customers. Check Brand Kit separately for visual consistency.",
+      "tags": "analytics review reach impressions engagement clicks benchmarks draft internal"
+    },
+    {
+      "id": "manual-5-10",
+      "section": "5.10",
+      "app": "marketing",
+      "title": "Create a branded graphic",
+      "route": "Marketing > Create > Graphic Studio",
+      "summary": "Prepare an image layout in the format required by its destination.",
+      "before": "Check the business profile, logo, colours and confirmed offer first.",
+      "steps": [
+        "Enter Prompt & Visual Description with the exact message and factual offer details.",
+        "Choose the required format: Instagram Square 1080 × 1080, Story / Reel / TikTok 1080 × 1920, Facebook Cover 1200 × 630 or LinkedIn Banner 1200 × 627.",
+        "Choose Visual Style Preset, then Generate Branded Graphic when the inputs are ready.",
+        "Inspect Canvas Preview for spelling, price, phone number, logo and cropping. Use Download Image or Save to Asset Library only after the result is correct."
+      ],
+      "check": "The downloaded or saved image matches the chosen dimensions and approved brand information.",
+      "note": "The format names above reproduce the app’s current labels and sizes. A graphic’s creation or download does not schedule or publish it. Confirm current provider requirements before using an asset in a post.",
+      "tags": "graphic image design generate download asset logo format dimensions"
+    },
+    {
+      "id": "manual-6-1",
+      "section": "6.1",
+      "app": "academy",
+      "title": "Find the right course",
+      "route": "Hub > Academy > Explore",
+      "summary": "Choose training by topic, level, access requirements and learning outcomes.",
+      "before": "You can browse the catalogue without a learner sign-in.",
+      "steps": [
+        "Use Search courses and the Application, Level and Access filters. Clear filters if an expected course disappears.",
+        "Read each course card’s description, duration, lesson count and current access label.",
+        "Open the course title or View details. Review What you’ll learn, Before you begin and Course outline.",
+        "Choose Start free, View access or Start learning according to the current course access. Sign in with the separate Academy account when prompted."
+      ],
+      "check": "The selected course’s requirements and outcomes fit the learner’s needs.",
+      "note": "A displayed price does not establish that checkout is live or that access has been granted. Follow the course’s current access control.",
+      "tags": "course search training learn catalogue enrol enrollment price free paid access"
+    },
+    {
+      "id": "manual-6-2",
+      "section": "6.2",
+      "app": "academy",
+      "title": "Create a learner account or sign in",
+      "route": "Academy > Sign in or Start learning",
+      "summary": "Save course access and progress under the correct learner identity.",
+      "before": "Academy uses its own learner account. Hub sign-in does not automatically establish that learner session.",
+      "steps": [
+        "For an existing account, choose Already registered? Sign in if the registration form is shown.",
+        "Enter the learner’s email and password in the sign-in form. For a new account, use the account-creation form with Full name, Email and a password meeting the displayed requirement.",
+        "After sign-in, confirm the learner identity and return to the intended course.",
+        "If the password is rejected, use the recovery direction on screen: contact the Academy administrator for a reset. Do not create a duplicate learner to recover old progress."
+      ],
+      "check": "The Academy itself shows a signed-in learner state before you expect enrolment or progress to persist.",
+      "note": "Academy uses a separate learner account. The manual does not verify authenticated lesson-player controls. Never provide your password in help chat.",
+      "tags": "academy login register account password reset sign in learner access"
+    },
+    {
+      "id": "manual-6-3",
+      "section": "6.3",
+      "app": "academy",
+      "title": "Plan course study and confirm progress",
+      "route": "Academy > Course details",
+      "summary": "Use the published outline to prepare study and practical evidence.",
+      "before": "Review access and sign in with the learner who will complete the work.",
+      "steps": [
+        "Read the course prerequisites and outline, then choose Start learning when the account has access.",
+        "Work through the lesson content and practical activities in the order required by that course.",
+        "Use the actual completion and assessment controls shown in the learner workspace. Return to the course to confirm what it recorded.",
+        "If progress, assessment access or a certificate is missing, provide the administrator with the course, lesson and a non-sensitive screenshot of the issue."
+      ],
+      "check": "Progress should be confirmed inside the learner’s account. A public course page or Hub percentage alone does not prove lesson or assessment completion.",
+      "note": "The manual does not verify exact authenticated lesson, assessment or certificate controls. For missing progress or certificates, contact the Academy administrator with the course and lesson, without sharing passwords.",
+      "tags": "lesson progress completion certificate assessment quiz course learning"
+    },
+    {
+      "id": "manual-7-1",
+      "section": "7.1",
+      "app": "combatzone",
+      "title": "Choose a mission package",
+      "route": "Hub > My Apps > CombatZone SLU > Enter the Zone",
+      "summary": "Prepare a booking request for the appropriate occasion and play window.",
+      "before": "Know the approximate group size, occasion, preferred area and date.",
+      "steps": [
+        "Choose Explore Packages for public, birthday or event options, or Request a Mission for corporate and resort operations.",
+        "Read the selected package’s included players, base play time, price, minimum charge and any deposit or extra-player terms.",
+        "Select the intended mission and continue to team configuration.",
+        "Check whether your group requires rotations or a custom arrangement before proceeding to date and location."
+      ],
+      "check": "The selected mission matches the occasion and the price basis you intend to request.",
+      "note": "The booking page states that availability, travel outside the Gros Islet/Castries core, venue requirements and custom arrangements need team confirmation. No online payment is taken in this request flow.",
+      "tags": "laser tag booking package mission price deposit corporate birthday event group"
+    },
+    {
+      "id": "manual-7-2",
+      "section": "7.2",
+      "app": "combatzone",
+      "title": "Configure teams and plan the deployment",
+      "route": "CombatZone booking > Teams > Deployment",
+      "summary": "Check group capacity, rotations and the proposed event window.",
+      "before": "Select the intended mission package first.",
+      "steps": [
+        "Set the player count with the plus/minus controls or quick choices. Review the balanced team map.",
+        "Check current simultaneous capacity, team sizes and rotation information on the booking page.",
+        "Choose Set Deployment. Select the preferred date, available start window and location type.",
+        "Enter Town / Area and Venue / Address. Review time, location, travel and venue conditions."
+      ],
+      "check": "The plan separates purchased play time from setup/turnaround and explains how the group will rotate.",
+      "note": "Rotations stay inside the purchased play window. Setup and scheduling buffers are not extra play time. Safety decisions override weather preference.",
+      "tags": "players teams capacity rotation deployment date time venue location"
+    },
+    {
+      "id": "manual-7-3",
+      "section": "7.3",
+      "app": "combatzone",
+      "title": "Review a booking request before submission",
+      "route": "CombatZone booking > Deployment > Registration > Operator > Confirm",
+      "summary": "Prepare complete details for the team to review and confirm.",
+      "before": "Use actual customer details only when you intend to submit a booking request.",
+      "steps": [
+        "Complete the required date, start window, location type, town and venue fields.",
+        "Continue through the registration and operator stages using the instructions displayed for the selected mission.",
+        "On Confirm, review the full package, group size, date, time, venue, contact details and commercial terms before submitting.",
+        "Keep the request reference or acknowledgement. Wait for the CombatZone team’s confirmation of availability and arrangements before treating the event as booked."
+      ],
+      "check": "The customer has a submitted request and later confirmation, rather than assuming that choosing a time reserved the slot.",
+      "note": "The manual does not verify final registration/operator fields or the submission receipt. Follow the live form and wait for team confirmation before treating the event as booked.",
+      "tags": "booking request confirm submit registration operator acknowledgement reference availability"
+    }
+  ]
+}

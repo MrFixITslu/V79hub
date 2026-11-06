@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { createWebsiteSsoGrants } from "./server/website-sso.mjs";
+import { customerHelpRouter } from "./server/customer-help-routes.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -3592,6 +3593,18 @@ app.post("/api/website-sso/revoke", (req, res) => {
 });
 
 app.use("/api", requireAuth);
+
+// Customer documentation is independent of the privileged Owner Assistant.
+// General guidance grants no entitlement and reads no business record.
+app.use("/api/help", customerHelpRouter({
+  sameOrigin: sameOriginMutation,
+  context: (req: Request) => {
+    const session = (req as any).user;
+    if (!session || !activeMembership(store, session.userId, session.organizationId) ||
+        !store.organizations.some(org => org.id === session.organizationId && org.status === "active")) return null;
+    return { userId: session.userId, organizationId: session.organizationId };
+  },
+}));
 
 app.get("/api/team/invitations", requireWorkspaceOwner, (req, res) => {
   const organizationId = (req as any).user.organizationId;

@@ -11,6 +11,17 @@ const customer = { platformOperator: false, permissions: ["overview", "connectio
 const viewer = { platformOperator: false, permissions: ["overview"] };
 const views = ["overview","dashboard","connections","team","security","billing","admin","users","assistant"];
 
+test("customer help restores on refresh and is available to every signed-in role without granting app or owner access", () => {
+  assert.equal(readHubView("?view=help"), "help");
+  assert.equal(hubViewUrl("https://hub.v79sl.com/?campaign=pilot", "help"), "/?campaign=pilot&view=help");
+  for (const role of ["admin", "manager", "staff", "viewer"]) {
+    const ordinary = { role, permissions: ["overview"] };
+    assert.equal(canAccessHubView("help", ordinary), true);
+    for (const view of ["assistant", "admin", "connections"]) assert.equal(canAccessHubView(view, ordinary), false);
+  }
+  assert.equal(canAccessHubView("help", null), false);
+});
+
 test("refresh can restore every valid page from URL", () => {
   for (const view of views) {
     const href = hubViewUrl("https://hub.v79sl.com/?campaign=pilot#safe", view);
