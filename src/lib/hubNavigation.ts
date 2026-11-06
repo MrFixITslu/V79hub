@@ -2,7 +2,7 @@ import type { User, ViewState } from "../types";
 
 const hubViews = new Set<ViewState>([
   "overview", "dashboard", "connections", "team", "security", "billing",
-  "admin", "users", "assistant",
+  "admin", "users", "assistant", "help",
 ]);
 
 /** Only known page IDs may be read from the URL. Payment returns retain precedence. */
@@ -17,7 +17,7 @@ export function readHubView(search: string): ViewState {
 /** Browser navigation is never an authorization decision. Match existing Hub access. */
 export function canAccessHubView(view: ViewState, user: User | null): boolean {
   if (!user || !hubViews.has(view)) return false;
-  if (view === "overview" || view === "dashboard") return true;
+  if (view === "overview" || view === "dashboard" || view === "help") return true;
   if (view === "admin" || view === "users") return user.platformOperator === true;
   if (view === "assistant") return user.ownerAgent === true;
   if (user.platformOperator === true &&

@@ -9,6 +9,7 @@ export type ViewState =
   | 'admin'
   | 'dashboard'
   | 'users'
+  | 'help'
   | 'assistant';
 
 export interface User {
