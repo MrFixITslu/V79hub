@@ -1,4 +1,3 @@
-import {reconciliationOptions,reconcileTask,saveTaskDeliverable,acceptTaskDeliverable} from "./workforce-task-lifecycle.mjs";
 import {specialistSystems} from './workforce-specialist-scopes.mjs';
 import {REVIEW_OPERATION, REVIEW_WORKER, REVIEW_ROLES, publicReviewTask, verifiedReviewTask, finishSpecialistReview, acceptSpecialistReview, reconcileSpecialistReview} from "./workforce-specialist-delivery.mjs";
 import {builtinSkillCatalog} from "./workforce-builtins.mjs";
@@ -38,7 +37,7 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
       operations: WORK_OPERATIONS.filter(op=>(specialistEnabled() || op!==REVIEW_OPERATION) && (googleEnabled() || !GOOGLE_OPERATIONS.includes(op))),
       systems: WORK_SYSTEMS.filter(system=>googleEnabled() || !['gmail','calendar'].includes(system)),
       jobs: state.jobs.filter(j => j.organizationId === org).slice(-200).reverse().map(publicWorkJob),
-      tasks: state.tasks.filter(j => j.organizationId === org).slice(-200).reverse().map(t=>({...publicReviewTask(t),reconciliationOptions:reconciliationOptions(state,t,org)})) });
+      tasks: state.tasks.filter(j => j.organizationId === org).slice(-200).reverse().map(publicReviewTask) });
   }));
   owner.post("/", wrap(async (req, res) => {
     if(req.body?.operation===REVIEW_OPERATION&&!specialistEnabled())return res.status(503).json({error:"Specialist reviews disabled"});
@@ -46,19 +45,6 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
     const job = await ledger.transact(s => proposeWork(s, req.body, {
       organizationId: req.workOwner.organizationId, actor: req.workOwner.userId, now: now() }));
     return res.status(201).json({ job: publicWorkJob(job) });
-  }));
-  const taskContext=req=>({organizationId:req.workOwner.organizationId,actor:req.workOwner.userId,now:now()});
-  const freshTaskMfa=(req,res)=>{const at=req.user?.mfaVerifiedAt;if(!Number.isFinite(at)||now()-at>300000){res.status(403).json({error:"Complete fresh owner MFA, then review and confirm this exact task decision."});return false;}return true;};
-  owner.post("/tasks/:id/reconcile",wrap(async(req,res)=>{
-    if(!freshTaskMfa(req,res))return;
-    const task=await ledger.transact(s=>reconcileTask(s,req.params.id,req.body,taskContext(req)));return res.json({task:publicReviewTask(task)});
-  }));
-  owner.post("/tasks/:id/deliverable",wrap(async(req,res)=>{
-    const deliverable=await ledger.transact(s=>saveTaskDeliverable(s,req.params.id,req.body,taskContext(req)));return res.status(201).json({deliverable});
-  }));
-  owner.post("/tasks/:id/accept-deliverable",wrap(async(req,res)=>{
-    if(!freshTaskMfa(req,res))return;
-    const task=await ledger.transact(s=>acceptTaskDeliverable(s,req.params.id,req.body,taskContext(req)));return res.json({task:publicReviewTask(task)});
   }));
   owner.post("/pause", wrap(async (req, res) => {
     if (!exact(req.body, ["paused"])) return res.status(400).json({ error: "Invalid pause request" });

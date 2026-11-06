@@ -18,7 +18,7 @@ jobs:
         with: {node-version: "24", cache: npm}
       - run: npm ci --no-audit --no-fund
       - name: Durable lifecycle and HTTP boundaries
-        run: node --test tests/workforce-specialist-delivery*.test.mjs tests/workforce-specialist-scopes.test.mjs tests/agent-executive-owner-proxy.test.mjs tests/evidence-gateway-owner-bridge.test.mjs tests/workforce-actions.test.mjs tests/workforce-action-routes.test.mjs tests/workforce-task-lifecycle*.test.mjs tests/wipay-provider.test.mjs
+        run: node --test tests/workforce-specialist-delivery*.test.mjs tests/workforce-specialist-scopes.test.mjs tests/agent-executive-owner-proxy.test.mjs tests/evidence-gateway-owner-bridge.test.mjs tests/workforce-actions.test.mjs tests/workforce-action-routes.test.mjs
       - name: Hub type check and build
         run: npm run lint && npm run build
       - name: Agent role safety and type check
@@ -37,7 +37,6 @@ jobs:
           for n in $(seq 1 30); do curl --fail --silent http://127.0.0.1:4178/ >/dev/null && exit 0; sleep 1; done
           exit 1
       - run: node scripts/workforce-specialist-delivery-browser-qa.mjs
-      - run: node scripts/workforce-task-evidence-browser-qa.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

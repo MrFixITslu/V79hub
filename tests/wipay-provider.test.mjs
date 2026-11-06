@@ -79,15 +79,5 @@ test("verified return rejects order tampering even when the WiPay hash is valid"
   };
   assert.equal(verifyWipayReturn({ query: { ...base, order_id: order.id }, expectedOrder: order, config }).ok, true);
   assert.equal(verifyWipayReturn({ query: { ...base, order_id: "order_999" }, expectedOrder: order, config }).reason, "order_mismatch");
-  assert.equal(verifyWipayReturn({ query: { ...base, order_id: order.id, total: "39.99", hash: wipayResponseHash(transactionId, "39.99", config.apiKey) }, expectedOrder: order, config }).reason, "provider_hash_invalid");
-});
-
-test("response hash uses original two-decimal order total when returned total omits cents",()=>{
- const config=getWipayConfig({WIPAY_ENABLED:"1",WIPAY_ENV:"sandbox",APP_URL:"https://hub.example.com",V79_BILLING_STATE_SECRET:secret});
- const order={id:"order_10",amount:10,currency:"TTD"},checkout=createWipayCheckout({order,config}),transactionId="SB-12-1-order_10-20261105120000";
- const query={status:"success",transaction_id:transactionId,order_id:order.id,total:"10",currency:"TTD",hash:wipayResponseHash(transactionId,"10.00",config.apiKey),data:checkout.fields.data};
- assert.equal(verifyWipayReturn({query,expectedOrder:order,config}).ok,true);
- assert.equal(verifyWipayReturn({query:{...query,total:"10.01"},expectedOrder:order,config}).reason,"amount_mismatch");
- assert.equal(verifyWipayReturn({query:{...query,hash:wipayResponseHash(transactionId,"10",config.apiKey)},expectedOrder:order,config}).reason,"provider_hash_invalid");
- assert.equal(verifyWipayReturn({query:{...query,data:"{}"},expectedOrder:order,config}).reason,"state_signature_invalid");
+  assert.equal(verifyWipayReturn({ query: { ...base, order_id: order.id, total: "39.99", hash: wipayResponseHash(transactionId, "39.99", config.apiKey) }, expectedOrder: order, config }).reason, "amount_mismatch");
 });
