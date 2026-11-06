@@ -20,7 +20,7 @@ test('full Hub: customer/viewer help works without owner or app permissions; ses
  assert.equal((await call('/api/help/catalog',null,'suspended')).status,401);
  const me=await (await call('/api/auth/me')).json();assert.equal(me.user.ownerAgent,false);assert.equal(me.user.platformOperator,false);assert.equal(me.user.role,'viewer');
  const a=await call('/api/help/chat',{message:'How do I create a Tiquet service request?'});assert.equal(a.status,200);const answer=await a.json();assert.equal(answer.articles[0].section,'2.3');
- const b=await call('/api/help/chat',{message:'How do I create a Tiquet service request?'},'viewer-b');assert.equal(b.status,200);assert.deepEqual(await b.json(),answer);
+ const b=await call('/api/help/chat',{message:'How do I create a Tiquet service request?'},'viewer-b');assert.equal(b.status,200);const second=await b.json();assert.notEqual(second.feedback.ticket,answer.feedback.ticket);const {feedback:_feedbackA,...firstGuide}=answer,{feedback:_feedbackB,...secondGuide}=second;assert.deepEqual(secondGuide,firstGuide);
  const guideBody={message:'Walk me through this',guide:{articleId:'manual-2-3',version:answer.version,action:'start'}};
  const guide=await call('/api/help/chat',guideBody);assert.equal(guide.status,200);assert.equal((await guide.json()).guide.stage,'before');
  assert.equal((await call('/api/help/chat',guideBody,'revoked')).status,401);

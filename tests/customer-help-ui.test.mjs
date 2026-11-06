@@ -5,6 +5,7 @@ import {readFileSync} from 'node:fs';
 import {Window} from 'happy-dom';
 import React,{act} from 'react';
 import {helpCatalog,createHelpService} from '../server/customer-help.mjs';
+import {FEEDBACK_REASONS} from '../server/customer-help-feedback.mjs';
 register();
 // tsx cannot import CSS in Node; bundle just this component through the existing
 // esbuild test toolchain and an empty CSS loader, without changing product code.
@@ -160,4 +161,46 @@ test('failed guide requests retry the same action, and expired sessions disable 
  assert.equal(h.box.querySelector('.help-turn:last-child .help-step-actions button').disabled,true);
  assert.equal([...h.box.querySelectorAll('button')].find(b=>b.textContent==='Prepare support summary').disabled,true);
  assert.ok(h.box.querySelector('a[href="/"]'));
+});
+
+const feedbackCatalog=(workspace=false,all=false)=>({...helpCatalog(),feedback:{enabled:true,workspace,all,reasons:FEEDBACK_REASONS}});
+async function ratedAnswer(opts){const answer=await createHelpService({env:{}}).answer(JSON.parse(opts.body));return {...answer,feedback:{ticket:'synthetic-ticket-'.repeat(6),expiresAt:Date.now()+7200000,reasons:FEEDBACK_REASONS}};}
+test('helpful feedback is voluntary, sends only the ticket/rating and confirms one save',async t=>{
+ const h=await mount(t,(url,opts)=>url.endsWith('/catalog')?feedbackCatalog():url.endsWith('/feedback')?{saved:true}:ratedAnswer(opts));
+ await h.click('How do I open the POS register?');assert.equal(h.calls.filter(c=>c.url.endsWith('/feedback')).length,0);
+ await h.click('Helpful');assert.match(h.box.textContent,/Thanks. Feedback saved/);
+ const submitted=h.calls.find(c=>c.url.endsWith('/feedback'));assert.deepEqual(Object.keys(JSON.parse(submitted.opts.body)).sort(),['rating','ticket']);
+ assert.doesNotMatch(submitted.opts.body,/How do I|register|userId|organizationId/);
+ assert.equal(h.box.querySelector('.help-feedback-actions'),null);
+ assert.equal(h.box.querySelectorAll('.help-answer ol li').length,4);
+});
+test('negative feedback requires a fixed reason and retries without removing the original answer',async t=>{
+ let fail=true;
+ const h=await mount(t,(url,opts)=>url.endsWith('/catalog')?feedbackCatalog():url.endsWith('/feedback')?fail?new Response(JSON.stringify({error:'Synthetic feedback failure'}),{status:503}):{saved:true}:ratedAnswer(opts));
+ await h.click('How do I open the POS register?');await h.click('Not helpful');
+ const send=[...h.box.querySelectorAll('button')].find(b=>b.textContent==='Send feedback');assert.equal(send.disabled,true);
+ const select=h.box.querySelector('select[aria-label="Feedback reason"]');await act(async()=>{select.value='outdated';select.dispatchEvent(new browser.Event('change',{bubbles:true}));});
+ await h.click('Send feedback');assert.match(h.box.querySelector('.help-feedback [role=alert]').textContent,/Synthetic feedback failure/);
+ assert.match(h.box.querySelector('.help-answer').textContent,/Opening cash float/);
+ fail=false;await h.click('Send feedback');assert.match(h.box.textContent,/Feedback saved/);
+ const requests=h.calls.filter(c=>c.url.endsWith('/feedback')).map(c=>JSON.parse(c.opts.body));assert.equal(requests.length,2);assert.deepEqual(requests[1],requests[0]);assert.equal(requests[0].reason,'outdated');
+});
+test('feedback session expiry disables the composer and shows the existing sign-in recovery',async t=>{
+ const h=await mount(t,(url,opts)=>url.endsWith('/catalog')?feedbackCatalog():url.endsWith('/feedback')?new Response('{}',{status:401}):ratedAnswer(opts));
+ await h.click('How do I open the POS register?');await h.click('Helpful');
+ assert.equal(h.box.querySelector('#help-question').disabled,true);assert.ok(h.box.querySelector('a[href="/"]'));
+});
+test('only owners see the report; filters request aggregates and empty state is honest',async t=>{
+ const h=await mount(t,(url,opts)=>url.endsWith('/catalog')?feedbackCatalog(true,true):url.includes('/feedback/report?')?{scope:'workspace',fromDay:'2026-10-08',throughDay:'2026-11-06',timeZone:'America/St_Lucia',totals:{votes:0,helpful:0,notHelpful:0,helpfulnessPercent:null,undocumentedFeedback:0},rows:[],note:'Counts reflect optional feedback submissions.'}:ratedAnswer(opts));
+ assert.equal(h.calls.filter(c=>c.url.includes('/feedback/report')).length,0);
+ await h.click('Help feedback report');assert.match(h.box.textContent,/No feedback for these filters yet/);assert.match(h.box.textContent,/No ratings/);
+ const scope=h.box.querySelector('select[aria-label="Feedback report scope"]');
+ await act(async()=>{scope.value='all';scope.dispatchEvent(new browser.Event('change',{bubbles:true}));});
+ assert.match(h.calls.at(-1).url,/scope=all/);assert.doesNotMatch(h.calls.at(-1).url,/organization|user|message/);
+ await h.click('Close report');assert.equal(h.box.querySelector('.help-feedback-report'),null);
+});
+test('ordinary customers do not receive a report control or trigger report reads',async t=>{
+ const h=await mount(t,(url,opts)=>url.endsWith('/catalog')?feedbackCatalog():ratedAnswer(opts));
+ assert.equal([...h.box.querySelectorAll('button')].some(b=>b.textContent==='Help feedback report'),false);
+ await h.click('How do I open the POS register?');assert.ok(h.box.querySelector('.help-feedback'));assert.equal(h.calls.some(c=>c.url.includes('/feedback/report')),false);
 });
