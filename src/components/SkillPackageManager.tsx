@@ -2,7 +2,7 @@ import {useEffect,useState} from "react";
 import {Archive,ArchiveRestore,CheckCircle2,Download,FileUp,LockKeyhole,RefreshCcw,ShieldAlert} from "lucide-react";
 
 type Hook="package-integrity"|"ui-static-review";
-type Job="ceo-daily"|"coo-daily"|"technology-review"|"marketing-review";
+type Job="ceo-daily"|"coo-daily"|"technology-review"|"marketing-review"|"sales-review";
 type SkillPackage={
  id:string;name:string;revision:number;sha256:string;files:number;unpackedBytes:number;
  entrypoints:{path:string;sha256:string;kind:string}[];skillPath:string;
@@ -18,7 +18,8 @@ const JOBS:ReadonlyArray<{id:Job;label:string}>=[
  {id:"ceo-daily",label:"CEO daily"},
  {id:"coo-daily",label:"COO daily"},
  {id:"technology-review",label:"Technology review"},
- {id:"marketing-review",label:"Marketing review"}
+ {id:"marketing-review",label:"Marketing review"},
+ {id:"sales-review",label:"Sales review (approved guidance only)"}
 ];
 const apiBase="/api/agent/skills/packages";
 async function api<T>(path:string,body?:object):Promise<T>{
@@ -129,7 +130,7 @@ export function SkillPackageManager(){
   </div>
   <div className="rounded-lg bg-slate-900 border border-slate-700 p-3 text-sm flex items-start gap-2">
    <ShieldAlert size={18} className="shrink-0 mt-0.5 text-amber-300"/>
-   <span>ZIP files are never executed inside Hub. Approval allows a separate restricted sandbox runner to use the exact reviewed archive. Scheduled assignments pass instructions only; they cannot invoke package scripts. Imported hooks cannot grant permissions or bypass MFA.</span>
+   <span>ZIP files are never executed inside Hub. Approval allows a separate restricted sandbox runner to use the exact reviewed archive. Scheduled assignments pass instructions only; they cannot invoke package scripts. Imported hooks cannot grant permissions or bypass MFA. A Sales review assignment makes approved guidance available to an authorised Sales runner; it does not schedule a job, send outreach or activate the separate Sales text-worker skill.</span>
   </div>
   <label className={"inline-flex cursor-pointer items-center gap-2 min-h-11 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold "+(pending?"opacity-40":"")}>
    <FileUp size={17}/>Import skill-only .zip

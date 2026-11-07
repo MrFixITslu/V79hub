@@ -8,7 +8,7 @@ import {execFileSync} from "node:child_process";
 const MAX_ZIP = 1_500_000;
 const SHA = /^[a-f0-9]{64}$/;
 const KEY = /^[a-z0-9][a-z0-9._-]{2,63}$/;
-const JOBS = Object.freeze(["ceo-daily", "coo-daily", "technology-review", "marketing-review"]);
+const JOBS = Object.freeze(["ceo-daily", "coo-daily", "technology-review", "marketing-review", "sales-review"]);
 const HOOKS = Object.freeze(["ui-static-review", "package-integrity"]);
 const nowIso = () => new Date().toISOString();
 const sha = b => crypto.createHash("sha256").update(b).digest("hex");
