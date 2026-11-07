@@ -53,8 +53,8 @@ with zipfile.ZipFile(io.BytesIO(data)) as z:
  advisory=[r for name,r in found if name=="ADVISORY.md"]
  if len(advisory)>1:raise ValueError("Duplicate advisory")
  guidance=advisory[0] if advisory else b
- if len(guidance)>6000 or not guidance.strip():
-  raise ValueError("ADVISORY.md of 1-6000 bytes required for large skills")
+ if len(guidance)>10000 or not guidance.strip():
+  raise ValueError("ADVISORY.md of 1-10000 bytes required for large skills")
  skill=guidance.decode("utf-8")
  scripts=[{"path":n,"sha256":hashlib.sha256(raw).hexdigest(),"kind":n.rsplit(".",1)[-1]} for n,raw in found if n.startswith("scripts/") and n.endswith((".py",".js",".sh"))]
  print(json.dumps({"skill":skill,"skillPath":n,"files":len(found),"unpackedBytes":total,"entrypoints":scripts},ensure_ascii=True))
@@ -165,7 +165,7 @@ export function createPackageStore({directory,secret}) {
       if(!exact(input,["name","archive"]))throw fail("Expected package name and base64 ZIP only");
       if(typeof input.name!=="string" || !KEY.test(input.name))throw fail("Package name must be 3-64 lowercase letters, digits, dashes or dots");
       const inspection=inspectZipBase64(input.archive);
-      if(!inspection.skill || Buffer.byteLength(inspection.skill)>6000)throw fail("Invalid SKILL.md");
+      if(!inspection.skill || Buffer.byteLength(inspection.skill)>10000)throw fail("Invalid SKILL.md");
       return mutate(state=>{
         const same=state.packages.find(i=>i.sha256===inspection.hash);
         if(same)throw fail("Exact package already imported",409);
@@ -184,7 +184,7 @@ export function createPackageStore({directory,secret}) {
     stageRevision(id,input,actor){
       if(!exact(input,["archive","expectedRevision"]))throw fail("Provide reviewed replacement ZIP and current revision");
       const inspection=inspectZipBase64(input.archive);
-      if(!inspection.skill || Buffer.byteLength(inspection.skill)>6000)throw fail("Invalid replacement guidance");
+      if(!inspection.skill || Buffer.byteLength(inspection.skill)>10000)throw fail("Invalid replacement guidance");
       return mutate(state=>{
         const parent=find(state,id);verifiedArchive(parent);
         if(parent.archived)throw fail("Restore the original package before staging a revision",409);

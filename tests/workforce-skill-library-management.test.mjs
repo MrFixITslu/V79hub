@@ -60,6 +60,19 @@ test('edit as immutable ZIP replacement, MFA promotion, archive and recover with
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
 
+test('preserves production 10 KB advisory allowance without permitting oversized guidance',async()=> {
+ const {inspectZipBase64}=await import('../server/workforce-skill-packages.mjs');
+ const zip=(bytes)=>execFileSync('python3',['-c',`import io,zipfile,base64,sys
+b=io.BytesIO()
+with zipfile.ZipFile(b,'w',zipfile.ZIP_DEFLATED) as z:
+ z.writestr('SKILL.md','# Full skill\n'+'x'*11000)
+ z.writestr('ADVISORY.md',sys.stdin.read())
+print(base64.b64encode(b.getvalue()).decode())`],{input:'Reviewed guidance '.repeat(bytes)}).toString().trim();
+ const accepted=inspectZipBase64(zip(350));
+ assert.match(accepted.skill,/Reviewed guidance/);
+ assert.throws(()=>inspectZipBase64(zip(750)));
+});
+
 test('custom skills archive disables role safely, retains immutable versions, and restores inactive',async()=>{
  const {dir,registry}=fresh();
  try{
