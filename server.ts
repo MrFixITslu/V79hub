@@ -23,6 +23,7 @@ import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.m
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
+import { createOwnerMfaStepUp } from "./server/owner-mfa-step-up.mjs";
 import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
 import { googleWorkforceClient } from "./server/workforce-google.mjs";
 import { workforceGoogleRouter } from "./server/workforce-google-routes.mjs";
@@ -4825,6 +4826,20 @@ function ownerApprovalContext(req: Request) {
   if (!user?.mfaEnabled) return null;
   return ownerAssistantContext(req);
 }
+
+// Re-check the authenticator inside the same MFA-verified owner session.
+// No password, token exchange, new session or permission escalation is possible.
+app.post("/api/security/mfa/step-up", requireAuth, createOwnerMfaStepUp({
+  ownerContext: ownerApprovalContext,
+  sameOrigin: sameOriginMutation,
+  getSecret: (userId: string) => {
+    const user = store.users.find(item => item.id === userId);
+    if (!user?.mfaEnabled || !user.mfaSecretEnc) return "";
+    return decryptTotpSecret(user.mfaSecretEnc, hubSecurityKey);
+  },
+  verifyCode: (secret: string, code: string, at: number) => verifyTotp(secret, code, at, 1),
+  persistSession: persistSessions,
+}));
 
 // G2: separate durable execution ledger. Existing G1 evidence endpoints and
 // planning approvals cannot authorize any action in this queue.
