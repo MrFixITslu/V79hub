@@ -65,7 +65,7 @@ test('preserves production 10 KB advisory allowance without permitting oversized
  const zip=(bytes)=>execFileSync('python3',['-c',`import io,zipfile,base64,sys
 b=io.BytesIO()
 with zipfile.ZipFile(b,'w',zipfile.ZIP_DEFLATED) as z:
- z.writestr('SKILL.md','# Full skill\n'+'x'*11000)
+ z.writestr('SKILL.md','# Full skill'+'x'*11000)
  z.writestr('ADVISORY.md',sys.stdin.read())
 print(base64.b64encode(b.getvalue()).decode())`],{input:'Reviewed guidance '.repeat(bytes)}).toString().trim();
  const accepted=inspectZipBase64(zip(350));
