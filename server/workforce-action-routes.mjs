@@ -12,17 +12,39 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
   const wrap = fn => async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try { return await fn(req, res); }
-    catch { return res.status(409).json({ error: "Action rejected or storage unavailable. Refresh and verify the current state before retrying." }); }
+    catch (e) {
+      if (e?.code === "REVIEW_MFA_REQUIRED") {
+        return res.status(403).json({ code: "RECENT_MFA_REQUIRED",
+          error: "Recent owner MFA verification is required for this specialist review." });
+      }
+      // Return only explicit, non-sensitive state errors. Never expose storage,
+      // secret, identity or database details to the browser.
+      const conflicts = {
+        "Action revision conflict": ["ACTION_CHANGED", "This action changed. Refresh and review its current details."],
+        "Work item requires current approval": ["APPROVAL_REQUIRED", "This work item cannot run: the queue is paused or its approval expired. Refresh status."],
+        "Queue paused": ["QUEUE_PAUSED", "The workforce queue is paused. Resume it only when ready to execute."],
+        "Approval expired": ["APPROVAL_EXPIRED", "This approval has expired. Review and approve a fresh action."],
+        "Action not found": ["ACTION_CHANGED", "This action is no longer available. Refresh status."],
+        "Action cannot be approved": ["APPROVAL_REQUIRED", "This approval is no longer valid. Refresh and review the action again."],
+        "Invalid worker receipt": ["RECEIPT_REPLAY_DENIED", "The worker receipt is invalid or already recorded. Do not retry the effect; reconcile the recorded result."],
+      };
+      const known = conflicts[e?.message];
+      if (known) return res.status(409).json({ code: known[0], error: known[1] });
+      // Log error type only; request payloads, credentials and ledger content stay private.
+      console.error("workforce-action-store-failure", { kind: String(e?.name || "Error").slice(0, 50) });
+      return res.status(503).json({ code: "ACTION_STORE_UNAVAILABLE",
+        error: "The action could not be confirmed. Refresh status before retrying; do not create a duplicate." });
+    }
   };
   owner.use((req, res, next) => {
     const context = ownerContext(req);
-    if (!context) return res.status(403).json({ error: "MFA-verified founder required" });
+    if (!context) return res.status(403).json({ code: "MFA_SESSION_REQUIRED", error: "Sign in with your owner account and complete MFA." });
     req.workOwner = context;
     if (req.method !== "GET") {
       if (!enabled()) return res.status(503).json({ error: "Approved actions are disabled" });
       if (!sameOrigin(req)) return res.status(403).json({ error: "Same-origin request required" });
       const at = req.user?.mfaVerifiedAt;
-      if (!Number.isFinite(at) || now() - at < 0) return res.status(403).json({ error: "MFA-verified owner session required" });
+      if (!Number.isFinite(at) || now() - at < 0) return res.status(403).json({ code: "MFA_SESSION_REQUIRED", error: "Your owner session requires MFA sign-in." });
     }
     if (!ledger) return res.status(503).json({ error: "Workforce ledger key is not configured" });
     next();
@@ -66,9 +88,15 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
   }));
   owner.post("/:id/execute", wrap(async (req, res) => {
     if (!exact(req.body, ["expectedRevision"])) return res.status(400).json({ error: "Invalid execution request" });
-    const job = await ledger.transact(s => createApprovedWorkItem(s, req.params.id, {
+    const job = await ledger.transact(s => {
+      if (s.paused) throw new Error("Queue paused");
+      const candidate = s.jobs.find(j => j.id === req.params.id && j.organizationId === req.workOwner.organizationId);
+      if (!candidate) throw new Error("Action not found");
+      if (!candidate.approval || !(Date.parse(candidate.approval.expiresAt) > now())) throw new Error("Approval expired");
+      return createApprovedWorkItem(s, req.params.id, {
       organizationId: req.workOwner.organizationId, actor: req.workOwner.userId,
-      expectedRevision: req.body.expectedRevision, now: now() }));
+      expectedRevision: req.body.expectedRevision, now: now() });
+    });
     return res.json({ job: publicWorkJob(job) });
   }));
   worker.use((req, res, next) => {
