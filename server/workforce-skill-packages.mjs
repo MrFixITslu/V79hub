@@ -130,6 +130,8 @@ export function createPackageStore({directory,secret}) {
     unpackedBytes:item.unpackedBytes,entrypoints:item.entrypoints,skillPath:item.skillPath,
     status:item.status,approvedAt:item.approvedAt,approvedBy:item.approvedBy,
     hooks:item.hooks,schedules:item.schedules,createdAt:item.createdAt,
+    archived:item.archived === true,version:item.version||1,supersedesId:item.supersedesId||null,
+    promotedAt:item.promotedAt||null,
   });
   const audit=(state,action,item,actor)=>{
     state.audit.push({at:nowIso(),action,id:item.id,actor,revision:item.revision,sha256:item.sha256});
@@ -156,6 +158,9 @@ export function createPackageStore({directory,secret}) {
       const item=find(load(),id);verifiedArchive(item);
       return {...publicItem(item),skill:item.skill};
     },
+    download(id){
+      const item=find(load(),id);return verifiedArchive(item);
+    },
     import(input,actor){
       if(!exact(input,["name","archive"]))throw fail("Expected package name and base64 ZIP only");
       if(typeof input.name!=="string" || !KEY.test(input.name))throw fail("Package name must be 3-64 lowercase letters, digits, dashes or dots");
@@ -176,12 +181,39 @@ export function createPackageStore({directory,secret}) {
         return publicItem(item);
       });
     },
+    stageRevision(id,input,actor){
+      if(!exact(input,["archive","expectedRevision"]))throw fail("Provide reviewed replacement ZIP and current revision");
+      const inspection=inspectZipBase64(input.archive);
+      if(!inspection.skill || Buffer.byteLength(inspection.skill)>6000)throw fail("Invalid replacement guidance");
+      return mutate(state=>{
+        const parent=find(state,id);verifiedArchive(parent);
+        if(parent.archived)throw fail("Restore the original package before staging a revision",409);
+        if(parent.status!=="approved" || (parent.supersedesId && !parent.promotedAt))throw fail("Only the current approved version may be replaced",409);
+        if(parent.revision!==input.expectedRevision)throw fail("Stale package revision",409);
+        if(state.packages.length>=100)throw fail("Package library is full",409);
+        if(state.packages.some(p=>p.sha256===inspection.hash))throw fail("Package bytes already imported",409);
+        if(state.packages.some(p=>p.supersedesId===id && !p.archived))throw fail("An unarchived replacement is already staged for this version",409);
+        const version=(parent.version||1)+1;
+        if(version>30)throw fail("Package version limit reached",409);
+        const file=path.join(root,inspection.hash+".zip");
+        const fd=fs.openSync(file,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,0o600);
+        try{fs.writeFileSync(fd,inspection.bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+        const item={id:"pkg-"+crypto.randomBytes(8).toString("hex"),name:parent.name,
+          sha256:inspection.hash,files:inspection.files,unpackedBytes:inspection.unpackedBytes,
+          entrypoints:inspection.entrypoints,skillPath:inspection.skillPath,skill:inspection.skill,
+          supersedesId:id,version,revision:1,status:"quarantined",createdAt:nowIso(),
+          approvedAt:null,approvedBy:null,hooks:[],schedules:[],archived:false};
+        state.packages.push(item);audit(state,"stage-replacement-quarantine",item,actor);
+        return publicItem(item);
+      });
+    },
     approve(id,input,actor){
       if(!exact(input,["sha256","expectedRevision"]) || !SHA.test(input.sha256))throw fail("Invalid approval");
       return mutate(state=>{
         const item=find(state,id);
         if(item.revision!==input.expectedRevision || item.sha256!==input.sha256)throw fail("Package version/digest drift",409);
         verifiedArchive(item);
+        if(item.archived)throw fail("Archived package must be restored first",409);
         if(item.status!=="quarantined")throw fail("Package is not quarantined",409);
         item.status="approved";item.approvedBy=actor;item.approvedAt=nowIso();item.revision++;
         audit(state,"approve-execution-eligibility",item,actor);
@@ -193,10 +225,59 @@ export function createPackageStore({directory,secret}) {
       return mutate(state=>{
         const item=find(state,id);verifiedArchive(item);
         if(item.revision!==input.expectedRevision)throw fail("Stale package revision",409);
+        if(item.archived)throw fail("Archived package cannot be revoked again",409);
         if(item.status!=="approved")throw fail("Package is not approved",409);
         item.status="quarantined";item.approvedBy=null;item.approvedAt=null;
         item.hooks=[];item.schedules=[];item.revision++;
         audit(state,"revoke-and-disable",item,actor);
+        return publicItem(item);
+      });
+    },
+    promote(id,input,actor){
+      if(!exact(input,["expectedRevision","expectedParentRevision"]))throw fail("Invalid promotion confirmation");
+      return mutate(state=>{
+        const item=find(state,id), parent=item.supersedesId?find(state,item.supersedesId):null;
+        if(!parent)throw fail("Package is not a staged replacement",409);
+        verifiedArchive(item);verifiedArchive(parent);
+        if(item.revision!==input.expectedRevision || parent.revision!==input.expectedParentRevision)
+          throw fail("Package version/revision drift",409);
+        if(item.archived||parent.archived || item.status!=="approved" || parent.status!=="approved")
+          throw fail("Both package versions must be approved and unarchived",409);
+        if(item.promotedAt)throw fail("Replacement already promoted",409);
+        if(item.hooks.length || item.schedules.length)throw fail("Staged revision has unreviewed assignments",409);
+        for(const job of parent.schedules){
+          const others=state.packages.filter(p=>p.id!==id && p.id!==parent.id && p.status==="approved" && !p.archived && p.schedules.includes(job));
+          if(others.length>=2)throw fail("Scheduled agent already has two assigned skills: "+job,409);
+        }
+        item.hooks=[...parent.hooks];item.schedules=[...parent.schedules];item.promotedAt=nowIso();item.revision++;
+        audit(state,"promote-reviewed-replacement",item,actor);
+        parent.status="quarantined";parent.archived=true;parent.hooks=[];parent.schedules=[];
+        parent.approvedBy=null;parent.approvedAt=null;parent.revision++;
+        audit(state,"archive-superseded-version",parent,actor);
+        return publicItem(item);
+      });
+    },
+    archive(id,input,actor){
+      if(!exact(input,["expectedRevision"]))throw fail("Invalid archive request");
+      return mutate(state=>{
+        const item=find(state,id);verifiedArchive(item);
+        if(item.revision!==input.expectedRevision)throw fail("Stale package revision",409);
+        if(item.archived)throw fail("Package already archived",409);
+        item.archived=true;item.status="quarantined";item.approvedBy=null;item.approvedAt=null;
+        item.hooks=[];item.schedules=[];item.revision++;
+        audit(state,"archive-revoke-and-disable",item,actor);
+        return publicItem(item);
+      });
+    },
+    unarchive(id,input,actor){
+      if(!exact(input,["expectedRevision"]))throw fail("Invalid restoration request");
+      return mutate(state=>{
+        const item=find(state,id);verifiedArchive(item);
+        if(item.revision!==input.expectedRevision)throw fail("Stale package revision",409);
+        if(!item.archived)throw fail("Package not archived",409);
+        item.archived=false;item.status="quarantined";item.hooks=[];item.schedules=[];item.revision++;
+        item.approvedBy=null;item.approvedAt=null;
+        audit(state,"restore-archived-to-quarantine",item,actor);
         return publicItem(item);
       });
     },
@@ -210,9 +291,11 @@ export function createPackageStore({directory,secret}) {
       return mutate(state=>{
         const item=find(state,id);verifiedArchive(item);
         if(item.revision!==input.expectedRevision)throw fail("Stale package revision",409);
+        if(item.archived)throw fail("Restore archived package before configuring",409);
         if(item.status!=="approved")throw fail("Approve the digest before assigning hooks or schedules",409);
+        if(item.supersedesId && !item.promotedAt)throw fail("Promote the reviewed revision before changing scheduled assignments",409);
         for(const job of input.schedules){
-          const others=state.packages.filter(x=>x.id!==id && x.status==="approved" && x.schedules.includes(job));
+          const others=state.packages.filter(x=>x.id!==id && x.status==="approved" && !x.archived && x.schedules.includes(job));
           if(others.length>=2)throw fail("Scheduled agent already has two assigned skills: "+job,409);
         }
         item.hooks=[...input.hooks];item.schedules=[...input.schedules];item.revision++;
@@ -222,7 +305,7 @@ export function createPackageStore({directory,secret}) {
     },
     scheduledSnapshot(job){
       if(!JOBS.includes(job))throw fail("Unknown scheduled job");
-      const items=load().packages.filter(x=>x.status==="approved" && x.schedules.includes(job));
+      const items=load().packages.filter(x=>x.status==="approved" && !x.archived && x.schedules.includes(job));
       for(const i of items)verifiedArchive(i);
       return {job,source:"owner-approved-guidance-only",packages:items.map(i=>({
         id:i.id,name:i.name,sha256:i.sha256,skill:i.skill

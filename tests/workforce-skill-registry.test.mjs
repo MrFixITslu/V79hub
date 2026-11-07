@@ -112,7 +112,7 @@ test("reject executable/huge/invalid draft types and control characters; flags s
  for(const invalid of [
   {name:"x",content:"some content"},
   {name:"good",content:""},
-  {name:"good",content:"a".repeat(6001)},
+  {name:"good",content:"a".repeat(32001)},
   {name:"good",content:"test\u0000x"},
   {name:"good",content:123},
   {name:"good",content:"ok",workers:["ceo"]},

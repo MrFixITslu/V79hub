@@ -1,5 +1,5 @@
 import {useEffect,useState} from "react";
-import {Archive,CheckCircle2,FileUp,LockKeyhole,RefreshCcw,ShieldAlert} from "lucide-react";
+import {Archive,ArchiveRestore,CheckCircle2,Download,FileUp,LockKeyhole,RefreshCcw,ShieldAlert} from "lucide-react";
 
 type Hook="package-integrity"|"ui-static-review";
 type Job="ceo-daily"|"coo-daily"|"technology-review"|"marketing-review";
@@ -7,6 +7,7 @@ type SkillPackage={
  id:string;name:string;revision:number;sha256:string;files:number;unpackedBytes:number;
  entrypoints:{path:string;sha256:string;kind:string}[];skillPath:string;
  status:"quarantined"|"approved";approvedAt:string|null;approvedBy:string|null;
+ archived?:boolean;version?:number;supersedesId?:string|null;promotedAt?:string|null;
  hooks:Hook[];schedules:Job[];createdAt:string;
 };
 const HOOKS:ReadonlyArray<{id:Hook;label:string}>=[
@@ -49,6 +50,7 @@ export function SkillPackageManager(){
  const [packages,setPackages]=useState<SkillPackage[]>([]);
  const [drafts,setDrafts]=useState<Record<string,{hooks:Hook[];schedules:Job[]}>>({});
  const [pending,setPending]=useState(false);
+ const [showArchived,setShowArchived]=useState(false);
  const [error,setError]=useState("");
  const [notice,setNotice]=useState("");
  const [loading,setLoading]=useState(true);
@@ -82,6 +84,34 @@ export function SkillPackageManager(){
    await api("/import",{name:name.length>=3?name:"skill-"+Date.now(),archive});
   },"ZIP inspected and quarantined. Review scripts and exact SHA-256 before fresh-MFA approval.");
  };
+ const updateUpload=(item:SkillPackage,file:File|undefined)=>{
+  if(!file)return;
+  void act(async()=>{
+   const archive=await encodeZip(file);
+   await api("/"+item.id+"/stage-revision",{archive,expectedRevision:item.revision});
+  },"New ZIP version staged in quarantine. The old approved version remains active until you approve and promote the replacement.");
+ };
+ const download=(item:SkillPackage)=>{
+  void act(async()=>{
+   const response=await fetch(apiBase+"/"+item.id+"/download",{credentials:"same-origin",cache:"no-store"});
+   if(!response.ok)throw Error("Could not download original approved ZIP");
+   const archive=await response.blob();
+   const url=URL.createObjectURL(archive);
+   try{const link=document.createElement("a");link.href=url;link.download=`${item.name}-v${item.version||1}.zip`;document.body.append(link);link.click();link.remove();}
+   finally{window.setTimeout(()=>URL.revokeObjectURL(url),10000);}
+  },"Original ZIP download requested. Edit locally and upload a reviewed replacement version.");
+ };
+ const changeArchive=(item:SkillPackage,restore:boolean)=>{
+  if(!restore && !window.confirm(`Archive ${item.name} v${item.version||1}? This revokes approval and disables every scheduled assignment. The original ZIP remains recoverable.`))return;
+  void act(async()=>{
+   await api("/"+item.id+(restore?"/unarchive":"/archive"),{expectedRevision:item.revision});
+  },restore?"Archived package restored to quarantine. Review and approve again before use.":"Package archived and disabled. Audit and original ZIP retained.");
+ };
+ const promote=(item:SkillPackage,parent:SkillPackage)=>{
+  if(!window.confirm(`Promote reviewed v${item.version||2} of ${item.name}? This moves approved guidance assignments from the old version and archives that old version.`))return;
+  void act(async()=>{await api("/"+item.id+"/promote",{expectedRevision:item.revision,expectedParentRevision:parent.revision});},
+   "Approved replacement promoted. The old version was archived and its scheduled assignments transferred atomically.");
+ };
  const setChoice=(id:string,key:"hooks"|"schedules",value:Hook|Job,checked:boolean)=>{
   setDrafts(old=>{
    const current=old[id]||{hooks:[],schedules:[]};
@@ -106,33 +136,59 @@ export function SkillPackageManager(){
    <input className="sr-only" type="file" accept=".zip,application/zip" disabled={pending}
     onChange={e=>{upload(e.target.files?.[0]);e.target.value="";}}/>
   </label>
-  <p className="text-xs text-slate-400">Maximum upload 1.35 MB compressed; 120 entries and 4 MB expanded. Exactly one SKILL.md (max 64 KB); include ADVISORY.md (max 6 KB) when the full skill is larger. No symlinks, nested archives or native binaries.</p>
+  <p className="text-xs text-slate-400">Maximum upload 1.35 MB compressed; 120 entries and 4 MB expanded. Exactly one SKILL.md (max 64 KB); include ADVISORY.md when the full skill is larger. No symlinks, nested archives or native binaries.</p>
+  <div className="flex flex-wrap justify-between items-center gap-2 rounded-xl border border-slate-700 p-3">
+   <p className="text-sm text-slate-300">To edit an uploaded ZIP: download its original package, edit the files, then upload it as a new reviewed version. Approved bytes are never overwritten. Never execute downloaded scripts outside the approved sandbox.</p>
+   <label className="text-sm flex items-center gap-2"><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/>Show archived</label>
+  </div>
   {loading&&<p className="text-sm text-slate-400">Loading packages…</p>}
   {error&&<p className="text-sm rounded-lg border border-red-800 p-3 text-red-200" role="alert">{error}</p>}
   {notice&&<p className="text-sm rounded-lg border border-emerald-800 p-3 text-emerald-200" role="status">{notice}</p>}
   {!loading&&!packages.length&&<p className="text-sm text-slate-400">No ZIP skill packages imported yet.</p>}
-  {packages.map(item=>{
+  {packages.filter(p=>showArchived||!p.archived).map(item=>{
+   const parent=item.supersedesId?packages.find(p=>p.id===item.supersedesId):undefined;
    const current=drafts[item.id]||{hooks:item.hooks,schedules:item.schedules};
    const changed=JSON.stringify([...current.hooks].sort())!==JSON.stringify([...item.hooks].sort()) ||
     JSON.stringify([...current.schedules].sort())!==JSON.stringify([...item.schedules].sort());
    return <div className="rounded-xl border border-slate-700 p-4 space-y-3" key={item.id}>
     <div className="flex flex-wrap justify-between gap-2">
      <div><p className="font-semibold">{item.name}</p>
-      <p className="text-xs text-slate-400">{item.files} files · {item.entrypoints.length} eligible sandbox entrypoints · revision {item.revision}</p></div>
-     <span className={"text-xs rounded-full px-3 py-1 border self-start "+(item.status==="approved"?"text-emerald-200 border-emerald-700":"text-amber-200 border-amber-700")}>{item.status}</span>
+      <p className="text-xs text-slate-400">Version {item.version||1} · {item.files} files · {item.entrypoints.length} eligible sandbox entrypoints · revision {item.revision}</p>
+      {item.supersedesId&&<p className="text-xs text-amber-200">{item.promotedAt?"Promoted replacement":"Replacement awaiting promotion"} · previous package {item.supersedesId}</p>}</div>
+     <span className={"text-xs rounded-full px-3 py-1 border self-start "+(item.archived?"text-slate-300 border-slate-600":item.status==="approved"?"text-emerald-200 border-emerald-700":"text-amber-200 border-amber-700")}>{item.archived?"archived":item.status}</span>
     </div>
     <div className="space-y-1">
      <p className="text-xs text-slate-300">SHA-256 (check before approval)</p>
      <code className="block rounded-lg bg-slate-950 text-xs p-2 break-all select-all">{item.sha256}</code>
      {item.entrypoints.length>0&&<p className="text-xs text-slate-400">Code present: {item.entrypoints.map(p=>p.path).slice(0,6).join(", ")}{item.entrypoints.length>6?" …":""}</p>}
     </div>
-    {item.status==="quarantined"
+    <div className="flex flex-wrap gap-2 items-center border-t border-slate-700 pt-3">
+     <button type="button" disabled={pending} className="rounded-lg border border-slate-700 px-3 py-2 text-sm" onClick={()=>download(item)}>
+      <Download size={15} className="inline mr-1"/>Download original ZIP</button>
+     {!item.archived&&item.status==="approved"&&(!item.supersedesId||!!item.promotedAt)&&<label className={"rounded-lg border border-cyan-700 px-3 py-2 text-sm "+(pending?"opacity-40":"cursor-pointer")}>
+      <FileUp size={15} className="inline mr-1"/>Edit: upload revised ZIP
+      <input className="sr-only" type="file" accept=".zip,application/zip" disabled={pending}
+       onChange={e=>{updateUpload(item,e.target.files?.[0]);e.target.value="";}}/>
+     </label>}
+     {item.archived
+      ? <button type="button" disabled={pending} className="rounded-lg border border-slate-600 px-3 py-2 text-sm" onClick={()=>changeArchive(item,true)}><ArchiveRestore size={15} className="inline mr-1"/>Restore (fresh MFA)</button>
+      : <button type="button" disabled={pending} className="rounded-lg border border-red-700 px-3 py-2 text-sm text-red-200" onClick={()=>changeArchive(item,false)}>Archive / remove (fresh MFA)</button>}
+    </div>
+    {item.archived? <p className="text-sm text-slate-400">Archived: removed from scheduled use; original preserved for recovery and audit.</p>
+    : item.status==="quarantined"
      ? <button type="button" disabled={pending} className="rounded-lg bg-amber-300 text-slate-950 font-semibold px-4 py-2 text-sm"
        onClick={()=>void act(async()=>{await api("/"+item.id+"/approve",{sha256:item.sha256,expectedRevision:item.revision});},
         "Package digest approved after fresh MFA. Execution still requires an isolated runner.")}>
        <LockKeyhole size={15} className="inline mr-1"/>Approve reviewed digest (fresh MFA)
        </button>
      : <div className="space-y-3 border-t border-slate-700 pt-3">
+       {item.supersedesId&&!item.promotedAt&&parent&&(
+        <div className="rounded-xl border border-amber-800 p-3 space-y-2">
+         <p className="text-sm text-amber-100">The old version stays active until you promote this approved replacement.</p>
+         <button type="button" className="rounded-lg bg-cyan-300 text-slate-950 px-4 py-2 text-sm font-semibold" disabled={pending||parent.archived||parent.status!=="approved"}
+           onClick={()=>promote(item,parent)}>Promote version {item.version||2} (fresh MFA)</button>
+        </div>)}
+       {!item.supersedesId||item.promotedAt?<>
        <div><p className="text-xs font-semibold mb-2">Built-in hook policies</p>
         <div className="grid gap-2">{HOOKS.map(option=><label key={option.id} className="flex gap-2 text-sm">
          <input type="checkbox" checked={current.hooks.includes(option.id)} disabled={pending}
@@ -151,6 +207,7 @@ export function SkillPackageManager(){
         onClick={()=>void act(async()=>{await api("/"+item.id+"/revoke",{expectedRevision:item.revision});},
           "Package approval revoked. Hooks and scheduled guidance assignments cleared.")}>
         Revoke approval (fresh MFA)</button>
+       </>:null}
       </div>}
    </div>;
   })}

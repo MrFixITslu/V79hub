@@ -54,6 +54,33 @@ export function workforceSkillRouter({ registry, packages, enabled, ownerContext
     if(!body(req.body,["name","archive"]))return res.status(400).json({error:"Invalid ZIP upload"});
     return res.status(201).json({package:await packages.import(req.body,req.skillOwner.userId)});
   }));
+  router.get("/packages/:id/download", wrap(async (req,res) => {
+    if(!packages)return res.status(503).json({error:"Package quarantine unavailable"});
+    const detail=packages.read(req.params.id);
+    const bytes=packages.download(req.params.id);
+    res.setHeader("Content-Type","application/zip");
+    res.setHeader("Content-Length",String(bytes.length));
+    res.setHeader("Content-Disposition",`attachment; filename="${detail.name}-v${detail.version||1}.zip"`);
+    res.setHeader("X-Content-Type-Options","nosniff");
+    return res.end(bytes);
+  }));
+  router.post("/packages/:id/stage-revision",wrap(async(req,res)=>{
+    if(!packages)return res.status(503).json({error:"Package quarantine unavailable"});
+    if(!body(req.body,["archive","expectedRevision"]))return res.status(400).json({error:"Invalid revision upload"});
+    return res.status(201).json({package:await packages.stageRevision(req.params.id,req.body,req.skillOwner.userId)});
+  }));
+  for(const [action,method,fields] of [
+    ["promote","promote",["expectedRevision","expectedParentRevision"]],
+    ["archive","archive",["expectedRevision"]],
+    ["unarchive","unarchive",["expectedRevision"]],
+  ]){
+    router.post(`/packages/:id/${action}`,wrap(async(req,res)=>{
+      if(!mfa(req,res))return;
+      if(!packages)return res.status(503).json({error:"Package quarantine unavailable"});
+      if(!body(req.body,fields))return res.status(400).json({error:"Invalid package management request"});
+      return res.json({package:await packages[method](req.params.id,req.body,req.skillOwner.userId)});
+    }));
+  }
   router.post("/packages/:id/approve", wrap(async (req,res) => {
     if(!mfa(req,res))return;
     if(!packages)return res.status(503).json({error:"Package quarantine unavailable"});
@@ -99,6 +126,13 @@ export function workforceSkillRouter({ registry, packages, enabled, ownerContext
     if (!body(req.body, ["expectedRevision"])) return res.status(400).json({ error: "Invalid pause request" });
     res.json({ skill: await registry.pause(req.params.id, req.body.expectedRevision, req.skillOwner.userId) });
   }));
+  for(const action of ["archive","unarchive"]){
+    router.post(`/:id/${action}`,wrap(async(req,res)=>{
+      if(!mfa(req,res))return;
+      if(!body(req.body,["expectedRevision"]))return res.status(400).json({error:"Invalid skill management request"});
+      return res.json({skill:await registry[action](req.params.id,req.body.expectedRevision,req.skillOwner.userId)});
+    }));
+  }
   router.post("/:id/restore", wrap(async (req, res) => {
     if (!body(req.body, ["version", "expectedRevision"])) return res.status(400).json({ error: "Invalid restoration" });
     res.json({ skill: await registry.restore(req.params.id, req.body.version, req.body.expectedRevision,
