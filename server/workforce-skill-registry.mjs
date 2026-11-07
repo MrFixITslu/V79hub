@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 export const SKILL_WORKERS = Object.freeze([
   "ceo", "coo", "finance", "strategy", "marketing", "customer-service", "technical-security", "sales"
 ]);
-export const SKILL_MAX_CONTENT = 6000;
+export const SKILL_MAX_CONTENT = 32000;
 export const SKILL_MAX_PER_WORKER = 2;
 const MAX_SKILLS = 100;
 const MAX_VERSIONS = 30;
@@ -28,7 +28,7 @@ export function validateSkillDraft(input) {
       /[\u0000-\u001f\u007f]/.test(name)) throw fail("Skill name must be 3–80 plain-text characters");
   if (typeof content !== "string" || !content.trim() || Buffer.byteLength(content, "utf8") > SKILL_MAX_CONTENT ||
       /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(content))
-    throw fail("Skill must be plain UTF-8 text of 1–6000 bytes, without control characters");
+    throw fail("Skill must be plain UTF-8 text of 1–32000 bytes, without control characters");
   // Best-effort warnings only: no static scanner can establish that a prompt is safe.
   const warnings = [];
   if (/ignore (all |any )?(previous|system|developer) instructions|override (system|developer) instructions/i.test(content))
@@ -132,7 +132,8 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
   const metadata = item => ({
     id: item.id, name: item.name, revision: item.revision, activeVersion: item.activeVersion,
     latestVersion: item.versions.at(-1).version, workers: [...item.workers],
-    status: item.activeVersion === null ? "draft" : item.workers.length ? "active" : "paused",
+    status: item.archived ? "archived" : item.activeVersion === null ? "draft" : item.workers.length ? "active" : "paused",
+    archived: item.archived === true,
     updatedAt: item.updatedAt,
   });
   const locate = (state, id) => {
@@ -176,6 +177,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
       return transact(state => {
         const item = locate(state, id);
         assertRevision(item, expectedRevision);
+        if (item.archived) throw fail("Restore archived skill before editing",409);
         if (item.versions.length >= MAX_VERSIONS) throw fail("Skill version limit reached; archive this skill and create a new one", 409);
         const timestamp = new Date(now()).toISOString();
         item.name = checked.name;
@@ -194,6 +196,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
       return transact(state => {
         const item = locate(state, id);
         assertRevision(item, expectedRevision);
+        if (item.archived) throw fail("Restore archived skill before activation",409);
         if (version !== item.versions.at(-1).version) throw fail("Restore historical versions to a new draft before activation", 409);
         for (const role of workers) {
           const other = state.skills.filter(s => s.id !== id && s.activeVersion !== null && s.workers.includes(role));
@@ -223,6 +226,7 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
       return transact(state => {
         const item = locate(state, id);
         assertRevision(item, expectedRevision);
+        if (item.archived) throw fail("Restore archived skill before version rollback",409);
         const historic = item.versions.find(v => v.version === version);
         if (!historic) throw fail("Historical version not found", 404);
         if (item.versions.length >= MAX_VERSIONS) throw fail("Version limit reached", 409);
@@ -235,10 +239,30 @@ export function createSkillRegistry({ file, secret, now = () => Date.now() }) {
         return metadata(item);
       });
     },
+    archive(id, expectedRevision, actor) {
+      return transact(state => {
+        const item=locate(state,id);assertRevision(item,expectedRevision);
+        if(item.archived)throw fail("Skill is already archived",409);
+        item.archived=true;item.workers=[];item.revision++;
+        item.updatedAt=new Date(now()).toISOString();
+        audit(state,"archive-and-disable",item,actor);
+        return metadata(item);
+      });
+    },
+    unarchive(id, expectedRevision, actor) {
+      return transact(state => {
+        const item=locate(state,id);assertRevision(item,expectedRevision);
+        if(!item.archived)throw fail("Skill is not archived",409);
+        item.archived=false;item.workers=[];item.revision++;
+        item.updatedAt=new Date(now()).toISOString();
+        audit(state,"restore-archived-paused",item,actor);
+        return metadata(item);
+      });
+    },
     assignedSkills() {
       const state = load(), result = Object.fromEntries(SKILL_WORKERS.map(role => [role, []]));
       for (const item of state.skills) {
-        if (item.activeVersion === null) continue;
+        if (item.archived || item.activeVersion === null) continue;
         const version = item.versions.find(v => v.version === item.activeVersion);
         for (const role of item.workers) {
           result[role].push({ id: item.id, name: version.name, version: version.version,

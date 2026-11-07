@@ -47,7 +47,7 @@ const ROLE_IMPROVEMENTS:Record<Worker,string[]> = {
 };
 type Metadata = {
   id:string; name:string; revision:number; activeVersion:number|null;
-  latestVersion:number; workers:Worker[]; status:"draft"|"active"|"paused"; updatedAt:string;
+  latestVersion:number; workers:Worker[]; status:"draft"|"active"|"paused"|"archived"; archived?:boolean; updatedAt:string;
 };
 type Version = {version:number;content:string;sha256:string;createdAt:string;restoredFrom?:number};
 type BuiltIn = {id:Worker;name:string;focus:string;skillSha:string;bytes:number;protected:true};
@@ -77,6 +77,8 @@ async function callApi<T>(url:string, data?:Record<string, unknown>):Promise<T> 
 }
 export function WorkforceSkillManager() {
   const [catalog,setCatalog] = useState<Metadata[]>([]);
+  const [showArchived,setShowArchived] = useState(false);
+  const [maxSkillBytes,setMaxSkillBytes] = useState(32000);
   const [builtins,setBuiltins] = useState<BuiltIn[]>([]);
   const [selectedBuiltin,setSelectedBuiltin] = useState<BuiltInDetail|null>(null);
   const [builtInError,setBuiltInError] = useState("");
@@ -95,8 +97,9 @@ export function WorkforceSkillManager() {
   const [loading,setLoading] = useState(true);
 
   const refresh = async () => {
-    const response = await callApi<{skills:Metadata[];audit:Audit[]}>("/");
+    const response = await callApi<{skills:Metadata[];audit:Audit[];limits?:{maxContentBytes:number}}>("/");
     setCatalog(response.skills);
+    if(response.limits?.maxContentBytes)setMaxSkillBytes(response.limits.maxContentBytes);
     setAudit(response.audit);
     try { const result=await callApi<{skills:BuiltIn[]}>("/builtins");setBuiltins(result.skills);setBuiltInError("");}
     catch(e) {setBuiltins([]);setBuiltInError(e instanceof Error?e.message:"Protected skill catalog is unavailable");}
@@ -116,11 +119,12 @@ export function WorkforceSkillManager() {
   useEffect(() => {
     let active = true;
     Promise.allSettled([
-      callApi<{skills:Metadata[];audit:Audit[]}>("/"),
+      callApi<{skills:Metadata[];audit:Audit[];limits?:{maxContentBytes:number}}>("/"),
       callApi<{skills:BuiltIn[]}>("/builtins")
     ]).then(([custom,verified]) => {
       if(!active)return;
-      if(custom.status==="fulfilled"){setCatalog(custom.value.skills);setAudit(custom.value.audit);}
+      if(custom.status==="fulfilled"){setCatalog(custom.value.skills);setAudit(custom.value.audit);
+        if(custom.value.limits?.maxContentBytes)setMaxSkillBytes(custom.value.limits.maxContentBytes);}
       else setError(custom.reason instanceof Error?custom.reason.message:"Could not read your custom skill library");
       if(verified.status==="fulfilled"){setBuiltins(verified.value.skills);setBuiltInError("");}
       else {setBuiltins([]);setBuiltInError("Protected skills unavailable. Integrity or server access must be checked.");}
@@ -146,7 +150,7 @@ export function WorkforceSkillManager() {
       setError("Only Markdown or plain-text skills are accepted. ZIP files cannot be executed or imported.");
       return;
     }
-    if(file.size > 6000) {setError("Skill exceeds the 6000-byte limit");return;}
+    if(file.size > maxSkillBytes) {setError(`Skill exceeds the ${maxSkillBytes}-byte limit`);return;}
     const text = await file.text();
     setContent(text);
     if(!name) setName(file.name.replace(/\.(md|txt)$/i,"").replace(/[-_]/g," "));
@@ -199,6 +203,16 @@ export function WorkforceSkillManager() {
     setSelectedBuiltin(response.skill);
     setSelected(null);setReview(null);setAcknowledged(false);
   },"");
+  const setArchived = (archive:boolean) => {
+    if(!selected)return;
+    const snapshot=selected;
+    if(archive && !window.confirm(`Archive ${snapshot.name}? This disables worker assignments and removes it from the active list. Its versions and audit history will be retained.`))return;
+    void act(async()=>{
+      await callApi("/"+snapshot.id+(archive?"/archive":"/unarchive"),{expectedRevision:snapshot.revision});
+      if(archive){setSelected(null);setReview(null);}
+      else await readDetail(snapshot.id);
+    },archive?"Skill archived and assignments disabled.":"Skill restored as inactive. Review and explicitly reactivate the exact version.");
+  };
   const loadImpeccablePreset = () => {
     resetDraft();
     setName(IMPECCABLE_PRESET.name);
@@ -232,14 +246,14 @@ export function WorkforceSkillManager() {
   const activeVersion=selected?.versions.find(v=>v.version===selected.activeVersion);
   const viewedVersion=selected?.versions.find(v=>v.version===previewVersion);
   const unchanged = !!selected && latest?.content === content && selected.name === name;
-  const safeToActivate = selected && latest && unchanged && review?.sha256 === latest.sha256 &&
+  const safeToActivate = selected && !selected.archived && latest && unchanged && review?.sha256 === latest.sha256 &&
     acknowledged && workers.length > 0;
   return <div className="p-4 sm:p-7 text-slate-100 space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <div className="flex items-center gap-2 text-cyan-300 text-xs uppercase font-semibold tracking-widest"><BookOpen size={16}/> AI workforce</div>
-        <h2 className="mt-1 text-2xl font-bold">Skill Library</h2>
-        <p className="mt-1 text-sm text-slate-400">Create once, assign to workers, and activate only after review.</p>
+        <h2 className="mt-1 text-2xl font-bold">Skill Library &amp; Manager</h2>
+        <p className="mt-1 text-sm text-slate-400">Select a custom skill to edit its instructions and versions. Uploaded ZIP packages are managed separately below.</p>
       </div>
       <button type="button" onClick={resetDraft} className={primaryButton}><Plus size={16} className="inline mr-1"/>New skill</button>
     </div>
@@ -252,9 +266,12 @@ export function WorkforceSkillManager() {
     {loading ? <p className="text-sm text-slate-400">Loading library…</p> :
     <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
       <aside className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3 self-start">
-        <h3 className="mb-2 px-2 text-sm font-bold">Your custom skills ({catalog.length})</h3>
+        <div className="mb-2 px-2 flex flex-wrap justify-between gap-2 items-center">
+          <h3 className="text-sm font-bold">Your custom skills ({catalog.filter(v=>!v.archived).length})</h3>
+          <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/>Show archived</label>
+        </div>
         <div className="space-y-1 max-h-[550px] overflow-y-auto">
-          {catalog.map(item => <button type="button" key={item.id}
+          {catalog.filter(item=>showArchived||!item.archived).map(item => <button type="button" key={item.id}
             onClick={() => act(async () => {await readDetail(item.id);},"")}
             className={"w-full rounded-xl border px-3 py-3 text-left text-sm " +
               (selected?.id===item.id?"border-cyan-500 bg-cyan-950/40":"border-transparent hover:bg-slate-800")}>
@@ -302,16 +319,16 @@ export function WorkforceSkillManager() {
             Nothing changes for the AI until you save, check and activate an exact version with fresh MFA.</p>
         </section> : <>
         <div className="flex items-center justify-between gap-3">
-          <h3 className="font-bold">{selected ? "Edit custom skill" : "Create custom skill"}</h3>
+          <h3 className="font-bold">{selected?.archived ? "Archived custom skill — restore before editing" : selected ? "Edit custom skill" : "Create custom skill"}</h3>
           {selected && <span className="text-xs text-slate-400">Revision {selected.revision} · {selected.status}</span>}
         </div>
         <label className="block space-y-2">
           <span className="text-sm font-semibold">Skill name</span>
-          <input className={inputClass} value={name} maxLength={80} onChange={e=>{setName(e.target.value);setReview(null);setAcknowledged(false);}} placeholder="e.g. Website Development"/>
+          <input className={inputClass} disabled={selected?.archived} value={name} maxLength={80} onChange={e=>{setName(e.target.value);setReview(null);setAcknowledged(false);}} placeholder="e.g. Website Development"/>
         </label>
         <label className="block space-y-2">
           <span className="text-sm font-semibold">Instructions (Markdown)</span>
-          <textarea className={inputClass+" min-h-[220px] font-mono"} value={content}
+          <textarea disabled={selected?.archived} className={inputClass+" min-h-[220px] font-mono"} value={content}
             onChange={e=>{setContent(e.target.value);setReview(null);setAcknowledged(false);}}
             placeholder="# Purpose&#10;Describe the role, review standards, safe workflow and expected output."
             aria-label="Skill instructions" />
@@ -326,11 +343,11 @@ export function WorkforceSkillManager() {
             className={secondaryButton} aria-label="Load Impeccable UI and UX advisory template">
             <BookOpen size={16} className="inline mr-2"/>Impeccable UI/UX template
           </button>
-          <span className="text-xs text-slate-400">{new TextEncoder().encode(content).length}/6000 bytes</span>
+          <span className="text-xs text-slate-400">{new TextEncoder().encode(content).length}/{maxSkillBytes} bytes</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={busy||!name.trim()||!content.trim()} onClick={validate} className={secondaryButton}><ShieldCheck size={16} className="inline mr-2"/>Check draft</button>
-          <button type="button" disabled={busy||!name.trim()||!content.trim()||unchanged} onClick={save} className={primaryButton}>{selected?"Save new version":"Save draft"}</button>
+          <button type="button" disabled={busy||selected?.archived||!name.trim()||!content.trim()} onClick={validate} className={secondaryButton}><ShieldCheck size={16} className="inline mr-2"/>Check draft</button>
+          <button type="button" disabled={busy||selected?.archived||!name.trim()||!content.trim()||new TextEncoder().encode(content).length>maxSkillBytes||unchanged} onClick={save} className={primaryButton}>{selected?"Save new version":"Save draft"}</button>
         </div>
         {review && <div className="border border-amber-800/60 rounded-xl p-3 text-sm space-y-2">
           <p className="font-semibold">Format check: {review.bytes} bytes</p>
@@ -342,7 +359,13 @@ export function WorkforceSkillManager() {
             <span>I reviewed the instructions and understand they cannot grant permissions or approve actions.</span>
           </label>
         </div>}
-        {selected && <div className="border-t border-slate-800 pt-5 space-y-3">
+        {selected && <div className="flex flex-wrap gap-2">
+          {selected.archived
+           ? <button type="button" disabled={busy} onClick={()=>setArchived(false)} className={secondaryButton}>Restore archived skill (fresh MFA)</button>
+           : <button type="button" disabled={busy} onClick={()=>setArchived(true)} className={secondaryButton}>Archive / remove skill (fresh MFA)</button>}
+          <p className="text-xs text-slate-400 w-full">Archive is the safe alternative to permanent deletion: disable assignments immediately and preserve audit history.</p>
+        </div>}
+        {selected && !selected.archived && <div className="border-t border-slate-800 pt-5 space-y-3">
           {selected.activeVersion !== null && <div role="status"
             className="rounded-xl border border-slate-700 bg-slate-900/70 p-3 text-sm">
             <strong>{selected.status==="active"?"AI currently uses version ":"Last assigned version "}{selected.activeVersion}</strong>
