@@ -338,9 +338,6 @@ export function Login({ onLoginSuccess }: LoginProps) {
 
           {mode === "login" && (
             <>
-              <div className="hub-login-divider" aria-label="Other sign-in methods">
-                <span>or</span>
-              </div>
               <GoogleSignIn organizationId={organizationId} onCredential={handleGoogleCredential} />
               <div className="hub-login-security mt-10 flex items-start gap-3 text-[13px] leading-5 text-slate-400">
                 <Lock className="mt-0.5 h-5 w-5 shrink-0 text-[#0A86FF]" aria-hidden="true" />
