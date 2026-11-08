@@ -74,12 +74,24 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
       setSyncIssue("");
     } catch (e) {
       if (current === serial.current) {
-        // Retain the last verified list and current action error. Background
-        // polling must not flash alerts or erase data and draft inputs.
-        setSyncIssue(e instanceof WorkRequestError && e.status === 401
-          ? "Your session expired. Sign in again to update this view."
+        // Authentication denial is not a transient network failure. Remove
+        // private queue data and disable every action, including during polling.
+        // A delayed older response cannot restore it because of the serial guard.
+        const accessDenied = e instanceof WorkRequestError && (e.status === 401 || e.status === 403);
+        if (accessDenied) {
+          setJobs([]);
+          setEnabled(false);
+          setPaused(false);
+          setCheckedAt(null);
+          setMfaNeeded(false);
+        } else {
+          // For temporary non-authentication failures, retain the last
+          // verified read-only list and the user's draft without flashing errors.
+          if (!background) setEnabled(false);
+        }
+        setSyncIssue(accessDenied
+          ? "Owner access could not be verified. Sign in with your owner account and complete MFA before viewing actions."
           : "Live updates are unavailable. Showing the last verified information.");
-        if (!background) setEnabled(false);
       }
       throw e;
     } finally { if (current === serial.current && !background) setLoading(false); }
