@@ -34,7 +34,6 @@ function loadGoogleIdentity(): Promise<void> {
       script.src = "https://accounts.google.com/gsi/client";
       script.async = true;
       script.defer = true;
-      script.crossOrigin = "anonymous";
       script.onload = () => googleIdentity()?.accounts?.id
         ? resolve()
         : reject(new Error("Google sign-in is unavailable."));
@@ -132,7 +131,7 @@ export function GoogleSignIn({ organizationId, onCredential }: {
           size: "large",
           text: "continue_with",
           shape: "rectangular",
-          width: 300,
+          width: Math.min(320, button.current.clientWidth || 260),
         });
         setStatus("ready");
         // Refresh even if someone leaves the login page open for 15 minutes.
@@ -156,6 +155,7 @@ export function GoogleSignIn({ organizationId, onCredential }: {
   if (status === "off") return null;
   return (
     <div className="hub-login-google mt-4 space-y-2" aria-label="Google account sign-in">
+      <div className="hub-login-divider" aria-label="Other sign-in methods"><span>or</span></div>
       <div ref={button} className={status === "ready" ? "flex min-h-11 justify-center" : "hidden"} />
       {status === "loading" && <p role="status" className="text-center text-xs text-slate-400">Preparing secure Google sign-in…</p>}
       {status === "submitting" && <p role="status" className="text-center text-xs text-slate-400">Verifying your Google account…</p>}
