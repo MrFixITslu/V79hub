@@ -23,6 +23,7 @@ import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.m
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
+import { createMcpProposalRouter, MCP_PROPOSAL_PATH } from "./server/mcp-action-proposals.mjs";
 import { createOwnerMfaStepUp } from "./server/owner-mfa-step-up.mjs";
 import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
 import { googleWorkforceClient } from "./server/workforce-google.mjs";
@@ -4854,6 +4855,24 @@ function readWorkforceToken() {
   try { return fs.readFileSync(process.env.V79_WORKFORCE_TOKEN_FILE || "/run/secrets/v79-workforce-token", "utf8").trim(); }
   catch { return ""; }
 }
+function workforceOwnerReady() {
+  const user = store.users.find(u => u.id === posIdentity.ownerUserId);
+  const membership = activeMembership(store, posIdentity.ownerUserId, posIdentity.organizationId);
+  return Boolean(user?.mfaEnabled && hasOwnerAssistantAccess({ user, membership,
+    organizationId: posIdentity.organizationId, ownerOrganizationId: posIdentity.organizationId,
+    ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL }));
+}
+function readMcpProposalKey() {
+  const filename = process.env.V79_MCP_PROPOSAL_KEY_FILE || "/run/secrets/v79-mcp-proposal-key";
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size < 32 || stat.size > 256 || (stat.mode & 0o077) !== 0) return "";
+    return fs.readFileSync(fd, "utf8").trim();
+  } catch { return ""; }
+  finally { if (fd !== null) fs.closeSync(fd); }
+}
 const workforceRouters = workforceActionRouters({
   ledger: workforceLedger,
   enabled: () => process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
@@ -4861,14 +4880,17 @@ const workforceRouters = workforceActionRouters({
   googleEnabled: () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1",
   workerToken: readWorkforceToken,
   ownerOrganizationId: () => posIdentity.organizationId,
-  ownerReady: () => {
-    const user = store.users.find(u => u.id === posIdentity.ownerUserId);
-    const membership = activeMembership(store, posIdentity.ownerUserId, posIdentity.organizationId);
-    return Boolean(user?.mfaEnabled && hasOwnerAssistantAccess({ user, membership,
-      organizationId: posIdentity.organizationId, ownerOrganizationId: posIdentity.organizationId,
-      ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL }));
-  },
+  ownerReady: workforceOwnerReady,
 });
+// Deliberately independent of the Evidence Gateway and owner browser sessions.
+// This service can queue only unapproved Hub work items; only Hub can approve.
+app.use(MCP_PROPOSAL_PATH, createMcpProposalRouter({
+  ledger: workforceLedger,
+  enabled: () => process.env.V79_MCP_ACTION_PROPOSALS_ENABLED === "1",
+  secret: readMcpProposalKey,
+  ownerReady: workforceOwnerReady,
+  ownerOrganizationId: () => posIdentity.organizationId,
+}));
 app.use("/api/agent/work-actions", workforceRouters.owner);
 app.use("/internal/workforce", workforceRouters.worker);
 // Owner-only Google boundary. Tokens remain in Hub, never in the model service.
