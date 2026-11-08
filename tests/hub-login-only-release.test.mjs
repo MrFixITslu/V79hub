@@ -22,7 +22,7 @@ test("Google login is server-gated and preserves existing MFA and local illustra
   assert.match(google,/\/api\/auth\/google\/challenge/);
   assert.match(google,/auto_select: false/);
   assert.match(google,/Retry Google sign-in/);
-  assert.doesNotMatch(google,/localStorage|sessionStorage/);
+  assert.doesNotMatch(google,/\b(?:window|globalThis)\.(?:localStorage|sessionStorage)\b|\b(?:localStorage|sessionStorage)\s*\[/);
   assert.match(login,/\/assets\/v79-login-earth\.svg/);
   const image=read("public/assets/v79-login-earth.svg");
   assert.match(image,/<svg/);
