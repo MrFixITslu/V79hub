@@ -6,6 +6,9 @@ import { createHash } from "node:crypto";
 // Read-only Git object fingerprint guards: accepted security, trusted UI and tests.
 // App.tsx and remaining files retain their accepted source pins from
 // 9528f27422525ed6340c6a42e0152aa62f433fd8.
+// Login.tsx is additionally pinned to the reviewed Google Identity capability
+// gate from 2026-11-08; it delegates to a separate GoogleSignIn component,
+// preserves password/MFA/recovery forms and uses the existing Hub login API.
 // server.ts was independently compared against that exact accepted blob on
 // 2026-11-08: only a 15-line additive owner-MFA step-up route/import was found,
 // with no removed lines. Its separate owner access, origin, TOTP attempt limit,
@@ -14,7 +17,7 @@ import { createHash } from "node:crypto";
 const frozen = {
   "server.ts": "f682410fa85481bcfc6d0e181c27bc31515d4370",
   "src/App.tsx": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
-  "src/components/Login.tsx": "53deeec03ba8793a2412a09ad91f7747fe442510",
+  "src/components/Login.tsx": "cf13de28ee0eca9723ee028f67590622eafb1565",
   "src/components/Sidebar.tsx": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
   "src/components/AdminConsole.tsx": "a809f9bb614ff547d28eeab8d15535652c3b7d5c",
   "scripts/hub-isolated-browser-preview.mjs": "f7761f0fa93d9bc279ac28514fab95e72bfca894",
