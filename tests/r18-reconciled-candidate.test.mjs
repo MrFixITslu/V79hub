@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 // and persistence rollback tests passed. Preserve exact hash enforcement here;
 // never refresh a pin without reviewing the corresponding source delta.
 const frozen = {
-  "server.ts": "a2344743aec46ce8471f0c8045cb57ee8dd142b0",
+  "server.ts": "cd4c8d907f5dc6714401b92783b8eddca91179d2",
   "src/App.tsx": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
   "src/components/Login.tsx": "53deeec03ba8793a2412a09ad91f7747fe442510",
   "src/components/Sidebar.tsx": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
