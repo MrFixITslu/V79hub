@@ -2,7 +2,7 @@
 // arbitrary downstream endpoints or execution requests at this boundary.
 import express from "express";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { proposeWork, publicWorkJob, validateWorkRequest } from "./workforce-actions.mjs";
+import { proposeWork, validateWorkRequest } from "./workforce-actions.mjs";
 
 export const MCP_PROPOSAL_PATH = "/internal/mcp/v1/proposals";
 const SECRET_MIN = 32;
