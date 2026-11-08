@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { User } from "../types";
+import { GoogleSignIn } from "./GoogleSignIn";
 
 interface LoginProps {
   onLoginSuccess: (user: User, token: string) => void;
@@ -95,6 +96,47 @@ export function Login({ onLoginSuccess }: LoginProps) {
       onLoginSuccess(data.user, "cookie");
     } catch (err: any) {
       setError(err.message || "Failed to sign in. Please check your credentials.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleCredential = async (credential: string, nonce: string, selectedOrganization: string) => {
+    setIsLoading(true);
+    clearMessages();
+    try {
+      const res = await fetch("/api/auth/google/login", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          credential,
+          nonce,
+          ...(selectedOrganization ? { organizationId: selectedOrganization } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 409 && Array.isArray(data.organizations)) {
+        setWorkspaces(data.organizations);
+        setOrganizationId("");
+        setError("Choose your business workspace, then select Google again.");
+        return;
+      }
+      if (res.status === 202 && data.mfaRequired) {
+        setChallengeId(data.challengeId || "");
+        setMfaSetupSecret(data.secret || "");
+        setMfaProvisioningUri(data.provisioningUri || "");
+        setMfaCode("");
+        setMode("mfa");
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || "Google account could not sign in to Hub.");
+      if (!data.user) throw new Error("Google sign-in response was incomplete.");
+      onLoginSuccess(data.user, "cookie");
+    } catch (err: any) {
+      setError(err.message || "Google sign-in failed. Try again or use your password.");
     } finally {
       setIsLoading(false);
     }
@@ -299,13 +341,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
               <div className="hub-login-divider" aria-label="Other sign-in methods">
                 <span>or</span>
               </div>
-              <button type="button" disabled aria-disabled="true" title="Google sign-in is not yet configured"
-                className="hub-login-google flex w-full items-center justify-center gap-3 rounded-lg border border-[#46607c] bg-[#34445b] px-4 py-3.5 text-sm font-semibold text-slate-200 disabled:cursor-not-allowed">
-                <span aria-hidden="true" className="hub-login-google-icon">G</span>
-                <span>Continue with Google</span>
-                <span className="sr-only">Not yet available</span>
-              </button>
-              <p className="mt-2 text-center text-[11px] text-slate-400">Google sign-in is not yet available.</p>
+              <GoogleSignIn organizationId={organizationId} onCredential={handleGoogleCredential} />
               <div className="hub-login-security mt-10 flex items-start gap-3 text-[13px] leading-5 text-slate-400">
                 <Lock className="mt-0.5 h-5 w-5 shrink-0 text-[#0A86FF]" aria-hidden="true" />
                 <p>Secure encryption. Multi-factor authentication.<br />We never share your information.</p>
