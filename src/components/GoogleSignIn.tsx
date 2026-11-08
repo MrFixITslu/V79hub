@@ -54,6 +54,7 @@ export function GoogleSignIn({ organizationId, onCredential }: {
 }) {
   const button = useRef<HTMLDivElement>(null);
   const handler = useRef(onCredential);
+  const inFlight = useRef(false);
   const [version, setVersion] = useState(0);
   const [status, setStatus] = useState<"loading" | "ready" | "submitting" | "off" | "error">("loading");
   const [message, setMessage] = useState("");
@@ -106,12 +107,13 @@ export function GoogleSignIn({ organizationId, onCredential }: {
           nonce,
           auto_select: false,
           callback: async response => {
-            if (cancelled) return;
+            if (cancelled || inFlight.current) return;
             if (typeof response.credential !== "string" || !response.credential) {
               setStatus("error");
               setMessage("Google did not provide a valid sign-in response.");
               return;
             }
+            inFlight.current = true;
             setStatus("submitting");
             try {
               await handler.current(response.credential, nonce, organizationId);
@@ -119,6 +121,7 @@ export function GoogleSignIn({ organizationId, onCredential }: {
               // The parent owns user-safe authentication error messaging.
             } finally {
               // A nonce cannot be reused after a server-side login attempt.
+              inFlight.current = false;
               if (!cancelled) setVersion(value => value + 1);
             }
           },
