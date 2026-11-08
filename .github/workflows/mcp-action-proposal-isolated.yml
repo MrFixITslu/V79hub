@@ -1,0 +1,31 @@
+name: MCP Hub Proposal Safety (Nondeploying)
+on:
+  pull_request:
+    paths:
+      - "server/mcp-action-proposals.mjs"
+      - "server/action-broker-owner-bridge.mjs"
+      - "tests/action-broker-owner-bridge.test.mjs"
+      - "tests/mcp-action-proposals.test.mjs"
+      - "server.ts"
+      - "tests/r18-reconciled-candidate.test.mjs"
+      - ".github/workflows/mcp-action-proposal-isolated.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate-proposal-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: MCP proposal + Hub MFA + owner ledger security regressions
+        run: node --test tests/mcp-action-proposals.test.mjs tests/action-broker-owner-bridge.test.mjs tests/workforce-action-routes.test.mjs tests/owner-mfa-step-up.test.mjs tests/r18-reconciled-candidate.test.mjs
+      - name: Typecheck
+        run: npm run lint
+      - name: Frontend build only
+        run: npm run build

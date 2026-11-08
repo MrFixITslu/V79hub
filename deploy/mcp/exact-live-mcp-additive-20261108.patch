@@ -1,0 +1,57 @@
+--- a/server.ts
++++ b/server.ts
+@@ -29,6 +29,8 @@
+ import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
+ import { createWorkActionStore } from "./server/workforce-action-store.mjs";
+ import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
++import { createMcpProposalRouter, MCP_PROPOSAL_PATH } from "./server/mcp-action-proposals.mjs";
++import { registerActionBrokerOwnerBridge } from "./server/action-broker-owner-bridge.mjs";
+ import { createOwnerMfaStepUp } from "./server/owner-mfa-step-up.mjs";
+ import { createOwnerStepUpRouter, rotateVerifiedSession } from "./server/owner-step-up.mjs";
+ import { createSkillRegistry } from "./server/workforce-skill-registry.mjs";
+@@ -5108,6 +5110,45 @@
+       ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL }));
+   },
+ });
++// Action-only MCP proposal route: no model can approve or execute work.
++function readPrivateActionFile(filename: string) {
++  let fd: number | null = null;
++  try {
++    fd = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
++    const stat = fs.fstatSync(fd);
++    if (!stat.isFile() || stat.size < 32 || stat.size > 256 ||
++        (stat.mode & 0o077) !== 0) return "";
++    return fs.readFileSync(fd, "utf8").trim();
++  } catch { return ""; }
++  finally { if (fd !== null) fs.closeSync(fd); }
++}
++function liveMcpOwnerReady() {
++  const user = store.users.find(u => u.id === posIdentity.ownerUserId);
++  const membership = activeMembership(store, posIdentity.ownerUserId, posIdentity.organizationId);
++  return Boolean(user?.mfaEnabled && hasOwnerAssistantAccess({ user, membership,
++    organizationId: posIdentity.organizationId, ownerOrganizationId: posIdentity.organizationId,
++    ownerUserId: posIdentity.ownerUserId, ownerEmail: process.env.V79_HUB_ADMIN_EMAIL }) &&
++    membership?.role === "owner" &&
++    store.organizations.some(o => o.id === posIdentity.organizationId && o.status === "active"));
++}
++app.use(MCP_PROPOSAL_PATH, createMcpProposalRouter({
++  ledger: workforceLedger,
++  enabled: () => process.env.V79_MCP_ACTION_PROPOSALS_ENABLED === "1" &&
++    process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
++  secret: () => readPrivateActionFile(process.env.V79_MCP_PROPOSAL_KEY_FILE ||
++    "/run/secrets/v79-mcp-proposal-key"),
++  ownerReady: liveMcpOwnerReady,
++  ownerOrganizationId: () => posIdentity.organizationId,
++}));
++registerActionBrokerOwnerBridge(app, {
++  ownerMfaContext: ownerApprovalContext,
++  sameOrigin: sameOriginMutation,
++  ownerSubject: () => posIdentity.ownerUserId,
++  ownerActive: liveMcpOwnerReady,
++  readBridgeToken: () => readPrivateActionFile(
++    path.join(DATA_DIR, "action-broker-bridge.token")),
++  brokerBaseUrl: "http://v79-action-broker:8766",
++});
+ app.use("/api/agent/work-actions", workforceRouters.owner);
+ // Isolated owner skills: do not replace the built-in workforce or its permissions.
+ const skillRegistryKey = String(process.env.V79_WORKFORCE_SKILL_REGISTRY_KEY || "");
