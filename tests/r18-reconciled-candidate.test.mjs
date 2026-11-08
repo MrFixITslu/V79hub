@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 const frozen = {
   "server.ts": "f682410fa85481bcfc6d0e181c27bc31515d4370",
   "src/App.tsx": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
-  "src/components/Login.tsx": "cf13de28ee0eca9723ee028f67590622eafb1565",
+  "src/components/Login.tsx": "619033b64a4290bf1c9fef8de5144faeff8b58c5",
   "src/components/Sidebar.tsx": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
   "src/components/AdminConsole.tsx": "a809f9bb614ff547d28eeab8d15535652c3b7d5c",
   "scripts/hub-isolated-browser-preview.mjs": "f7761f0fa93d9bc279ac28514fab95e72bfca894",
