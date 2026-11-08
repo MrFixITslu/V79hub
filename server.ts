@@ -4886,7 +4886,7 @@ const workforceRouters = workforceActionRouters({
 // This service can queue only unapproved Hub work items; only Hub can approve.
 app.use(MCP_PROPOSAL_PATH, createMcpProposalRouter({
   ledger: workforceLedger,
-  enabled: () => process.env.V79_MCP_ACTION_PROPOSALS_ENABLED === "1",
+  enabled: () => process.env.V79_MCP_ACTION_PROPOSALS_ENABLED === "1" && process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
   secret: readMcpProposalKey,
   ownerReady: workforceOwnerReady,
   ownerOrganizationId: () => posIdentity.organizationId,
