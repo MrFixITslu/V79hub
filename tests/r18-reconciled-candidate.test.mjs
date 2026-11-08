@@ -4,12 +4,15 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
 // Read-only Git object fingerprint guards: accepted security, trusted UI and tests.
-// server.ts and App.tsx are pinned to accepted source 9528f27422525ed6340c6a42e0152aa62f433fd8.
-// This supersedes the earlier R18-only hashes after reviewed Google, navigation
-// and pricing releases. The browser script pin includes its pricing fixture-only
-// update; all seven other UI/test pins and exact comparisons remain unchanged.
+// App.tsx and remaining files retain their accepted source pins from
+// 9528f27422525ed6340c6a42e0152aa62f433fd8.
+// server.ts was independently compared against that exact accepted blob on
+// 2026-11-08: only a 15-line additive owner-MFA step-up route/import was found,
+// with no removed lines. Its separate owner access, origin, TOTP attempt limit,
+// and persistence rollback tests passed. Preserve exact hash enforcement here;
+// never refresh a pin without reviewing the corresponding source delta.
 const frozen = {
-  "server.ts": "6784def9a38d018f87aa85e0d73ec10d65972daf",
+  "server.ts": "f682410fa85481bcfc6d0e181c27bc31515d4370",
   "src/App.tsx": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
   "src/components/Login.tsx": "53deeec03ba8793a2412a09ad91f7747fe442510",
   "src/components/Sidebar.tsx": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
