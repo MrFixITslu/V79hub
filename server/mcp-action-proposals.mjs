@@ -81,7 +81,7 @@ export function createMcpProposalRouter({ ledger, enabled, secret, ownerReady,
     let input;
     try {
       input = validateWorkRequest(req.body);
-      if (input.operation !== "create_work_item" || input.system !== "hub") {
+      if (input.operation !== "create_work_item" || !["hub", "tiquet", "marketing"].includes(input.system)) {
         return res.status(403).json({ code: "MCP_TOOL_NOT_ALLOWED" });
       }
     } catch {

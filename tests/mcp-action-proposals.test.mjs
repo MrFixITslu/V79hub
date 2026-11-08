@@ -91,11 +91,25 @@ test("rejects execution, deployment and other app operations", async t => {
   const h = await host(t);
   for (const [i, change] of [
     { operation: "deploy_release" }, { operation: "rollback_release" },
-    { system: "tiquet" }, { system: "marketing" }, { operation: "delete_user" },
+    { system: "pos" }, { system: "ffpro" }, { operation: "delete_user" },
   ].entries()) {
     assert.ok([400,403].includes((await h.post({ ...payload("denied"+i), ...change })).status));
   }
   assert.equal(h.state.jobs.length, 0);
+});
+test("Tiquet and Marketing proposals create internal Hub triage jobs only, not app writes", async t => {
+  const h = await host(t);
+  for (const system of ["tiquet", "marketing"]) {
+    const input = { ...payload("triage_"+system), system,
+      summary: system==="tiquet" ? "Review a Tiquet customer support issue" : "Review a V79 Marketing content brief" };
+    const answer = await h.post(input);
+    assert.equal(answer.status, 201);
+    assert.equal(answer.body.proposal.status, "pending");
+    assert.equal(answer.body.proposal.system, system);
+  }
+  assert.deepEqual(h.state.jobs.map(j=>j.system), ["tiquet", "marketing"]);
+  assert.deepEqual(h.state.jobs.map(j=>j.status), ["pending", "pending"]);
+  assert.equal(h.state.tasks.length, 0, "No internal task or external app action until Hub owner approval");
 });
 test("signature is bound to exact bytes, method, fixed endpoint and time", () => {
   const r = signed();
