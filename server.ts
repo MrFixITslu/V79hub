@@ -24,6 +24,7 @@ import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAge
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
 import { createMcpProposalRouter, MCP_PROPOSAL_PATH } from "./server/mcp-action-proposals.mjs";
+import { registerActionBrokerOwnerBridge } from "./server/action-broker-owner-bridge.mjs";
 import { createOwnerMfaStepUp } from "./server/owner-mfa-step-up.mjs";
 import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
 import { googleWorkforceClient } from "./server/workforce-google.mjs";
@@ -4891,6 +4892,32 @@ app.use(MCP_PROPOSAL_PATH, createMcpProposalRouter({
   ownerReady: workforceOwnerReady,
   ownerOrganizationId: () => posIdentity.organizationId,
 }));
+// Separate action consent from the read-only evidence OAuth bridge.
+registerActionBrokerOwnerBridge(app, {
+  ownerMfaContext: ownerApprovalContext,
+  sameOrigin: sameOriginMutation,
+  ownerSubject: () => posIdentity.ownerUserId,
+  ownerActive: () => {
+    const user = store.users.find(u => u.id === posIdentity.ownerUserId);
+    const membership = activeMembership(store, posIdentity.ownerUserId, posIdentity.organizationId);
+    return Boolean(workforceOwnerReady() && user?.mfaEnabled &&
+      membership?.role === "owner" &&
+      store.organizations.some(o => o.id === posIdentity.organizationId && o.status === "active"));
+  },
+  readBridgeToken: () => {
+    const file = path.join(DATA_DIR, "action-broker-bridge.token");
+    let fd: number | null = null;
+    try {
+      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size < 32 || stat.size > 256 ||
+          (stat.mode & 0o077) !== 0) return "";
+      return fs.readFileSync(fd,"utf8").trim();
+    } catch { return ""; }
+    finally { if (fd !== null) fs.closeSync(fd); }
+  },
+  brokerBaseUrl: "http://v79-action-broker:8766",
+});
 app.use("/api/agent/work-actions", workforceRouters.owner);
 app.use("/internal/workforce", workforceRouters.worker);
 // Owner-only Google boundary. Tokens remain in Hub, never in the model service.
