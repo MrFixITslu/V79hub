@@ -38,7 +38,7 @@ def die(message):
 def docker(*args):
     return subprocess.check_output(["docker", *args], text=True)
 
-def assert_stage_only():
+def assert_stage_only(require_stopped=False):
     if not POS_ROOT.is_dir():
         die("POS stage directory missing")
     stage_image = json.loads(docker("image", "inspect", STAGE_POS_IMAGE))[0]
@@ -57,6 +57,8 @@ def assert_stage_only():
     stage_db = json.loads(docker("inspect", STAGE_DB_NAME))[0]
     if pos["Config"]["Image"] != STAGE_POS_IMAGE:
         die("POS stage container has an unexpected image")
+    if require_stopped and pos["State"]["Running"]:
+        die("Stop ONLY v79-pos-hubqa-api before --apply; cannot rotate secrets on a running stage")
     if stage_db["Config"]["Image"] != "postgres:17-alpine":
         die("POS stage DB image mismatch")
     for key in ("postgres", "v79commerce", "production"):
@@ -128,7 +130,7 @@ def main():
     parser.add_argument("--apply", action="store_true",
                         help="Modify ONLY the stage POS and Hub files")
     args = parser.parse_args()
-    assert_stage_only()
+    assert_stage_only(args.apply)
     src = HUB_ROOT / "source" / "staging" / "pos-hubqa" / "hub-compose.yml"
     if not src.is_file():
         die("Hub staged source checkout missing")
