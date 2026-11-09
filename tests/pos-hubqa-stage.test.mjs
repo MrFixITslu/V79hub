@@ -289,3 +289,82 @@ test('Frontend overlay image must be pinned to both built and 9 November source 
     'FULL_BROWSER_MFA_SSO=NOT_YET_VERIFIED'
   ]) assert.ok(script.includes(phrase), 'Missing overlay pin check: ' + phrase);
 });
+
+
+test('9 Nov Connected Login presentation repair preserves stage backend and production', () => {
+  const script = readFileSync('staging/pos-hubqa/repair-login-presentation.py', 'utf8');
+  const required = [
+    'PRIVATE_STAGING_AND_PRODUCTION_PREFLIGHT=PASS',
+    'CANDIDATE_CSS_SHA256=',
+    'DRY_RUN_ONLY=PASS',
+    'STAGING_LOGIN_STYLE_AND_ASSETS=PASS',
+    'V3_STAGING_STYLESHEET=PASS',
+    'V3_STAGING_ASSETS=PASS',
+    'STAGING_POS_ANONYMOUS_DENIAL=PASS',
+    'PRODUCTION_UNCHANGED=PASS',
+    'STAGE_CSS_FIX_FAILED_ATTEMPTING_STAGE_ONLY_ROLLBACK',
+    'OLD_STAGE_HUB_IMAGE_RESTORED=PASS',
+    'approved-login-style.json',
+    'approved-login-overlay.json',
+    'v79hub:pos-hubqa-ui-v3-styled-20261109',
+    'v79hub:pos-hubqa-ui-v3-20261109',
+    'localhost/v79-hub-login-connected:20261109-r1',
+    'ea182c2656cea2979412e611bf1e704d4068512f72d6d2db5eba33f80d5c544c',
+    'cb3417cc160bc3f8edcd3c444e22dd51af781918b065956182fa44d3b9907145',
+    'cb250f00742c5bc3f40f119cbc51f626a1fb94f542f254e27b0d3c6884b4c49b',
+    '"--network", "none"',
+    '"--pull=false"',
+    '"--no-deps"',
+    '"--force-recreate"',
+    'verify(image_id, live_hub, live_pos, stage_hub, stage_pos, paths)',
+    'env_from(hub) == env_from(old_stage_hub)',
+    'status != 200 or not media_type.startswith("image/")',
+    'http_get(url + "/v1/me")[0] == 401'
+  ];
+  for (const fragment of required) {
+    assert.ok(script.includes(fragment), 'Missing styling repair guard: ' + fragment);
+  }
+  for (const dangerous of [
+    'docker compose down', 'docker stop v79-hub', 'docker stop v79-pos',
+    'docker exec v79-hub', 'pg_restore', 'chmod 777',
+    'docker rm v79-hub', 'docker rm v79-pos'
+  ]) assert.ok(!script.includes(dangerous), 'Unsafe presentation repair instruction: ' + dangerous);
+  const syntax = spawnSync('python3', ['-c',
+    'import ast,pathlib; ast.parse(pathlib.Path("staging/pos-hubqa/repair-login-presentation.py").read_text()); print("STAGE_STYLE_PYTHON_SYNTAX=PASS")'
+  ], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+  assert.match(syntax.stdout, /STAGE_STYLE_PYTHON_SYNTAX=PASS/);
+});
+
+test('Stage styled image acceptance must verify the exact overlay/source image and CSS fingerprint', () => {
+  const script = readFileSync('staging/pos-hubqa/check.py', 'utf8');
+  for (const fragment of [
+    'approved-login-style.json',
+    'approved-login-overlay.json',
+    'v79hub:pos-hubqa-ui-v3-styled-20261109',
+    'ea182c2656cea2979412e611bf1e704d4068512f72d6d2db5eba33f80d5c544c',
+    'record.get("previous_image_id") == parent.get("overlay_image_id")',
+    'record.get("source_image") == source_tag',
+    'styled_image["Id"] == styled_id',
+    'STAGING_HEALTH_AND_UNAUTH_DENIAL=PASS',
+    'FULL_BROWSER_MFA_SSO=NOT_YET_VERIFIED'
+  ]) assert.ok(script.includes(fragment), 'Missing immutable styled pin: ' + fragment);
+});
+
+test('Stylesheet asset discovery permits product icon paths without directory assumptions', () => {
+  const script = [
+    'import importlib.util',
+    'p="staging/pos-hubqa/repair-login-presentation.py"',
+    'spec=importlib.util.spec_from_file_location("stage_style",p)',
+    'm=importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(m)',
+    'sample="\\\"/app-icons/tiquet.svg\\\" \\\"/brand/favicon-32.png\\\" url(\\\'/assets/v79-login-earth.svg\\\')"',
+    'assets={v.group() for v in m.ASSET_RE.finditer(sample)}',
+    'assert assets == {"/app-icons/tiquet.svg","/brand/favicon-32.png","/assets/v79-login-earth.svg"},assets',
+    'print("STAGE_STYLE_ASSET_DISCOVERY=PASS")'
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', script],
+    { encoding: 'utf8', timeout: 10000 });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /STAGE_STYLE_ASSET_DISCOVERY=PASS/);
+});
