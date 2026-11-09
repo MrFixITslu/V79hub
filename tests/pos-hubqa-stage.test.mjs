@@ -368,3 +368,64 @@ test('Stylesheet asset discovery permits product icon paths without directory as
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /STAGE_STYLE_ASSET_DISCOVERY=PASS/);
 });
+
+
+test('Private stage login image permission repair is fail-closed, nonroot-safe and rollback-capable', () => {
+  const code = readFileSync('staging/pos-hubqa/recover-login-image-permissions.py', 'utf8');
+  for (const guard of [
+    'STAGE_ICON_PERMISSION_BLOCKED',
+    'STAGING_SAFETY_PREFLIGHT=PASS',
+    'DRY_RUN_ONLY=PASS',
+    'ICON_DIRECTORY_FIX=0755 (only this directory)',
+    'chmod 0755 /app/public/assets/login-products',
+    'NONROOT_PRODUCT_IMAGE_READ=PASS',
+    'STAGE_LOGIN_PRODUCT_PNG_HTTP=PASS',
+    'STAGE_LOGIN_CSS=PASS',
+    'STAGE_KEYS_MFA_AND_POS_BACKEND_PRESERVED=PASS',
+    'PRODUCTION_CONTAINERS_UNCHANGED=PASS',
+    'OLD_STAGE_HUB_IMAGE_RESTORED=PASS',
+    'ICON_STAGE_FIX_FAILED_ATTEMPTING_STAGE_ONLY_ROLLBACK',
+    'STAGING_LOGIN_ASSETS_FIXED=PASS',
+    'STAGING_HUB_HEALTH=PASS',
+    'VERSION3_VISUAL_AND_MFA_SSO=NOT_YET_VERIFIED',
+    'approved-login-assets-perms.json',
+    'before-product-icon-permissions-',
+    'v79hub:pos-hubqa-ui-v3-styled-perms-20261109-r1',
+    'v79hub:pos-hubqa-ui-v3-styled-20261109',
+    'RootFS',
+    'layers[:len(parents)] == parents',
+    '"--read-only", "--user", "1000:1000"',
+    '"--network", "none"',
+    '"--pull=false"',
+    '"--no-deps"',
+    '"--force-recreate"',
+    'r.read(8) == PNG',
+    'docker_inspect(PROD_NAME)',
+    'inspect(LIVE)["Id"] == live["Id"]'
+  ]) assert.ok(code.includes(guard), 'Missing release guard: ' + guard);
+  for (const forbidden of [
+    'docker compose down', 'docker stop v79-hub',
+    'docker stop v79-pos', 'docker rm v79-hub',
+    'docker rm v79-pos', 'pg_restore',
+    'chmod 777', 'docker exec v79-hub',
+    'docker build --build-arg'
+  ]) assert.ok(!code.includes(forbidden), 'Unsafe stage repair instruction: ' + forbidden);
+  const syntax = spawnSync('python3', ['-c',
+    'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/recover-login-image-permissions.py").read_text());print("STAGE_PRODUCT_ICON_REPAIR_SYNTAX=PASS")'
+  ], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+  assert.match(syntax.stdout, /STAGE_PRODUCT_ICON_REPAIR_SYNTAX=PASS/);
+});
+
+test('Private stage acceptance pins exact fixed image and rejects HTML returned for product PNGs', () => {
+  const script = readFileSync('staging/pos-hubqa/check.py', 'utf8');
+  for (const text of [
+    'approved-login-assets-perms.json',
+    'v79hub:pos-hubqa-ui-v3-styled-perms-20261109-r1',
+    'approved.get("derived_from") == source',
+    'approved.get("previous_staging_image_id") ==',
+    'built["Id"] == image_id and broken["Id"] == source_id',
+    'STAGING_LOGIN_PRODUCT_IMAGES=PASS',
+    'image_bytes.startswith(bytes.fromhex("89504e470d0a1a0a"))'
+  ]) assert.ok(script.includes(text), 'Missing real PNG and image pin acceptance: ' + text);
+});
