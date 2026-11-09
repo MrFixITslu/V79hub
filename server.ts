@@ -11,6 +11,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
+import { prepareOrganizationRename, OrganizationNameError } from "./server/organization-name-sync.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -1684,6 +1685,164 @@ app.post("/api/platform/entitlement/check", (req, res) => {
 // Product-only HMAC endpoint. Session IDs are non-bearer SHA-256 references,
 // never browser cookies, and do not authorize a request without the shared secret.
 // OFF by default, fail closed during an isolated Tiquet-bound logout rehearsal.
+// The Hub organisation record is authoritative. Marketing may propose a
+// rename only for its own actively linked owner. The launch secret is already
+// dedicated to the Marketing->Hub service boundary.
+const confirmedTiquetNames = new Map<string, string>();
+const confirmedPosNames = new Map<string, string>();
+async function syncTiquetOrganisationName(organizationId: string) {
+  const organization = store.organizations.find(org => org.id === organizationId && org.status === "active");
+  const mapping = store.appTenantMappings.find(item =>
+    item.organizationId === organizationId && item.appId === "app-tiquet" && item.status === "active"
+  );
+  if (!organization || !mapping?.externalTenantId) return "not_connected";
+  if (confirmedTiquetNames.get(organizationId) === organization.name) return "confirmed";
+  const secret = String(process.env.V79_PLATFORM_SHARED_SECRET || "");
+  if (secret.length < 32) return "pending_configuration";
+  const pathname = "/api/platform/organization/name";
+  const body = JSON.stringify({ organizationId, name: organization.name });
+  const timestamp = String(Date.now());
+  try {
+    const response = await fetch(new URL(pathname, process.env.TIQUET_INTERNAL_URL || "http://v79-tiquet-manager:3050"), {
+      method: "POST",
+      redirect: "error",
+      headers: {
+        "content-type": "application/json",
+        "x-v79-service-id": "v79-hub",
+        "x-v79-timestamp": timestamp,
+        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret }),
+      },
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    const payload = await response.json().catch(() => ({})) as any;
+    if (!response.ok || payload?.success !== true || payload.organizationId !== organizationId ||
+        payload.name !== organization.name) return "pending";
+    confirmedTiquetNames.set(organizationId, organization.name);
+    return "confirmed";
+  } catch {
+    return "pending";
+  }
+}
+
+// Independent POS reconciliation: a failed downstream app does not roll back
+// the canonical Hub organisation name or stop retries to the other apps.
+async function syncPosOrganisationName(organizationId: string) {
+  const org = store.organizations.find(item => item.id === organizationId && item.status === "active");
+  const mapping = store.appTenantMappings.find(item =>
+    item.organizationId === organizationId && item.appId === "app-v79pos" && item.status === "active"
+  );
+  if (!org || !mapping?.externalTenantId) return "not_connected";
+  if (confirmedPosNames.get(organizationId) === org.name) return "confirmed";
+  if (posServiceSecret.length < 32) return "pending_configuration";
+  const pathname = "/api/platform/organization/name";
+  const body = JSON.stringify({ organizationId, name: org.name });
+  const timestamp = String(Date.now());
+  try {
+    const response = await fetch(new URL(pathname, posServiceUrl), {
+      method: "POST",
+      redirect: "error",
+      headers: {
+        "content-type": "application/json",
+        "x-v79-service-id": "v79-hub",
+        "x-v79-timestamp": timestamp,
+        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret: posServiceSecret }),
+      },
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    const payload = await response.json().catch(() => ({})) as any;
+    if (!response.ok || payload?.success !== true || payload.organizationId !== organizationId ||
+        payload.name !== org.name) return "pending";
+    confirmedPosNames.set(organizationId, org.name);
+    return "confirmed";
+  } catch {
+    return "pending";
+  }
+}
+
+// Reconcile after app restarts or temporary network failures, without
+// re-provisioning accounts, billing, roles or tickets.
+const tiquetNameReconciliation = setInterval(() => {
+  const pending = store.organizations
+    .filter(org => org.status === "active" && confirmedTiquetNames.get(org.id) !== org.name)
+    .filter(org => store.appTenantMappings.some(item =>
+      item.organizationId === org.id && item.appId === "app-tiquet" && item.status === "active"))
+    .slice(0, 30);
+  void Promise.allSettled(pending.map(org => syncTiquetOrganisationName(org.id)));
+  const posPending = store.organizations
+    .filter(org => org.status === "active" && confirmedPosNames.get(org.id) !== org.name)
+    .filter(org => store.appTenantMappings.some(item =>
+      item.organizationId === org.id && item.appId === "app-v79pos" && item.status === "active"))
+    .slice(0, 30);
+  void Promise.allSettled(posPending.map(org => syncPosOrganisationName(org.id)));
+}, 5 * 60_000);
+tiquetNameReconciliation.unref?.();
+
+const organisationRenameLocks = new Set<string>();
+app.post("/api/platform/organization/name", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const pathname = "/api/platform/organization/name";
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  const secret = process.env.V79_MARKETING_LAUNCH_SECRET || "";
+  if (req.get("x-v79-service-id") !== "v79-marketing" ||
+      !verifyPlatformRequest({
+        method: "POST", pathname, body,
+        timestamp: req.get("x-v79-timestamp") || "",
+        signature: req.get("x-v79-signature") || "",
+        secret,
+      })) return res.status(401).json({ error: "Invalid Marketing service signature." });
+
+  let plan;
+  try {
+    plan = prepareOrganizationRename(store, req.body, posUserId);
+  } catch (error) {
+    const known = error instanceof OrganizationNameError;
+    return res.status(known ? error.status : 400).json({
+      error: known ? error.message : "Invalid organisation name change.",
+    });
+  }
+  if (organisationRenameLocks.has(plan.organizationId)) {
+    return res.status(409).json({ error: "A business name update is already being processed. Retry shortly." });
+  }
+  organisationRenameLocks.add(plan.organizationId);
+  try {
+  if (plan.changed) {
+    const nextStore = cloneStore();
+    const organization = nextStore.organizations.find(org => org.id === plan.organizationId)!;
+    organization.name = plan.name;
+    if (plan.organizationId === posIdentity.organizationId) {
+      nextStore.workspace.companyName = plan.name;
+    }
+    onboardingAudit(nextStore, "organization_name_changed", {
+      previousName: plan.previousName, name: plan.name, source: "marketing",
+    }, plan.actorUserId, plan.organizationId);
+    try {
+      await commitStore(nextStore);
+    } catch {
+      return res.status(503).json({
+        error: "Hub could not confirm the new business name. Reopen Hub and verify the organisation profile before retrying.",
+      });
+    }
+    confirmedTiquetNames.delete(plan.organizationId);
+    confirmedPosNames.delete(plan.organizationId);
+    broadcast(plan.organizationId, { type: "ORGANIZATION_UPDATED", organization: {
+      id: plan.organizationId, name: plan.name,
+    } });
+  }
+  const [tiquet, pos] = await Promise.all([
+    syncTiquetOrganisationName(plan.organizationId),
+    syncPosOrganisationName(plan.organizationId),
+  ]);
+  return res.json({
+    success: true, organizationId: plan.organizationId, name: plan.name,
+    propagation: { hub: "confirmed", tiquet, pos },
+  });
+  } finally {
+    organisationRenameLocks.delete(plan.organizationId);
+  }
+});
+
 app.post("/api/platform/session/status", (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   if (!tiquetSessionBinding) return res.status(404).json({ active: false });
