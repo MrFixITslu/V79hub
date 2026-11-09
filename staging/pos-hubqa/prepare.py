@@ -70,11 +70,12 @@ def assert_stage_only(require_stopped=False):
     publish = pos["HostConfig"]["PortBindings"].get("8080/tcp", [])
     if len(publish) != 1 or publish[0]["HostIp"] != "127.0.0.1" or publish[0]["HostPort"] != "18081":
         die("Staging API publishing is not restricted to loopback")
-    try:
-        docker("inspect", STAGE_HUB_NAME)
-    except subprocess.CalledProcessError:
-        pass
-    else:
+    stage_hub_present = subprocess.run(
+        ["docker", "container", "inspect", STAGE_HUB_NAME],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        check=False
+    ).returncode == 0
+    if stage_hub_present:
         die("Staging Hub already exists; do not rotate existing keys")
 
 def read_env(path):
@@ -90,11 +91,16 @@ def read_env(path):
         if not key.isidentifier() or key in rows:
             die("Duplicate/invalid POS stage setting")
         rows[key] = value
+    # POS accepts the dedicated service secret as optional: if unset, it
+    # falls back to V79_PLATFORM_SHARED_SECRET. Stage setup always rotates
+    # BOTH names to a new stage-only secret before starting the Hub.
     for key in ("STAGE_DB_PASSWORD", "ENCRYPTION_KEY",
-                "GIFT_CARD_PEPPER", "V79_PLATFORM_SHARED_SECRET",
-                "V79_POS_PLATFORM_SHARED_SECRET"):
+                "GIFT_CARD_PEPPER", "V79_PLATFORM_SHARED_SECRET"):
         if len(rows.get(key, "")) < 32:
             die("Missing or weak POS staging value: " + key)
+    dedicated = rows.get("V79_POS_PLATFORM_SHARED_SECRET", "")
+    if dedicated and len(dedicated) < 32:
+        die("Present but weak POS staging value: V79_POS_PLATFORM_SHARED_SECRET")
     if "V79_HUBQA_CONFIG_VERSION" in rows:
         die("Hub stage already prepared; review files instead of rotating keys")
     return rows
