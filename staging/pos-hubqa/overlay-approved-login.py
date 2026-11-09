@@ -240,7 +240,7 @@ def extract_candidate_files(scratch):
                     stack.append(target)
             # Keep only referenced, local, public login assets (no bulk copy).
             for asset in re.findall(
-                r"""['"](/(?:brand|assets|images|icons|logos)/[A-Za-z0-9_./-]+\.(?:svg|png|jpg|jpeg|webp|ico))['"]""",
+                r"""['"](/(?:(?:brand|assets|images|icons|logos)/[A-Za-z0-9_./-]+|(?:favicon|apple-touch-icon|hub[-_]logo|hub[-_]icon)[A-Za-z0-9_.-]*)\.(?:svg|png|jpg|jpeg|webp|ico))['"]""",
                 script, re.I
             ):
                 path = "public" + asset
@@ -248,6 +248,27 @@ def extract_candidate_files(scratch):
                 if path not in selected:
                     copy_file(path)
                     selected.add(path)
+        # Preserve the 9 November candidate's actual favicon/logo artwork,
+        # not the old stage's tab icon. These are optional named files only.
+        for path in (
+            "public/favicon.ico",
+            "public/favicon.svg",
+            "public/apple-touch-icon.png",
+            "public/hub-icon.svg",
+            "public/hub-logo.svg",
+            "public/hub-icon.png",
+        ):
+            if path in selected:
+                continue
+            dest = scratch / path
+            dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            attempt = run("docker", "cp", cid + ":/app/" + path, str(dest),
+                          check=False)
+            if attempt.returncode == 0:
+                require(dest.is_file() and not dest.is_symlink() and
+                        dest.stat().st_size < 700_000,
+                        "Unexpected favicon/logo asset")
+                selected.add(path)
         return sorted(selected)
     finally:
         run("docker", "rm", "-f", cid, check=False)
