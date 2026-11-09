@@ -11,6 +11,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
+import { authorizeOrganizationRename } from "./server/organization-name.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -1697,28 +1698,15 @@ app.post("/api/platform/organizations/rename", async (req, res) => {
     return res.status(401).json({error:"Invalid service signature"});
   }
 
-  const organizationId = String(req.body?.organizationId || "").trim();
-  const businessId = String(req.body?.businessId || "").trim();
-  const hubUserId = String(req.body?.hubUserId || "").trim();
-  const name = typeof req.body?.name === "string" ? req.body.name.trim().normalize("NFC") : "";
-  if (!name || name.length > 180 || /[\u0000-\u001f\u007f]/.test(name) ||
-      organizationId.length < 8 || organizationId.length > 180 ||
-      businessId.length < 8 || businessId.length > 180 ||
-      hubUserId.length < 8 || hubUserId.length > 180) {
-    return res.status(400).json({error:"Invalid organization name or tenant identity"});
-  }
-  const organization = store.organizations.find(org => org.id === organizationId && org.status === "active");
-  const mapping = marketingTenantMapping(store, organizationId);
-  const owner = store.memberships.find(membership =>
-    membership.organizationId === organizationId &&
-    membership.role === "owner" &&
-    membership.status === "active" &&
-    posUserId(membership.userId, organizationId) === hubUserId
-  );
-  if (!organization || !owner || mapping?.status !== "active" ||
-      mapping.externalTenantId !== businessId) {
-    return res.status(403).json({error:"Active owner and tenant mapping required"});
-  }
+  const rename = authorizeOrganizationRename({
+    body:req.body,
+    organizations:store.organizations,
+    memberships:store.memberships,
+    mapping:marketingTenantMapping(store,String(req.body?.organizationId || "")),
+    scopedHubUserId:posUserId,
+  });
+  if (!rename.ok) return res.status(rename.status).json({error:rename.error});
+  const {organizationId,name,organization,owner} = rename;
   if (organization.name === name) {
     return res.json({success:true,organization:{id:organizationId,name},changed:false});
   }
