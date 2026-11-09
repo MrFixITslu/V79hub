@@ -171,6 +171,22 @@ def image_check(live):
                                    "DATABASE_", "GOOGLE_", "JWT_")) or
                    key in {"API_KEY", "REDIS_URL", "DATABASE_URL"}),
               "Image contains baked-in potentially sensitive setting: " + key)
+    # An image can hide live credentials in copied dot-env files even when
+    # Docker Config.Env contains no secrets. Probe a disposable container with
+    # NO network, mounts, writable filesystem, privileges or printed contents.
+    # This never touches the running production Hub container.
+    probe = run(
+        "docker", "run", "--rm", "--network", "none", "--read-only",
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+        "--entrypoint", "sh", live["Image"], "-c",
+        "for f in /app/.env /app/.env.local /app/.env.production "
+        "/app/.env.development /app/.env.staging /app/.env.production.local "
+        "/app/.env.development.local /app/secrets /app/.ssh; do "
+        "if [ -e \"$f\" ]; then exit 17; fi; done; exit 0",
+        check=False
+    )
+    guard(probe.returncode == 0,
+          "Live image failed private-file guard; cannot reuse it in staging")
     return "v79hub:pos-hubqa-live-" + live["Image"][7:19]
 
 def make_checkpoint(data, compose, raw):
