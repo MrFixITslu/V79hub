@@ -264,6 +264,32 @@ REMOTE
 
 Expected `DRY_RUN_ONLY=PASS`, `STAGING_LOGIN_STYLE_AND_ASSETS=PASS`, `V3_STAGING_STYLESHEET=PASS`, `V3_STAGING_ASSETS=PASS`, `STAGING_POS_ANONYMOUS_DENIAL=PASS`, followed by the previous stage health/isolation gates. **If blocked, do not rerun `--apply` or bypass a guard.** Reset the owner-only SSH tunnel to the new Hub container IP, open `http://127.0.0.1:18082` in a private browser window and visually verify layout, products and favicon. **MFA/SSO browser acceptance remains unverified** until visual review passes.
 
+## Maintenance window: fix confirmed product-image directory permissions (9 November)
+
+The owner confirmed the previous CSS/image staging candidate passed extraction and build, **but did not pass runtime image validation**, and its automatic stage-only rollback succeeded. A separate, non-root, network-disabled probe of that already-built candidate confirmed `/app/public/assets/login-products` has mode **0644** (a directory must have `x`/traverse access). All five PNGs yielded `EACCES`; Vite returned **HTTP 200 text/html fallback**, not image/png. The current private Hub/POS/PostgreSQL and production POS remain healthy. Do not rerun the prior `repair-login-presentation.py --apply`, loosen permissions on any live host volume, or use `chmod -R`.
+
+**Three options /REDTEAM:** (1) change permissions in the currently running stage or production (reject: wrong filesystem and security impact), (2) rebuild the entire old-to-new frontend from scratch (reject: unnecessary time and new dependencies), (3) **chosen:** derive a *new, uniquely tagged, private stage-only image* from the already-built, immutable styled candidate and run only `chmod 0755 /app/public/assets/login-products`. The Dockerfile changes no file contents, favicon, app backend, stage credentials or PostgreSQL data. Recheck accessible PNG magic bytes **as UID 1000 before recreation** and HTTP `image/png` with actual PNG bytes **after** staging starts. If validation fails, restore the previous healthy stage Hub image only.
+
+The script `staging/pos-hubqa/recover-login-image-permissions.py` defaults to **read-only**. It requires the known healthy stage Hub, a unique failed styled image derived from its base, exact owner-observed login and CSS SHA-256, valid PNG bytes, isolated Docker bridge, protected stage .env/data, exact previous image pin, current separate stage POS health, live Hub/POS health, and a unique unused output tag. It refuses re-running after successful promotion. Apply builds the new image offline, verifies non-root PNG reads, checkpoints **only** the private stage data and Compose, recreates **only** `v79-hub-pos-hubqa`, and checks per-product image responses, stage CSS, unchanged stage security configuration and unchanged production/POS container IDs. An exception triggers a stage-only rollback attempt. The immutable image pin is consumed by `check.py`.
+
+On the Acer, during the approved **staging-only** maintenance window:
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -se' <<'REMOTE'
+set -Eeuo pipefail
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+test -z "$(git -C "$HUB/source" status --porcelain)"
+git -C "$HUB/source" pull --ff-only origin feature/isolated-pos-hubqa-20261109
+python3 "$HUB/source/staging/pos-hubqa/recover-login-image-permissions.py"
+python3 "$HUB/source/staging/pos-hubqa/recover-login-image-permissions.py" --apply
+python3 "$HUB/source/staging/pos-hubqa/check.py"
+REMOTE
+```
+
+Expected `DRY_RUN_ONLY=PASS`, `NONROOT_PRODUCT_IMAGE_READ=PASS`, `STAGE_LOGIN_PRODUCT_PNG_HTTP=PASS`, `STAGE_LOGIN_CSS=PASS`, `STAGING_LOGIN_ASSETS_FIXED=PASS`, `STAGING_LOGIN_PRODUCT_IMAGES=PASS`, `STAGING_HEALTH_AND_UNAUTH_DENIAL=PASS`, and `PRODUCTION_UNCHANGED=PASS`. **If any preflight or health test fails, do not bypass or repeat `--apply`.** The script retains the previous stage image and checkpoint.
+
+Browser check comes afterwards: close old Acer SSH tunnels, rediscover the new stage-only Docker IPs, open the private localhost Hub and review the Version 3 layout, five icons and favicon. Only after the visual review passes should the owner proceed to private staging password/MFA and signed POS launch acceptance. Public OAuth and HTTPS production behaviour remain separate gates.
+
 ## E. Cleanup and remaining release gates
 
 Stop **only** the staging containers to save resources, without deleting any volumes or backup files:
