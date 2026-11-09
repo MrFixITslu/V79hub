@@ -1779,6 +1779,7 @@ const tiquetNameReconciliation = setInterval(() => {
 }, 5 * 60_000);
 tiquetNameReconciliation.unref?.();
 
+const organisationRenameLocks = new Set<string>();
 app.post("/api/platform/organization/name", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const pathname = "/api/platform/organization/name";
@@ -1801,6 +1802,11 @@ app.post("/api/platform/organization/name", async (req, res) => {
       error: known ? error.message : "Invalid organisation name change.",
     });
   }
+  if (organisationRenameLocks.has(plan.organizationId)) {
+    return res.status(409).json({ error: "A business name update is already being processed. Retry shortly." });
+  }
+  organisationRenameLocks.add(plan.organizationId);
+  try {
   if (plan.changed) {
     const nextStore = cloneStore();
     const organization = nextStore.organizations.find(org => org.id === plan.organizationId)!;
@@ -1832,6 +1838,9 @@ app.post("/api/platform/organization/name", async (req, res) => {
     success: true, organizationId: plan.organizationId, name: plan.name,
     propagation: { hub: "confirmed", tiquet, pos },
   });
+  } finally {
+    organisationRenameLocks.delete(plan.organizationId);
+  }
 });
 
 app.post("/api/platform/session/status", (req, res) => {
