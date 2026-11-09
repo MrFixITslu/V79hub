@@ -453,3 +453,34 @@ test('Interrupted staging repair reuses only owner-observed immutable image afte
   assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
   assert.match(syntax.stdout, /STAGING_RESUME_SYNTAX=PASS/);
 });
+
+
+test('Private stage recreated Hub must preserve all effective auth environment values without leaking secrets', () => {
+  const code = readFileSync('staging/pos-hubqa/recover-login-image-permissions.py', 'utf8');
+  for (const part of [
+    'def env_map(container):',
+    'name, value = row.split("=", 1)',
+    'name.isidentifier() and name not in result',
+    'before_env = env_map(old)',
+    'after_env = env_map(after)',
+    'if before_env != after_env:',
+    'if before_env.get(k) != after_env.get(k)',
+    'values suppressed',
+    'STAGE_AUTH_AND_SERVICE_ENV_SEMANTICALLY_IDENTICAL=PASS',
+    'after["Config"]["User"] == "1000:1000"',
+    'def verified_loopback_binding(container):',
+    'set(bindings) == {"3040/tcp"}',
+    'ports[0].get("HostIp") == "127.0.0.1"',
+    'ports[0].get("HostPort") == "18082"',
+    'verified_loopback_binding(old)',
+    'verified_loopback_binding(after)',
+    'STAGE_NONROOT_USER_AND_LOOPBACK_BINDING=PASS'
+  ]) assert.ok(code.includes(part), 'Missing effective non-root stage security gate: ' + part);
+  assert.ok(!code.includes('print(before_env)'), 'Secrets exposed through old environment dump');
+  assert.ok(!code.includes('print(after_env)'), 'Secrets exposed through new environment dump');
+  const syntax = spawnSync('python3', ['-c',
+    'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/recover-login-image-permissions.py").read_text());print("RECREATED_STAGE_SEMANTIC_ENV_SYNTAX=PASS")'
+  ], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+  assert.match(syntax.stdout, /RECREATED_STAGE_SEMANTIC_ENV_SYNTAX=PASS/);
+});
