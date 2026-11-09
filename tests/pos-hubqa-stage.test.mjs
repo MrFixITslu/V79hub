@@ -429,3 +429,27 @@ test('Private stage acceptance pins exact fixed image and rejects HTML returned 
     'image_bytes.startswith(bytes.fromhex("89504e470d0a1a0a"))'
   ]) assert.ok(script.includes(text), 'Missing real PNG and image pin acceptance: ' + text);
 });
+
+
+test('Interrupted staging repair reuses only owner-observed immutable image after provenance and nonroot PNG checks', () => {
+  const code = readFileSync('staging/pos-hubqa/recover-login-image-permissions.py', 'utf8');
+  for (const item of [
+    'def verify_prebuilt_image(broken):',
+    'sha256:30ee063ae29b77ab09629ae09a361fa80ba78bd5e773c3d97064ed1a557706bf',
+    'len(new_layers) == len(base_layers) + 1',
+    'new_layers[:len(base_layers)] == base_layers',
+    'for key in ("Env", "Entrypoint", "Cmd", "WorkingDir", "User")',
+    'docker", "history", "--no-trunc"',
+    'chmod 0755 /app/public/assets/login-products',
+    'existing_id = verify_prebuilt_image(broken)',
+    'EXISTING_CORRECTED_IMAGE_PROVENANCE=PASS',
+    'EXISTING_NONROOT_PRODUCT_IMAGE_READ=PASS',
+    'new_id = existing_id if existing_id else build()',
+    'probe_nonroot_image()'
+  ]) assert.ok(code.includes(item), 'Missing existing-image safety gate: ' + item);
+  const syntax = spawnSync('python3', ['-c',
+    'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/recover-login-image-permissions.py").read_text());print("STAGING_RESUME_SYNTAX=PASS")'
+  ], {encoding: 'utf8', timeout: 10000});
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+  assert.match(syntax.stdout, /STAGING_RESUME_SYNTAX=PASS/);
+});
