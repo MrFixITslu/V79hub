@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Read-only POS/Hub stage acceptance preflight. Never prints tokens or secrets."""
 import json
+import ipaddress
+import re
+import stat
 from pathlib import Path
 import subprocess
 import urllib.error
 import urllib.request
 
 STAGE_NET = "v79pos-hubqa-20261109_stage_internal"
+HUB_ROOT = Path("/home/firelion/v79-hub-pos-hubqa-20261109")
 
 def ensure(ok, msg):
     if not ok:
@@ -20,10 +24,51 @@ def env(container):
     return dict(s.split("=", 1) for s in container["Config"]["Env"] if "=" in s)
 
 def binding(container, internal, expected):
-    ports = container["NetworkSettings"]["Ports"].get(internal) or []
-    return len(ports) == 1 and (
-        ports[0].get("HostIp"), ports[0].get("HostPort")
-    ) == expected
+    # Docker on this stage host sometimes retains the loopback PortBindings
+    # declaration while failing to install the port publisher. The stage is
+    # accessed via its private Docker IP over an owner-only SSH tunnel.
+    declared = (container["HostConfig"].get("PortBindings") or {}).get(internal) or []
+    actual = (container["NetworkSettings"].get("Ports") or {}).get(internal) or []
+    expected_value = {"HostIp": expected[0], "HostPort": expected[1]}
+    return len(declared) == 1 and all(
+        item.get("HostIp") == expected_value["HostIp"] and
+        item.get("HostPort") == expected_value["HostPort"]
+        for item in declared + actual
+    )
+
+
+def private_address(container):
+    address = container["NetworkSettings"]["Networks"][STAGE_NET].get("IPAddress", "")
+    try:
+        ip = ipaddress.ip_address(address)
+        ensure(ip.version == 4 and ip.is_private, "Stage has no private IPv4")
+    except ValueError:
+        ensure(False, "Stage IP is invalid")
+    return str(ip)
+
+
+def approved_hub_image(stage_hub):
+    pin = HUB_ROOT / "approved-live-image.json"
+    if not pin.exists():
+        ensure(stage_hub["Config"]["Image"] == "v79hub:pos-hubqa-20261109",
+               "Unpinned Hub staging image mismatch")
+        return
+    ensure(pin.is_file() and not pin.is_symlink() and
+           stat.S_IMODE(pin.stat().st_mode) == 0o600,
+           "Approved UI image pin is unsafe")
+    data = json.loads(pin.read_text())
+    tag, image_id = data.get("stage_image_tag"), data.get("production_image_id")
+    ensure(isinstance(tag, str) and
+           re.fullmatch(r"v79hub:pos-hubqa-live-[0-9a-f]{12}", tag) is not None and
+           isinstance(image_id, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
+           is not None and tag.endswith(image_id[7:19]),
+           "Approved UI image pin is invalid")
+    ensure(stage_hub["Config"]["Image"] == tag and
+           stage_hub["Image"] == image_id,
+           "Stage Hub image differs from exact pinned live source")
+    referenced = json.loads(subprocess.check_output(
+        ["docker", "image", "inspect", tag], text=True))[0]
+    ensure(referenced["Id"] == image_id, "Pinned staging image tag was replaced")
 
 def http_status(url):
     try:
@@ -47,8 +92,7 @@ def main():
     ensure(net["Internal"] is True, "The staging Docker bridge is not internal")
     ensure(stage_pos["Config"]["Image"] == "v79pos:hubqa-2590623",
            "Stage POS image mismatch")
-    ensure(stage_hub["Config"]["Image"] == "v79hub:pos-hubqa-20261109",
-           "Stage Hub image mismatch")
+    approved_hub_image(stage_hub)
     ensure(set(stage_pos["NetworkSettings"]["Networks"]) == {STAGE_NET},
            "Stage POS has access to a second network")
     ensure(set(stage_hub["NetworkSettings"]["Networks"]) == {STAGE_NET},
@@ -100,9 +144,13 @@ def main():
     ensure(hs.get("V79_HUB_SECURITY_KEY") != pos_secret,
            "Hub MFA encryption and service signing key must be different")
 
-    hub_code, _ = http_status("http://127.0.0.1:18082/api/health")
-    pos_code, pos_body = http_status("http://127.0.0.1:18081/ready")
-    unauth_code, _ = http_status("http://127.0.0.1:18081/v1/me")
+    # HTTP checks use the stage-only private bridge, where the running API
+    # was confirmed reachable; host-loopback publication is not reliable.
+    # Browser acceptance uses a private Acer SSH tunnel to these IPs.
+    hub_code, _ = http_status("http://" + private_address(stage_hub) + ":3040/api/health")
+    pos_url = "http://" + private_address(stage_pos) + ":8080"
+    pos_code, pos_body = http_status(pos_url + "/ready")
+    unauth_code, _ = http_status(pos_url + "/v1/me")
     ensure(hub_code == 200, "Stage Hub health endpoint is failing")
     ensure(pos_code == 200 and b'"database":"ok"' in pos_body,
            "Stage POS readiness check failed")
