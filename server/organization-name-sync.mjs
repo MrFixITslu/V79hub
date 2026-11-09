@@ -10,11 +10,12 @@ export class OrganizationNameError extends Error {
 export function prepareOrganizationRename(store, input, scopedUserId) {
   const organizationId = typeof input?.organizationId === "string" ? input.organizationId.trim() : "";
   const actorId = typeof input?.scopedUserId === "string" ? input.scopedUserId.trim() : "";
-  const name = typeof input?.name === "string" ? input.name.trim().replace(/\s+/g, " ") : "";
+  const rawName = typeof input?.name === "string" ? input.name : "";
+  const name = rawName.trim().replace(/\s+/g, " ");
   const expectedName = typeof input?.expectedName === "string" ? input.expectedName.trim() : "";
   if (!organizationId || organizationId.length > 180 || !actorId || actorId.length > 180 ||
       !expectedName || expectedName.length > 120 ||
-      name.length < 2 || name.length > 120 || /[\u0000-\u001f\u007f]/.test(name)) {
+      name.length < 2 || name.length > 120 || /[\u0000-\u001f\u007f]/.test(rawName)) {
     throw new OrganizationNameError("Invalid organisation name request");
   }
   const organization = store.organizations.find(row => row.id === organizationId && row.status === "active");
