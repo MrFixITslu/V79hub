@@ -111,7 +111,7 @@ test('Stage bootstrap accepts absent dedicated POS key, but rejects weak explici
     '    else:',
     '        raise AssertionError("Weak dedicated key was accepted")',
     'print("OPTIONAL_POS_KEY_FALLBACK_TEST=PASS")',
-  ].join('\\n');
+  ].join('\n');
   const result = spawnSync('python3', ['-c', script], { encoding: 'utf8', timeout: 10000 });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /OPTIONAL_POS_KEY_FALLBACK_TEST=PASS/);
