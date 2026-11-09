@@ -165,8 +165,8 @@ POS_IP=$(ssh -T "$SERVER" \
 HUB_IP=$(ssh -T "$SERVER" \
   "docker inspect -f '{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}' v79-hub-pos-hubqa")
 
-[[ "$POS_IP" =~ ^[0-9]+(\\.[0-9]+){3}$ ]] || { echo "Invalid POS stage IP"; exit 1; }
-[[ "$HUB_IP" =~ ^[0-9]+(\\.[0-9]+){3}$ ]] || { echo "Invalid Hub stage IP"; exit 1; }
+[[ "$POS_IP" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || { echo "Invalid POS stage IP"; exit 1; }
+[[ "$HUB_IP" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || { echo "Invalid Hub stage IP"; exit 1; }
 
 ssh -N -o ExitOnForwardFailure=yes \
   -L "127.0.0.1:18081:$POS_IP:8080" \
