@@ -9,6 +9,10 @@ const helper = readFileSync('staging/pos-hubqa/prepare.py', 'utf8');
 test('Hub staging has private network, MFA, loopback-only port and disabled outbound writes', () => {
   assert.match(compose, /^name: v79-hub-pos-hubqa-20261109/m);
   assert.match(compose, /container_name: v79-hub-pos-hubqa/);
+  assert.match(compose, /user: "\\$\\{V79_HUB_STAGE_UID:\?/);
+  assert.match(compose, /V79_HUB_STAGE_GID:\?/);
+  assert.match(compose, /tmpfs:/);
+  assert.match(compose, /\\/app\\/node_modules\\/\\.vite-temp:uid=/);
   assert.match(compose, /127\.0\.0\.1:18082:3040/);
   assert.match(compose, /external: true\s+name: v79pos-hubqa-20261109_stage_internal/);
   assert.match(compose, /POS_BASE_URL: http:\/\/v79-pos-hubqa-api:8080/);
@@ -115,4 +119,29 @@ test('Stage bootstrap accepts absent dedicated POS key, but rejects weak explici
   const result = spawnSync('python3', ['-c', script], { encoding: 'utf8', timeout: 10000 });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /OPTIONAL_POS_KEY_FALLBACK_TEST=PASS/);
+});
+
+test('Stage recovery keeps 0700 private storage and never changes live containers or keys', () => {
+  const script = readFileSync('staging/pos-hubqa/repair-permissions.py', 'utf8');
+  assert.match(script, /STAGE_PERMISSION_PREFLIGHT=PASS/);
+  assert.match(script, /PRIVATE_DATA_DIRECTORY_PRESERVED=PASS/);
+  assert.match(script, /EXISTING_STAGE_KEYS_PRESERVED=PASS/);
+  assert.match(script, /stat\\.S_IMODE\\(s\\.st_mode\\) == 0o700/);
+  assert.match(script, /s\\.st_uid == os\\.getuid\\(\\)/);
+  assert.match(script, /STAGE_IMAGE = "v79hub:pos-hubqa-20261109"/);
+  assert.match(script, /not hub\\["State"\\]\\["Running"\\]/);
+  assert.match(script, /"127\\.0\\.0\\.1"/);
+  assert.match(script, /atomic_save\\(env_file/);
+  assert.match(script, /atomic_save\\(target/);
+  assert.doesNotMatch(script, /chmod\\([^\\n]*0o777|docker compose down|docker stop v79-pos(?!-hubqa)/);
+  const compile = spawnSync('python3', ['-c',
+    'import ast, pathlib; ast.parse(pathlib.Path("staging/pos-hubqa/repair-permissions.py").read_text()); print("STAGE_REPAIR_SYNTAX_PASS")'
+  ], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(compile.status, 0, compile.stderr || compile.stdout);
+  assert.match(compile.stdout, /STAGE_REPAIR_SYNTAX_PASS/);
+});
+
+test('New staging bootstraps mount owner mapping rather than widening permissions', () => {
+  assert.match(helper, /"V79_HUB_STAGE_UID": str\\(os\\.getuid\\(\\)\\)/);
+  assert.match(helper, /"V79_HUB_STAGE_GID": str\\(os\\.getgid\\(\\)\\)/);
 });
