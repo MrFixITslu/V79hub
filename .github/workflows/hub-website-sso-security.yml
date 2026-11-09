@@ -1,0 +1,47 @@
+name: Hub Website SSO Security Gate (non-deploying)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/skill-manager-prod-baseline-20261101
+    paths:
+      - server.ts
+      - server/website-sso.mjs
+      - tests/website-sso.test.mjs
+      - .github/workflows/hub-website-sso-security.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sso-contract:
+    name: Website SSO contract and TypeScript (no deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Test single-use PKCE exchange, TTL and revoke
+        run: node --test tests/website-sso.test.mjs
+      - name: TypeScript check
+        run: npm run lint
+      - name: Assert all integration switches default disabled
+        run: |
+          node --input-type=module -e '
+          import { readFileSync } from "node:fs";
+          const env = readFileSync(".env.example", "utf8");
+          const server = readFileSync("server.ts", "utf8");
+          if (!env.includes("V79_HUB_WEBSITE_SSO_ENABLED=0")) process.exit(1);
+          for (const marker of ["isPlatformOperatorIdentity", "mfaVerifiedAt", "websiteSsoAuth", "websiteSsoGrants.consume", "websiteSsoGrants.lookup"]) {
+            if (!server.includes(marker)) process.exit(2);
+          }
+          '

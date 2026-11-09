@@ -1,0 +1,140 @@
+name: Vision79 Visual Release V1 — Nondeploying Acceptance
+
+on:
+  push:
+    branches: [release/vision79-visual-v1-20261025]
+  pull_request:
+    branches: [main]
+    paths:
+      - src/components/HubOverview.tsx
+      - src/components/Sidebar.tsx
+      - src/index.css
+      - tests/vision79-visual-release.test.mjs
+      - tests/r18-reconciled-candidate.test.mjs
+      - .github/workflows/vision79-visual-release.yml
+
+permissions:
+  contents: read
+
+env:
+  ACCEPTED_LIVE_SOURCE: c12e54bdb52f8996fae19688d74354d731e7de27
+
+jobs:
+  visual-qa:
+    name: Exact UI diff, TypeScript, tests and synthetic browser preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail closed on any non-UI source change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$ACCEPTED_LIVE_SOURCE" HEAD
+          mapfile -t changed < <(git diff --name-only "$ACCEPTED_LIVE_SOURCE" HEAD | LC_ALL=C sort)
+          printf 'Changed paths compared with exact deployed Hub source:\n'
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 6
+          for path in "${changed[@]}"; do
+            case "$path" in
+              src/components/HubOverview.tsx|src/components/Sidebar.tsx|src/index.css|tests/vision79-visual-release.test.mjs|tests/r18-reconciled-candidate.test.mjs|.github/workflows/vision79-visual-release.yml) ;;
+              *) echo "REFUSED_NON_UI_CHANGE=$path" >&2; exit 1 ;;
+            esac
+          done
+          git diff --quiet "$ACCEPTED_LIVE_SOURCE" HEAD -- server.ts src/components/Login.tsx src/lib/appLaunch.ts Dockerfile package.json package-lock.json
+          echo "UI_ONLY_ALLOWLIST=PASS AUTH_SSO_BILLING_AND_DOCKER_IDENTICAL=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Compile, test, and build exact visual candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm test
+          node --test tests/vision79-visual-release.test.mjs
+          npm run build
+      - name: Install isolated Chromium
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Start loopback-only built Hub for synthetic browser QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4178 --bind 127.0.0.1 --directory dist > "${RUNNER_TEMP}/vision79-preview-http.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4178/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Test actual desktop, tablet, mobile, light mode and empty navigation
+        run: node scripts/hub-isolated-browser-preview.mjs
+      - name: Assert visible v1 signature in compiled HTML assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Rl --include='*.js' 'Vision79 / Business workspace' dist/assets/ > /dev/null
+          grep -Rl --include='*.css' 'vision79-command-hero' dist/assets/ > /dev/null
+          echo "VISIBLE_COMPILED_DESIGN_SIGNATURE=PASS"
+      - name: Owner visual preview gallery — synthetic data only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vision79-V1-Actual-UI-Preview
+          path: preview-artifacts/
+          retention-days: 14
+          if-no-files-found: warn
+
+  immutable-image:
+    name: Build immutable Hub-only release image — do not deploy
+    needs: visual-qa
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build source-revision-pinned nonroot production image
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="vision79-hub-visual:${GITHUB_SHA}"
+          docker build \
+            --build-arg NODE_BASE=docker.io/library/node:22-alpine \
+            --build-arg RUNTIME_BASE=docker.io/library/alpine:3.24 \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --tag "$IMAGE" .
+          docker image inspect "$IMAGE" --format '{{.Id}}'
+          docker run --rm --network none --read-only --user node \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --entrypoint node "$IMAGE" \
+            -e 'const fs=require("fs");if(!fs.existsSync("dist/index.html"))process.exit(1); console.log("IMMUTABLE_UI_IMAGE=PASS");'
+      - name: Export candidate image with checksum and explicit HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/vision79-ui-image"
+          IMAGE="vision79-hub-visual:${GITHUB_SHA}"
+          ARCHIVE="${RUNNER_TEMP}/vision79-ui-image/vision79-hub-visual-${GITHUB_SHA}.docker.tar.gz"
+          docker image inspect "$IMAGE" --format '{{.Id}}' > "${RUNNER_TEMP}/vision79-ui-image/image-id.txt"
+          docker save "$IMAGE" | gzip -1 > "$ARCHIVE"
+          (cd "${RUNNER_TEMP}/vision79-ui-image" && sha256sum *.docker.tar.gz > sha256sums.txt)
+          printf 'SOURCE_COMMIT=%s\nSOURCE_BASE=%s\nHUB_ONLY=YES\nLIVE_DEPLOYMENT=NO\nBROWSER_MFA_TESTED_WITH_REAL_CREDENTIALS=NO\nROLLBACK_GATE=NOT_YET_RUN\n' \
+            "$GITHUB_SHA" "$ACCEPTED_LIVE_SOURCE" > "${RUNNER_TEMP}/vision79-ui-image/release.txt"
+      - name: Sealed image artifact for separately guarded production deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vision79-V1-Immutable-Hub-Image
+          path: ${{ runner.temp }}/vision79-ui-image/
+          retention-days: 14
+          if-no-files-found: error
+
+# No workflow steps access user secrets, production hosts, databases, WiPay, SSH or Tailscale.
+# Successful CI permits visual review of a candidate; never authorizes an unguarded Docker swap.

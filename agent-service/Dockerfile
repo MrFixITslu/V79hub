@@ -7,6 +7,7 @@ RUN npm ci --include=dev --no-audit --no-fund
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY workforce ./workforce
 COPY tests ./tests
 
 # Runtime user matches the owner-restricted 0600 secret's UID:GID in pilot staging.

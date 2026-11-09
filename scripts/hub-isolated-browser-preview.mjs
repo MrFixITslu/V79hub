@@ -113,14 +113,20 @@ try{
     ["Team & Access","Workspace & team","05-team-desktop"],
     ["Security","Security & access","06-security-desktop"],
     ["Billing","Plans & billing","07-billing-desktop"],
-    ["Platform Admin","V79 Platform Admin","08-admin-desktop"]]){
+    ["Platform Admin","Your platform. In perspective.","08-admin-desktop"]]){
     await side.getByRole("button",{name:button,exact:true}).click();
     await page.getByRole("heading",{name:heading}).first().waitFor();
+    if(button==="Platform Admin") await page.getByText("VISION79 PLATFORM ADMIN",{exact:true}).first().waitFor();
     await shot(page,name,button+" desktop");
   }
   await side.getByRole("button",{name:"Overview",exact:true}).click();
   await page.locator(".hub-dashboard").waitFor();
-  await page.getByRole("button",{name:"Switch to light mode"}).click();
+  const switchToDark=page.getByRole("button",{name:"Switch to dark mode"});
+  const switchToLight=page.getByRole("button",{name:"Switch to light mode"});
+  if(await switchToDark.count()) await switchToDark.click();
+  await switchToLight.waitFor();
+  await switchToLight.click();
+  await switchToDark.waitFor();
   await shot(page,"09-overview-light","Overview desktop light");await context.close();
   const tablet=await contextFor(768,1024,true);const tabletPage=await tablet.newPage();checkErrors(tabletPage,"tablet");
   await tabletPage.goto(root);await tabletPage.locator(".hub-dashboard").waitFor();

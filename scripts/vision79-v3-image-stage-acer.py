@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""Acer-only transfer of approved v3 image into Dell Docker cache, no rollout.
+
+Exports by immutable image ID, refuses archives with tags, verifies SSH
+transport and checks five live container identities before and after import.
+Never runs/stops/replaces an application, changes Compose or copies secrets.
+"""
+import hashlib,json,os,re,shlex,shutil,socket,subprocess,sys,tarfile,tempfile,unittest
+from pathlib import Path
+from unittest.mock import patch
+
+IMAGE="sha256:960849ef917ac542674b07ccff5fa64a2c68cd0b452346f5c9fb72d1765d97d6"
+PRIOR="sha256:d2e6f4aee332b076f1340c339e4277b39f1337d2cd02b4b3a4c849e3a6d615e4"
+SOURCE="114841271d4f8b9c4b63df6aedfd55bde2e82f40"
+GATE_SHA="e2499c7879e1ecb406809c471364eeb8e33f602341d4d24c720de4907e06f9bd"
+BUILD=Path("/home/firelion/v79-v3-approved-build.XDA1yD6v/build-receipt.json")
+HOST="firelion@192.168.100.163"
+SSH=["ssh","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
+     "-o","ConnectTimeout=10",HOST]
+SCP=["scp","-q","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
+     "-o","ConnectTimeout=10"]
+class Stop(Exception):pass
+def need(ok,code):
+ if not ok:raise Stop(code)
+def run(args,input_data=None,timeout=120):
+ try:p=subprocess.run(args,input=input_data,stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL,timeout=timeout)
+ except (OSError,subprocess.TimeoutExpired):raise Stop("COMMAND_UNAVAILABLE_OR_TIMEOUT") from None
+ need(p.returncode==0 and len(p.stdout)<4*1024*1024,"LOCAL_OR_SSH_COMMAND_FAILED")
+ return p.stdout.strip()
+def remote(command,input_data=None,timeout=120):
+ return run(SSH+[command],input_data,timeout)
+def digest(path):
+ h=hashlib.sha256()
+ with path.open("rb") as f:
+  for block in iter(lambda:f.read(1024*1024),b""):h.update(block)
+ return h.hexdigest()
+def archive_json_blob(tar,digest_hex,expected_size=None):
+ need(isinstance(digest_hex,str) and re.fullmatch(r"[0-9a-f]{64}",digest_hex),
+      "OCI_DIGEST_SHAPE_DRIFT")
+ path="blobs/sha256/"+digest_hex
+ try:info=tar.getmember(path)
+ except KeyError:raise Stop("OCI_REFERENCED_BLOB_MISSING") from None
+ need(info.isfile() and 2<=info.size<=4*1024*1024,"OCI_JSON_BLOB_SIZE_DRIFT")
+ if expected_size is not None:
+  need(type(expected_size) is int and expected_size==info.size,"OCI_DESCRIPTOR_SIZE_DRIFT")
+ stream=tar.extractfile(info)
+ need(stream is not None,"OCI_BLOB_UNREADABLE")
+ with stream:data=stream.read(4*1024*1024+1)
+ need(len(data)==info.size and hashlib.sha256(data).hexdigest()==digest_hex,
+      "OCI_REFERENCED_BLOB_DIGEST_DRIFT")
+ try:value=json.loads(data)
+ except (UnicodeError,ValueError):raise Stop("OCI_REFERENCED_BLOB_JSON_INVALID") from None
+ need(isinstance(value,dict) and value.get("schemaVersion")==2,
+      "OCI_REFERENCED_BLOB_SCHEMA_DRIFT")
+ return value
+def validate_oci_identity_chain(tar,config_sha,config_size):
+ # The Docker 29 image ID can be an OCI manifest or image-index digest.
+ # Follow the content-addressed chain to the config used by Docker save.
+ try:index_member=tar.getmember("index.json")
+ except KeyError:raise Stop("OCI_INDEX_REQUIRED_FOR_IMAGE_ID") from None
+ need(index_member.isfile() and 2<=index_member.size<=65536,"OCI_INDEX_SHAPE_DRIFT")
+ stream=tar.extractfile(index_member)
+ need(stream is not None,"OCI_INDEX_UNREADABLE")
+ with stream:data=stream.read(65537)
+ need(len(data)==index_member.size,"OCI_INDEX_READ_DRIFT")
+ try:index=json.loads(data)
+ except (UnicodeError,ValueError):raise Stop("OCI_INDEX_INVALID") from None
+ need(isinstance(index,dict) and index.get("schemaVersion")==2 and
+      isinstance(index.get("manifests"),list),"OCI_INDEX_DESCRIPTOR_DRIFT")
+ roots=[d for d in index["manifests"]
+        if isinstance(d,dict) and d.get("digest")==IMAGE]
+ need(len(roots)==1,"OCI_PINNED_DESCRIPTOR_NOT_UNIQUE")
+ visited=set()
+ def walk(descriptor,depth):
+  need(depth<=4 and len(visited)<64,"OCI_CHAIN_DEPTH_OR_COUNT")
+  need(isinstance(descriptor,dict) and
+       isinstance(descriptor.get("digest"),str) and
+       re.fullmatch(r"sha256:[0-9a-f]{64}",descriptor["digest"]),
+       "OCI_DESCRIPTOR_DIGEST_INVALID")
+  digest_hex=descriptor["digest"][7:]
+  need(digest_hex not in visited,"OCI_CHAIN_CYCLE")
+  visited.add(digest_hex)
+  item=archive_json_blob(tar,digest_hex,descriptor.get("size"))
+  if isinstance(item.get("manifests"),list):
+   need(len(item["manifests"])<=32,"OCI_MANIFEST_LIST_LIMIT")
+   return any([walk(d,depth+1) for d in item["manifests"]])
+  config=item.get("config")
+  need(isinstance(config,dict) and isinstance(item.get("layers"),list),
+       "OCI_IMAGE_MANIFEST_SHAPE_DRIFT")
+  if config.get("digest")!="sha256:"+config_sha:return False
+  need(type(config.get("size")) is int and config["size"]==config_size,
+       "OCI_CONFIG_DESCRIPTOR_SIZE_DRIFT")
+  return True
+ need(walk(roots[0],0),"OCI_PINNED_CHAIN_NOT_LINKED_TO_CONFIG")
+def validate_archive_contents(tar):
+ # New Docker/containerd save formats may store config as blobs/sha256/<digest>
+ # rather than <digest>.json. Verify bytes, not the filename convention.
+ members=tar.getmembers()
+ names=[m.name for m in members]
+ need(len(names)==len(set(names)),"DUPLICATE_ARCHIVE_MEMBER")
+ try:manifest_member=tar.getmember("manifest.json")
+ except KeyError:raise Stop("DOCKER_MANIFEST_MISSING") from None
+ need(manifest_member.isfile() and 0<manifest_member.size<=64*1024,
+      "DOCKER_MANIFEST_SHAPE_DRIFT")
+ handle=tar.extractfile(manifest_member)
+ need(handle is not None,"DOCKER_MANIFEST_UNREADABLE")
+ with handle:entries=json.loads(handle.read())
+ need(isinstance(entries,list) and len(entries)==1 and isinstance(entries[0],dict),
+      "IMAGE_ARCHIVE_COUNT_DRIFT")
+ entry=entries[0]
+ need(entry.get("RepoTags") in (None,[]),"IMAGE_ARCHIVE_HAS_MUTABLE_TAGS")
+ config=entry.get("Config")
+ need(isinstance(config,str) and config and
+      re.fullmatch(r"[a-zA-Z0-9_./-]+",config) and
+      not config.startswith("/") and
+      ".." not in config.split("/") and
+      "\\\\" not in config,"IMAGE_ARCHIVE_CONFIG_PATH_UNSAFE")
+ try:info=tar.getmember(config)
+ except KeyError:raise Stop("IMAGE_ARCHIVE_CONFIG_MISSING") from None
+ need(info.isfile() and 32<=info.size<=4*1024*1024,
+      "IMAGE_ARCHIVE_CONFIG_SHAPE_DRIFT")
+ stream=tar.extractfile(info)
+ need(stream is not None,"IMAGE_ARCHIVE_CONFIG_UNREADABLE")
+ h=hashlib.sha256()
+ with stream:
+  for block in iter(lambda:stream.read(131072),b""):h.update(block)
+ config_sha=h.hexdigest()
+ need(config in (config_sha+".json","blobs/sha256/"+config_sha),
+      "IMAGE_ARCHIVE_CONFIG_NAME_DIGEST_DRIFT")
+ if "sha256:"+config_sha!=IMAGE:
+  validate_oci_identity_chain(tar,config_sha,info.size)
+def validate_archive(archive):
+ need(archive.is_file() and not archive.is_symlink() and
+      10_000_000 <= archive.stat().st_size <= 4*1024**3,"ARCHIVE_SIZE_INVALID")
+ try:
+  with tarfile.open(archive,mode="r:") as tar:
+   validate_archive_contents(tar)
+ except (tarfile.TarError,ValueError,UnicodeError,OSError):
+  raise Stop("IMAGE_ARCHIVE_INVALID") from None
+ return digest(archive)
+def preflight(gate):
+ need(socket.gethostname().split(".")[0]=="firelion-Aspire-A315-51","ACER_REQUIRED")
+ need(os.geteuid()!=0 and not os.getenv("DOCKER_HOST") and not os.getenv("DOCKER_CONTEXT"),
+      "LOCAL_DOCKER_ONLY")
+ need(gate.is_file() and not gate.is_symlink() and digest(gate)==GATE_SHA,
+      "SERVER_GATE_SHA_DRIFT")
+ need(run(["docker","context","show"])==b"default" and
+      run(["docker","info","--format","{{.Name}}"])==b"firelion-Aspire-A315-51",
+      "ACER_LOCAL_DOCKER_REQUIRED")
+ rows=json.loads(run(["docker","image","inspect",IMAGE]))
+ need(len(rows)==1 and rows[0].get("Id")==IMAGE and
+      ((rows[0].get("Config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision")==SOURCE,
+      "CANDIDATE_IDENTITY_DRIFT")
+ need(BUILD.is_file() and not BUILD.is_symlink(),"BUILD_RECEIPT_MISSING")
+ receipt=json.loads(BUILD.read_text())
+ need(receipt.get("candidate_image_id")==IMAGE and receipt.get("source_commit")==SOURCE
+      and receipt.get("production_changes")=="NONE","BUILD_RECEIPT_DRIFT")
+ need(shutil.disk_usage(str(Path.home())).free>=6*1024**3,"ACER_DISK_HEADROOM_LOW")
+def live_gate(gate,phase):
+ need(phase in ("before","after"),"GATE_PHASE_INVALID")
+ out=remote("sg docker -c 'python3 -B - --"+phase+"'",gate.read_bytes(),timeout=100)
+ try:result=json.loads(out)
+ except (ValueError,UnicodeError):raise Stop("SERVER_GATE_RESPONSE_INVALID") from None
+ need(result.get("schema")=="vision79-v3-image-only-stage-gate" and
+      result.get("phase")==phase and
+      result.get("live_hub_fingerprint_match") is True and
+      result.get("live_services_healthy")==5 and
+      result.get("candidate_present") is (phase=="after") and
+      result.get("production_containers_changed") is False and
+      result.get("release_gate")=="HOLD" and
+      re.fullmatch("[a-f0-9]{64}",result.get("service_identity_sha256","")),
+      "SERVER_GATE_REJECTED")
+ return result
+def remote_directory(path):
+ need(bool(re.fullmatch(r"/home/firelion/v79-v3-image-transfer\.[a-zA-Z0-9]{8}",path)),
+      "REMOTE_SCRATCH_PATH_UNSAFE")
+ return path
+def free_bytes(path):
+ need(path.startswith("/") and ".." not in Path(path).parts and "\n" not in path,
+      "DISK_PATH_INVALID")
+ result=remote("df -B1 --output=avail "+shlex.quote(path)+" | tail -n 1")
+ need(result.isdigit(),"DISK_HEADROOM_UNAVAILABLE")
+ return int(result)
+def cleanup(remote_dir):
+ remote_directory(remote_dir)
+ remote("rm -rf -- "+shlex.quote(remote_dir),timeout=120)
+ check=remote("test ! -e "+shlex.quote(remote_dir)+" && printf CLEAN")
+ need(check==b"CLEAN","REMOTE_TEMP_CLEANUP_UNVERIFIED")
+def stage(gate):
+ preflight(gate)
+ before=live_gate(gate,"before")
+ print("SERVER_LIVE_BASELINE=PASS_BEFORE",flush=True)
+ scratch_remote=None;stage_done=False
+ try:
+  with tempfile.TemporaryDirectory(prefix="v79-v3-image-only-",dir=str(Path.home())) as d:
+   archive=Path(d)/"candidate.tar"
+   run(["docker","image","save","--output",str(archive),IMAGE],timeout=900)
+   sha=validate_archive(archive)
+   print("UNTAGGED_CANDIDATE_ARCHIVE=PASS",flush=True)
+   docker_root=remote("sg docker -c 'docker info --format {{.DockerRootDir}}'").decode()
+   need(docker_root.startswith("/") and ".." not in Path(docker_root).parts and
+        not re.search(r"[\n\r'\"]",docker_root),"SERVER_DOCKER_ROOT_INVALID")
+   minimum=archive.stat().st_size*3 + 4*1024**3
+   need(free_bytes("/home/firelion")>=minimum and free_bytes(docker_root)>=minimum,
+        "SERVER_DISK_HEADROOM_LOW")
+   scratch_remote=remote_directory(remote("umask 077; mktemp -d /home/firelion/v79-v3-image-transfer.XXXXXXXX").decode())
+   remote_archive=scratch_remote+"/candidate.tar"
+   transfer=run(SCP+[str(archive),HOST+":"+remote_archive],timeout=1200)
+   check=remote("sha256sum "+shlex.quote(remote_archive))
+   need(check.decode().split()[0]==sha,"SSH_ARCHIVE_CHECKSUM_MISMATCH")
+   need(live_gate(gate,"before")["service_identity_sha256"]==before["service_identity_sha256"],
+        "SERVER_CHANGED_DURING_TRANSFER")
+   # Loading the no-tag image can alter only image cache, never containers.
+   remote("sg docker -c "+shlex.quote("docker image load --quiet --input "+shlex.quote(remote_archive)),
+          timeout=1200)
+   after=live_gate(gate,"after")
+   need(after["service_identity_sha256"]==before["service_identity_sha256"],
+        "SERVER_CONTAINER_IDENTITY_CHANGED")
+   stage_done=True
+ finally:
+  if scratch_remote is not None:
+   cleanup(scratch_remote)
+ need(stage_done,"IMAGE_STAGE_INCOMPLETE")
+ print(json.dumps({"schema":"vision79-v3-approved-image-only-stage",
+        "candidate_image":IMAGE,"source_commit":SOURCE,
+        "five_running_container_identities_unchanged":True,
+        "live_runtime_fingerprint_unchanged":True,
+        "candidate_image_in_dell_cache":True,
+        "production_containers_changed":False,
+        "image_cache_changed":True,
+        "candidate_started":False,"mfa_sso_verified":False,
+        "full_replacement_parity_verified":False,"release_gate":"HOLD"},sort_keys=True))
+class Tests(unittest.TestCase):
+ def test_remote_directory_refuses_injection(self):
+  for bad in ("/","/home/firelion","/home/firelion/v79-v3-image-transfer.x;rm",
+              "/home/firelion/v79-v3-image-transfer.123/../../"):
+   with self.assertRaises(Stop):remote_directory(bad)
+ def test_remote_directory_unique(self):
+  self.assertEqual(remote_directory("/home/firelion/v79-v3-image-transfer.ab12CD34"),
+                   "/home/firelion/v79-v3-image-transfer.ab12CD34")
+ def test_wrong_host_before_docker(self):
+  with patch("socket.gethostname",return_value="other"),patch(__name__+".run") as c:
+   with self.assertRaises(Stop):preflight(Path("/missing"))
+   c.assert_not_called()
+ def test_archive_config_digest_accepts_docker_and_containerd_paths(self):
+  import io
+  config_bytes=b'{"id":"synthetic-good-config","rootfs":{"diff_ids":[]}}'
+  config_sha=hashlib.sha256(config_bytes).hexdigest()
+  def simulate(name,tags=None):
+   manifest=json.dumps([{"Config":name,"RepoTags":tags,"Layers":[]}]).encode()
+   output=io.BytesIO()
+   with tarfile.open(fileobj=output,mode="w:") as tar:
+    for filename,data in (("manifest.json",manifest),(name,config_bytes)):
+     info=tarfile.TarInfo(filename);info.size=len(data)
+     tar.addfile(info,io.BytesIO(data))
+   output.seek(0)
+   return output
+  for path in (config_sha+".json","blobs/sha256/"+config_sha):
+   with patch(__name__+".IMAGE","sha256:"+config_sha):
+    with tarfile.open(fileobj=simulate(path),mode="r:") as tar:
+     validate_archive_contents(tar)
+ def test_archive_config_rejects_wrong_bytes_and_tags(self):
+  import io
+  data=b'{"example":"wrong-digest-with-a-longer-config-document"}'
+  for tags in (None,["v79-hub:latest"]):
+   manifest=json.dumps([{"Config":"blobs/sha256/example","RepoTags":tags}]).encode()
+   output=io.BytesIO()
+   with tarfile.open(fileobj=output,mode="w:") as tar:
+    for filename,payload in (("manifest.json",manifest),("blobs/sha256/example",data)):
+     info=tarfile.TarInfo(filename);info.size=len(payload)
+     tar.addfile(info,io.BytesIO(payload))
+   output.seek(0)
+   with tarfile.open(fileobj=output,mode="r:") as tar:
+    with self.assertRaisesRegex(Stop,
+      "IMAGE_ARCHIVE_CONFIG_NAME_DIGEST_DRIFT" if tags is None else "IMAGE_ARCHIVE_HAS_MUTABLE_TAGS"):
+     validate_archive_contents(tar)
+ def test_oci_index_to_manifest_to_config_verified(self):
+  import io
+  config=b'{"config":{"Labels":{"org.opencontainers.image.revision":"test"}}}'
+  cfg_sha=hashlib.sha256(config).hexdigest()
+  manifest=json.dumps({"schemaVersion":2,"config":{"digest":"sha256:"+cfg_sha,"size":len(config)},"layers":[]},
+      separators=(",",":")).encode()
+  manifest_sha=hashlib.sha256(manifest).hexdigest()
+  root=json.dumps({"schemaVersion":2,"manifests":[
+       {"digest":"sha256:"+manifest_sha,"size":len(manifest)}]},
+       separators=(",",":")).encode()
+  root_sha=hashlib.sha256(root).hexdigest()
+  index=json.dumps({"schemaVersion":2,"manifests":[
+       {"digest":"sha256:"+root_sha,"size":len(root)}]}).encode()
+  legacy=json.dumps([{"RepoTags":None,
+       "Config":"blobs/sha256/"+cfg_sha,"Layers":[]}]).encode()
+  members={"manifest.json":legacy,"index.json":index,
+       "blobs/sha256/"+cfg_sha:config,
+       "blobs/sha256/"+manifest_sha:manifest,
+       "blobs/sha256/"+root_sha:root}
+  def bundle(tamper=False):
+   out=io.BytesIO()
+   with tarfile.open(fileobj=out,mode="w:") as tar:
+    for name,data in members.items():
+     if tamper and name=="blobs/sha256/"+root_sha:data=data+b" "
+     info=tarfile.TarInfo(name);info.size=len(data)
+     tar.addfile(info,io.BytesIO(data))
+   out.seek(0)
+   return out
+  with patch(__name__+".IMAGE","sha256:"+root_sha):
+   with tarfile.open(fileobj=bundle(),mode="r:") as tar:
+    validate_archive_contents(tar)
+   with tarfile.open(fileobj=bundle(tamper=True),mode="r:") as tar:
+    with self.assertRaisesRegex(Stop,"OCI_DESCRIPTOR_SIZE_DRIFT|OCI_REFERENCED_BLOB_DIGEST_DRIFT"):
+     validate_archive_contents(tar)
+ def test_oci_index_refuse_unconnected_config(self):
+  import io
+  cfg=b'{"config":{"Labels":{}}, "rootfs":{"diff_ids":[]}}'
+  cfg_sha=hashlib.sha256(cfg).hexdigest()
+  root=json.dumps({"schemaVersion":2,"config":{"digest":"sha256:"+"a"*64},"layers":[]}).encode()
+  root_sha=hashlib.sha256(root).hexdigest()
+  members={"manifest.json":json.dumps([{"RepoTags":None,"Config":"blobs/sha256/"+cfg_sha}]).encode(),
+         "index.json":json.dumps({"schemaVersion":2,"manifests":[
+           {"digest":"sha256:"+root_sha,"size":len(root)}]}).encode(),
+         "blobs/sha256/"+cfg_sha:cfg,
+         "blobs/sha256/"+root_sha:root}
+  out=io.BytesIO()
+  with tarfile.open(fileobj=out,mode="w:") as tar:
+   for name,data in members.items():
+    info=tarfile.TarInfo(name);info.size=len(data)
+    tar.addfile(info,io.BytesIO(data))
+  out.seek(0)
+  with patch(__name__+".IMAGE","sha256:"+root_sha):
+   with tarfile.open(fileobj=out,mode="r:") as tar:
+    with self.assertRaisesRegex(Stop,"OCI_PINNED_CHAIN_NOT_LINKED_TO_CONFIG"):
+     validate_archive_contents(tar)
+ def test_oci_manifest_directly_pinned(self):
+  import io
+  cfg=b'{"config":{"Labels":{}}, "rootfs":{"diff_ids":[]}}'
+  cfg_sha=hashlib.sha256(cfg).hexdigest()
+  manifest=json.dumps({"schemaVersion":2,"config":{"digest":"sha256:"+cfg_sha,"size":len(cfg)},"layers":[]}).encode()
+  manifest_sha=hashlib.sha256(manifest).hexdigest()
+  index=json.dumps({"schemaVersion":2,"manifests":[
+     {"digest":"sha256:"+manifest_sha,"size":len(manifest)}]}).encode()
+  entries={"manifest.json":json.dumps([{"RepoTags":None,"Config":"blobs/sha256/"+cfg_sha}]).encode(),
+     "index.json":index,"blobs/sha256/"+cfg_sha:cfg,
+     "blobs/sha256/"+manifest_sha:manifest}
+  out=io.BytesIO()
+  with tarfile.open(fileobj=out,mode="w:") as tar:
+   for name,data in entries.items():
+    info=tarfile.TarInfo(name);info.size=len(data)
+    tar.addfile(info,io.BytesIO(data))
+  out.seek(0)
+  with patch(__name__+".IMAGE","sha256:"+manifest_sha):
+   with tarfile.open(fileobj=out,mode="r:") as tar:
+    validate_archive_contents(tar)
+ def test_oci_manifest_config_size_drift_refused(self):
+  import io
+  cfg=b'{"config":{"Labels":{}}, "rootfs":{"diff_ids":[]}}'
+  cfg_sha=hashlib.sha256(cfg).hexdigest()
+  manifest=json.dumps({"schemaVersion":2,"config":{"digest":"sha256:"+cfg_sha,"size":len(cfg)+1},"layers":[]}).encode()
+  manifest_sha=hashlib.sha256(manifest).hexdigest()
+  entries={"manifest.json":json.dumps([{"RepoTags":None,"Config":"blobs/sha256/"+cfg_sha}]).encode(),
+     "index.json":json.dumps({"schemaVersion":2,"manifests":[
+     {"digest":"sha256:"+manifest_sha,"size":len(manifest)}]}).encode(),
+     "blobs/sha256/"+cfg_sha:cfg,"blobs/sha256/"+manifest_sha:manifest}
+  out=io.BytesIO()
+  with tarfile.open(fileobj=out,mode="w:") as tar:
+   for name,data in entries.items():
+    info=tarfile.TarInfo(name);info.size=len(data)
+    tar.addfile(info,io.BytesIO(data))
+  out.seek(0)
+  with patch(__name__+".IMAGE","sha256:"+manifest_sha):
+   with tarfile.open(fileobj=out,mode="r:") as tar:
+    with self.assertRaisesRegex(Stop,"OCI_CONFIG_DESCRIPTOR_SIZE_DRIFT"):
+     validate_archive_contents(tar)
+ def test_archive_rejects_config_traversal(self):
+  import io
+  manifest=json.dumps([{"Config":"../private","RepoTags":None}]).encode()
+  output=io.BytesIO()
+  with tarfile.open(fileobj=output,mode="w:") as tar:
+   info=tarfile.TarInfo("manifest.json");info.size=len(manifest)
+   tar.addfile(info,io.BytesIO(manifest))
+  output.seek(0)
+  with tarfile.open(fileobj=output,mode="r:") as tar:
+   with self.assertRaisesRegex(Stop,"IMAGE_ARCHIVE_CONFIG_PATH_UNSAFE"):
+    validate_archive_contents(tar)
+ def test_invalid_archive_fails_closed(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/"bad.tar";p.write_bytes(b"not a tar")
+   with self.assertRaises(Stop):validate_archive(p)
+def main():
+ need(len(sys.argv) in (2,3) and sys.argv[1] in ("--self-test","--stage"),"MODE_REQUIRED")
+ if sys.argv[1]=="--self-test":
+  r=unittest.TextTestRunner(verbosity=1).run(
+      unittest.defaultTestLoader.loadTestsFromTestCase(Tests))
+  return 0 if r.wasSuccessful() else 1
+ need(len(sys.argv)==3,"SERVER_GATE_PATH_REQUIRED")
+ stage(Path(sys.argv[2]));return 0
+if __name__=="__main__":
+ try:sys.exit(main())
+ except Stop as e:
+  print(json.dumps({"result":"STOP","reason":str(e),
+                    "production_containers_changed":"NOT_PROVEN",
+                    "release_gate":"HOLD"}));sys.exit(3)
+ except Exception as e:
+  print(json.dumps({"result":"STOP","reason":"REDACTED_"+type(e).__name__,
+                    "production_containers_changed":"NOT_PROVEN",
+                    "release_gate":"HOLD"}));sys.exit(3)

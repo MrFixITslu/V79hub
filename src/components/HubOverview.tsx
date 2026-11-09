@@ -13,6 +13,7 @@ import {
   Sparkles,
   Wallet,
 } from "lucide-react";
+import "../workspace.css";
 import { EcosystemApp, User, ViewState } from "../types";
 import { appLaunchUrl } from "../lib/appLaunch";
 import { countMetric, percentMetric, moneyMetric, numericMetric, summaryCurrency, openJobsMetric, hasUsableSummary, connectionCopy } from "../lib/dashboardTruth";
@@ -336,147 +337,39 @@ export function HubOverview({
   const visibleMetricCards = metricCards.filter((metric) => visibleKeys.has(metric.key));
 
   return (
-    <div className="min-h-full bg-[#07111f] text-slate-100 pb-24 lg:pb-10">
-      <div className="hub-dashboard mx-auto w-full max-w-[1540px] px-4 sm:px-5 xl:px-7 py-6 space-y-5">
-        <section className="hub-hero relative overflow-hidden rounded-[24px] border border-[#1a3854] bg-[#091728] shadow-[0_28px_80px_rgba(0,0,0,.26)]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(10,134,255,.24),transparent_35%),radial-gradient(circle_at_95%_65%,rgba(255,122,0,.12),transparent_28%)]" />
-          <div className="absolute inset-y-0 right-0 w-[58%] opacity-30 bg-[linear-gradient(120deg,transparent_5%,rgba(10,134,255,.16)_38%,rgba(255,122,0,.13)_70%,transparent_100%)]" />
-          <div className="relative px-5 sm:px-7 py-6 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
-            <div>
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#65c9ff]">
-                <Sparkles className="w-3.5 h-3.5" />
-                V79 command centre
-              </div>
-              <h1 className="mt-2 text-3xl sm:text-[38px] leading-tight font-black tracking-[-0.03em] text-white">{greeting}{user.fullName ? `, ${user.fullName.trim().split(/\s+/)[0]}` : ""}</h1>
-              <div className="mt-1 text-sm font-semibold text-[#55c7ff]">{organizationName}</div>
-              <p className="mt-2 text-sm text-slate-400 max-w-2xl">
-                Your workspace at a glance. Follow live app signals, take action, and open the tools your business uses.
-              </p>
+    <div className="v79-workspace">
+      <div className="v79-dashboard hub-dashboard">
+        <section className="v79-hero" aria-labelledby="workspace-welcome">
+          <div className="v79-hero-copy">
+            <div className="v79-eyebrow"><Sparkles size={16} aria-hidden="true" /> VISION79 BUSINESS WORKSPACE</div>
+            <h1 id="workspace-welcome">{greeting}{user.fullName ? `, ${user.fullName.trim().split(/\s+/)[0]}` : ""}.</h1>
+            <p>Your business, one command centre.</p>
+            <div className="v79-hero-actions">
+              <button type="button" onClick={() => onNavigate("connections")} className="v79-primary">Explore my apps <ArrowUpRight size={18} /></button>
+              <span>{organizationName}</span>
             </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 xl:pl-8">
-              <div className={`rounded-2xl border px-5 py-3 min-w-[190px] ${actions.length ? "border-amber-500/25 bg-amber-500/10" : "border-emerald-500/25 bg-emerald-500/10"}`}>
-                <div className={`text-[10px] uppercase tracking-[0.16em] font-bold ${actions.length ? "text-amber-300" : "text-emerald-300"}`}>Next action</div>
-                <div className="mt-1 text-sm font-black text-white">{attentionLabel}</div>
-              </div>
-              <div className="rounded-2xl border border-[#21405d] bg-[#081422]/80 px-4 py-3 min-w-[135px]">
-                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Hub checked</div>
-                <div className="mt-1 text-sm font-bold text-white">{lastUpdated}</div>
-              </div>
-              <button
-                onClick={() => void loadDashboard()}
-                className="w-11 h-11 rounded-xl border border-[#21405d] bg-[#0b1a2c] hover:bg-[#10243b] flex items-center justify-center transition-colors"
-                title="Refresh dashboard"
-              >
-                <RefreshCw className={`w-4 h-4 text-[#55c7ff] ${loading ? "animate-spin" : ""}`} />
+          </div>
+          <aside className="v79-focus" aria-label="Workspace activity summary">
+            <div className="v79-eyebrow"><span className="v79-focus-dot" /> TODAY’S FOCUS</div>
+            <h2>{attentionLabel}</h2>
+            <p>From available app reports. Missing data is never an all-clear.</p>
+            <div className="v79-focus-footer">
+              <span>Hub checked <strong>{lastUpdated}</strong></span>
+              <button type="button" onClick={() => void loadDashboard()} aria-label="Refresh dashboard" title="Refresh dashboard" className="v79-refresh">
+                <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
               </button>
             </div>
-          </div>
+          </aside>
         </section>
 
-        {loadError && (
-          <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            {loadError}
-          </div>
-        )}
+        {loadError && <div className="v79-error" role="alert"><AlertTriangle size={20} />{loadError}</div>}
 
-        <section>
-          <div className="mb-2 px-1">
-            <div className="text-base font-bold text-white">Performance overview</div>
-            <div className="text-[10px] text-slate-500 mt-0.5">Live metrics from connected products, with source-specific reporting periods.</div>
+        <section className="v79-apps" aria-labelledby="workspace-apps">
+          <div className="v79-section-heading">
+            <div><div className="v79-eyebrow">YOUR CONNECTED TOOLS</div><h2 id="workspace-apps">Your workspace apps</h2><p>Everything you need to move your business forward.</p></div>
+            <button onClick={() => onNavigate("connections")} className="v79-text-button">Manage apps <ArrowUpRight size={17} /></button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            {visibleMetricCards.map((metric) => {
-              const Icon = metric.icon;
-              const summary = summaries?.[metric.key];
-              const meta = statusMeta(summary);
-              return (
-                <div
-                  key={metric.key}
-                  className="hub-kpi group relative overflow-hidden rounded-[20px] border border-[#1a3854] bg-[#0a1727] p-5 transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#2b5275]"
-                >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${metric.glow} opacity-90 pointer-events-none`} />
-                  <div className="relative">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-[#07111f]/75 border border-white/10 flex items-center justify-center">
-                        <Icon className={`w-5 h-5 ${metric.color}`} />
-                      </div>
-                      <span className={`inline-flex items-center gap-1.5 text-[9px] font-semibold ${meta.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                        {meta.label}
-                      </span>
-                    </div>
-                    <div className="mt-4 text-[10px] uppercase tracking-[0.13em] text-slate-500 font-bold">{metric.label}</div>
-                    <div className="mt-2 text-[30px] leading-none font-black tracking-tight text-white truncate" title={metric.value}>{metric.value}</div>
-                    <div className="mt-3 text-[11px] leading-relaxed text-slate-400">{metric.detail}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
-            <div>
-              <div className="text-sm font-bold text-white">Needs your attention</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">The most useful next actions across your business apps</div>
-            </div>
-            <Activity className="w-4 h-4 text-[#55c7ff]" />
-          </div>
-          <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {actions.length ? (
-              actions.map((action) => {
-                const card = appCards.find((item) => item.key === action.key)!;
-                const app = appFor(card.id, card.shortName);
-                const launchUrl = appLaunchUrl(app, card.fallback);
-                const Icon = card.icon;
-                const actionText =
-                  action.key === "ffpro" ? "Review cash flow" :
-                  action.key === "tiquet" ? "Review open jobs" :
-                  action.key === "marketing" ? "Open marketing" :
-                  "Review in app";
-                return (
-                  <div key={action.title} className="rounded-2xl border border-[#18324b] bg-[#07121f] p-4 flex items-start gap-3">
-                    <div className="w-9 h-9 shrink-0 rounded-xl border border-white/10 flex items-center justify-center" style={{ backgroundColor: `${card.accent}18` }}>
-                      <Icon className={`w-4 h-4 ${card.iconClass}`} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-slate-100">{action.title}</div>
-                      <div className="text-[10px] text-slate-500 mt-1 leading-relaxed">{action.detail}</div>
-                      {launchUrl && (
-                        <a href={launchUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-bold text-[#55c7ff] hover:text-white no-underline">
-                          {actionText} <ArrowUpRight className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className={`lg:col-span-2 rounded-2xl border p-4 flex items-start gap-3 ${!dashboard || loadError || availableSummaryCount === 0 ? "border-slate-500/20 bg-slate-500/[0.07]" : "border-emerald-500/20 bg-emerald-500/[0.07]"}`} role="status">
-                {!dashboard || loadError || availableSummaryCount === 0 ? <Activity className="w-4 h-4 text-slate-400 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5" />}
-                <div>
-                  <div className={`text-xs font-bold ${!dashboard || loadError || availableSummaryCount === 0 ? "text-slate-200" : "text-emerald-200"}`}>{!dashboard || loadError || availableSummaryCount === 0 ? "No verified action insights available" : "No action alerts reported by available sources"}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">Only connected apps with available data contribute alerts. Check your apps for complete activity.</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#18324b] flex items-center justify-between gap-4">
-            <div>
-              <div className="text-base font-bold text-white">Your V79 ecosystem</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Only the V79 modules enabled for this workspace appear here</div>
-            </div>
-            <button onClick={() => onNavigate("connections")} className="text-[10px] font-bold text-[#55c7ff] hover:text-white">
-              Manage apps
-            </button>
-          </div>
-          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+          <div className="v79-app-grid">
             {visibleAppCards.map((card) => {
               const app = appFor(card.id, card.shortName);
               const summary = summaries?.[card.key];
@@ -485,88 +378,63 @@ export function HubOverview({
               const launchUrl = appLaunchUrl(app, card.fallback);
               const Icon = card.icon;
               return (
-                <a
-                  key={card.key}
-                  href={launchUrl || undefined}
-                  target={launchUrl ? "_blank" : undefined}
-                  rel={launchUrl ? "noopener noreferrer" : undefined}
-                  aria-disabled={!launchUrl}
-                  className={`hub-product-card group relative overflow-hidden min-h-[206px] rounded-2xl border border-[#1d3c58] bg-gradient-to-br ${card.accentSoft} p-4 no-underline text-inherit transition-all duration-200 hover:-translate-y-1 ${card.border} ${!launchUrl ? "opacity-60 cursor-not-allowed" : ""}`}
-                >
-                  <div className="absolute -right-8 -bottom-10 w-28 h-28 rounded-full blur-2xl opacity-25" style={{ backgroundColor: card.accent }} />
-                  <div className="relative h-full flex flex-col">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="w-10 h-10 rounded-xl border border-white/10 bg-[#07111f]/85 flex items-center justify-center shadow-lg">
-                        <Icon className={`w-5 h-5 ${card.iconClass}`} />
-                      </div>
-                      <span className={`inline-flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] ${meta.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} /> {meta.label}
-                      </span>
-                    </div>
-                    <div className="mt-3">
-                      <div className="text-[13px] font-black text-white leading-tight">{card.title}</div>
-                      <div className="mt-1 text-[10px] font-medium text-slate-300">{card.category}</div>
-                       <p className="mt-2 text-[11px] leading-relaxed text-slate-400 line-clamp-2">{card.description}</p>
-                    </div>
-                    <div className="mt-3 flex gap-4">
-                      {metrics.map((metric) => (
-                        <div key={metric.label} className="min-w-0">
-                          <div className="text-[7px] uppercase tracking-wide text-slate-600">{metric.label}</div>
-                          <div className="mt-0.5 text-[10px] font-bold text-slate-200 truncate">
-                            {summary?.status === "ok" ? metric.value : "-"}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-2 text-[9px] text-slate-500 truncate" title={summary?.sourceReportedAt || "Source timestamp unavailable"}>
-                      {summary?.sourceReportedAt && Number.isFinite(Date.parse(summary.sourceReportedAt))
-                        ? `Product reported ${new Date(summary.sourceReportedAt).toLocaleDateString()}`
-                        : "Product source timestamp unavailable"}
-                    </div>
-                    <div className="mt-auto pt-3 flex items-center justify-between">
-                      <span className="text-[9px] text-slate-600">{launchUrl ? "Ready to open" : app?.accessMessage || "Setup pending"}</span>
-                      <span className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-black/10 px-2.5 py-1.5 text-[9px] font-bold" style={{ color: card.accent }}>
-                        Open <ArrowUpRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                      </span>
-                    </div>
+                <a key={card.key} href={launchUrl || undefined} target={launchUrl ? "_blank" : undefined}
+                  rel={launchUrl ? "noopener noreferrer" : undefined} aria-disabled={!launchUrl}
+                  className="v79-app-card" data-product={card.key}>
+                  <div className="v79-card-top"><span className="v79-product-icon"><Icon size={23} /></span><span className="v79-status" data-status={meta.label === "No metrics" ? "unknown" : summary?.status || "unknown"}><span />{meta.label}</span></div>
+                  <div className="v79-card-title"><h3>{card.shortName}</h3><span>{card.category}</span></div>
+                  <p className="v79-card-description">{card.description}</p>
+                  <dl className="v79-card-metrics">{metrics.map((metric) => <div key={metric.label}><dt>{metric.label}</dt><dd data-long={metric.value.length > 8} title={metric.value}>{summary?.status === "ok" ? metric.value : "—"}</dd></div>)}</dl>
+                  <div className="v79-card-source" title={summary?.sourceReportedAt || "Source timestamp unavailable"}>
+                    {summary?.sourceReportedAt && Number.isFinite(Date.parse(summary.sourceReportedAt))
+                      ? `Product reported ${new Date(summary.sourceReportedAt).toLocaleDateString()}` : "Product source timestamp unavailable"}
                   </div>
+                  <div className="v79-card-footer"><span>{launchUrl ? "Ready to open" : app?.accessMessage || "Setup pending"}</span><span className="v79-open">{launchUrl ? "Open app" : "Unavailable"}<ArrowUpRight size={17} /></span></div>
                 </a>
               );
             })}
           </div>
+          {visibleAppCards.length === 0 && <div className="v79-empty"><Activity size={24} /><h3>No enabled applications</h3><p>Your workspace apps will appear here when access is enabled.</p></div>}
         </section>
 
-        <section className="rounded-[22px] border border-[#1a3854] bg-[#091728] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#0A86FF]/12 border border-[#0A86FF]/25 flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-[#55c7ff]" />
-            </div>
-            <div>
-              <div className="text-[11px] font-bold text-white">Application data availability</div>
-              <div className="text-[9px] text-slate-500 mt-1">
-                {connectionCopy(visibleAppCards.length, availableSummaryCount, Boolean(dashboard), Boolean(loadError))}
-              </div>
-            </div>
-          </div>
-          {user.platformOperator && (
-            <div className="flex flex-wrap gap-2">
-              {visibleAppCards.map((card) => {
-                const meta = statusMeta(summaries?.[card.key]);
-                return (
-                  <div key={card.key} className="rounded-full border border-[#1d3c58] bg-[#07121f] px-2.5 py-1.5 flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                    <span className="text-[8px] font-bold text-slate-400">{card.shortName}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+        <section className="v79-performance" aria-labelledby="workspace-performance">
+          <div className="v79-section-heading"><div><h2 id="workspace-performance">Performance overview</h2><p>Connected product metrics, with their own reporting periods.</p></div><span className="v79-section-note"><Activity size={16} />{availableSummaryCount} of {visibleAppCards.length} sources reporting</span></div>
+          <div className="v79-kpi-grid">{visibleMetricCards.map((metric) => {
+            const Icon = metric.icon;
+            const summary = summaries?.[metric.key];
+            const meta = statusMeta(summary);
+            return <article key={metric.key} className="v79-kpi" data-product={metric.key}>
+              <div className="v79-kpi-top"><span className="v79-product-icon"><Icon size={19} /></span><span className="v79-status" data-status={meta.label === "No metrics" ? "unknown" : summary?.status || "unknown"}><span />{meta.label}</span></div>
+              <h3>{metric.label}</h3><div className="v79-kpi-value" data-long={metric.value.length > 8} title={metric.value}>{metric.value}</div><p>{metric.detail}</p>
+            </article>;
+          })}</div>
         </section>
 
-        <footer className="px-1 pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[9px] text-slate-600">
-          <span>V79 Digital - From Idea to Advantage.</span>
-          <span>Private app data remains inside each product; the Hub displays aggregate operational signals.</span>
-        </footer>
+        <div className="v79-bottom-grid">
+          <section className="v79-attention" aria-labelledby="workspace-attention">
+            <div className="v79-section-heading"><div><h2 id="workspace-attention">Needs your attention</h2><p>A clearer view of what to do next.</p></div><span className="v79-count">{actions.length}</span></div>
+            <div className="v79-action-list">{actions.length ? actions.map((action) => {
+              const card = appCards.find((item) => item.key === action.key)!;
+              const Icon = card.icon;
+              const launchUrl = appLaunchUrl(appFor(card.id, card.shortName), card.fallback);
+              const actionText = action.key === "ffpro" ? "Review cash flow" : action.key === "tiquet" ? "Review service jobs" : action.key === "pos" ? "Review purchase orders" : action.key === "marketing" ? "Open marketing" : "Review in app";
+              return <div key={action.title} className="v79-action" data-product={card.key}><span className="v79-product-icon"><Icon size={20} /></span><div><h3>{action.title}</h3><p>{action.detail}</p>{launchUrl && <a href={launchUrl} target="_blank" rel="noopener noreferrer">{actionText}<ArrowUpRight size={15} /></a>}</div></div>;
+            }) : <div className="v79-empty" role="status">
+              {!dashboard || loadError || availableSummaryCount === 0 ? <Activity size={24} /> : <CheckCircle2 size={24} />}
+              <h3>{!dashboard || loadError || availableSummaryCount === 0 ? "No verified action insights available" : "No action alerts reported by available sources"}</h3>
+              <p>Only connected apps with available data contribute alerts. Check your apps for complete activity.</p>
+            </div>}</div>
+          </section>
+          <section className="v79-availability" aria-labelledby="workspace-availability">
+            <span className="v79-availability-icon"><ShieldCheck size={25} /></span><div className="v79-eyebrow">WORKSPACE VISIBILITY</div><h2 id="workspace-availability">Application data availability</h2>
+            <p>{connectionCopy(visibleAppCards.length, availableSummaryCount, Boolean(dashboard), Boolean(loadError))}</p>
+            {user.platformOperator && <div className="v79-source-list">{visibleAppCards.map((card) => {
+              const meta = statusMeta(summaries?.[card.key]);
+              return <div key={card.key}><span>{card.shortName}</span><span className="v79-status" data-status={meta.label === "No metrics" ? "unknown" : summaries?.[card.key]?.status || "unknown"}><span />{meta.label}</span></div>;
+            })}</div>}
+          </section>
+        </div>
+        <footer className="v79-footer"><strong>Vision79 <span>From Idea to Advantage.</span></strong><span>Private data stays in each product. Your Hub brings the signals together.</span></footer>
       </div>
     </div>
   );

@@ -1,6 +1,12 @@
 name: V79 Hub Isolated Browser Preview
 
 on:
+  push:
+    branches: [feature/skill-manager-prod-baseline-20261101]
+    paths:
+      - "src/**"
+      - "scripts/hub-isolated-browser-preview.mjs"
+      - ".github/workflows/hub-isolated-browser-preview.yml"
   pull_request:
     branches: [feature/marketing-production-20261014]
     paths:

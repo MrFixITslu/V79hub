@@ -1,0 +1,73 @@
+name: Skill Manager isolated acceptance
+on:
+  push:
+    branches: ["feature/skill-manager-prod-baseline-20261101"]
+    paths:
+      - "server/workforce-skill-*"
+      - "server/workforce-builtins.mjs"
+      - "agent-service/src/managed-skills.ts"
+      - "agent-service/src/index.ts"
+      - "agent-service/tests/managed-skills.test.ts"
+      - "src/components/WorkforceSkillManager.tsx"
+      - "src/components/OwnerAssistant.tsx"
+      - "server.ts"
+      - "tests/workforce-skill-*.test.mjs"
+      - "tests/workforce-builtins.test.mjs"
+      - ".github/workflows/workforce-skill-manager-isolated.yml"
+  pull_request:
+    paths:
+      - "server/workforce-skill-*"
+      - "server/workforce-builtins.mjs"
+      - "agent-service/src/managed-skills.ts"
+      - "agent-service/src/index.ts"
+      - "agent-service/tests/managed-skills.test.ts"
+      - "src/components/WorkforceSkillManager.tsx"
+      - "src/components/OwnerAssistant.tsx"
+      - "server.ts"
+      - "tests/workforce-skill-*.test.mjs"
+      - "tests/workforce-builtins.test.mjs"
+      - ".github/workflows/workforce-skill-manager-isolated.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  hub-isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install locked Hub dependencies
+        run: npm ci --no-audit --no-fund
+      - name: New isolated skill registry and auth regressions
+        run: node --test tests/workforce-skill-registry.test.mjs tests/workforce-skill-routes.test.mjs tests/workforce-builtins.test.mjs
+      - name: Type-check changed Hub and build preview
+        run: |
+          npm run lint
+          npm run build
+  agent-isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: agent-service
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: agent-service/package-lock.json
+      - name: Install locked agent dependencies
+        run: npm ci --no-audit --no-fund
+      - name: New managed skill integrity and role isolation regressions
+        run: node --import tsx --test tests/managed-skills.test.ts
+      - name: Type-check agent integration
+        run: npm run lint

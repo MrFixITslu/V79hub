@@ -11,6 +11,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
+import { authorizeOrganizationRename } from "./server/organization-name.mjs";
+import { createWebsiteSsoGrants } from "./server/website-sso.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -23,6 +25,10 @@ import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.m
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
+import { createSkillRegistry } from "./server/workforce-skill-registry.mjs";
+import { createPackageStore } from "./server/workforce-skill-packages.mjs";
+import {scheduledSkillRouter} from "./server/workforce-skill-scheduled.mjs";
+import { workforceSkillRouter } from "./server/workforce-skill-routes.mjs";
 import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
 import { googleWorkforceClient } from "./server/workforce-google.mjs";
 import { workforceGoogleRouter } from "./server/workforce-google-routes.mjs";
@@ -41,6 +47,7 @@ import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchR
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
 import { activateMarketingTenantMapping, marketingProvisioningTarget, marketingTenantLaunchReady, marketingTenantMapping } from "./server/marketing-provisioning.mjs";
 import { createHubStorePersistence } from "./server/runtime-store.mjs";
+import { createWebsiteLeadEventReceiver } from "./server/website-lead-events.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
@@ -1681,6 +1688,54 @@ app.post("/api/platform/entitlement/check", (req, res) => {
   res.json(result);
 });
 
+// Marketing can request a change to the canonical Hub organization name only
+// for the EXACT tenant mapping and a verified Hub workspace owner. Never trust
+// a browser-supplied organization ID on its own.
+app.post("/api/platform/organizations/rename", async (req, res) => {
+  const pathname = "/api/platform/organizations/rename";
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  if (req.get("x-v79-service-id") !== "v79-marketing" ||
+      !verifyPlatformRequest({
+        method:"POST", pathname, body,
+        timestamp:req.get("x-v79-timestamp") || "",
+        signature:req.get("x-v79-signature") || "",
+        secret:posSecret,
+      })) {
+    return res.status(401).json({error:"Invalid service signature"});
+  }
+
+  const rename = authorizeOrganizationRename({
+    body:req.body,
+    organizations:store.organizations,
+    memberships:store.memberships,
+    mapping:marketingTenantMapping(store,String(req.body?.organizationId || "")),
+    scopedHubUserId:posUserId,
+  });
+  if (!rename.ok) return res.status(rename.status ?? 403).json({error:rename.error});
+  const {organizationId,name,organization,owner} = rename;
+  if (organization.name === name) {
+    return res.json({success:true,organization:{id:organizationId,name},changed:false});
+  }
+  try {
+    const next = cloneStore();
+    const target = next.organizations.find(org => org.id === organizationId);
+    if (!target || target.status !== "active") return res.status(409).json({error:"Organization changed"});
+    const previousName = target.name;
+    target.name = name;
+    if (organizationId === posIdentity.organizationId) next.workspace.companyName = name;
+    onboardingAudit(next, "organization_name_updated", {
+      previousName, newName:name, source:"v79-marketing",
+    },owner.userId,organizationId);
+    await commitStore(next);
+    broadcast(organizationId, {type:"ORGANIZATION_UPDATED",organization:{id:organizationId,name}});
+    res.setHeader("Cache-Control","no-store");
+    return res.json({success:true,organization:{id:organizationId,name},changed:true});
+  } catch (error) {
+    console.error("[organization-rename] Unable to persist canonical name");
+    return res.status(503).json({error:"Hub could not update the organization name"});
+  }
+});
+
 // Product-only HMAC endpoint. Session IDs are non-bearer SHA-256 references,
 // never browser cookies, and do not authorize a request without the shared secret.
 // OFF by default, fail closed during an isolated Tiquet-bound logout rehearsal.
@@ -1892,6 +1947,18 @@ function requirePlatformOperator(req: Request, res: Response, next: () => void) 
   }
   next();
 }
+// Website metadata receipts are confined to the verified platform workspace.
+// This receiver does not provision accounts, schedule tasks or change billing.
+const websiteLeadEvents = createWebsiteLeadEventReceiver({
+  dataDir: DATA_DIR,
+  organizationAllowed: (id: string) => id === posIdentity.organizationId &&
+    store.organizations.some(org => org.id === id),
+  beginWrite: () => sentinelWriteFence.beginStoreSave({ sentinel: false }),
+});
+app.post("/api/platform/events", websiteLeadEvents.receive);
+app.get("/api/admin/website-lead-events/:eventId", requireAuth,
+  requirePlatformOperator, websiteLeadEvents.receipt);
+
 function requireRole(...roles: StoredUser["role"][]) {
   return (req: Request, res: Response, next: () => void) => {
     if (!roles.includes((req as any).user.role)) return res.status(403).json({ error: "Permission denied" });
@@ -3483,6 +3550,95 @@ app.post("/api/security/mfa/disable", requireAuth, async (req, res) => {
   res.json({ success: true, enabled: false });
 });
 
+/**
+ * Scoped SSO for the Vision79 website admin. This is not a general-purpose
+ * OAuth provider; no Hub cookies, MFA seeds, passwords or refresh tokens leave Hub.
+ * Endpoint remains unavailable until deliberately enabled on BOTH applications.
+ */
+const websiteSsoGrants = createWebsiteSsoGrants();
+const websiteSsoReady = () => process.env.V79_HUB_WEBSITE_SSO_ENABLED === "1" &&
+  String(process.env.V79_WEBSITE_SSO_SHARED_SECRET || "").length >= 32;
+const websiteSsoCallback = "https://v79sl.com/api/admin/hub-sso/callback";
+function websiteSsoAuth(req: Request, res: Response): boolean {
+  if (!websiteSsoReady()) { res.status(404).json({ error: "Not found" }); return false; }
+  const configured = String(process.env.V79_WEBSITE_SSO_SHARED_SECRET || "");
+  const provided = String(req.get("x-v79-website-sso-key") || "");
+  if (!provided || provided.length !== configured.length ||
+      !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(configured))) {
+    res.status(401).json({ error: "Service authentication required" }); return false;
+  }
+  return true;
+}
+function validWebsiteSsoSession(sessionKeyHash: string, recent = false) {
+  const session = sessions.get(sessionKeyHash);
+  if (!session || session.expiresAt <= Date.now() || session.mfaVerified !== true ||
+      !Number.isFinite(session.mfaVerifiedAt)) return null;
+  if (Date.now() - session.mfaVerifiedAt! > (recent ? 15 : 8 * 60) * 60_000 ||
+      session.mfaVerifiedAt! > Date.now() + 60_000 ||
+      !isPlatformOperatorIdentity(session.userId, session.organizationId)) return null;
+  const user = store.users.find(u => u.id === session.userId);
+  if (!user?.mfaEnabled || !activeMembership(store, session.userId, session.organizationId)) return null;
+  return { userId: session.userId, organizationId: session.organizationId,
+    email: normalizeEmail(user.email), mfaVerifiedAt: session.mfaVerifiedAt };
+}
+app.get("/api/website-sso/authorize", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  if (!websiteSsoReady()) return res.status(404).send("Not found");
+  // Browser login only; never accept bearer tokens for this redirect route.
+  const token = cookieToken(req.headers.cookie);
+  // Routine website access may reuse the existing MFA-verified Hub session;
+   // sensitive payment approvals retain their independent 15-minute MFA check.
+   const session = token ? validWebsiteSsoSession(sessionKey(token)) : null;
+  if (!session) {
+    return res.status(403).type("text/plain").send(
+      "Sign in to hub.v79sl.com with MFA, then return to v79sl.com/admin and select Sign in with V79 Hub again."
+    );
+  }
+  const state = String(req.query.state || "");
+  const challenge = String(req.query.code_challenge || "");
+  const callback = String(req.query.redirect_uri || "");
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(state) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(challenge) || callback !== websiteSsoCallback) {
+    return res.status(400).json({ error: "Invalid website sign-in request" });
+  }
+  const code = websiteSsoGrants.issue({ challenge, sessionHash: sessionKey(token) });
+  const dest = new URL(websiteSsoCallback);
+  dest.searchParams.set("code", code);
+  dest.searchParams.set("state", state);
+  return res.redirect(302, dest.toString());
+});
+app.post("/api/website-sso/exchange", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!websiteSsoAuth(req, res)) return;
+  const handle = websiteSsoGrants.consume({
+    code: req.body?.code, verifier: req.body?.code_verifier
+  });
+  const identity = handle && validWebsiteSsoSession(websiteSsoGrants.lookup(handle) || "");
+  if (!handle || !identity) {
+    if (handle) websiteSsoGrants.revoke(handle);
+    return res.status(401).json({ error: "Invalid or expired website sign-in code" });
+  }
+  return res.json({ handle, subject: identity.userId, organizationId: identity.organizationId,
+    mfaVerifiedAt: identity.mfaVerifiedAt, email: identity.email, issuer: "V79 Hub",
+    audience: "V79website-admin" });
+});
+app.post("/api/website-sso/introspect", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!websiteSsoAuth(req, res)) return;
+  const handle = String(req.body?.handle || "");
+  const key = websiteSsoGrants.lookup(handle);
+  const identity = key ? validWebsiteSsoSession(key) : null;
+  if (!identity) return res.status(401).json({ active: false });
+  return res.json({ active: true, subject: identity.userId, organizationId: identity.organizationId,
+    mfaVerifiedAt: identity.mfaVerifiedAt, email: identity.email });
+});
+app.post("/api/website-sso/revoke", (req, res) => {
+  if (!websiteSsoAuth(req, res)) return;
+  websiteSsoGrants.revoke(req.body?.handle);
+  return res.json({ revoked: true });
+});
+
 app.use("/api", requireAuth);
 
 app.get("/api/team/invitations", requireWorkspaceOwner, (req, res) => {
@@ -4855,7 +5011,32 @@ const workforceRouters = workforceActionRouters({
   },
 });
 app.use("/api/agent/work-actions", workforceRouters.owner);
+// Isolated owner skills: do not replace the built-in workforce or its permissions.
+const skillRegistryKey = String(process.env.V79_WORKFORCE_SKILL_REGISTRY_KEY || "");
+const skillRegistry = skillRegistryKey.length >= 32 ? createSkillRegistry({
+  file: path.join(DATA_DIR, "workforce-skill-registry.json"), secret: skillRegistryKey,
+}) : null;
+const skillManagerEnabled = () => process.env.V79_WORKFORCE_SKILL_MANAGER_ENABLED === "1";
+const skillPackages = skillRegistry ? createPackageStore({
+  directory: path.join(DATA_DIR,"workforce-skill-packages"),
+  secret: skillRegistryKey,
+}) : null;
+app.use("/internal/workforce/skill-guidance",scheduledSkillRouter({
+  packages:skillPackages,enabled:skillManagerEnabled,workerToken:readWorkforceToken,
+}));
+// Keep approved action endpoints separate from advisory-only scheduled guidance.
 app.use("/internal/workforce", workforceRouters.worker);
+app.use("/api/agent/skills", workforceSkillRouter({
+  registry: skillRegistry, packages: skillPackages, enabled: skillManagerEnabled,
+  ownerContext: ownerAssistantContext,
+  freshOwnerContext: (req: Request) => {
+    if (!ownerApprovalContext(req)) return null;
+    const at = (req as any).user?.mfaVerifiedAt;
+    return Number.isFinite(at) && Date.now() >= at && Date.now() - at <= 5 * 60 * 1000
+      ? ownerApprovalContext(req) : null;
+  },
+  sameOrigin: sameOriginMutation,
+}));
 // Owner-only Google boundary. Tokens remain in Hub, never in the model service.
 const googleEnabled = () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1";
 const googleCredentials = googleCredentialBroker({
@@ -5218,12 +5399,18 @@ app.post("/api/agent/chat", async (req, res) => {
   if (!agentApiToken) return res.status(503).json({ error: "Owner Assistant service is not configured." });
   const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
   if (!message) return res.status(400).json({ error: "message is required" });
+  let managedSkills: ReturnType<NonNullable<typeof skillRegistry>["assignedSkills"]> | undefined;
+  if (skillManagerEnabled()) {
+    if (!skillRegistry) return res.status(503).json({ error: "Skill registry key is unavailable" });
+    try { managedSkills = skillRegistry.assignedSkills(); }
+    catch { return res.status(503).json({ error: "Skill registry verification failed" }); }
+  }
 
   try {
     const response = await fetch(`${agentInternalUrl}/api/agent/chat`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-v79-agent-token": agentApiToken },
-      body: JSON.stringify({ message, context }),
+      body: JSON.stringify({ message, context, ...(managedSkills ? { managedSkills } : {}) }),
       signal: AbortSignal.timeout(90000),
     });
     const body = await response.text();

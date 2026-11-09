@@ -394,26 +394,17 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
 
   const publishedCount = courses.filter((course) => course.status === "Published" || course.status === "Uploaded").length;
   const draftCount = courses.filter((course) => course.status === "Draft" || course.status === "Review").length;
-  const customerAppCount = ecosystemApps.filter((app) => ["app-v79pos", "app-ffpro", "app-tiquet", "app-marketing", "app-academy"].includes(app.id)).length;
 
   return (
-    <div className="hub-admin-page w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <section className="hub-page-hero bg-[#0B1528] border border-slate-800 rounded-[22px] p-6 text-white">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-          <div>
-            <div className="text-cyan-400 text-[11px] font-bold uppercase tracking-wider">Platform administration</div>
-            <h1 className="text-2xl font-extrabold mt-1">V79 Platform Admin</h1>
-            <p className="text-sm text-slate-300 mt-2 max-w-2xl">
-              Manage customer lifecycle, V79 applications, plans, Academy administration and audited platform controls from one place.
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-2 min-w-[330px]">
-            <Metric label="Admin areas" value="6" />
-            <Metric label="Customer apps" value={String(customerAppCount)} />
-            <Metric label="Admin security" value="MFA" />
-          </div>
+    <div className="v79-area v79-admin">
+      <header className="v79-area-hero">
+        <div><p className="v79-eyebrow"><ShieldCheck size={16} /> VISION79 PLATFORM ADMIN</p>
+          <h1>Your platform. In perspective.</h1>
+          <p>Manage customers, application access and the decisions that keep your business moving.</p>
+          <span className="v79-hero-note">Customer operations · Application statistics · Audit records</span>
         </div>
-      </section>
+        <div className="v79-area-hero-actions"><button className="v79-primary" onClick={() => { setSection("platform"); setPlatformView("customers"); }}><Users size={17} /> Manage customers</button></div>
+      </header>
 
       {message && (
         <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${
@@ -425,49 +416,18 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
         </div>
       )}
 
-      <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-3" aria-label="Platform administration">
-        <button onClick={() => { setSection("platform"); setPlatformView("overview"); }}
-          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
-            section === "platform" && platformView === "overview" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}>
-          <Settings2 className="w-4 h-4" /> Overview
-        </button>
-        <button onClick={() => { setSection("platform"); setPlatformView("customers"); }}
-          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
-            section === "platform" && platformView === "customers" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}>
-          <Users className="w-4 h-4" /> Customers
-        </button>
-        <button onClick={() => { setSection("platform"); setPlatformView("applications"); }}
-          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
-            section === "platform" && platformView === "applications" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}>
-          <Layers3 className="w-4 h-4" /> Applications
-        </button>
-        <button onClick={() => { setSection("platform"); setPlatformView("plans"); }}
-          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
-            section === "platform" && platformView === "plans" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}>
-          <CreditCard className="w-4 h-4" /> Plans & Entitlements
-        </button>
-        <button onClick={() => setSection("academy")}
-          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
-            section === "academy" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}>
-          <GraduationCap className="w-4 h-4" /> Academy
-        </button>
-        <button onClick={() => { setSection("platform"); setPlatformView("audit"); }}
-          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
-            section === "platform" && platformView === "audit" ? "bg-slate-950 border-slate-950 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}>
-          <ShieldCheck className="w-4 h-4" /> Audit & Security
-        </button>
+      <nav className="v79-area-nav" aria-label="Platform administration">
+        {([
+          ["overview", "Overview", Settings2], ["customers", "Customers", Users], ["applications", "Applications", Layers3],
+          ["plans", "Plans & entitlements", CreditCard], ["audit", "Audit & security", ShieldCheck],
+        ] as const).map(([id, label, Icon]) => <button key={id} aria-current={(section === "academy" ? id === "applications" : platformView === id) ? "page" : undefined}
+          onClick={() => { setSection("platform"); setPlatformView(id); }}><Icon size={17} />{label}</button>)}
       </nav>
 
       {section === "platform" ? (
-        <div className="space-y-4">
+        <div className="v79-legacy-panel space-y-4">
           {platformView === "overview" ? (
-            <PlatformAdminOverview onOpen={(product) => {
+            <PlatformAdminOverview onCustomers={() => { setSection("platform"); setPlatformView("customers"); }} onOpen={(product) => {
               if (product === "academy") {
                 setSection("academy");
                 setAcademyView("courses");
@@ -524,7 +484,8 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
           )}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="v79-legacy-panel space-y-4">
+          <div className="v79-area-heading"><div><p className="v79-eyebrow">APPLICATIONS / ACADEMY</p><h2>Academy workspace</h2></div><button className="v79-secondary" onClick={() => { setSection("platform"); setPlatformView("applications"); }}>Back to applications</button></div>
           <div className="flex flex-wrap gap-2">
             {[
               ["courses", "Courses"],
@@ -700,10 +661,6 @@ export function AdminConsole({ ecosystemApps }: AdminConsoleProps) {
       )}
     </div>
   );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="bg-[#101D35] border border-slate-700/60 rounded-xl px-3 py-3 text-center"><div className="text-xl font-extrabold">{value}</div><div className="text-[9px] text-slate-400 mt-0.5">{label}</div></div>;
 }
 
 function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
