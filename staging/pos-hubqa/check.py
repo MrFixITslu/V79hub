@@ -48,6 +48,43 @@ def private_address(container):
 
 
 def approved_hub_image(stage_hub):
+    styled = HUB_ROOT / "approved-login-style.json"
+    overlay = HUB_ROOT / "approved-login-overlay.json"
+    live_pin = HUB_ROOT / "approved-live-image.json"
+    if styled.exists():
+        ensure(not live_pin.exists() and overlay.is_file() and
+               not overlay.is_symlink() and styled.is_file() and
+               not styled.is_symlink() and
+               stat.S_IMODE(styled.stat().st_mode) == 0o600 and
+               stat.S_IMODE(overlay.stat().st_mode) == 0o600,
+               "Stage presentation pin/parent login pin unsafe")
+        record = json.loads(styled.read_text())
+        parent = json.loads(overlay.read_text())
+        style_tag = "v79hub:pos-hubqa-ui-v3-styled-20261109"
+        source_tag = "localhost/v79-hub-login-connected:20261109-r1"
+        css_hash = "ea182c2656cea2979412e611bf1e704d4068512f72d6d2db5eba33f80d5c544c"
+        styled_id = record.get("styled_image_id")
+        expected_source_id = record.get("source_image_id")
+        ensure(record.get("styled_image") == style_tag and
+               record.get("previous_image") == "v79hub:pos-hubqa-ui-v3-20261109" and
+               record.get("previous_image_id") == parent.get("overlay_image_id") and
+               record.get("source_image") == source_tag and
+               expected_source_id == parent.get("source_image_id") and
+               record.get("stylesheet_sha256") == css_hash and
+               isinstance(styled_id, str) and
+               re.fullmatch(r"sha256:[0-9a-f]{64}", styled_id) and
+               stage_hub["Config"]["Image"] == style_tag and
+               stage_hub["Image"] == styled_id,
+               "Stage styled image identity or candidate style does not match")
+        styled_image = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", style_tag], text=True))[0]
+        candidate = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", source_tag], text=True))[0]
+        ensure(styled_image["Id"] == styled_id and
+               candidate["Id"] == expected_source_id,
+               "Approved CSS image source was retagged")
+        return
+
     # Prefer the reviewed 9 Nov frontend-only overlay; its underlying image
     # keeps the original private Hub backend, store and MFA configuration.
     overlay = HUB_ROOT / "approved-login-overlay.json"
