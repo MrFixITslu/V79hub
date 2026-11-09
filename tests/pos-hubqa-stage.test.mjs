@@ -215,6 +215,7 @@ test('Live-image tag is derived from exact Docker image identity and refuses bak
     'spec.loader.exec_module(m)',
     'id="sha256:"+"a"*64',
     'm.inspect=lambda n,kind="container":{"Id":id,"Config":{"Env":["NODE_ENV=production"]}}',
+    'm.run=lambda *args,**kwargs:type("Result",(),{"returncode":0})()',
     'tag=m.image_check({"Image":id})',
     'assert tag=="v79hub:pos-hubqa-live-"+"a"*12',
     'm.inspect=lambda n,kind="container":{"Id":id,"Config":{"Env":["V79_PLATFORM_SHARED_SECRET=must-never-reuse"]}}',
