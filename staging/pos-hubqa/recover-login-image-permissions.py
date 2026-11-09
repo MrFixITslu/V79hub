@@ -226,15 +226,57 @@ def restart_only_stage():
     ensure(result.returncode == 0,
            "Private Hub stage failed to become healthy: " + result.stderr[-700:])
 
+def env_map(container):
+    """Compare actual key/value pairs, not Docker's unstable array ordering.
+
+    Never print any environment values; stage secrets are always private.
+    """
+    rows = container["Config"].get("Env") or []
+    result = {}
+    for row in rows:
+        ensure("=" in row, "Stage runtime has a malformed environment entry")
+        name, value = row.split("=", 1)
+        ensure(name.isidentifier() and name not in result,
+               "Stage runtime environment contains duplicate or invalid keys")
+        result[name] = value
+    return result
+
+
+def verified_loopback_binding(container):
+    """Require EXACTLY one 3040/TCP binding, to Acer-tunnel-only localhost."""
+    bindings = container["HostConfig"].get("PortBindings") or {}
+    ensure(set(bindings) == {"3040/tcp"},
+           "Staging Hub has an additional or missing published TCP port")
+    ports = bindings["3040/tcp"]
+    ensure(isinstance(ports, list) and len(ports) == 1 and
+           ports[0].get("HostIp") == "127.0.0.1" and
+           ports[0].get("HostPort") == "18082",
+           "Staging Hub is not restricted to 127.0.0.1:18082")
+    effective = (container["NetworkSettings"].get("Ports") or {}).get("3040/tcp") or []
+    ensure(all(item.get("HostIp") == "127.0.0.1" and
+               item.get("HostPort") == "18082" for item in effective),
+           "Effective published stage port differs from loopback-only declaration")
+
+
 def verify(old, live, pos, new_id):
     after = inspect(STAGE)
     ensure(after["Config"]["Image"] == FIXED and after["Image"] == new_id and
            after["State"]["Health"]["Status"] == "healthy",
            "Stage is not running the approved fixed image")
-    ensure(after["Config"]["Env"] == old["Config"]["Env"] and
-           after["Config"]["User"] == old["Config"]["User"] and
-           after["HostConfig"]["PortBindings"] == old["HostConfig"]["PortBindings"],
-           "Stage user, keys, MFA or port bindings unexpectedly changed")
+    before_env = env_map(old)
+    after_env = env_map(after)
+    if before_env != after_env:
+        changed = sorted(k for k in set(before_env) | set(after_env)
+                         if before_env.get(k) != after_env.get(k))
+        ensure(False, "Stage environment keys changed (values suppressed): " +
+               ",".join(changed[:25]))
+    print("STAGE_AUTH_AND_SERVICE_ENV_SEMANTICALLY_IDENTICAL=PASS")
+    ensure(after["Config"]["User"] == old["Config"]["User"] and
+           after["Config"]["User"] == "1000:1000",
+           "Stage container no longer uses the same non-root account")
+    verified_loopback_binding(old)
+    verified_loopback_binding(after)
+    print("STAGE_NONROOT_USER_AND_LOOPBACK_BINDING=PASS")
     ensure(set(after["NetworkSettings"]["Networks"]) == {STAGE_NETWORK},
            "Stage network unexpectedly changed")
     ensure(inspect(LIVE)["Id"] == live["Id"] and
