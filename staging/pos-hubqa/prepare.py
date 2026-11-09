@@ -168,6 +168,10 @@ def main():
         "V79_HUB_SECURITY_KEY": secrets.token_hex(48),
         "V79_REQUIRE_ADMIN_MFA": "1",
         "V79_HUB_STORE_BACKEND": "json",
+        # Private mounted data is 0700 and owned by this invoking host user.
+        # Keep the staging container unprivileged and writable as that owner.
+        "V79_HUB_STAGE_UID": str(os.getuid()),
+        "V79_HUB_STAGE_GID": str(os.getgid()),
     }
     os.chmod(HUB_ROOT, 0o700)
     private_write_new(HUB_ROOT / ".env", "".join(
