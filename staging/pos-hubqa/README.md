@@ -109,6 +109,43 @@ Record only redacted outcomes:
 
 **Do not claim Google OAuth or HTTPS production cookie parity from this HTTP loopback exercise.** These require separate, approved, secured staging callback domain and trusted TLS verification.
 
+## Recovery: staging Hub exited with `EACCES` writing `v79_store.json.tmp`
+
+The owner's first attempt confirmed `ISOLATED_STAGE_CONFIG=PASS`, `FRESH_STAGE_ONLY_KEYS=PASS` and `MFA_REQUIRED=PASS`, then `v79-hub-pos-hubqa` exited (1). Logs confirmed permission denied opening `/app/data/v79_store.json.tmp`, because the host-owned stage data mount was 0700 and the original container did not run as that owner. Production POS stayed healthy and unchanged.
+
+**Never rerun `prepare.py --apply` at this point.** It is intentionally one-time and the newly created stage keys must be preserved. Do not use `chmod 777`, `chown -R`, `docker compose down -v`, rebuild POS or copy production Hub credentials.
+
+Repair: `repair-permissions.py` checks the exact stopped stage Hub container, expected stage image, loopback binding, production POS image+health, private data owner+0700 mode, existing stage keys and known Compose contents. It only adds the host stage owner numeric UID/GID to the **private Hub stage** `.env`, and replaces **only** that Hub stage's Compose file with an unprivileged `user:` and in-memory writable Vite caches. It never changes the staging POS API, production Hub, production POS or the backup.
+
+```sh
+ssh -T firelion@100.73.248.30 'bash -se' <<'REMOTE'
+set -euo pipefail
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+POS=/home/firelion/v79-pos-hubqa-20261109
+
+test -z "$(git -C "$HUB/source" status --porcelain)"
+git -C "$HUB/source" pull --ff-only origin feature/isolated-pos-hubqa-20261109
+
+# First, read-only preflight. Requires the original Hub stage to be exited.
+python3 "$HUB/source/staging/pos-hubqa/repair-permissions.py"
+
+# Apply to stage Hub Compose and its existing env only; no secret rotation.
+python3 "$HUB/source/staging/pos-hubqa/repair-permissions.py" --apply
+
+# Recreate only stage Hub; use the already-built image.
+cd "$HUB"
+docker compose --env-file .env -f compose.yml   up -d --no-deps --force-recreate --wait hub
+
+# Resume the previously interrupted staging POS API start.
+cd "$POS"
+docker compose --env-file .env -f hubqa.compose.yml   up -d --no-deps --force-recreate --wait api
+
+python3 "$HUB/source/staging/pos-hubqa/check.py"
+REMOTE
+```
+
+Expected: `STAGE_PERMISSION_CONFIGURATION=PASS`, `NON_ROOT_STAGE_RUNTIME=CONFIGURED`, and all five `check.py` PASS lines. If Hub still exits, do not repeat `--apply`; gather a **redacted** `docker logs --tail 70 v79-hub-pos-hubqa` and compare running user versus `stat -c '%u:%g %a' /home/firelion/v79-hub-pos-hubqa-20261109/data`. Protect secrets and session tokens.
+
 ## E. Cleanup and remaining release gates
 
 Stop **only** the staging containers to save resources, without deleting any volumes or backup files:
