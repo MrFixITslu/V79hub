@@ -273,7 +273,7 @@ def main():
                 "http://" + private_address(stage_hub) +
                 ":3040/assets/login-products/" + name + ".png")
             ensure(image_code == 200 and
-                   image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n".decode("unicode_escape").encode("latin1")),
+                   image_bytes.startswith(bytes.fromhex("89504e470d0a1a0a")),
                    "Staging login product PNG inaccessible: " + name)
         print("STAGING_LOGIN_PRODUCT_IMAGES=PASS")
     print("PRODUCTION_UNCHANGED=PASS")
