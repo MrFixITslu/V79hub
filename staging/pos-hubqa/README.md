@@ -146,6 +146,36 @@ REMOTE
 
 Expected: `STAGE_PERMISSION_CONFIGURATION=PASS`, `NON_ROOT_STAGE_RUNTIME=CONFIGURED`, and all five `check.py` PASS lines. If Hub still exits, do not repeat `--apply`; gather a **redacted** `docker logs --tail 70 v79-hub-pos-hubqa` and compare running user versus `stat -c '%u:%g %a' /home/firelion/v79-hub-pos-hubqa-20261109/data`. Protect secrets and session tokens.
 
+## Private-network browser access when Docker does not publish port 18081
+
+Owner evidence: restored stage DB, private stage Hub and POS API all became healthy. POS `/ready` returned HTTP 200 from inside its own container **and** from the server to the container's private network IPv4 address. The Compose `api.ports` and Docker HostConfig both declared `127.0.0.1:18081:8080`, but `docker port` returned no published port and the server's `127.0.0.1:18081` returned HTTP 000. This is a **Docker host-port forwarding discrepancy**, not a failed POS API. Preserve the isolated bridge; don't attach stage POS to the shared proxy network or expose port 18081 publicly.
+
+The Acer owner can use SSH port forwarding directly to the two stage container addresses, with no additional Docker changes. First verify both containers are healthy and connected **only** to `v79pos-hubqa-20261109_stage_internal`. Obtain the dynamic IPv4 addresses by named Docker network lookup; never hardcode an older private container IP.
+
+On the **Acer** in a dedicated terminal:
+
+```bash
+set -euo pipefail
+
+NETWORK=v79pos-hubqa-20261109_stage_internal
+SERVER=firelion@100.73.248.30
+
+POS_IP=$(ssh -T "$SERVER" \
+  "docker inspect -f '{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}' v79-pos-hubqa-api")
+HUB_IP=$(ssh -T "$SERVER" \
+  "docker inspect -f '{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}' v79-hub-pos-hubqa")
+
+[[ "$POS_IP" =~ ^[0-9]+(\\.[0-9]+){3}$ ]] || { echo "Invalid POS stage IP"; exit 1; }
+[[ "$HUB_IP" =~ ^[0-9]+(\\.[0-9]+){3}$ ]] || { echo "Invalid Hub stage IP"; exit 1; }
+
+ssh -N -o ExitOnForwardFailure=yes \
+  -L "127.0.0.1:18081:$POS_IP:8080" \
+  -L "127.0.0.1:18082:$HUB_IP:3040" \
+  "$SERVER"
+```
+
+Keep that terminal open. In the browser open **`http://127.0.0.1:18082`** for the *private staging Hub*; a successful POS launch should redirect to the other locally forwarded port `http://127.0.0.1:18081`. Keep the tunnel bound to Acer's `127.0.0.1` and avoid real public Hub launches. Press Ctrl+C to disconnect. Never share password, MFA QR, one-time ticket, token, browser cookies or URL fragments. HTTP loopback does not prove production HTTPS Secure-cookie or Google OAuth parity.
+
 ## E. Cleanup and remaining release gates
 
 Stop **only** the staging containers to save resources, without deleting any volumes or backup files:
