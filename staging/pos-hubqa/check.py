@@ -48,7 +48,49 @@ def private_address(container):
 
 
 def approved_hub_image(stage_hub):
+    perms = HUB_ROOT / "approved-login-assets-perms.json"
     styled = HUB_ROOT / "approved-login-style.json"
+    if perms.exists():
+        ensure(not styled.exists() and perms.is_file() and
+               not perms.is_symlink() and
+               stat.S_IMODE(perms.stat().st_mode) == 0o600,
+               "Private login product-image pin is missing or unsafe")
+        approved = json.loads(perms.read_text())
+        tag = "v79hub:pos-hubqa-ui-v3-styled-perms-20261109-r1"
+        previous = "v79hub:pos-hubqa-ui-v3-20261109"
+        source = "v79hub:pos-hubqa-ui-v3-styled-20261109"
+        css_hash = "ea182c2656cea2979412e611bf1e704d4068512f72d6d2db5eba33f80d5c544c"
+        login_hash = "cb250f00742c5bc3f40f119cbc51f626a1fb94f542f254e27b0d3c6884b4c49b"
+        image_id = approved.get("image_id")
+        source_id = approved.get("derived_from_id")
+        ensure(approved.get("image") == tag and
+               approved.get("derived_from") == source and
+               approved.get("previous_staging_image") == previous and
+               approved.get("approved_css_sha256") == css_hash and
+               approved.get("approved_login_sha256") == login_hash and
+               isinstance(image_id, str) and
+               re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) and
+               isinstance(source_id, str) and
+               re.fullmatch(r"sha256:[0-9a-f]{64}", source_id),
+               "Unexpected styled login image pin")
+        overlay = HUB_ROOT / "approved-login-overlay.json"
+        ensure(overlay.is_file() and not overlay.is_symlink() and
+               stat.S_IMODE(overlay.stat().st_mode) == 0o600,
+               "Previous login overlay pin unavailable")
+        parent = json.loads(overlay.read_text())
+        ensure(approved.get("previous_staging_image_id") ==
+               parent.get("overlay_image_id"),
+               "Original stage image differs from preserved login overlay")
+        built = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", tag], text=True))[0]
+        broken = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", source], text=True))[0]
+        ensure(stage_hub["Config"]["Image"] == tag and
+               stage_hub["Image"] == image_id and
+               built["Id"] == image_id and broken["Id"] == source_id,
+               "Running stage image differs from exact validated permission repair")
+        return
+
     overlay = HUB_ROOT / "approved-login-overlay.json"
     live_pin = HUB_ROOT / "approved-live-image.json"
     if styled.exists():
@@ -225,6 +267,15 @@ def main():
            "Stage POS readiness check failed")
     ensure(unauth_code == 401,
            "Unauthenticated access to staging POS was not denied")
+    if (HUB_ROOT / "approved-login-assets-perms.json").exists():
+        for name in ("academy", "ffpro", "marketing", "pos", "tiquet"):
+            image_code, image_bytes = http_status(
+                "http://" + private_address(stage_hub) +
+                ":3040/assets/login-products/" + name + ".png")
+            ensure(image_code == 200 and
+                   image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n".decode("unicode_escape").encode("latin1")),
+                   "Staging login product PNG inaccessible: " + name)
+        print("STAGING_LOGIN_PRODUCT_IMAGES=PASS")
     print("PRODUCTION_UNCHANGED=PASS")
     print("PRIVATE_STAGING_NETWORK=PASS")
     print("UNIQUE_KEYS_AND_MFA=PASS")
