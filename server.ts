@@ -1705,7 +1705,7 @@ app.post("/api/platform/organizations/rename", async (req, res) => {
     mapping:marketingTenantMapping(store,String(req.body?.organizationId || "")),
     scopedHubUserId:posUserId,
   });
-  if (!rename.ok) return res.status(rename.status).json({error:rename.error});
+  if (!rename.ok) return res.status(rename.status ?? 403).json({error:rename.error});
   const {organizationId,name,organization,owner} = rename;
   if (organization.name === name) {
     return res.json({success:true,organization:{id:organizationId,name},changed:false});
