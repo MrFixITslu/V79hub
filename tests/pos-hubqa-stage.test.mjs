@@ -149,3 +149,84 @@ test('New staging bootstraps mount owner mapping rather than widening permission
   assert.ok(helper.includes('"V79_HUB_STAGE_UID": str(os.getuid())'));
   assert.ok(helper.includes('"V79_HUB_STAGE_GID": str(os.getgid())'));
 });
+
+test('Stage pin tool is syntactically valid and preserves production and staging data', () => {
+  const path = 'staging/pos-hubqa/sync-live-ui.py';
+  const code = readFileSync(path, 'utf8');
+  for (const phrase of [
+    'STAGE_UI_SYNC_BLOCKED',
+    'DRY_RUN_ONLY=PASS',
+    'STAGING_KEYS_AND_DATA_PRESERVED=PASS',
+    'PRODUCTION_CONTAINERS_NOT_RECREATED=PASS',
+    'STAGING_HUB_EXACT_LIVE_IMAGE=PASS',
+    'approved-live-image.json',
+    'image_check(live)',
+    'private_stage_store()',
+    'make_checkpoint(ROOT / "data", compose, raw)',
+    'run("docker", "tag", live["Image"], new_tag)',
+    'up_stage()',
+    'STAGE_PROMOTION_FAILED_ATTEMPTING_IMAGE_ONLY_ROLLBACK',
+    'WIPAY_ENABLED',
+    'V79_REQUIRE_ADMIN_MFA',
+    'POS_BASE_URL: http://v79-pos-hubqa-api:8080',
+    'health("http://" + stage_ip(stage) + ":3040/api/health")'
+  ]) assert.ok(code.includes(phrase), 'Missing private stage safety check: ' + phrase);
+  for (const forbidden of [
+    'docker compose down',
+    'docker stop v79-hub',
+    'docker stop v79-pos',
+    'docker rm v79-hub',
+    'chmod 777',
+    'docker exec v79-hub',
+    'v79-pos-db',
+    'pg_restore'
+  ]) assert.ok(!code.includes(forbidden), 'Unexpected live-data operation: ' + forbidden);
+  const syntax = spawnSync('python3', ['-c',
+    'import ast,pathlib; ast.parse(pathlib.Path("staging/pos-hubqa/sync-live-ui.py").read_text()); print("LIVE_UI_SYNC_SYNTAX_PASS")'
+  ], {encoding: 'utf8', timeout: 10000});
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+  assert.ok(syntax.stdout.includes('LIVE_UI_SYNC_SYNTAX_PASS'));
+});
+
+test('Stage image verification supports an immutable live-image pin and private API checks', () => {
+  const code = readFileSync('staging/pos-hubqa/check.py', 'utf8');
+  for (const required of [
+    'approved-live-image.json',
+    'stage_hub["Image"] == image_id',
+    'referenced["Id"] == image_id',
+    '["HostConfig"].get("PortBindings")',
+    'private_address(stage_hub)',
+    'private_address(stage_pos)',
+    'unauth_code == 401',
+    'FULL_BROWSER_MFA_SSO=NOT_YET_VERIFIED'
+  ]) assert.ok(code.includes(required), 'Missing stage acceptance condition: ' + required);
+  const syntax = spawnSync('python3', ['-c',
+    'import ast,pathlib; ast.parse(pathlib.Path("staging/pos-hubqa/check.py").read_text()); print("STAGE_ACCEPTANCE_SYNTAX_PASS")'
+  ], {encoding:'utf8', timeout:10000});
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+  assert.ok(syntax.stdout.includes('STAGE_ACCEPTANCE_SYNTAX_PASS'));
+});
+
+test('Live-image tag is derived from exact Docker image identity and refuses baked secrets', () => {
+  const script = [
+    'import importlib.util',
+    'spec=importlib.util.spec_from_file_location("stage","staging/pos-hubqa/sync-live-ui.py")',
+    'm=importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(m)',
+    'id="sha256:"+"a"*64',
+    'm.inspect=lambda n,kind="container":{"Id":id,"Config":{"Env":["NODE_ENV=production"]}}',
+    'tag=m.image_check({"Image":id})',
+    'assert tag=="v79hub:pos-hubqa-live-"+"a"*12',
+    'm.inspect=lambda n,kind="container":{"Id":id,"Config":{"Env":["V79_PLATFORM_SHARED_SECRET=must-never-reuse"]}}',
+    'try:',
+    '    m.image_check({"Image":id})',
+    'except RuntimeError as exc:',
+    '    assert "baked-in" in str(exc)',
+    'else:',
+    '    raise AssertionError("Baked-in live signing secret accepted")',
+    'print("STAGE_PIN_SECRETS_TEST_PASS")'
+  ].join('\n');
+  const result = spawnSync('python3', ['-c',script], {encoding:'utf8', timeout:10000});
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.ok(result.stdout.includes('STAGE_PIN_SECRETS_TEST_PASS'));
+});
