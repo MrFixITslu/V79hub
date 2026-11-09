@@ -176,6 +176,41 @@ ssh -N -o ExitOnForwardFailure=yes \
 
 Keep that terminal open. In the browser open **`http://127.0.0.1:18082`** for the *private staging Hub*; a successful POS launch should redirect to the other locally forwarded port `http://127.0.0.1:18081`. Keep the tunnel bound to Acer's `127.0.0.1` and avoid real public Hub launches. Press Ctrl+C to disconnect. Never share password, MFA QR, one-time ticket, token, browser cookies or URL fragments. HTTP loopback does not prove production HTTPS Secure-cookie or Google OAuth parity.
 
+## Repair old Hub login presentation before acceptance: pin private staging to the real running Hub image
+
+The owner approved Hub **Login Version 3 (Connected Workspace)** on 8–9 November. The isolated Hub staging image was built from GitHub `main` and displayed the **old login**, so it is not suitable for final UX acceptance. Do not rebuild from `main`, merge an unrelated draft Google-login branch, copy production Hub store, or touch the live production container.
+
+**Three options considered:** (1) leave old staging UI: fails owner's UX acceptance; (2) cherry-pick latest GitHub login components: risks losing unmerged live overlays, the approved logo and OAuth session changes; (3) **chosen:** pin the entire stage Hub image to the immutable image ID of the **currently running healthy production Hub**, while running it with the **existing private staging Compose, secrets, data and isolated network**. Version 3 appearance still requires owner visual verification.
+
+**REDTEAM gates:** `sync-live-ui.py` is dry-run by default. It checks live Hub and POS health and identity, stage Hub/POS/DB health, sole internal-only bridge, loopback port declarations, the exact trusted stage Compose, stage file permissions, isolated MFA and signed POS keys, and that the production image does not embed live credentials in Docker image environment. If a check fails, it **does not switch images**. `--apply` first snapshots **only the existing private stage data and Compose** into a 0700 private checkpoint; creates a uniquely named staging tag **pointing to the exact running production Hub image ID**, does not rebuild from GitHub, changes **only** the private Hub Compose image reference and recreates **only** `v79-hub-pos-hubqa`. If the new stage does not become healthy, it attempts to roll back **only** the stage image. It never restores production data, rotates keys, restarts production or changes the network/ports. Review the error and checkpoint before retrying; do not automatically restore a data snapshot over a running Hub.
+
+On the **Acer**, first perform a read-only preflight. It prints the currently deployed Hub image tag and immutable ID, without printing credentials:
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -se' <<'REMOTE'
+set -euo pipefail
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+test -z "$(git -C "$HUB/source" status --porcelain)"
+git -C "$HUB/source" pull --ff-only origin feature/isolated-pos-hubqa-20261109
+python3 "$HUB/source/staging/pos-hubqa/sync-live-ui.py"
+REMOTE
+```
+
+Only after the preflight returns `PRODUCTION_AND_STAGE_ISOLATION_PREFLIGHT=PASS` and `DRY_RUN_ONLY=PASS`, stage the exact running image:
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -se' <<'REMOTE'
+set -euo pipefail
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+python3 "$HUB/source/staging/pos-hubqa/sync-live-ui.py" --apply
+python3 "$HUB/source/staging/pos-hubqa/check.py"
+REMOTE
+```
+
+Expected `STAGING_HUB_EXACT_LIVE_IMAGE=PASS`, `STAGING_HUB_HEALTH=PASS`, `STAGING_DATA_AND_KEYS_PRESERVED=PASS`, and five existing security checks. `check.py` verifies that staging Hub **really runs the pinned image ID** and uses the stage-only Docker bridge for health and anonymous POS denial, because this host's Docker loopback forwarding may be absent despite HostConfig port declarations. This changes **no** production system. Prior to browser review, **close and reopen the Acer SSH tunnel** to refresh the stage Hub's newly assigned Docker private IP; otherwise the old tunnel could still target the replaced container.
+
+Visual acceptance: in the updated private Hub check that the user-approved Version 3 layout, **distinct Hub shield-and-orbit logo/favicon**, Google button, password fallback, MFA challenge and POS app icon match the live approved design. The localhost Google OAuth redirect may be incompatible with provider callback registration; this acceptance does not claim Google OAuth production behaviour. Confirm the private Hub→POS signed launch, entitlement and access denial without using production accounts or launching the live POS.
+
 ## E. Cleanup and remaining release gates
 
 Stop **only** the staging containers to save resources, without deleting any volumes or backup files:
