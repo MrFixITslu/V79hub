@@ -150,6 +150,12 @@ def check_preflight():
             stage_hub["Image"] == record.get("overlay_image_id") and
             stage_hub["Image"] == docker_inspect(CURRENT, "image")["Id"],
             "Stage Hub is not on the owner-verified frontend-only image")
+    old_css = command("docker", "exec", STAGE_NAME, "sha256sum",
+                      "/app/src/index.css").stdout.split()[0]
+    login_sha = command("docker", "exec", STAGE_NAME, "sha256sum",
+                        "/app/src/components/Login.tsx").stdout.split()[0]
+    require(old_css == OLD_CSS_SHA and login_sha == LOGIN_SHA,
+            "Unexpected stage stylesheet/login fingerprint; do not overwrite")
     require(docker_inspect(CANDIDATE, "image")["Id"] ==
             record.get("source_image_id"),
             "Approved 9 Nov Connected Login source image changed")
@@ -280,11 +286,17 @@ def restart_stage():
     require(result.returncode == 0,
             "Staging Hub did not become healthy: " + (result.stderr or "")[-1000:])
 
-def verify(built_id, live_hub, live_pos, stage_pos, public_assets):
+def verify(built_id, live_hub, live_pos, old_stage_hub, stage_pos, public_assets):
     hub = docker_inspect(STAGE_NAME)
     require(hub["Config"]["Image"] == OUTPUT and hub["Image"] == built_id and
             hub["State"]["Health"]["Status"] == "healthy",
             "Styled Hub image was not started or is unhealthy")
+    require(env_from(hub) == env_from(old_stage_hub) and
+            hub["Config"]["User"] == old_stage_hub["Config"]["User"] and
+            hub["HostConfig"]["PortBindings"] ==
+            old_stage_hub["HostConfig"]["PortBindings"],
+            "New stage image changed user, MFA/service secrets or port restrictions")
+    check_port(hub, "3040/tcp", 18082)
     require(docker_inspect(PROD_NAME)["Id"] == live_hub["Id"] and
             docker_inspect(PROD_POS_NAME)["Id"] == live_pos["Id"] and
             docker_inspect(POS_NAME)["Id"] == stage_pos["Id"],
@@ -347,7 +359,7 @@ def main():
             command("docker", "compose", "--env-file", ".env",
                     "-f", "compose.yml", "config", "--quiet", cwd=ROOT)
             restart_stage()
-            verify(image_id, live_hub, live_pos, stage_pos, paths)
+            verify(image_id, live_hub, live_pos, stage_hub, stage_pos, paths)
         except Exception:
             print("STAGE_CSS_FIX_FAILED_ATTEMPTING_STAGE_ONLY_ROLLBACK", flush=True)
             save_compose(compose)
