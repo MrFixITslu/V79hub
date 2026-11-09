@@ -211,6 +211,35 @@ Expected `STAGING_HUB_EXACT_LIVE_IMAGE=PASS`, `STAGING_HUB_HEALTH=PASS`, `STAGIN
 
 Visual acceptance: in the updated private Hub check that the user-approved Version 3 layout, **distinct Hub shield-and-orbit logo/favicon**, Google button, password fallback, MFA challenge and POS app icon match the live approved design. The localhost Google OAuth redirect may be incompatible with provider callback registration; this acceptance does not claim Google OAuth production behaviour. Confirm the private Hub→POS signed launch, entitlement and access denial without using production accounts or launching the live POS.
 
+## Correct 9 November login: frontend-only overlay (supersedes whole-image sync)
+
+**New owner evidence (9 November):** all staging services are healthy after rollback. The running live `v79-hub` is immutable image `sha256:5d11cfdb...` (tagged `v79-hub-sales-review:20261107-r1`), but the server also has a **different** image `localhost/v79-hub-login-connected:20261109-r1` (image ID `43a19e4ec9b4...`). The latter is also tagged `localhost/v79-hub-sales-review:20261107-r1` in the repository listing, indicating different tag/image histories than the *running* live container. The previous attempt to switch the entire Hub to `5d11cfdb...` failed in staging; the owner confirmed `OLD_STAGE_HUB_IMAGE_RESTORED=PASS` and the checkpoint was retained. Do not repeat that whole-image update.
+
+**Three reviewed options:** (1) Continue testing with the old login (rejected: not representative). (2) Reuse the complete running live image (rejected: failed staging start, pre-Version 3 image). (3) **Preferred:** extract only the login component, its required local component dependencies and referenced public assets from the *9 November Connected Login candidate*, apply them to the exact known-good stage Hub base image, rebuild its frontend offline, keep the existing backend, and promote **only** the staging Hub service. The candidate image **is not yet visually verified as the user's exact approved Version 3**, so the operator must still check its login and Hub icon before MFA/SSO acceptance.
+
+`staging/pos-hubqa/overlay-approved-login.py` is read-only by default. It validates the exact Connected Login image and its alias point to the same immutable image ID; verifies image env contains no baked credentials; checks staging Hub/POS/PostgreSQL and live Hub/POS are healthy; ensures the staging network remains internal-only; checks loopback port **declarations**, stage MFA/service signing, stage JSON store, disabled outbound integrations, stage-only source/template and private file modes. It then creates a *disposable non-running Docker container* to extract **only** the login sources/assets for a dry-run inspection; removes the disposable container. Dry-run does not touch a running service or a staging image.
+
+On `--apply`, it checks the login source differs from the old stage; builds a **new** image `v79hub:pos-hubqa-ui-v3-20261109` from the original `v79hub:pos-hubqa-20261109`, injecting **only** the login files and running `npm run build` offline (no new dependencies, no backend copy from production). It snapshots stage data and Compose privately, replaces **only** the stage Hub Compose image, and recreates **only** the stage Hub. If health/identity verification fails, it automatically attempts a **stage image-only rollback** and retains the checkpoint. No production container, app image, SSO signing key, database, network, DNS, favicon in production or service env is changed. The staging store remains intact.
+
+On the Acer, use this command for a guarded preflight and stage-only application:
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -se' <<'REMOTE'
+set -Eeuo pipefail
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+test -z "$(git -C "$HUB/source" status --porcelain)"
+git -C "$HUB/source" pull --ff-only origin feature/isolated-pos-hubqa-20261109
+
+python3 "$HUB/source/staging/pos-hubqa/overlay-approved-login.py"
+python3 "$HUB/source/staging/pos-hubqa/overlay-approved-login.py" --apply
+python3 "$HUB/source/staging/pos-hubqa/check.py"
+REMOTE
+```
+
+Expected: `STAGING_LOGIN_OVERLAY=PASS`, `PRIVATE_STAGE_HEALTH=PASS`, `ORIGINAL_STAGE_BACKEND_PRESERVED=PASS`, `PRODUCTION_UNCHANGED=PASS`, then five security checks ending with `STAGING_HEALTH_AND_UNAUTH_DENIAL=PASS`. The script blocks automatically if the image is not suitable or a different stage state is observed: **do not bypass the guard**.
+
+**After the stage image is promoted:** close any earlier Acer SSH tunnel, rediscover the staging container's new private Docker IPv4 address and reopen the tunnel using the script in the previous section. Open `http://127.0.0.1:18082`, perform an unauthenticated visual review of the new Connected Workspace Version 3 layout and correctly approved Hub icon. Do **not** test MFA/SSO until visual acceptance; HTTP loopback does not verify Google OAuth provider registration, HTTPS Secure cookies or production OAuth re-auth prompts.
+
 ## E. Cleanup and remaining release gates
 
 Stop **only** the staging containers to save resources, without deleting any volumes or backup files:
