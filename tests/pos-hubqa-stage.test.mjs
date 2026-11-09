@@ -400,7 +400,7 @@ test('Private stage login image permission repair is fail-closed, nonroot-safe a
     '"--no-deps"',
     '"--force-recreate"',
     'r.read(8) == PNG',
-    'docker_inspect(PROD_NAME)',
+    'inspect(LIVE)',
     'inspect(LIVE)["Id"] == live["Id"]'
   ]) assert.ok(code.includes(guard), 'Missing release guard: ' + guard);
   for (const forbidden of [
