@@ -123,8 +123,6 @@ def check():
            'RESEND_API_KEY: ""' in compose and
            "proxy_network" not in compose,
            "Unexpected staging Compose settings")
-    ensure(run("docker", "image", "inspect", FIXED, check=False).returncode != 0,
-           "New stage image already exists; refusing overwrite")
     broken = inspect(BROKEN, "image")
     baseline = inspect(STAGE_OLD, "image")
     layers = broken.get("RootFS", {}).get("Layers") or []
@@ -138,6 +136,30 @@ def check():
     ensure(all(selected["public/assets/login-products/" + n + ".png"].startswith(PNG)
                for n in PRODUCTS), "Product image bytes are not PNG")
     return compose, stage, live, pos, broken
+
+def verify_prebuilt_image(broken):
+    """Reuse only the exact already-built, owner-observed image, never overwrite it."""
+    if run("docker", "image", "inspect", FIXED, check=False).returncode != 0:
+        return None
+    built = inspect(FIXED, "image")
+    ensure(built["Id"] ==
+           "sha256:30ee063ae29b77ab09629ae09a361fa80ba78bd5e773c3d97064ed1a557706bf",
+           "Existing corrected image differs from owner-observed immutable image ID")
+    base_layers = broken.get("RootFS", {}).get("Layers") or []
+    new_layers = built.get("RootFS", {}).get("Layers") or []
+    ensure(len(new_layers) == len(base_layers) + 1 and
+           new_layers[:len(base_layers)] == base_layers,
+           "Prebuilt correction is not a single filesystem layer on the approved styled image")
+    for key in ("Env", "Entrypoint", "Cmd", "WorkingDir", "User"):
+        ensure(built.get("Config", {}).get(key) == broken.get("Config", {}).get(key),
+               "Prebuilt image changed runtime setting: " + key)
+    history = run("docker", "history", "--no-trunc", "--format",
+                  "{{.CreatedBy}}", FIXED).stdout.splitlines()
+    ensure(bool(history) and
+           "chmod 0755 /app/public/assets/login-products" in history[0] and
+           "test -d /app/public/assets/login-products" in history[0],
+           "Prebuilt image does not show the approved single-directory chmod operation")
+    return built["Id"]
 
 def build():
     with tempfile.TemporaryDirectory(prefix="v79-stage-icon-fix-") as folder:
@@ -252,10 +274,15 @@ def main():
     print("STAGING_SAFETY_PREFLIGHT=PASS")
     print("BROKEN_STYLED_IMAGE_ID=" + broken["Id"])
     print("ICON_DIRECTORY_FIX=0755 (only this directory)")
+    existing_id = verify_prebuilt_image(broken)
+    if existing_id:
+        probe_nonroot_image()
+        print("EXISTING_CORRECTED_IMAGE_PROVENANCE=PASS")
+        print("EXISTING_NONROOT_PRODUCT_IMAGE_READ=PASS")
     if not args.apply:
         print("DRY_RUN_ONLY=PASS")
         return
-    new_id = build()
+    new_id = existing_id if existing_id else build()
     probe_nonroot_image()
     print("NONROOT_PRODUCT_IMAGE_READ=PASS")
     dest = checkpoint(compose)
