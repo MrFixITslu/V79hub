@@ -11,6 +11,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
+import { authorizeOrganizationRename } from "./server/organization-name.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -1679,6 +1680,54 @@ app.post("/api/platform/entitlement/check", (req, res) => {
   });
   res.setHeader("Cache-Control", "no-store");
   res.json(result);
+});
+
+// Marketing can request a change to the canonical Hub organization name only
+// for the EXACT tenant mapping and a verified Hub workspace owner. Never trust
+// a browser-supplied organization ID on its own.
+app.post("/api/platform/organizations/rename", async (req, res) => {
+  const pathname = "/api/platform/organizations/rename";
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  if (req.get("x-v79-service-id") !== "v79-marketing" ||
+      !verifyPlatformRequest({
+        method:"POST", pathname, body,
+        timestamp:req.get("x-v79-timestamp") || "",
+        signature:req.get("x-v79-signature") || "",
+        secret:posSecret,
+      })) {
+    return res.status(401).json({error:"Invalid service signature"});
+  }
+
+  const rename = authorizeOrganizationRename({
+    body:req.body,
+    organizations:store.organizations,
+    memberships:store.memberships,
+    mapping:marketingTenantMapping(store,String(req.body?.organizationId || "")),
+    scopedHubUserId:posUserId,
+  });
+  if (!rename.ok) return res.status(rename.status ?? 403).json({error:rename.error});
+  const {organizationId,name,organization,owner} = rename;
+  if (organization.name === name) {
+    return res.json({success:true,organization:{id:organizationId,name},changed:false});
+  }
+  try {
+    const next = cloneStore();
+    const target = next.organizations.find(org => org.id === organizationId);
+    if (!target || target.status !== "active") return res.status(409).json({error:"Organization changed"});
+    const previousName = target.name;
+    target.name = name;
+    if (organizationId === posIdentity.organizationId) next.workspace.companyName = name;
+    onboardingAudit(next, "organization_name_updated", {
+      previousName, newName:name, source:"v79-marketing",
+    },owner.userId,organizationId);
+    await commitStore(next);
+    broadcast(organizationId, {type:"ORGANIZATION_UPDATED",organization:{id:organizationId,name}});
+    res.setHeader("Cache-Control","no-store");
+    return res.json({success:true,organization:{id:organizationId,name},changed:true});
+  } catch (error) {
+    console.error("[organization-rename] Unable to persist canonical name");
+    return res.status(503).json({error:"Hub could not update the organization name"});
+  }
 });
 
 // Product-only HMAC endpoint. Session IDs are non-bearer SHA-256 references,
