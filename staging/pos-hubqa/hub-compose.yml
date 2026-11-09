@@ -6,6 +6,8 @@ services:
   hub:
     image: v79hub:pos-hubqa-20261109
     container_name: v79-hub-pos-hubqa
+    # Run as the owner of the private stage-only bind mount, not root.
+    user: "${V79_HUB_STAGE_UID:?Set staging directory owner UID}:${V79_HUB_STAGE_GID:?Set staging directory owner GID}"
     env_file:
       - .env
     environment:
@@ -25,6 +27,10 @@ services:
       V79_HUB_EMAIL_FROM: ""
     ports:
       - "127.0.0.1:18082:3040"
+    # Vite development cache writes must also work without root or loosening /app permissions.
+    tmpfs:
+      - "/app/node_modules/.vite:uid=${V79_HUB_STAGE_UID},gid=${V79_HUB_STAGE_GID},mode=0700"
+      - "/app/node_modules/.vite-temp:uid=${V79_HUB_STAGE_UID},gid=${V79_HUB_STAGE_GID},mode=0700"
     networks:
       - private_pos_stage
     volumes:
