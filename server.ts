@@ -1689,6 +1689,7 @@ app.post("/api/platform/entitlement/check", (req, res) => {
 // rename only for its own actively linked owner. The launch secret is already
 // dedicated to the Marketing->Hub service boundary.
 const confirmedTiquetNames = new Map<string, string>();
+const confirmedPosNames = new Map<string, string>();
 async function syncTiquetOrganisationName(organizationId: string) {
   const organization = store.organizations.find(org => org.id === organizationId && org.status === "active");
   const mapping = store.appTenantMappings.find(item =>
@@ -1724,6 +1725,42 @@ async function syncTiquetOrganisationName(organizationId: string) {
   }
 }
 
+// Independent POS reconciliation: a failed downstream app does not roll back
+// the canonical Hub organisation name or stop retries to the other apps.
+async function syncPosOrganisationName(organizationId: string) {
+  const org = store.organizations.find(item => item.id === organizationId && item.status === "active");
+  const mapping = store.appTenantMappings.find(item =>
+    item.organizationId === organizationId && item.appId === "app-v79pos" && item.status === "active"
+  );
+  if (!org || !mapping?.externalTenantId) return "not_connected";
+  if (confirmedPosNames.get(organizationId) === org.name) return "confirmed";
+  if (posServiceSecret.length < 32) return "pending_configuration";
+  const pathname = "/api/platform/organization/name";
+  const body = JSON.stringify({ organizationId, name: org.name });
+  const timestamp = String(Date.now());
+  try {
+    const response = await fetch(new URL(pathname, posServiceUrl), {
+      method: "POST",
+      redirect: "error",
+      headers: {
+        "content-type": "application/json",
+        "x-v79-service-id": "v79-hub",
+        "x-v79-timestamp": timestamp,
+        "x-v79-signature": signPlatformRequest({ method: "POST", pathname, timestamp, body, secret: posServiceSecret }),
+      },
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    const payload = await response.json().catch(() => ({})) as any;
+    if (!response.ok || payload?.success !== true || payload.organizationId !== organizationId ||
+        payload.name !== org.name) return "pending";
+    confirmedPosNames.set(organizationId, org.name);
+    return "confirmed";
+  } catch {
+    return "pending";
+  }
+}
+
 // Reconcile after app restarts or temporary network failures, without
 // re-provisioning accounts, billing, roles or tickets.
 const tiquetNameReconciliation = setInterval(() => {
@@ -1733,6 +1770,12 @@ const tiquetNameReconciliation = setInterval(() => {
       item.organizationId === org.id && item.appId === "app-tiquet" && item.status === "active"))
     .slice(0, 30);
   void Promise.allSettled(pending.map(org => syncTiquetOrganisationName(org.id)));
+  const posPending = store.organizations
+    .filter(org => org.status === "active" && confirmedPosNames.get(org.id) !== org.name)
+    .filter(org => store.appTenantMappings.some(item =>
+      item.organizationId === org.id && item.appId === "app-v79pos" && item.status === "active"))
+    .slice(0, 30);
+  void Promise.allSettled(posPending.map(org => syncPosOrganisationName(org.id)));
 }, 5 * 60_000);
 tiquetNameReconciliation.unref?.();
 
@@ -1776,14 +1819,18 @@ app.post("/api/platform/organization/name", async (req, res) => {
       });
     }
     confirmedTiquetNames.delete(plan.organizationId);
+    confirmedPosNames.delete(plan.organizationId);
     broadcast(plan.organizationId, { type: "ORGANIZATION_UPDATED", organization: {
       id: plan.organizationId, name: plan.name,
     } });
   }
-  const tiquet = await syncTiquetOrganisationName(plan.organizationId);
+  const [tiquet, pos] = await Promise.all([
+    syncTiquetOrganisationName(plan.organizationId),
+    syncPosOrganisationName(plan.organizationId),
+  ]);
   return res.json({
     success: true, organizationId: plan.organizationId, name: plan.name,
-    propagation: { hub: "confirmed", tiquet },
+    propagation: { hub: "confirmed", tiquet, pos },
   });
 });
 
