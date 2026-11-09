@@ -1681,6 +1681,67 @@ app.post("/api/platform/entitlement/check", (req, res) => {
   res.json(result);
 });
 
+// Marketing can request a change to the canonical Hub organization name only
+// for the EXACT tenant mapping and a verified Hub workspace owner. Never trust
+// a browser-supplied organization ID on its own.
+app.post("/api/platform/organizations/rename", async (req, res) => {
+  const pathname = "/api/platform/organizations/rename";
+  const body = (req as any).rawBody?.toString("utf8") || "";
+  if (req.get("x-v79-service-id") !== "v79-marketing" ||
+      !verifyPlatformRequest({
+        method:"POST", pathname, body,
+        timestamp:req.get("x-v79-timestamp") || "",
+        signature:req.get("x-v79-signature") || "",
+        secret:posSecret,
+      })) {
+    return res.status(401).json({error:"Invalid service signature"});
+  }
+
+  const organizationId = String(req.body?.organizationId || "").trim();
+  const businessId = String(req.body?.businessId || "").trim();
+  const hubUserId = String(req.body?.hubUserId || "").trim();
+  const name = typeof req.body?.name === "string" ? req.body.name.trim().normalize("NFC") : "";
+  if (!name || name.length > 180 || /[\u0000-\u001f\u007f]/.test(name) ||
+      organizationId.length < 8 || organizationId.length > 180 ||
+      businessId.length < 8 || businessId.length > 180 ||
+      hubUserId.length < 8 || hubUserId.length > 180) {
+    return res.status(400).json({error:"Invalid organization name or tenant identity"});
+  }
+  const organization = store.organizations.find(org => org.id === organizationId && org.status === "active");
+  const mapping = marketingTenantMapping(store, organizationId);
+  const owner = store.memberships.find(membership =>
+    membership.organizationId === organizationId &&
+    membership.role === "owner" &&
+    membership.status === "active" &&
+    posUserId(membership.userId, organizationId) === hubUserId
+  );
+  if (!organization || !owner || mapping?.status !== "active" ||
+      mapping.externalTenantId !== businessId) {
+    return res.status(403).json({error:"Active owner and tenant mapping required"});
+  }
+  if (organization.name === name) {
+    return res.json({success:true,organization:{id:organizationId,name},changed:false});
+  }
+  try {
+    const next = cloneStore();
+    const target = next.organizations.find(org => org.id === organizationId);
+    if (!target || target.status !== "active") return res.status(409).json({error:"Organization changed"});
+    const previousName = target.name;
+    target.name = name;
+    if (organizationId === posIdentity.organizationId) next.workspace.companyName = name;
+    onboardingAudit(next, "organization_name_updated", {
+      previousName, newName:name, source:"v79-marketing",
+    },owner.userId,organizationId);
+    await commitStore(next);
+    broadcast(organizationId, {type:"ORGANIZATION_UPDATED",organization:{id:organizationId,name}});
+    res.setHeader("Cache-Control","no-store");
+    return res.json({success:true,organization:{id:organizationId,name},changed:true});
+  } catch (error) {
+    console.error("[organization-rename] Unable to persist canonical name");
+    return res.status(503).json({error:"Hub could not update the organization name"});
+  }
+});
+
 // Product-only HMAC endpoint. Session IDs are non-bearer SHA-256 references,
 // never browser cookies, and do not authorize a request without the shared secret.
 // OFF by default, fail closed during an isolated Tiquet-bound logout rehearsal.
