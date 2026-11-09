@@ -48,7 +48,39 @@ def private_address(container):
 
 
 def approved_hub_image(stage_hub):
+    # Prefer the reviewed 9 Nov frontend-only overlay; its underlying image
+    # keeps the original private Hub backend, store and MFA configuration.
+    overlay = HUB_ROOT / "approved-login-overlay.json"
     pin = HUB_ROOT / "approved-live-image.json"
+    if overlay.exists():
+        ensure(not pin.exists() and overlay.is_file() and
+               not overlay.is_symlink() and
+               stat.S_IMODE(overlay.stat().st_mode) == 0o600,
+               "Conflicting or unsafe staging UI pin")
+        record = json.loads(overlay.read_text())
+        expected = "v79hub:pos-hubqa-ui-v3-20261109"
+        expected_source = "localhost/v79-hub-login-connected:20261109-r1"
+        image_id = record.get("overlay_image_id")
+        source_id = record.get("source_image_id")
+        ensure(record.get("overlay_image") == expected and
+               record.get("source_image") == expected_source and
+               isinstance(image_id, str) and
+               re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) and
+               isinstance(source_id, str) and
+               re.fullmatch(r"sha256:[0-9a-f]{64}", source_id) and
+               record.get("base_stage_image") == "v79hub:pos-hubqa-20261109",
+               "Unexpected frontend overlay source or image ID")
+        ensure(stage_hub["Config"]["Image"] == expected and
+               stage_hub["Image"] == image_id,
+               "Stage Hub did not run the exact pinned login overlay")
+        built = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", expected], text=True))[0]
+        source = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", expected_source], text=True))[0]
+        ensure(built["Id"] == image_id and source["Id"] == source_id,
+               "Overlay source or built image tags changed")
+        return
+
     if not pin.exists():
         ensure(stage_hub["Config"]["Image"] == "v79hub:pos-hubqa-20261109",
                "Unpinned Hub staging image mismatch")
