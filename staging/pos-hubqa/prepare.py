@@ -67,7 +67,7 @@ def assert_stage_only(require_stopped=False):
     stage_db_env = dict(entry.split("=", 1) for entry in stage_db["Config"]["Env"] if "=" in entry)
     if stage_db_env.get("POSTGRES_DB") != "v79pos_hubqa":
         die("POS stage DB is not the private v79pos_hubqa database")
-    publish = pos["NetworkSettings"]["Ports"].get("8080/tcp", [])
+    publish = pos["HostConfig"]["PortBindings"].get("8080/tcp", [])
     if len(publish) != 1 or publish[0]["HostIp"] != "127.0.0.1" or publish[0]["HostPort"] != "18081":
         die("Staging API publishing is not restricted to loopback")
     try:
