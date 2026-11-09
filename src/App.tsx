@@ -144,6 +144,12 @@ export default function App() {
           const msg = JSON.parse(event.data);
           if (msg.type === "USERS_UPDATED" && user.permissions?.includes("team")) setUsers(msg.payload);
           if (msg.type === "ECOSYSTEM_APPS_UPDATED") setEcosystemApps(msg.apps);
+          if (msg.type === "ORGANIZATION_UPDATED" &&
+              typeof msg.organization?.name === "string" &&
+              msg.organization.name.length > 0 &&
+              msg.organization.name.length <= 180) {
+            setOrganizationName(msg.organization.name);
+          }
         } catch (err) {
           console.error("WS parse error", err);
         }
