@@ -86,3 +86,33 @@ test('Python stage transformation removes the production Hub route and proxy net
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /ISOLATED_STAGE_TRANSFORMATION_TEST=PASS/);
 });
+
+
+test('Stage bootstrap accepts absent dedicated POS key, but rejects weak explicit key', () => {
+  const script = [
+    'import importlib.util',
+    'from pathlib import Path',
+    'import tempfile',
+    'spec = importlib.util.spec_from_file_location("qa", "staging/pos-hubqa/prepare.py")',
+    'qa = importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(qa)',
+    'with tempfile.TemporaryDirectory() as folder:',
+    '    path = Path(folder) / ".env"',
+    '    values = {"STAGE_DB_PASSWORD":"d"*48,"ENCRYPTION_KEY":"e"*48,"GIFT_CARD_PEPPER":"g"*48,"V79_PLATFORM_SHARED_SECRET":"p"*48,"V79_POS_PLATFORM_SHARED_SECRET":""}',
+    '    path.write_text("".join(k+"="+v+"\\n" for k,v in values.items()))',
+    '    parsed = qa.read_env(path)',
+    '    assert parsed["V79_POS_PLATFORM_SHARED_SECRET"] == ""',
+    '    values["V79_POS_PLATFORM_SHARED_SECRET"] = "weak"',
+    '    path.write_text("".join(k+"="+v+"\\n" for k,v in values.items()))',
+    '    try:',
+    '        qa.read_env(path)',
+    '    except SystemExit as exc:',
+    '        assert "Present but weak" in str(exc)',
+    '    else:',
+    '        raise AssertionError("Weak dedicated key was accepted")',
+    'print("OPTIONAL_POS_KEY_FALLBACK_TEST=PASS")',
+  ].join('\\n');
+  const result = spawnSync('python3', ['-c', script], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /OPTIONAL_POS_KEY_FALLBACK_TEST=PASS/);
+});
