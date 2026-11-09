@@ -240,6 +240,30 @@ Expected: `STAGING_LOGIN_OVERLAY=PASS`, `PRIVATE_STAGE_HEALTH=PASS`, `ORIGINAL_S
 
 **After the stage image is promoted:** close any earlier Acer SSH tunnel, rediscover the staging container's new private Docker IPv4 address and reopen the tunnel using the script in the previous section. Open `http://127.0.0.1:18082`, perform an unauthenticated visual review of the new Connected Workspace Version 3 layout and correctly approved Hub icon. Do **not** test MFA/SSO until visual acceptance; HTTP loopback does not verify Google OAuth provider registration, HTTPS Secure cookies or production OAuth re-auth prompts.
 
+## Correct the approved login presentation: matching CSS and missing app icons
+
+**Owner browser result:** the 9 Nov login component loaded with the correct source, but the page appeared as mostly unstyled stacked text and the Tiquet/FFPRO/POS/Marketing/Academy images were broken. A read-only comparison confirmed that stage and candidate `Login.tsx` have the **same** SHA-256 `cb250f0...`, as do both `index.html` files (`6ea2022...`). However the stage `src/index.css` is `cb3417c...`, whereas the approved Connected Login candidate has `ea182c2...`. Stage Vite served a CSS endpoint with HTTP 200, but that does **not** prove the CSS matches the new component or contains its classes. Stage Hub, stage POS, PostgreSQL and live POS remain healthy.
+
+**Three choices /REDTEAM:** (1) Browser refresh only: rejected, source stylesheets differ. (2) Swap the entire Hub/backend image: rejected, this already failed staging startup and would risk MFA/SSO. (3) **Selected:** layer the exact pinned 9 Nov candidate stylesheet and its referenced **public** image/font files onto the **current healthy staging UI+backend**, build offline and replace **only** the private staging Hub after taking a private checkpoint. The source Login component and HTML are intentionally **not** rewritten.
+
+The guard `staging/pos-hubqa/repair-login-presentation.py` checks all stage and live health, stage-only networking, MFA, service keys, the exact existing frontend-only stage image, the pre-repair CSS/login hashes, existing immutable image pin, private stage data and loopback port declarations. The candidate image and CSS SHA must match the exact hashes observed by the owner. It obtains only public CSS/images/fonts from a disposable nonrunning Docker container, not the production Hub. Stage-only offline build precedes any Compose change. Apply preserves `.env`, Hub JSON store, stage POS/database and other images, snapshots stage data/Compose and changes only the Hub staging image. A failed start or asset/health check attempts a **staging image-only rollback**. It checks image content and HTTP CSS/image media types, preserves original stage runtime environment and rejects anonymous POS API access. No production service, domain, credentials, backups or database is modified.
+
+On the Acer:
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -se' <<'REMOTE'
+set -Eeuo pipefail
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+test -z "$(git -C "$HUB/source" status --porcelain)"
+git -C "$HUB/source" pull --ff-only origin feature/isolated-pos-hubqa-20261109
+python3 "$HUB/source/staging/pos-hubqa/repair-login-presentation.py"
+python3 "$HUB/source/staging/pos-hubqa/repair-login-presentation.py" --apply
+python3 "$HUB/source/staging/pos-hubqa/check.py"
+REMOTE
+```
+
+Expected `DRY_RUN_ONLY=PASS`, `STAGING_LOGIN_STYLE_AND_ASSETS=PASS`, `V3_STAGING_STYLESHEET=PASS`, `V3_STAGING_ASSETS=PASS`, `STAGING_POS_ANONYMOUS_DENIAL=PASS`, followed by the previous stage health/isolation gates. **If blocked, do not rerun `--apply` or bypass a guard.** Reset the owner-only SSH tunnel to the new Hub container IP, open `http://127.0.0.1:18082` in a private browser window and visually verify layout, products and favicon. **MFA/SSO browser acceptance remains unverified** until visual review passes.
+
 ## E. Cleanup and remaining release gates
 
 Stop **only** the staging containers to save resources, without deleting any volumes or backup files:
