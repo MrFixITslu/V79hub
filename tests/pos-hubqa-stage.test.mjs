@@ -231,3 +231,61 @@ test('Live-image tag is derived from exact Docker image identity and refuses bak
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.ok(result.stdout.includes('STAGE_PIN_SECRETS_TEST_PASS'));
 });
+
+test('Approved Connected Login uses a frontend-only overlay onto immutable stage backend', () => {
+  const file = 'staging/pos-hubqa/overlay-approved-login.py';
+  const script = readFileSync(file, 'utf8');
+  for (const fragment of [
+    'localhost/v79-hub-login-connected:20261109-r1',
+    'localhost/v79-hub-sales-review:20261107-r1',
+    'v79hub:pos-hubqa-20261109',
+    'v79hub:pos-hubqa-ui-v3-20261109',
+    'STAGING_LOGIN_OVERLAY=PASS',
+    'DRY_RUN_ONLY=PASS',
+    'STAGING_DATA_PRODUCTION_ISOLATION=PASS',
+    'STAGE_UI_OVERLAY_FAILED_ATTEMPTING_STAGE_ONLY_ROLLBACK',
+    'OLD_STAGE_HUB_IMAGE_RESTORED=PASS',
+    'approved-login-overlay.json',
+  ]) assert.ok(script.includes(fragment), 'Missing gate: ' + fragment);
+  for (const forbidden of [
+    'docker compose down',
+    'docker stop v79-hub',
+    'docker stop v79-pos',
+    'docker rm v79-hub',
+    'docker exec v79-hub',
+    'pg_restore',
+    'chmod 777',
+    'docker build --build-arg',
+  ]) assert.ok(!script.includes(forbidden), 'Unexpected stage overlay operation: ' + forbidden);
+  for (const action of [
+    'private_ip(stage_hub)',
+    'healthcode("http://" + private_ip(pos) + ":8080/v1/me") == 401',
+    'stage_build(files, scratch)',
+    'checkpoint(original)',
+    'atomic_write(ROOT / "compose.yml", original.replace(COMPOSE_OLD, COMPOSE_NEW, 1))',
+    'current_prod["Id"] == prod["Id"]',
+    'current_pos["Id"] == pos["Id"]',
+    '"--network", "none"',
+    '"--pull=false"',
+    '"--no-deps"',
+    '"--force-recreate"'
+  ]) assert.ok(script.includes(action), 'Missing stage isolation gate: ' + action);
+  const check = spawnSync('python3', ['-c',
+    'import ast,pathlib; ast.parse(pathlib.Path("staging/pos-hubqa/overlay-approved-login.py").read_text()); print("OVERLAY_PYTHON_SYNTAX=PASS")'
+  ], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(check.status, 0, check.stderr || check.stdout);
+  assert.ok(check.stdout.includes('OVERLAY_PYTHON_SYNTAX=PASS'));
+});
+
+test('Frontend overlay image must be pinned to both built and 9 November source image', () => {
+  const script = readFileSync('staging/pos-hubqa/check.py', 'utf8');
+  for (const phrase of [
+    'approved-login-overlay.json',
+    'v79hub:pos-hubqa-ui-v3-20261109',
+    'localhost/v79-hub-login-connected:20261109-r1',
+    'record.get("base_stage_image") == "v79hub:pos-hubqa-20261109"',
+    'built["Id"] == image_id and source["Id"] == source_id',
+    'PRIVATE_STAGING_NETWORK=PASS',
+    'FULL_BROWSER_MFA_SSO=NOT_YET_VERIFIED'
+  ]) assert.ok(script.includes(phrase), 'Missing overlay pin check: ' + phrase);
+});
