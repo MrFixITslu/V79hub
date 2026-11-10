@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guarded visual-only Hub overview + sidebar overlay on private POS staging.
+"""Guarded Hub overview, sidebar, and matching workspace CSS on private POS staging.
 
 Read-only preflight is default. --apply operates ONLY on isolated staging Hub
 and reuses the exact reviewed MFA, POS, rollback, and frontend build guards.
@@ -22,17 +22,20 @@ assert spec and spec.loader
 guards = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guards)
 
-VISUAL_IMAGE = "v79hub:pos-hubqa-dashboard-visual-20261109-r1"
+VISUAL_IMAGE = "v79hub:pos-hubqa-dashboard-visual-css-20261109-r2"
 VISUAL_PIN = guards.ROOT / "approved-dashboard-visual.json"
 SOURCE_SHA = {
     "src/components/HubOverview.tsx":
         "b00c05056dd7a8dfcfb6055425644d26ac6880472b714b17461995b16a381096",
     "src/components/Sidebar.tsx":
         "c690df486b7f43d606ce50486bb94e077eccd33a8ed090e1009920537de5cce0",
+    "src/workspace.css":
+        "28d184541c66b58aa3f0baf099ba46f5465534495513573ea219451e157f8f76",
 }
+WORKSPACE_CSS = "src/workspace.css"
 DIRECT_IMPORTS = {
     "src/components/HubOverview.tsx":
-        {"src/types", "src/lib/appLaunch", "src/lib/dashboardTruth"},
+        {"src/types", "src/lib/appLaunch", "src/lib/dashboardTruth", WORKSPACE_CSS},
     "src/components/Sidebar.tsx":
         {"src/types"},
 }
@@ -100,7 +103,7 @@ def check_app_contract(src):
             "Stage App cookie-session or logout contract changed")
 
 def scan(stage, live, scratch):
-    """Explicitly limited two-file import graph; no broad source grafting."""
+    """Only two TSX files and the exact approved CSS; no broad source grafting."""
     candidate_id = guards.inspect(guards.CANDIDATE, "image")["Id"]
     source_pin = json.loads((guards.ROOT / "approved-login-overlay.json").read_text())
     require(source_pin.get("source_image_id") == candidate_id,
@@ -116,13 +119,28 @@ def scan(stage, live, scratch):
                 extract_bytes(guards.STAGE_NAME, filename, scratch))
         for filename, sha in SOURCE_SHA.items():
             new = extract_bytes(cid, filename, scratch)
-            old = extract_bytes(guards.STAGE_NAME, filename, scratch)
             live_data = extract_bytes(guards.LIVE_NAME, filename, scratch)
             require(guards.digest(new) == sha,
                     "Approved visual source fingerprint changed: " + filename)
-            require(new == live_data and new != old,
-                    "Visual candidate differs from live or already matches stage: " +
-                    filename)
+            require(new == live_data,
+                    "Visual candidate differs from running live source: " + filename)
+            if filename == WORKSPACE_CSS:
+                # Stage lacks this stylesheet; no other missing file is approved.
+                absent = guards.run("docker", "exec", guards.STAGE_NAME,
+                                    "sh", "-c", "test ! -e /app/src/workspace.css",
+                                    check=False).returncode == 0
+                require(absent, "Workspace CSS already exists in stage; stop")
+                css = new.decode("utf-8")
+                require(re.search(r"@import\b|url\s*\(", css, re.IGNORECASE)
+                        is None, "Workspace CSS added an unreviewed import or URL")
+                target = scratch / filename
+                target.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+                target.write_bytes(new)
+                hashes[filename] = sha
+                print("APPROVED_WORKSPACE_CSS=" + filename + " SHA256=" + sha)
+                continue
+            old = extract_bytes(guards.STAGE_NAME, filename, scratch)
+            require(new != old, "Visual component already matches stage: " + filename)
             refs = guards.relative_imports(filename, new.decode("utf-8"))
             reviewed = DIRECT_IMPORTS[filename]
             if refs != reviewed:
@@ -137,6 +155,10 @@ def scan(stage, live, scratch):
             require(refs == reviewed,
                     "Visual component new relative imports not reviewed: " + filename)
             for ref in sorted(refs):
+                if ref == WORKSPACE_CSS:
+                    require(ref in SOURCE_SHA, "Unapproved missing workspace CSS")
+                    # Exact CSS candidate/live/source pin is checked in this scan.
+                    continue
                 possibilities = guards.dependency_paths(ref)
                 found = False
                 for dep in possibilities:
@@ -154,8 +176,8 @@ def scan(stage, live, scratch):
             target.write_bytes(new)
             hashes[filename] = sha
             print("APPROVED_VISUAL_COMPONENT=" + filename + " SHA256=" + sha)
-        # Current CSS was previously approved for the Version 3 Connected
-        # Workspace design; don't replace it or the login page.
+        # Preserve previously approved Version 3 login styling separately.
+        # Workspace CSS is additive and pinned to the running live source.
         require(protected["src/index.css"] ==
                 "ea182c2656cea2979412e611bf1e704d4068512f72d6d2db5eba33f80d5c544c",
                 "Approved login stylesheet fingerprint drift")
@@ -179,6 +201,14 @@ def verify_protected_sources(stage, protected):
     require(current["Config"]["Image"] == VISUAL_IMAGE,
             "Private stage image tag unexpectedly changed")
     print("APP_LOGIN_ADMIN_ROUTING_AND_WORKFORCE_SOURCES_UNCHANGED=PASS")
+
+def verify_workspace_css_http():
+    stage = guards.inspect(guards.STAGE_NAME)
+    url = "http://" + guards.ip_of(stage) + ":3040/src/workspace.css?direct"
+    code, mime, _ = guards.get(url)
+    require(code == 200 and mime.startswith("text/css"),
+            "Workspace CSS unavailable as CSS in private staging")
+    print("STAGING_WORKSPACE_CSS_HTTP=PASS")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -205,7 +235,7 @@ def main():
             print("PRIVATE_VISUAL_DASHBOARD_DRY_RUN=PASS")
             print("NO_STAGING_OR_PRODUCTION_DEPLOYMENT=PASS")
             return
-        image_id = guards.build(scratch) # Offline build, only 2 source files.
+        image_id = guards.build(scratch) # Offline build, exactly 3 pinned files.
         checkpoint = guards.checkpoint(compose)
         print("PRIVATE_VISUAL_DASHBOARD_CHECKPOINT=" + str(checkpoint))
         updated_compose = compose.replace(
@@ -219,6 +249,7 @@ def main():
             guards.restart()
             guards.verify_after(stage, live, stage_pos, live_pos, image_id, hashes)
             verify_protected_sources(stage, protected)
+            verify_workspace_css_http()
         except Exception:
             print("STAGING_VISUAL_DASHBOARD_ROLLBACK_ATTEMPT", flush=True)
             guards.save_compose(compose)
