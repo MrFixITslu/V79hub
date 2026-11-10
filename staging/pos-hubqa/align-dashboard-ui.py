@@ -47,7 +47,7 @@ COMPANIONS = (
 IMPORT_PATTERN = re.compile(
     r"""(?:from\s*|import\s*[\(\s]*)['"](\.[^'"]+)['"]"""
 )
-IGNORE_EXT = (".ts", ".tsx", ".js", ".jsx", ".css", ".json", ".svg")
+IGNORE_EXT = (".ts", ".tsx", ".js", ".jsx", ".css", ".json", ".svg", ".html")
 PNG = bytes.fromhex("89504e470d0a1a0a")
 PRODUCTS = ("academy", "ffpro", "marketing", "pos", "tiquet")
 
@@ -250,7 +250,7 @@ def verify_candidate_dependency_parity(scratch):
             compared.add(name)
             ensure(len(compared) < 130, "Unexpectedly large frontend dependency graph")
             roots = (name,)
-            # Try supported TS/JS and CSS extensions if import is extensionless.
+            # Preserve explicit TS/JS/CSS/JSON/SVG/HTML extensions; resolve only extensionless imports.
             paths = roots if name.endswith(IGNORE_EXT) else tuple(
                 name + ext for ext in IGNORE_EXT
             ) + (name + "/index.ts", name + "/index.tsx")
