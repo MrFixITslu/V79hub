@@ -718,3 +718,64 @@ test('Dashboard dependency resolver records imports outside src and rejects trav
     'imports outside src; no automatic broad copy'
   ]) assert.ok(script.includes(check),"Missing fail-closed import diagnostic: "+check);
 });
+
+
+test('Visual-only private dashboard overlay is limited to approved Overview/Sidebar and preserves App, Login, admin and MFA', () => {
+  const source = readFileSync('staging/pos-hubqa/align-visual-dashboard.py','utf8');
+  for (const guard of [
+    'src/components/HubOverview.tsx',
+    'src/components/Sidebar.tsx',
+    'b00c05056dd7a8dfcfb6055425644d26ac6880472b714b17461995b16a381096',
+    'c690df486b7f43d606ce50486bb94e077eccd33a8ed090e1009920537de5cce0',
+    'src/App.tsx',
+    'src/components/Login.tsx',
+    'src/components/AdminConsole.tsx',
+    'src/components/OwnerAssistant.tsx',
+    'src/components/WorkforceActionPanel.tsx',
+    'src/lib/appLaunch.ts',
+    'src/lib/dashboardTruth.ts',
+    'ea182c2656cea2979412e611bf1e704d4068512f72d6d2db5eba33f80d5c544c',
+    'PRIVATE_VISUAL_DASHBOARD_DRY_RUN=PASS',
+    'DIRECT_VISUAL_IMPORT_PARITY=PASS',
+    'STAGE_APP_AUTH_NAVIGATION_PROPS=PASS',
+    'APP_LOGIN_ADMIN_ROUTING_AND_WORKFORCE_SOURCES_UNCHANGED=PASS',
+    'PRIVATE_VISUAL_DASHBOARD_CHECKPOINT=',
+    'STAGING_VISUAL_DASHBOARD_ROLLBACK_ATTEMPT',
+    'PREVIOUS_MFA_POS_STAGE_RESTORED=PASS',
+    'PRIVATE_STAGING_VISUAL_DASHBOARD=PASS',
+    'DASHBOARD_BROWSER_REVIEW_AND_MFA_POS_SSO=NOT_YET_VERIFIED',
+    'guards.check_preflight()',
+    'guards.build(scratch)',
+    'guards.checkpoint(compose)',
+    'guards.restart()',
+    'guards.verify_after(',
+    'verify_protected_sources(',
+  ]) assert.ok(source.includes(guard), 'Visual staging code missing: '+guard);
+  for(const term of ['docker compose down','docker rm v79-hub','chmod 777',
+    'pg_restore','docker stop v79-pos','mcp__Remote_Desktop_Commander']) {
+    assert.ok(!source.includes(term),'Unsafe visual stage instruction: '+term);
+  }
+  const syntax=spawnSync('python3',['-c',
+    'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/align-visual-dashboard.py").read_text());print("VISUAL_STAGE_SCRIPT_SYNTAX=PASS")'
+  ],{encoding:'utf8',timeout:10000});
+  assert.equal(syntax.status,0,syntax.stderr||syntax.stdout);
+  assert.match(syntax.stdout,/VISUAL_STAGE_SCRIPT_SYNTAX=PASS/);
+});
+
+test('Stage acceptance requires exact pinned visual image and unchanged App/Login/Admin source hashes', () => {
+  const source=readFileSync('staging/pos-hubqa/check.py','utf8');
+  for (const term of [
+    'approved-dashboard-visual.json',
+    'v79hub:pos-hubqa-dashboard-visual-20261109-r1',
+    'pin.get("base_stage_image_id") == parent.get("image_id")',
+    'pin.get("dashboard_source_image_id") == candidate["Id"]',
+    'stage_hub["Config"]["Image"] == tag',
+    'source_map == expected_visual',
+    'set(protected_map) == set(expected_protected)',
+    'src/components/Login.tsx',
+    'src/components/AdminConsole.tsx',
+    'src/components/WorkforceActionPanel.tsx',
+    'STAGING_HEALTH_AND_UNAUTH_DENIAL=PASS',
+    'STAGING_LOGIN_PRODUCT_IMAGES=PASS'
+  ]) assert.ok(source.includes(term),'Missing exact visual stage read-back check: '+term);
+});
