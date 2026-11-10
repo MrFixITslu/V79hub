@@ -1,0 +1,55 @@
+# Staging only. NEVER run this Compose file with the production Hub checkout.
+# Review staging/pos-hubqa/README.md before starting.
+name: v79-hub-pos-hubqa-20261109
+
+services:
+  hub:
+    image: v79hub:pos-hubqa-20261109
+    container_name: v79-hub-pos-hubqa
+    # Run as the owner of the private stage-only bind mount, not root.
+    user: "${V79_HUB_STAGE_UID:?Set staging directory owner UID}:${V79_HUB_STAGE_GID:?Set staging directory owner GID}"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      APP_URL: http://127.0.0.1:18082
+      PORT: "3040"
+      DATA_DIR: /app/data
+      V79_HUB_STORE_BACKEND: json
+      V79_REQUIRE_ADMIN_MFA: "1"
+      POS_BASE_URL: http://v79-pos-hubqa-api:8080
+      POS_PUBLIC_URL: http://127.0.0.1:18081
+      WIPAY_ENABLED: "0"
+      V79_WORKFORCE_ACTIONS_ENABLED: "0"
+      V79_MARKETING_PRODUCTION_ENABLED: "0"
+      V79_TRIAL_REMINDERS_ENABLED: "0"
+      RESEND_API_KEY: ""
+      V79_HUB_EMAIL_FROM: ""
+    ports:
+      - "127.0.0.1:18082:3040"
+    # Vite development cache writes must also work without root or loosening /app permissions.
+    tmpfs:
+      - "/app/node_modules/.vite:uid=${V79_HUB_STAGE_UID},gid=${V79_HUB_STAGE_GID},mode=0700"
+      - "/app/node_modules/.vite-temp:uid=${V79_HUB_STAGE_UID},gid=${V79_HUB_STAGE_GID},mode=0700"
+    networks:
+      - private_pos_stage
+    volumes:
+      - ./data:/app/data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 192
+    init: true
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3040/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+networks:
+  private_pos_stage:
+    external: true
+    name: v79pos-hubqa-20261109_stage_internal
