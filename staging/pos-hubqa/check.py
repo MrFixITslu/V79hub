@@ -302,8 +302,15 @@ def main():
     net = json.loads(subprocess.check_output(
         ["docker", "network", "inspect", STAGE_NET], text=True))[0]
 
-    ensure(prod["Config"]["Image"] == "localhost/v79-brand-pos:20261106-r1",
-           "Live POS image changed unexpectedly")
+    expected_pos_tag = "localhost/v79-pos:team-technician-ui-20261110-r3"
+    expected_pos_id = "sha256:bf8c4d5f6a0348406f4db94c083776fc4145628980da502853f17e3cb2b79e64"
+    ensure(prod["Config"]["Image"] == expected_pos_tag and
+           prod["Image"] == expected_pos_id,
+           "Live POS differs from audited 2026-11-10 image tag or ID")
+    ensure(json.loads(subprocess.check_output(
+        ["docker", "image", "inspect", expected_pos_tag], text=True))[0]["Id"] ==
+           expected_pos_id,
+           "Live POS approved tag now points to a different image ID")
     ensure(prod["State"].get("Health", {}).get("Status") == "healthy",
            "Live POS is not healthy")
     ensure(net["Internal"] is True, "The staging Docker bridge is not internal")
