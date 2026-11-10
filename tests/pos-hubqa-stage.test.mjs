@@ -780,6 +780,32 @@ test('Visual-only staging prints unreviewed import paths but never bypasses the 
     'Import diagnostics should not print source or secrets');
 });
 
+test('Workspace CSS audit identifies the exact live asset and is read-only', () => {
+  const script = readFileSync('staging/pos-hubqa/inspect-dashboard-workspace-css.py', 'utf8');
+  for (const requirement of [
+    'guards.check_preflight()',
+    'approved-login-overlay.json',
+    'candidate_overview == live_overview',
+    'KNOWN_SHA',
+    'EXPECTED_IMPORTS',
+    'candidate_css == live_css',
+    'WORKSPACE_CSS_CANDIDATE_SHA256=',
+    'WORKSPACE_CSS_LIVE_SHA256=',
+    'WORKSPACE_CSS_STAGE=',
+    'WORKSPACE_CSS_AT_IMPORT_COUNT=',
+    'WORKSPACE_CSS_EXTERNAL_URL_COUNT=',
+    'STAGING_BUILD_AND_DEPLOYMENT=NOT_ATTEMPTED',
+  ]) assert.ok(script.includes(requirement), 'Missing CSS audit guard: ' + requirement);
+  for (const prohibited of ['--apply', 'guards.build(', 'guards.restart(', 'guards.save_compose(']) {
+    assert.ok(!script.includes(prohibited), 'CSS audit must not mutate private stage: ' + prohibited);
+  }
+  const result = spawnSync('python3', ['-c',
+    'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/inspect-dashboard-workspace-css.py").read_text());print("CSS_AUDIT_SYNTAX=PASS")'
+  ], {encoding:'utf8', timeout:10000});
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /CSS_AUDIT_SYNTAX=PASS/);
+});
+
 test('Stage acceptance requires exact pinned visual image and unchanged App/Login/Admin source hashes', () => {
   const source=readFileSync('staging/pos-hubqa/check.py','utf8');
   for (const term of [
