@@ -319,6 +319,22 @@ echo "SSH_EXIT_CODE=$?"
 
 Expected dry-run: `PRIVATE_STAGE_DASHBOARD_PREFLIGHT=PASS`, SHA-256 for each `APPROVED_LIVE_DASHBOARD_COMPONENT`, `ALL_OTHER_IMPORTS_AND_LOGIN_UNCHANGED=PASS`, `STAGING_DASHBOARD_DRY_RUN=PASS`. **Do not use `--apply` if this fails; report the differing imported file names for an explicit separate compatibility review.** No deployment is authorised merely by this dry-run.
 
+**Dashboard dependency blocked safely (owner evidence):** the previous read-only run passed `PRIVATE_STAGE_DASHBOARD_PREFLIGHT=PASS`, verified the three proposed UI components against the running live Hub and then reported `Additional frontend dependency differs: src/components/AdminConsole.tsx`. The command exited 1 without building, recreating or modifying anything. `AdminConsole.tsx` is a platform-admin component, and indiscriminately copying it or suppressing its mismatch would increase the change scope to authorisation-sensitive workflows. Considered choices: (1) copy it (rejected: expanded administrative-change risk); (2) ignore it (rejected: unverified compatibility); (3) **chosen:** retain read-only fail-closed dependency policy but **collect a complete list of changed imports** in one pass, listing *only file paths and SHA-256s* and then blocking deployment. This avoids repeatedly changing guards to reveal one difference at a time and prevents accidental transfer of admin code.
+
+After updating the checkout, use the **read-only diagnostic only**:
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -s' <<'REMOTE'
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+test -z "$(git -C "$HUB/source" status --porcelain)" || exit 1
+git -C "$HUB/source" pull --ff-only origin feature/isolated-pos-hubqa-20261109 || exit 1
+python3 "$HUB/source/staging/pos-hubqa/align-dashboard-ui.py"
+REMOTE
+echo "SSH_EXIT_CODE=$?"
+```
+
+On a mismatch, expect `NON_DASHBOARD_DEPENDENCY_DIFFERENCES=N` plus `DIFFERING_NON_DASHBOARD_DEPENDENCY=...` paths and hashes followed by `STAGING_DASHBOARD_ALIGNMENT_BLOCKED`. These lines are **expected diagnostic evidence, not deployment success**. Do **not** run `--apply` if any mismatches exist. Review the actual differences and component prop/API contracts separately, and continue to preserve the stage-only login, MFA, POS and production.
+
 **Stage-only apply, only after the read-only gate passes:**
 
 ```bash
