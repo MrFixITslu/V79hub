@@ -124,7 +124,17 @@ def scan(stage, live, scratch):
                     "Visual candidate differs from live or already matches stage: " +
                     filename)
             refs = guards.relative_imports(filename, new.decode("utf-8"))
-            require(refs == DIRECT_IMPORTS[filename],
+            reviewed = DIRECT_IMPORTS[filename]
+            if refs != reviewed:
+                # Diagnostic only: show exact import paths, never source or secrets.
+                # The approved import allowlist remains unchanged and fails shut.
+                for ref in sorted(refs - reviewed):
+                    print("UNREVIEWED_VISUAL_IMPORT=" + filename + " -> " + ref,
+                          flush=True)
+                for ref in sorted(reviewed - refs):
+                    print("MISSING_APPROVED_VISUAL_IMPORT=" + filename + " -> " +
+                          ref, flush=True)
+            require(refs == reviewed,
                     "Visual component new relative imports not reviewed: " + filename)
             for ref in sorted(refs):
                 possibilities = guards.dependency_paths(ref)
