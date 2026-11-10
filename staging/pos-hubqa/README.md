@@ -408,3 +408,42 @@ REMOTE
 ```
 
 Do not use `docker compose down -v`; do not reset real customer data or restart production. Pending: secured HTTPS / OAuth validation, physical Android/iPhone/scanner use, network interruption, real Tiquet job mapping, customer-installed faulty equipment RMA, release security audit and explicit final production deployment approval.
+
+## Private dashboard visual + workspace CSS, 9 November
+
+The first two-file dashboard preflight correctly blocked on an unreviewed
+`src/workspace.css` import. Subsequent **read-only** source-image audit verified
+the CSS in the already-pinned candidate equals the running live Hub exactly,
+SHA-256 `28d184541c66b58aa3f0baf099ba46f5465534495513573ea219451e157f8f76`;
+30,916 bytes, no `@import`, `url(...)`, or external URLs. It is absent from
+the known-good private stage. The candidate Overview and Sidebar retain their
+previous exact live fingerprints.
+
+**Three options reviewed:** bypass import approval (reject), copy the complete
+live frontend (reject: admin/auth/backend dependency drift), or overlay **only**
+the two approved TSX files plus this exact matching CSS (chosen). This is an
+isolated staging change, not a production launch approval.
+
+The adjusted `align-visual-dashboard.py` uses a new, unique image
+`v79hub:pos-hubqa-dashboard-visual-css-20261109-r2`; it requires all three
+immutable source hashes, exact existing TSX dependencies, absence of the
+expected CSS in stage, unchanged App/Login/index.css/admin/workforce files,
+independent stage MFA and service signing keys, a loopback-only network, and
+healthy production/POS containers. Build is offline with no broad source copy.
+A stage-data/Compose checkpoint precedes stage Hub recreation, and failures
+during built-in checks trigger stage-only rollback.
+
+**Read-only gate first:**
+
+```bash
+SOURCE=/home/firelion/v79-hub-pos-hubqa-20261109/source
+PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE/staging/pos-hubqa/align-visual-dashboard.py"
+```
+
+Require `PRIVATE_VISUAL_DASHBOARD_DRY_RUN=PASS`. When the owner approves
+the staging maintenance, run `--apply` once, then
+`staging/pos-hubqa/check.py`; any failure blocks further promotion.
+Afterward inspect the dashboard/sidebar, login images and favicon, password
+sign-in → MFA → Hub → POS SSO, and mobile layout in the private Acer tunnel.
+The script's health checks do **not** replace browser review. Production must
+remain on its existing image until separately approved.
