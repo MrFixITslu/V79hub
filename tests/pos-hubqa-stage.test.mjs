@@ -762,6 +762,24 @@ test('Visual-only private dashboard overlay is limited to approved Overview/Side
   assert.match(syntax.stdout,/VISUAL_STAGE_SCRIPT_SYNTAX=PASS/);
 });
 
+test('Visual-only staging prints unreviewed import paths but never bypasses the strict allowlist', () => {
+  const script = readFileSync('staging/pos-hubqa/align-visual-dashboard.py', 'utf8');
+  for (const required of [
+    'reviewed = DIRECT_IMPORTS[filename]',
+    'for ref in sorted(refs - reviewed):',
+    'UNREVIEWED_VISUAL_IMPORT=',
+    'for ref in sorted(reviewed - refs):',
+    'MISSING_APPROVED_VISUAL_IMPORT=',
+    'require(refs == reviewed,',
+    'Visual component new relative imports not reviewed:',
+  ]) assert.ok(script.includes(required), 'Missing safe import diagnostic: ' + required);
+  assert.ok(script.indexOf('require(refs == reviewed,') <
+            script.indexOf('image_id = guards.build(scratch)'),
+            'Visual import mismatch must fail before any staging build');
+  assert.doesNotMatch(script, /print\(new\.decode|print\(stage_env|print\(candidate_dep/,
+    'Import diagnostics should not print source or secrets');
+});
+
 test('Stage acceptance requires exact pinned visual image and unchanged App/Login/Admin source hashes', () => {
   const source=readFileSync('staging/pos-hubqa/check.py','utf8');
   for (const term of [
