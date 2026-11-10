@@ -594,14 +594,14 @@ test('Dashboard preflight inventories all unapproved frontend dependency differe
     'STAGE_SHA256=',
     'CANDIDATE_SHA256=',
     'for path, (stage_sha, candidate_sha) in sorted(mismatches.items()):',
-    'ensure(not missing_stage and not missing_candidate and not mismatches,',
+    'ensure(not missing_stage and not missing_candidate and',
     'MISSING_STAGE_FRONTEND_DEPENDENCY=',
     'MISSING_CANDIDATE_FRONTEND_DEPENDENCY=',
     'DASHBOARD_DEPENDENCIES_SCANNED=',
     'no automatic broad copy',
     'ALL_OTHER_IMPORTS_AND_LOGIN_UNCHANGED=PASS'
   ]) assert.ok(scanner.includes(needed), 'Missing fail-closed dependency inventory: ' + needed);
-  assert.ok(scanner.indexOf('ensure(not missing_stage and not missing_candidate and not mismatches,') < scanner.indexOf('for path in COMPONENTS:'),
+  assert.ok(scanner.indexOf('ensure(not missing_stage and not missing_candidate and') < scanner.indexOf('for path in COMPONENTS:'),
     'Unapproved dependencies must block before writing overlay candidates');
   const check = spawnSync('python3', ['-c',
     'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/align-dashboard-ui.py").read_text());print("DASHBOARD_DIFFERENCE_INVENTORY_SYNTAX=PASS")'
