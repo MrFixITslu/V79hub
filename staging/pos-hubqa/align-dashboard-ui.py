@@ -212,19 +212,34 @@ def candidate_container():
            "Could not create a read-only candidate inspector")
     return cid
 
-def relative_imports(name, contents):
+def relative_imports(name, contents, outside_src=None):
+    """Resolve imports without trusting path traversal outside /app/src.
+
+    Discovery may continue after a suspicious path so all non-source imports
+    can be reported at once. Promotion remains blocked for any such import.
+    If no collector is passed, preserve fail-closed behaviour for callers.
+    """
     parent = PurePosixPath(name).parent
     results = set()
     for ref in IMPORT_PATTERN.findall(contents):
         parts = []
-        for p in (parent / ref).parts:
-            if p == "..":
-                ensure(bool(parts), "Local frontend import escaped /app")
+        escaped = False
+        for piece in (parent / ref).parts:
+            if piece == "..":
+                if not parts:
+                    escaped = True
+                    break
                 parts.pop()
-            elif p != ".":
-                parts.append(p)
+            elif piece not in (".", ""):
+                parts.append(piece)
         path = "/".join(parts)
-        ensure(path.startswith("src/"), "Frontend import targets outside src")
+        if escaped or not path.startswith("src/"):
+            if outside_src is None:
+                ensure(False, "Frontend import outside src: " + name +
+                       " -> " + ref)
+            else:
+                outside_src.add((name, ref))
+            continue
         results.add(path)
     return results
 
@@ -251,6 +266,7 @@ def verify_candidate_dependency_parity(scratch):
     mismatches = {}
     missing_stage = {}
     missing_candidate = set()
+    outside_src = set()
     imported = set(COMPONENTS) | set(COMPANIONS)
     try:
         while imported:
@@ -306,7 +322,8 @@ def verify_candidate_dependency_parity(scratch):
                 print("APPROVED_LIVE_DASHBOARD_COMPONENT=" + actual +
                       " SHA256=" + digest(contents))
             if actual.endswith((".ts", ".tsx", ".js", ".jsx")):
-                imported |= relative_imports(actual, contents.decode("utf-8"))
+                imported |= relative_imports(actual, contents.decode("utf-8"),
+                                             outside_src)
         print("DASHBOARD_DEPENDENCIES_SCANNED=" + str(len(compared_files)))
         print("MISSING_STAGE_FRONTEND_DEPENDENCIES=" + str(len(missing_stage)))
         for name, candidate_sha in sorted(missing_stage.items()):
@@ -320,11 +337,17 @@ def verify_candidate_dependency_parity(scratch):
             print("DIFFERING_NON_DASHBOARD_DEPENDENCY=" + path +
                   " STAGE_SHA256=" + stage_sha +
                   " CANDIDATE_SHA256=" + candidate_sha)
-        ensure(not missing_stage and not missing_candidate and not mismatches,
+        print("FRONTEND_IMPORTS_OUTSIDE_SRC=" + str(len(outside_src)))
+        for source, imported_path in sorted(outside_src):
+            print("FRONTEND_IMPORT_OUTSIDE_SRC=" + source +
+                  " IMPORT=" + imported_path)
+        ensure(not missing_stage and not missing_candidate and
+               not mismatches and not outside_src,
                "Unreviewed frontend dependencies: " +
                str(len(missing_stage)) + " missing in stage, " +
                str(len(missing_candidate)) + " missing in candidate, " +
-               str(len(mismatches)) + " differing; no automatic broad copy")
+               str(len(mismatches)) + " differing, " +
+               str(len(outside_src)) + " imports outside src; no automatic broad copy")
         for path in COMPONENTS:
             ensure(path in candidate_bytes, "Dashboard component not dependency-verified")
             target = scratch / path
