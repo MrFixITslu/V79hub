@@ -242,16 +242,54 @@ def main():
             "    image: " + guards.BEFORE + "\n",
             "    image: " + VISUAL_IMAGE + "\n", 1
         )
-        guards.save_compose(updated_compose)
+        pin_created = False
         try:
+            guards.save_compose(updated_compose)
             guards.run("docker", "compose", "--env-file", ".env",
                        "-f", "compose.yml", "config", "--quiet", cwd=guards.ROOT)
             guards.restart()
             guards.verify_after(stage, live, stage_pos, live_pos, image_id, hashes)
             verify_protected_sources(stage, protected)
             verify_workspace_css_http()
+
+            # The full independent stage acceptance must also pass before
+            # recording success; failures restore the previous stage image.
+            record = {
+                "dashboard_image": VISUAL_IMAGE,
+                "image_id": image_id,
+                "base_stage_image": guards.BEFORE,
+                "base_stage_image_id": stage["Image"],
+                "dashboard_source_image": guards.CANDIDATE,
+                "dashboard_source_image_id":
+                    guards.inspect(guards.CANDIDATE, "image")["Id"],
+                "changed_files_sha256": hashes,
+                "protected_file_sha256": protected,
+                "checkpoint": str(checkpoint),
+                "applied_utc": datetime.now(timezone.utc).isoformat(),
+            }
+            fd = os.open(VISUAL_PIN, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            pin_created = True
+            with os.fdopen(fd, "w") as stream:
+                json.dump(record, stream, indent=2)
+                stream.write("\n")
+            final = guards.run("python3",
+                               str(Path(__file__).with_name("check.py")),
+                               check=False)
+            require(final.returncode == 0,
+                    "Final independent staging acceptance failed: " +
+                    (final.stderr or final.stdout)[-1000:])
+            print("PRIVATE_STAGE_READBACK_ACCEPTANCE=PASS")
         except Exception:
             print("STAGING_VISUAL_DASHBOARD_ROLLBACK_ATTEMPT", flush=True)
+            if pin_created:
+                try:
+                    require(VISUAL_PIN.is_file() and not VISUAL_PIN.is_symlink(),
+                            "Owned visual image pin changed before rollback")
+                    VISUAL_PIN.unlink()
+                    print("FAILED_STAGE_VISUAL_PIN_REMOVED=PASS", flush=True)
+                except Exception as cleanup_error:
+                    print("STAGING_VISUAL_PIN_CLEANUP_FAILED=" +
+                          str(cleanup_error), flush=True)
             guards.save_compose(compose)
             try:
                 guards.restart()
@@ -262,24 +300,6 @@ def main():
             print("VISUAL_DASHBOARD_CHECKPOINT_RETAINED=" + str(checkpoint),
                   flush=True)
             raise
-
-        record = {
-            "dashboard_image": VISUAL_IMAGE,
-            "image_id": image_id,
-            "base_stage_image": guards.BEFORE,
-            "base_stage_image_id": stage["Image"],
-            "dashboard_source_image": guards.CANDIDATE,
-            "dashboard_source_image_id":
-                guards.inspect(guards.CANDIDATE, "image")["Id"],
-            "changed_files_sha256": hashes,
-            "protected_file_sha256": protected,
-            "checkpoint": str(checkpoint),
-            "applied_utc": datetime.now(timezone.utc).isoformat(),
-        }
-        fd = os.open(VISUAL_PIN, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        with os.fdopen(fd, "w") as stream:
-            json.dump(record, stream, indent=2)
-            stream.write("\n")
         print("PRIVATE_STAGING_VISUAL_DASHBOARD=PASS")
         print("DASHBOARD_BROWSER_REVIEW_AND_MFA_POS_SSO=NOT_YET_VERIFIED")
 
