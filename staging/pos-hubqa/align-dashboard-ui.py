@@ -113,6 +113,15 @@ def check_preflight():
                stat.S_IMODE(file.stat().st_mode) == 0o600,
                "Stage config or previous immutable image pin unsafe")
     previous = json.loads(PREVIOUS_PIN.read_text())
+    source_pin = ROOT / "approved-login-overlay.json"
+    ensure(source_pin.is_file() and not source_pin.is_symlink() and
+           stat.S_IMODE(source_pin.stat().st_mode) == 0o600,
+           "Previously approved exact Connected Login source pin unavailable")
+    original_source = json.loads(source_pin.read_text())
+    ensure(original_source.get("source_image") == CANDIDATE and
+           original_source.get("source_image_id") ==
+           inspect(CANDIDATE, "image")["Id"],
+           "Candidate image differs from approved 9 Nov login source ID")
     ensure(previous.get("image") == BEFORE and
            previous.get("approved_css_sha256") ==
            "ea182c2656cea2979412e611bf1e704d4068512f72d6d2db5eba33f80d5c544c" and
@@ -156,7 +165,9 @@ def check_preflight():
            stage_env.get("V79_PLATFORM_SHARED_SECRET") !=
            live_env.get("V79_PLATFORM_SHARED_SECRET") and
            stage_env.get("V79_PLATFORM_SHARED_SECRET") !=
-           stage_env.get("V79_HUB_SECURITY_KEY"),
+           stage_env.get("V79_HUB_SECURITY_KEY") and
+           stage_env.get("V79_POS_PLATFORM_SHARED_SECRET") ==
+           stage_env.get("V79_PLATFORM_SHARED_SECRET"),
            "Stage secrets appear shared with live or MFA encryption")
     compose = (ROOT / "compose.yml").read_text()
     old_line = "    image: " + BEFORE + "\n"
