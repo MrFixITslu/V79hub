@@ -839,6 +839,10 @@ test('Exact three-file visual overlay only admits pinned CSS missing from stage'
     'guards.build(scratch)',
     'verify_workspace_css_http()',
     'verify_protected_sources(stage, protected)',
+    'str(Path(__file__).with_name("check.py"))',
+    'Final independent staging acceptance failed:',
+    'PRIVATE_STAGE_READBACK_ACCEPTANCE=PASS',
+    'FAILED_STAGE_VISUAL_PIN_REMOVED=PASS',
     'STAGING_VISUAL_DASHBOARD_ROLLBACK_ATTEMPT',
   ]) assert.ok(script.includes(required),'Missing CSS safety gate: '+required);
   assert.ok(script.indexOf('require(absent,') < script.indexOf('image_id = guards.build(scratch)'));
