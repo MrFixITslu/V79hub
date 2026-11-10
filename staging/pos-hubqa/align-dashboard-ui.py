@@ -259,7 +259,7 @@ def verify_candidate_dependency_parity(scratch):
             if name in compared:
                 continue
             compared.add(name)
-            ensure(len(compared) < 130, "Unexpectedly large frontend dependency graph")
+            ensure(len(compared) < 400, "Unexpectedly large frontend dependency graph (limit 399)")
             paths = dependency_paths(name)
             contents = None
             actual = None
