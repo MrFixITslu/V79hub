@@ -577,3 +577,32 @@ test('Dashboard overlay accepts Docker legal names and identical repeated enviro
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /DASHBOARD_DOCKER_ENV_SECURITY=PASS/);
 });
+
+
+test('Dashboard preflight inventories all unapproved frontend dependency differences before any stage write', () => {
+  const source = readFileSync('staging/pos-hubqa/align-dashboard-ui.py', 'utf8');
+  const start = source.indexOf('def verify_candidate_dependency_parity(scratch):');
+  const end = source.indexOf('def build(scratch):', start);
+  assert.ok(start >= 0 && end > start, 'Dependency scanner missing');
+  const scanner = source.slice(start, end);
+  for (const needed of [
+    'mismatches = {}',
+    'name = sorted(imported)[0]',
+    'mismatches[actual] = (digest(stage_content), digest(contents))',
+    'NON_DASHBOARD_DEPENDENCY_DIFFERENCES=',
+    'DIFFERING_NON_DASHBOARD_DEPENDENCY=',
+    'STAGE_SHA256=',
+    'CANDIDATE_SHA256=',
+    'for path, (stage_sha, candidate_sha) in sorted(mismatches.items()):',
+    'ensure(False,',
+    'read-only discovery; no automatic broad source copy',
+    'ALL_OTHER_IMPORTS_AND_LOGIN_UNCHANGED=PASS'
+  ]) assert.ok(scanner.includes(needed), 'Missing fail-closed dependency inventory: ' + needed);
+  assert.ok(scanner.indexOf('if mismatches:') < scanner.indexOf('for path in COMPONENTS:'),
+    'Unapproved dependencies must block before writing overlay candidates');
+  const check = spawnSync('python3', ['-c',
+    'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/align-dashboard-ui.py").read_text());print("DASHBOARD_DIFFERENCE_INVENTORY_SYNTAX=PASS")'
+  ], {encoding:'utf8', timeout: 10000});
+  assert.equal(check.status, 0, check.stderr || check.stdout);
+  assert.match(check.stdout, /DASHBOARD_DIFFERENCE_INVENTORY_SYNTAX=PASS/);
+});
