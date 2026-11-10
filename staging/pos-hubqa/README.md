@@ -337,6 +337,8 @@ echo "SSH_EXIT_CODE=$?"
 
 On a mismatch, expect `NON_DASHBOARD_DEPENDENCY_DIFFERENCES=N` plus `DIFFERING_NON_DASHBOARD_DEPENDENCY=...` paths and hashes followed by `STAGING_DASHBOARD_ALIGNMENT_BLOCKED`. These lines are **expected diagnostic evidence, not deployment success**. Do **not** run `--apply` if any mismatches exist. Review the actual differences and component prop/API contracts separately, and continue to preserve the stage-only login, MFA, POS and production.
 
+**New read-only result (9 November):** after the `index.html` path correction passed, the owner's next preflight stopped on `Stage dependency missing: src/components/OwnerToday.tsx` (SSH exit code 0, inner diagnostic exit 1). No image was built, no container restarted. The approved candidate image includes this additional dashboard dependency, which is absent from private stage and from this branch's current source tree. The scan now **continues instead of aborting on the first missing stage file**; it lists `MISSING_STAGE_FRONTEND_DEPENDENCIES`, `MISSING_CANDIDATE_FRONTEND_DEPENDENCIES` and `NON_DASHBOARD_DEPENDENCY_DIFFERENCES` with only paths and SHA256 hashes, and still blocks promotion. It keeps a finite 399-path limit and deduplicates resolved imports. The scanner does not copy/admin-allowlist any new files. This is a source/API compatibility investigation, not a reason to weaken authentication or replace the private Hub backend.
+
 **Stage-only apply, only after the read-only gate passes:**
 
 ```bash
