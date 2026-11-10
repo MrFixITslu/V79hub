@@ -239,10 +239,12 @@ def verify_candidate_dependency_parity(scratch):
     compared = set()
     candidate_bytes = {}
     stage_bytes = {}
+    mismatches = {}
     imported = set(COMPONENTS) | set(COMPANIONS)
     try:
         while imported:
-            name = imported.pop()
+            name = sorted(imported)[0]
+            imported.remove(name)
             if name in compared:
                 continue
             compared.add(name)
@@ -282,11 +284,20 @@ def verify_candidate_dependency_parity(scratch):
                 print("APPROVED_LIVE_DASHBOARD_COMPONENT=" + actual +
                       " SHA256=" + digest(contents))
             else:
-                ensure(contents == stage_content,
-                       "Additional frontend dependency differs: " + actual +
-                       " (no automatic broad source copy)")
+                if contents != stage_content:
+                    mismatches[actual] = (digest(stage_content), digest(contents))
             if actual.endswith((".ts", ".tsx", ".js", ".jsx")):
                 imported |= relative_imports(actual, contents.decode("utf-8"))
+        if mismatches:
+            print("NON_DASHBOARD_DEPENDENCY_DIFFERENCES=" + str(len(mismatches)))
+            for path, (stage_sha, candidate_sha) in sorted(mismatches.items()):
+                print("DIFFERING_NON_DASHBOARD_DEPENDENCY=" + path +
+                      " STAGE_SHA256=" + stage_sha +
+                      " CANDIDATE_SHA256=" + candidate_sha)
+            ensure(False,
+                   "Additional frontend dependency differs: " +
+                   ", ".join(sorted(mismatches)) +
+                   " (read-only discovery; no automatic broad source copy)")
         for path in COMPONENTS:
             ensure(path in candidate_bytes, "Dashboard component not dependency-verified")
             target = scratch / path
