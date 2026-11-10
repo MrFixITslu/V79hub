@@ -294,6 +294,42 @@ Expected `DRY_RUN_ONLY=PASS`, `NONROOT_PRODUCT_IMAGE_READ=PASS`, `STAGE_LOGIN_PR
 
 Browser check comes afterwards: close old Acer SSH tunnels, rediscover the new stage-only Docker IPs, open the private localhost Hub and review the Version 3 layout, five icons and favicon. Only after the visual review passes should the owner proceed to private staging password/MFA and signed POS launch acceptance. Public OAuth and HTTPS production behaviour remain separate gates.
 
+## Version 3 login and POS accepted; dashboard source alignment (9 November)
+
+**Owner browser evidence:** private staging Version 3 Connected Workspace login visual approved; password sign-in and MFA accepted; owner reports POS access works, but there is **no explicit evidence yet** of *zero additional login challenges* or one-time launch-ticket replay denial. Staging Hub dashboard screenshot was visibly the **older overview**. The source comparison on the main server found **exactly three differing requested dashboard files** relative to the newer Connected Login candidate: `src/App.tsx`, `src/components/HubOverview.tsx` and `src/components/Sidebar.tsx`. For those three, running production Hub equals candidate and staging differs; `src/components/AppSwitcher.tsx`, `src/components/WorkspaceConnections.tsx` and `src/lib/dashboardTruth.ts` already match. **No production change is needed to obtain the currently running frontend design.**
+
+**Three approaches /REDTEAM:** (1) ship the entire live image (previously failed stage startup and could change backend/MFA), (2) copy the complete source tree (unreviewed auth and API changes), (3) **chosen:** overlay only these three dashboard frontend components from the **same exact 9 Nov candidate image already approved for login**, on top of the known-good private staging image `v79hub:pos-hubqa-ui-v3-styled-perms-20261109-r1`. Fail closed if *any recursively imported frontend dependency* differs from stage beyond those three; never silently copy dependency changes or production secrets. Ensure all three candidate files match the **running** live Hub versions byte-for-byte. Build offline, checkpoint private stage data/Compose and change only the staging Hub with automatic stage-image rollback for failed health/CSS/PNG/anonymous POS checks.
+
+**Read-only dry-run first (on Acer):**
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -s' <<'REMOTE'
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+if [ -n "$(git -C "$HUB/source" status --porcelain)" ]; then
+  echo "BLOCKED: staging source has local edits"
+  exit 1
+fi
+git -C "$HUB/source" pull --ff-only origin feature/isolated-pos-hubqa-20261109 || exit
+python3 "$HUB/source/staging/pos-hubqa/align-dashboard-ui.py"
+REMOTE
+echo "SSH_EXIT_CODE=$?"
+```
+
+Expected dry-run: `PRIVATE_STAGE_DASHBOARD_PREFLIGHT=PASS`, SHA-256 for each `APPROVED_LIVE_DASHBOARD_COMPONENT`, `ALL_OTHER_IMPORTS_AND_LOGIN_UNCHANGED=PASS`, `STAGING_DASHBOARD_DRY_RUN=PASS`. **Do not use `--apply` if this fails; report the differing imported file names for an explicit separate compatibility review.** No deployment is authorised merely by this dry-run.
+
+**Stage-only apply, only after the read-only gate passes:**
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -s' <<'REMOTE'
+HUB=/home/firelion/v79-hub-pos-hubqa-20261109
+python3 "$HUB/source/staging/pos-hubqa/align-dashboard-ui.py" --apply || exit $?
+python3 "$HUB/source/staging/pos-hubqa/check.py"
+REMOTE
+echo "SSH_EXIT_CODE=$?"
+```
+
+Expected after stage-only apply: `STAGING_UPDATED_DASHBOARD_FILES=PASS`, `STAGING_LOGIN_ICONS_AND_CSS=PASS`, `STAGING_MFA_AND_POS_RUNTIME_PRESERVED=PASS`, `PRODUCTION_AND_STAGE_POS_UNCHANGED=PASS`, `PRIVATE_STAGING_DASHBOARD_ALIGNED=PASS`, then all stage acceptance checks. **Browser dashboard visual approval and password→MFA→Hub→POS one-click SSO remain unverified until retested.** Refresh the Acer tunnel after any Hub staging recreation; never use production accounts or publish the private staging domain.
+
 ## E. Cleanup and remaining release gates
 
 Stop **only** the staging containers to save resources, without deleting any volumes or backup files:
