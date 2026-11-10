@@ -549,3 +549,31 @@ test('Stage acceptance pins exact dashboard image, source and 3 file hashes', ()
     'STAGING_HEALTH_AND_UNAUTH_DENIAL=PASS'
   ]) assert.ok(script.includes(name), 'Missing dashboard identity or regression check: ' + name);
 });
+
+
+test('Dashboard overlay accepts Docker legal names and identical repeated environment entries, rejects conflicts', () => {
+  const source = [
+    'import importlib.util',
+    'spec=importlib.util.spec_from_file_location("stage_dashboard","staging/pos-hubqa/align-dashboard-ui.py")',
+    'm=importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(m)',
+    'make=lambda entries: {"Config":{"Env":entries}}',
+    'good=make(["PATH=/usr/bin","SERVICE.MODE=stage","X-Name=allowed","V79_REQUIRE_ADMIN_MFA=1","REPEAT=one","REPEAT=one"])',
+    'expected={"PATH":"/usr/bin","SERVICE.MODE":"stage","X-Name":"allowed","V79_REQUIRE_ADMIN_MFA":"1","REPEAT":"one"}',
+    'assert m.env_map(good)==expected',
+    'assert m.env_map(make(list(reversed(good["Config"]["Env"]))))==expected',
+    'for malformed in (["REPEAT=one","REPEAT=two"],["=no-key"],["NO_EQUAL_SIGN"],[None]):',
+    '  try:',
+    '    m.env_map(make(malformed))',
+    '  except RuntimeError as exc:',
+    '    assert "STAGING_DASHBOARD_ALIGNMENT_BLOCKED" in str(exc)',
+    '    assert "REPEAT=one" not in str(exc) and "REPEAT=two" not in str(exc)',
+    '  else:',
+    '    raise AssertionError("Conflicting/invalid environment entry accepted")',
+    'print("DASHBOARD_DOCKER_ENV_SECURITY=PASS")'
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', source],
+    { encoding: 'utf8', timeout: 10000 });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /DASHBOARD_DOCKER_ENV_SECURITY=PASS/);
+});
