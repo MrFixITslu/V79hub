@@ -494,7 +494,7 @@ test('Owner-approved dashboard alignment overlays only 3 matching live frontend 
     'PRIVATE_STAGE_DASHBOARD_PREFLIGHT=PASS',
     'ALL_OTHER_IMPORTS_AND_LOGIN_UNCHANGED=PASS',
     'APPROVED_LIVE_DASHBOARD_COMPONENT=',
-    'Additional frontend dependency differs:',
+    'Unreviewed frontend dependencies:',
     'Latest dashboard source does not match running live frontend:',
     'v79hub:pos-hubqa-dashboard-aligned-20261109-r1',
     'approved-dashboard-alignment.json',
@@ -594,11 +594,14 @@ test('Dashboard preflight inventories all unapproved frontend dependency differe
     'STAGE_SHA256=',
     'CANDIDATE_SHA256=',
     'for path, (stage_sha, candidate_sha) in sorted(mismatches.items()):',
-    'ensure(False,',
-    'read-only discovery; no automatic broad source copy',
+    'ensure(not missing_stage and not missing_candidate and not mismatches,',
+    'MISSING_STAGE_FRONTEND_DEPENDENCY=',
+    'MISSING_CANDIDATE_FRONTEND_DEPENDENCY=',
+    'DASHBOARD_DEPENDENCIES_SCANNED=',
+    'no automatic broad copy',
     'ALL_OTHER_IMPORTS_AND_LOGIN_UNCHANGED=PASS'
   ]) assert.ok(scanner.includes(needed), 'Missing fail-closed dependency inventory: ' + needed);
-  assert.ok(scanner.indexOf('if mismatches:') < scanner.indexOf('for path in COMPONENTS:'),
+  assert.ok(scanner.indexOf('ensure(not missing_stage and not missing_candidate and not mismatches,') < scanner.indexOf('for path in COMPONENTS:'),
     'Unapproved dependencies must block before writing overlay candidates');
   const check = spawnSync('python3', ['-c',
     'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/align-dashboard-ui.py").read_text());print("DASHBOARD_DIFFERENCE_INVENTORY_SYNTAX=PASS")'
@@ -625,4 +628,58 @@ test('Dashboard candidate dependency resolver accepts explicit index.html withou
   const result = spawnSync('python3', ['-c', code], {encoding:'utf8', timeout:10000});
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /DASHBOARD_INDEX_HTML_PATH_RESOLUTION=PASS/);
+});
+
+
+test('Read-only dashboard scan inventories missing stage, missing candidate, and differing files in one pass', () => {
+  const code = [
+    'import importlib.util, io, tempfile, pathlib, contextlib',
+    'p="staging/pos-hubqa/align-dashboard-ui.py"',
+    'spec=importlib.util.spec_from_file_location("scan_stage",p)',
+    'm=importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(m)',
+    'm.COMPONENTS=("src/App.tsx",)',
+    'm.COMPANIONS=()',
+    'm.STAGE_NAME="stage"',
+    'm.LIVE_NAME="live"',
+    'm.candidate_container=lambda:"candidate"',
+    'm.run=lambda *a,**kw:None',
+    'app=\'import {OwnerToday} from "./components/OwnerToday";\\nimport {AdminConsole} from "./components/AdminConsole";\\nimport {Other} from "./components/Unlisted";\\nexport default function App() {}\'',
+    'candidate={',
+    ' "src/App.tsx":app,',
+    ' "src/components/OwnerToday.tsx":"export const OwnerToday=1;",',
+    ' "src/components/AdminConsole.tsx":"export const AdminConsole=2;"',
+    '}',
+    'stage={',
+    ' "src/App.tsx":"export default function App() { return 1; }",',
+    ' "src/components/AdminConsole.tsx":"export const AdminConsole=1;"',
+    '}',
+    'data={"candidate":candidate,"stage":stage,"live":{"src/App.tsx":app}}',
+    'def extract(container,path,target):',
+    ' value=data.get(container,{}).get(path)',
+    ' if value is None: return False',
+    ' target.parent.mkdir(parents=True,exist_ok=True)',
+    ' target.write_bytes(value.encode())',
+    ' return True',
+    'm.extract=extract',
+    'buf=io.StringIO()',
+    'with tempfile.TemporaryDirectory() as tmp:',
+    ' try:',
+    '  with contextlib.redirect_stdout(buf): m.verify_candidate_dependency_parity(pathlib.Path(tmp))',
+    ' except RuntimeError as e:',
+    '  assert "Unreviewed frontend dependencies:" in str(e),str(e)',
+    ' else: raise AssertionError("Unapproved frontend imports were accepted")',
+    'text=buf.getvalue()',
+    'assert "MISSING_STAGE_FRONTEND_DEPENDENCY=src/components/OwnerToday.tsx" in text,text',
+    'assert "MISSING_CANDIDATE_FRONTEND_DEPENDENCY=src/components/Unlisted" in text,text',
+    'assert "DIFFERING_NON_DASHBOARD_DEPENDENCY=src/components/AdminConsole.tsx" in text,text',
+    'assert "MISSING_STAGE_FRONTEND_DEPENDENCIES=1" in text,text',
+    'assert "MISSING_CANDIDATE_FRONTEND_DEPENDENCIES=1" in text,text',
+    'assert "NON_DASHBOARD_DEPENDENCY_DIFFERENCES=1" in text,text',
+    'assert text.count("APPROVED_LIVE_DASHBOARD_COMPONENT=src/App.tsx")==1,text',
+    'print("DASHBOARD_ALL_GAPS_READONLY_INVENTORY=PASS")'
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', code], {encoding:'utf8',timeout:10000});
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /DASHBOARD_ALL_GAPS_READONLY_INVENTORY=PASS/);
 });
