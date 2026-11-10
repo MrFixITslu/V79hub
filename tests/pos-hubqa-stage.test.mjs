@@ -720,13 +720,17 @@ test('Dashboard dependency resolver records imports outside src and rejects trav
 });
 
 
-test('Visual-only private dashboard overlay is limited to approved Overview/Sidebar and preserves App, Login, admin and MFA', () => {
+test('Visual staging is limited to approved Overview, Sidebar and workspace CSS, preserving App/Login/admin/MFA', () => {
   const source = readFileSync('staging/pos-hubqa/align-visual-dashboard.py','utf8');
   for (const guard of [
     'src/components/HubOverview.tsx',
     'src/components/Sidebar.tsx',
     'b00c05056dd7a8dfcfb6055425644d26ac6880472b714b17461995b16a381096',
     'c690df486b7f43d606ce50486bb94e077eccd33a8ed090e1009920537de5cce0',
+    'src/workspace.css',
+    '28d184541c66b58aa3f0baf099ba46f5465534495513573ea219451e157f8f76',
+    'test ! -e /app/src/workspace.css',
+    'STAGING_WORKSPACE_CSS_HTTP=PASS',
     'src/App.tsx',
     'src/components/Login.tsx',
     'src/components/AdminConsole.tsx',
@@ -806,11 +810,47 @@ test('Workspace CSS audit identifies the exact live asset and is read-only', () 
   assert.match(result.stdout, /CSS_AUDIT_SYNTAX=PASS/);
 });
 
+test('Exact three-file visual overlay only admits pinned CSS missing from stage', () => {
+  const script = readFileSync('staging/pos-hubqa/align-visual-dashboard.py', 'utf8');
+  const test = [
+    'import importlib.util',
+    'p="staging/pos-hubqa/align-visual-dashboard.py"',
+    'spec=importlib.util.spec_from_file_location("css_visual_overlay",p)',
+    'm=importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(m)',
+    'assert tuple(m.SOURCE_SHA)==("src/components/HubOverview.tsx","src/components/Sidebar.tsx","src/workspace.css")',
+    'assert m.SOURCE_SHA["src/workspace.css"]=="28d184541c66b58aa3f0baf099ba46f5465534495513573ea219451e157f8f76"',
+    'assert m.DIRECT_IMPORTS["src/components/HubOverview.tsx"]=={"src/types","src/lib/appLaunch","src/lib/dashboardTruth","src/workspace.css"}',
+    'assert m.DIRECT_IMPORTS["src/components/Sidebar.tsx"]=={"src/types"}',
+    'assert m.VISUAL_IMAGE=="v79hub:pos-hubqa-dashboard-visual-css-20261109-r2"',
+    'assert m.WORKSPACE_CSS in m.SOURCE_SHA',
+    'print("VISUAL_CSS_SOURCE_ALLOWLIST=PASS")',
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', test], {encoding:'utf8', timeout:10000});
+  assert.equal(result.status,0,result.stderr || result.stdout);
+  assert.match(result.stdout,/VISUAL_CSS_SOURCE_ALLOWLIST=PASS/);
+  for (const required of [
+    'require(new == live_data,',
+    'css = new.decode("utf-8")',
+    're.search(r"@import\\b|url\\s*\\(", css, re.IGNORECASE)',
+    'require(absent, "Workspace CSS already exists in stage; stop")',
+    'if ref == WORKSPACE_CSS:',
+    'require(ref in SOURCE_SHA, "Unapproved missing workspace CSS")',
+    'guards.build(scratch)',
+    'verify_workspace_css_http()',
+    'verify_protected_sources(stage, protected)',
+    'STAGING_VISUAL_DASHBOARD_ROLLBACK_ATTEMPT',
+  ]) assert.ok(script.includes(required),'Missing CSS safety gate: '+required);
+  assert.ok(script.indexOf('require(absent,') < script.indexOf('image_id = guards.build(scratch)'));
+});
+
 test('Stage acceptance requires exact pinned visual image and unchanged App/Login/Admin source hashes', () => {
   const source=readFileSync('staging/pos-hubqa/check.py','utf8');
   for (const term of [
     'approved-dashboard-visual.json',
-    'v79hub:pos-hubqa-dashboard-visual-20261109-r1',
+    'v79hub:pos-hubqa-dashboard-visual-css-20261109-r2',
+    'src/workspace.css',
+    '28d184541c66b58aa3f0baf099ba46f5465534495513573ea219451e157f8f76',
     'pin.get("base_stage_image_id") == parent.get("image_id")',
     'pin.get("dashboard_source_image_id") == candidate["Id"]',
     'stage_hub["Config"]["Image"] == tag',
