@@ -246,9 +246,11 @@ def verify_candidate_dependency_parity(scratch):
     """
     cid = candidate_container()
     compared = set()
+    compared_files = set()
     candidate_bytes = {}
-    stage_bytes = {}
     mismatches = {}
+    missing_stage = {}
+    missing_candidate = set()
     imported = set(COMPONENTS) | set(COMPANIONS)
     try:
         while imported:
@@ -268,19 +270,34 @@ def verify_candidate_dependency_parity(scratch):
                     contents = tmp.read_bytes()
                     actual = p
                     break
-            ensure(actual is not None and contents is not None and
-                   len(contents) <= 1_000_000,
-                   "Candidate dependency unavailable: " + name)
+            if actual is None:
+                missing_candidate.add(name)
+                continue
+            ensure(contents is not None and len(contents) <= 1_000_000,
+                   "Candidate frontend file too large: " + actual)
+            # Relative imports may mention both a stem and explicit extension.
+            # Count each resolved file exactly once and keep checking the graph.
+            if actual in compared_files:
+                continue
+            compared_files.add(actual)
             candidate_bytes[actual] = contents
             stage_copy = scratch / "stage" / actual.replace("/", "__")
             stage_copy.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            ensure(extract(STAGE_NAME, actual, stage_copy),
-                   "Stage dependency missing: " + actual)
-            stage_content = stage_copy.read_bytes()
-            stage_bytes[actual] = stage_content
+            if extract(STAGE_NAME, actual, stage_copy):
+                ensure(stage_copy.stat().st_size <= 1_000_000,
+                       "Staging frontend dependency too large: " + actual)
+                stage_content = stage_copy.read_bytes()
+                if actual in COMPONENTS:
+                    ensure(contents != stage_content,
+                           "Dashboard component unexpectedly already matches: " + actual)
+                elif contents != stage_content:
+                    mismatches[actual] = (digest(stage_content), digest(contents))
+            else:
+                missing_stage[actual] = digest(contents)
             if actual in COMPONENTS:
-                ensure(contents != stage_content,
-                       "Dashboard component unexpectedly already matches: " + actual)
+                # Never silently introduce one of the 3 target components.
+                ensure(actual not in missing_stage,
+                       "Target dashboard component missing from stage: " + actual)
                 live_copy = scratch / "live" / actual.replace("/", "__")
                 live_copy.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 ensure(extract(LIVE_NAME, actual, live_copy) and
@@ -288,21 +305,26 @@ def verify_candidate_dependency_parity(scratch):
                        "Latest dashboard source does not match running live frontend: " + actual)
                 print("APPROVED_LIVE_DASHBOARD_COMPONENT=" + actual +
                       " SHA256=" + digest(contents))
-            else:
-                if contents != stage_content:
-                    mismatches[actual] = (digest(stage_content), digest(contents))
             if actual.endswith((".ts", ".tsx", ".js", ".jsx")):
                 imported |= relative_imports(actual, contents.decode("utf-8"))
-        if mismatches:
-            print("NON_DASHBOARD_DEPENDENCY_DIFFERENCES=" + str(len(mismatches)))
-            for path, (stage_sha, candidate_sha) in sorted(mismatches.items()):
-                print("DIFFERING_NON_DASHBOARD_DEPENDENCY=" + path +
-                      " STAGE_SHA256=" + stage_sha +
-                      " CANDIDATE_SHA256=" + candidate_sha)
-            ensure(False,
-                   "Additional frontend dependency differs: " +
-                   ", ".join(sorted(mismatches)) +
-                   " (read-only discovery; no automatic broad source copy)")
+        print("DASHBOARD_DEPENDENCIES_SCANNED=" + str(len(compared_files)))
+        print("MISSING_STAGE_FRONTEND_DEPENDENCIES=" + str(len(missing_stage)))
+        for name, candidate_sha in sorted(missing_stage.items()):
+            print("MISSING_STAGE_FRONTEND_DEPENDENCY=" + name +
+                  " CANDIDATE_SHA256=" + candidate_sha)
+        print("MISSING_CANDIDATE_FRONTEND_DEPENDENCIES=" + str(len(missing_candidate)))
+        for name in sorted(missing_candidate):
+            print("MISSING_CANDIDATE_FRONTEND_DEPENDENCY=" + name)
+        print("NON_DASHBOARD_DEPENDENCY_DIFFERENCES=" + str(len(mismatches)))
+        for path, (stage_sha, candidate_sha) in sorted(mismatches.items()):
+            print("DIFFERING_NON_DASHBOARD_DEPENDENCY=" + path +
+                  " STAGE_SHA256=" + stage_sha +
+                  " CANDIDATE_SHA256=" + candidate_sha)
+        ensure(not missing_stage and not missing_candidate and not mismatches,
+               "Unreviewed frontend dependencies: " +
+               str(len(missing_stage)) + " missing in stage, " +
+               str(len(missing_candidate)) + " missing in candidate, " +
+               str(len(mismatches)) + " differing; no automatic broad copy")
         for path in COMPONENTS:
             ensure(path in candidate_bytes, "Dashboard component not dependency-verified")
             target = scratch / path
