@@ -48,6 +48,51 @@ def private_address(container):
 
 
 def approved_hub_image(stage_hub):
+    dashboard = HUB_ROOT / "approved-dashboard-alignment.json"
+    perms = HUB_ROOT / "approved-login-assets-perms.json"
+    if dashboard.exists():
+        ensure(dashboard.is_file() and not dashboard.is_symlink() and
+               stat.S_IMODE(dashboard.stat().st_mode) == 0o600 and
+               perms.is_file() and not perms.is_symlink() and
+               stat.S_IMODE(perms.stat().st_mode) == 0o600,
+               "Dashboard/previous login stage pins unsafe")
+        record = json.loads(dashboard.read_text())
+        parent = json.loads(perms.read_text())
+        tag = "v79hub:pos-hubqa-dashboard-aligned-20261109-r1"
+        source = "localhost/v79-hub-login-connected:20261109-r1"
+        base = "v79hub:pos-hubqa-ui-v3-styled-perms-20261109-r1"
+        identity = record.get("image_id")
+        actual_image = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", tag], text=True))[0]
+        approved_source = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", source], text=True))[0]
+        sha_map = record.get("changed_files_sha256")
+        files = ("src/App.tsx", "src/components/HubOverview.tsx",
+                 "src/components/Sidebar.tsx")
+        ensure(record.get("dashboard_image") == tag and
+               record.get("base_stage_image") == base and
+               record.get("base_stage_image_id") == parent.get("image_id") and
+               record.get("dashboard_source_image") == source and
+               record.get("dashboard_source_image_id") == approved_source["Id"] and
+               isinstance(identity, str) and
+               re.fullmatch(r"sha256:[a-f0-9]{64}", identity) and
+               stage_hub["Config"]["Image"] == tag and
+               stage_hub["Image"] == identity and
+               actual_image["Id"] == identity and
+               isinstance(sha_map, dict) and set(sha_map) == set(files),
+               "Stage dashboard image identity/source pin mismatch")
+        for path in files:
+            expected = sha_map[path]
+            ensure(isinstance(expected, str) and
+                   re.fullmatch(r"[a-f0-9]{64}", expected),
+                   "Invalid dashboard component fingerprint")
+            actual = subprocess.check_output(
+                ["docker", "exec", "v79-hub-pos-hubqa", "sha256sum",
+                 "/app/" + path], text=True).split()[0]
+            ensure(actual == expected,
+                   "Stage dashboard component differs: " + path)
+        return
+
     perms = HUB_ROOT / "approved-login-assets-perms.json"
     styled = HUB_ROOT / "approved-login-style.json"
     if perms.exists():
@@ -267,7 +312,8 @@ def main():
            "Stage POS readiness check failed")
     ensure(unauth_code == 401,
            "Unauthenticated access to staging POS was not denied")
-    if (HUB_ROOT / "approved-login-assets-perms.json").exists():
+    if ((HUB_ROOT / "approved-dashboard-alignment.json").exists() or
+            (HUB_ROOT / "approved-login-assets-perms.json").exists()):
         for name in ("academy", "ffpro", "marketing", "pos", "tiquet"):
             image_code, image_bytes = http_status(
                 "http://" + private_address(stage_hub) +
