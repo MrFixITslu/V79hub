@@ -228,6 +228,15 @@ def relative_imports(name, contents):
         results.add(path)
     return results
 
+def dependency_paths(name):
+    """Use explicit HTML/TS/JS/CSS filenames as-is, never append a second suffix."""
+    if name.endswith(IGNORE_EXT):
+        return (name,)
+    return tuple(name + ext for ext in IGNORE_EXT) + (
+        name + "/index.ts", name + "/index.tsx"
+    )
+
+
 def verify_candidate_dependency_parity(scratch):
     """Block if the proposed 3-component overlay imports other mismatched TS/JS.
 
@@ -249,11 +258,7 @@ def verify_candidate_dependency_parity(scratch):
                 continue
             compared.add(name)
             ensure(len(compared) < 130, "Unexpectedly large frontend dependency graph")
-            roots = (name,)
-            # Preserve explicit TS/JS/CSS/JSON/SVG/HTML extensions; resolve only extensionless imports.
-            paths = roots if name.endswith(IGNORE_EXT) else tuple(
-                name + ext for ext in IGNORE_EXT
-            ) + (name + "/index.ts", name + "/index.tsx")
+            paths = dependency_paths(name)
             contents = None
             actual = None
             for p in paths:
