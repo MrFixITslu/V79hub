@@ -66,13 +66,24 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 def env_map(container):
+    """Keep exact values, tolerate name syntax Docker accepts and harmless repeats.
+
+    Linux container environment keys are not restricted to Python identifiers.
+    Comparing values by key avoids false differences caused by ordering. Never
+    expose values, and reject repeated keys if their values disagree.
+    """
     data = {}
-    for entry in container["Config"].get("Env", []):
-        ensure("=" in entry, "Malformed container environment variable")
-        k, v = entry.split("=", 1)
-        ensure(k.isidentifier() and k not in data,
-               "Duplicate or invalid runtime environment variable")
-        data[k] = v
+    for entry in container["Config"].get("Env") or []:
+        ensure(isinstance(entry, str) and "=" in entry,
+               "Malformed Docker environment entry (contents suppressed)")
+        key, value = entry.split("=", 1)
+        ensure(bool(key) and "\x00" not in key and "\x00" not in value,
+               "Invalid Docker environment entry (contents suppressed)")
+        if key in data:
+            ensure(data[key] == value,
+                   "Conflicting repeated Docker environment key (values suppressed)")
+        else:
+            data[key] = value
     return data
 
 def ip_of(container):
