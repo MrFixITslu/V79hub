@@ -606,3 +606,23 @@ test('Dashboard preflight inventories all unapproved frontend dependency differe
   assert.equal(check.status, 0, check.stderr || check.stdout);
   assert.match(check.stdout, /DASHBOARD_DIFFERENCE_INVENTORY_SYNTAX=PASS/);
 });
+
+
+test('Dashboard candidate dependency resolver accepts explicit index.html without appending TypeScript suffixes', () => {
+  const code = [
+    'import importlib.util',
+    'spec=importlib.util.spec_from_file_location("stage_dashboard","staging/pos-hubqa/align-dashboard-ui.py")',
+    'module=importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(module)',
+    'assert module.dependency_paths("index.html") == ("index.html",)',
+    'assert module.dependency_paths("src/App.tsx") == ("src/App.tsx",)',
+    'assert module.dependency_paths("src/index.css") == ("src/index.css",)',
+    'assert module.dependency_paths("src/components/HubOverview")[0] == "src/components/HubOverview.ts"',
+    'assert "src/components/HubOverview.tsx" in module.dependency_paths("src/components/HubOverview")',
+    'assert not any(path.startswith("index.html.") for path in module.dependency_paths("index.html"))',
+    'print("DASHBOARD_INDEX_HTML_PATH_RESOLUTION=PASS")'
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', code], {encoding:'utf8', timeout:10000});
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /DASHBOARD_INDEX_HTML_PATH_RESOLUTION=PASS/);
+});
