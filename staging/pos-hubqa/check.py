@@ -60,7 +60,7 @@ def approved_hub_image(stage_hub):
                "Visual dashboard and parent image pins are not private/exclusive")
         pin = json.loads(visual.read_text())
         parent = json.loads(perms.read_text())
-        tag = "v79hub:pos-hubqa-dashboard-visual-20261109-r1"
+        tag = "v79hub:pos-hubqa-dashboard-visual-css-20261109-r2"
         source = "localhost/v79-hub-login-connected:20261109-r1"
         base = "v79hub:pos-hubqa-ui-v3-styled-perms-20261109-r1"
         approved_image = json.loads(subprocess.check_output(
@@ -72,6 +72,8 @@ def approved_hub_image(stage_hub):
                 "b00c05056dd7a8dfcfb6055425644d26ac6880472b714b17461995b16a381096",
             "src/components/Sidebar.tsx":
                 "c690df486b7f43d606ce50486bb94e077eccd33a8ed090e1009920537de5cce0",
+            "src/workspace.css":
+                "28d184541c66b58aa3f0baf099ba46f5465534495513573ea219451e157f8f76",
         }
         source_map = pin.get("changed_files_sha256")
         protected_map = pin.get("protected_file_sha256")
