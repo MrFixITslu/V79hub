@@ -341,6 +341,45 @@ On a mismatch, expect `NON_DASHBOARD_DEPENDENCY_DIFFERENCES=N` plus `DIFFERING_N
 
 **Further read-only stop, 9 November:** the owner observed `PRIVATE_STAGE_DASHBOARD_PREFLIGHT=PASS` but the scanner blocked on `Frontend import targets outside src` before it could report the inventory; `SSH_EXIT_CODE=0` only means the wrapper script completed, while `DEPENDENCY_SCAN_EXIT_CODE=1` is the substantive failure. Neither stage nor production changed. The importer was treating every resolved path outside `src/` as an immediate exception, which prevented a full mismatch report. The updated scanner now **records source filename + relative import path** under `FRONTEND_IMPORTS_OUTSIDE_SRC`, continues examining all other imports, then **fails closed** along with any missing/different files. Imports outside `src/` are NOT silently accepted or copied; whether they are legitimate repo-root resources or unsupported traversal must be reviewed before changing the frontend import policy. Security and stage rollback gates are unchanged. This is diagnostic-only; do not run `--apply` when any of the four inventory counts is nonzero.
 
+### Safer 2-file visual-only dashboard replacement (preferred)
+
+Owner's 9 Nov 52-file dependency inventory showed why transplanting the **complete** newer `App.tsx` shell was high-risk: five files missing in stage (`OwnerToday`, `SkillPackageManager`, `WorkforceSkillManager`, `impeccablePreset`, `workspace.css`), four differing administrative/assistant/worker files, one candidate-missing Sentinel QA library and four valid-looking imports of the repository-root shared pricing catalogue. No production or staging application code was changed. **Do not bypass those existing failed full-shell gates or copy any of the 5+4 extra components.**
+
+The owner then inspected actual candidate component interfaces and the **current staging App props** via read-only Docker copy. They match exactly:
+
+- New `HubOverview`: `ecosystemApps`, `onNavigate`, `user`, `organizationName`. Direct imports only `../types`, `../lib/appLaunch`, `../lib/dashboardTruth`.
+- New `Sidebar`: `currentView`, `onViewChange`, `onLogout`, `user`, `organizationName`. Direct imports only `../types`.
+- Stage `App.tsx` already passes all these props. The newest dashboard does **not directly depend on** `OwnerToday`; that came from the broader candidate App/admin import graph.
+
+**Three-option review /REDTEAM:** (1) full frontend copy unsafe (admin/permissions/integration regressions), (2) dashboard-only no sidebar leaves old navigation visual, (3) **chosen** exact two-file `HubOverview.tsx` + `Sidebar.tsx` overlay onto known-good private staging with **no App, Login, administration, owner assistant, workforce, POS or backend changes**. The new `align-visual-dashboard.py` reuses the previously reviewed staging safety, image, secret separation, build/health, checkpoint and rollback functions from `align-dashboard-ui.py`. Additional constraints: candidate component SHA256s must match both owner-observed source and running production, direct imports must be an exact reviewed list and byte-identical between stage/candidate, current stage `App.tsx` must explicitly provide exact props and navigation cases, CSS and login must retain approved image/CSS fingerprints. `check.py` validates the new immutable image pin, 2 component hashes, and byte-for-byte unchanged App/Login/admin/worker frontend after recreation. All metrics remain real or unavailable; stage intentionally has no live customer-data integrations.
+
+**On Acer, first do a read-only dry-run** (untracked Python cache files can safely remain; only tracked changes block):
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -s' <<'REMOTE'
+SOURCE=/home/firelion/v79-hub-pos-hubqa-20261109/source
+git -C "$SOURCE" diff --quiet || exit 1
+git -C "$SOURCE" diff --cached --quiet || exit 1
+git -C "$SOURCE" pull --ff-only origin feature/isolated-pos-hubqa-20261109 || exit 1
+PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE/staging/pos-hubqa/align-visual-dashboard.py"
+REMOTE
+echo "SSH_EXIT_CODE=$?"
+```
+
+Only if dry-run prints `PRIVATE_VISUAL_DASHBOARD_DRY_RUN=PASS`, inspect any failures and then consider the single-stage apply:
+
+```bash
+ssh -T firelion@100.73.248.30 'bash -s' <<'REMOTE'
+SOURCE=/home/firelion/v79-hub-pos-hubqa-20261109/source
+PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE/staging/pos-hubqa/align-visual-dashboard.py" --apply || exit $?
+PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE/staging/pos-hubqa/check.py" || exit $?
+echo "PRIVATE_VISUAL_DASHBOARD_STAGE_RELEASE_CHECKS=PASS"
+REMOTE
+echo "SSH_EXIT_CODE=$?"
+```
+
+**Browser remains the final release gate.** On Acer, verify the updated dashboard and sidebar in the existing localhost tunnel, password login→MFA→Hub overview and Hub→POS launch **without a second login**, and assess responsive/mobile views. GitHub build and staging HTTP health are NOT evidence of full browser SSO acceptance. Keep production unmodified. Roll back to the previous tagged image if browser verification reveals a regression; the new script automatically attempts rollback on guard/build-health failure, but not on subjective browser visual defects.
+
 **Stage-only apply, only after the read-only gate passes:**
 
 ```bash
