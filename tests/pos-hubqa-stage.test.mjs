@@ -484,3 +484,68 @@ test('Private stage recreated Hub must preserve all effective auth environment v
   assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
   assert.match(syntax.stdout, /RECREATED_STAGE_SEMANTIC_ENV_SYNTAX=PASS/);
 });
+
+
+test('Owner-approved dashboard alignment overlays only 3 matching live frontend files with strict stage-only rollback', () => {
+  const script = readFileSync('staging/pos-hubqa/align-dashboard-ui.py', 'utf8');
+  for (const guard of [
+    'STAGING_DASHBOARD_ALIGNMENT_BLOCKED',
+    'STAGING_DASHBOARD_DRY_RUN=PASS',
+    'PRIVATE_STAGE_DASHBOARD_PREFLIGHT=PASS',
+    'ALL_OTHER_IMPORTS_AND_LOGIN_UNCHANGED=PASS',
+    'APPROVED_LIVE_DASHBOARD_COMPONENT=',
+    'Additional frontend dependency differs:',
+    'Latest dashboard source does not match running live frontend:',
+    'v79hub:pos-hubqa-dashboard-aligned-20261109-r1',
+    'approved-dashboard-alignment.json',
+    'approved-login-assets-perms.json',
+    'approved-login-overlay.json',
+    'PRIVATE_DASHBOARD_CHECKPOINT=',
+    'STAGING_UPDATED_DASHBOARD_FILES=PASS',
+    'STAGING_LOGIN_ICONS_AND_CSS=PASS',
+    'STAGING_MFA_AND_POS_RUNTIME_PRESERVED=PASS',
+    'PRODUCTION_AND_STAGE_POS_UNCHANGED=PASS',
+    'PRIVATE_STAGING_DASHBOARD_ALIGNED=PASS',
+    'STAGING_DASHBOARD_FAILED_ROLLBACK_ATTEMPT',
+    'PREVIOUS_HEALTHY_STAGE_RESTORED=PASS',
+    'STAGING_MFA_AND_POS_BROWSER_RETEST=NOT_YET_VERIFIED',
+    '"src/App.tsx"',
+    '"src/components/HubOverview.tsx"',
+    '"src/components/Sidebar.tsx"',
+    '"src/components/Login.tsx"',
+    '"src/index.css"',
+    'docker", "cp"',
+    'run("docker", "build", "--network", "none", "--pull=false"',
+    '"--no-deps", "--force-recreate", "--wait", "hub"',
+    'env_map(new) == env_map(stage)',
+    'get(pos_url + "/v1/me")[0] == 401',
+    'status == 200 and mime.startswith("image/png") and body == PNG'
+  ]) assert.ok(script.includes(guard), 'Missing dashboard staging release guard: ' + guard);
+  for (const forbidden of [
+    'docker compose down', 'docker stop v79-hub',
+    'docker stop v79-pos', 'docker rm v79-pos',
+    'docker rm v79-hub', 'pg_restore', 'chmod -R', 'chmod 777'
+  ]) assert.ok(!script.includes(forbidden), 'Unsafe stage alignment: ' + forbidden);
+  const syntax = spawnSync('python3', ['-c',
+    'import ast,pathlib;ast.parse(pathlib.Path("staging/pos-hubqa/align-dashboard-ui.py").read_text());print("STAGE_DASHBOARD_ALIGNMENT_SYNTAX=PASS")'
+  ], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+  assert.match(syntax.stdout, /STAGE_DASHBOARD_ALIGNMENT_SYNTAX=PASS/);
+});
+
+test('Stage acceptance pins exact dashboard image, source and 3 file hashes', () => {
+  const script = readFileSync('staging/pos-hubqa/check.py', 'utf8');
+  for (const name of [
+    'approved-dashboard-alignment.json',
+    'v79hub:pos-hubqa-dashboard-aligned-20261109-r1',
+    'record.get("base_stage_image_id") == parent.get("image_id")',
+    'record.get("dashboard_source_image_id") == approved_source["Id"]',
+    'stage_hub["Config"]["Image"] == tag',
+    'actual_image["Id"] == identity',
+    'set(sha_map) == set(files)',
+    'src/components/HubOverview.tsx',
+    'src/components/Sidebar.tsx',
+    'STAGING_LOGIN_PRODUCT_IMAGES=PASS',
+    'STAGING_HEALTH_AND_UNAUTH_DENIAL=PASS'
+  ]) assert.ok(script.includes(name), 'Missing dashboard identity or regression check: ' + name);
+});
