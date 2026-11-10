@@ -683,3 +683,38 @@ test('Read-only dashboard scan inventories missing stage, missing candidate, and
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /DASHBOARD_ALL_GAPS_READONLY_INVENTORY=PASS/);
 });
+
+
+test('Dashboard dependency resolver records imports outside src and rejects traversal', () => {
+  const python = [
+    'import importlib.util',
+    'spec=importlib.util.spec_from_file_location("stage_dashboard","staging/pos-hubqa/align-dashboard-ui.py")',
+    'm=importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(m)',
+    'source="src/components/OwnerToday.tsx"',
+    'code="\\n".join(["import A from \\"../lib/dashboardTruth\\";","import B from \\"../../../secrets\\";","import C from \\"../../assets/global.svg\\";"])',
+    'outside=set()',
+    'imports=m.relative_imports(source,code,outside)',
+    'assert imports=={"src/lib/dashboardTruth"},imports',
+    'assert outside=={(source,"../../../secrets"),(source,"../../assets/global.svg")},outside',
+    'try:',
+    ' m.relative_imports(source,code)',
+    'except RuntimeError as exc:',
+    ' assert "STAGING_DASHBOARD_ALIGNMENT_BLOCKED" in str(exc),str(exc)',
+    ' assert "Frontend import outside src" in str(exc),str(exc)',
+    'else: raise AssertionError("Import escape not rejected")',
+    'print("STAGE_DEPENDENCY_IMPORT_ESCAPE=PASS")'
+  ].join('\n');
+  const result = spawnSync('python3',['-c',python],{encoding:'utf8',timeout:10000});
+  assert.equal(result.status,0,result.stderr||result.stdout);
+  assert.match(result.stdout,/STAGE_DEPENDENCY_IMPORT_ESCAPE=PASS/);
+  const script = readFileSync('staging/pos-hubqa/align-dashboard-ui.py','utf8');
+  for(const check of [
+    'outside_src = set()',
+    'relative_imports(actual, contents.decode("utf-8"),',
+    'FRONTEND_IMPORTS_OUTSIDE_SRC=',
+    'FRONTEND_IMPORT_OUTSIDE_SRC=',
+    'not mismatches and not outside_src',
+    'imports outside src; no automatic broad copy'
+  ]) assert.ok(script.includes(check),"Missing fail-closed import diagnostic: "+check);
+});
