@@ -48,8 +48,67 @@ def private_address(container):
 
 
 def approved_hub_image(stage_hub):
+    visual = HUB_ROOT / "approved-dashboard-visual.json"
     dashboard = HUB_ROOT / "approved-dashboard-alignment.json"
     perms = HUB_ROOT / "approved-login-assets-perms.json"
+    if visual.exists():
+        ensure(visual.is_file() and not visual.is_symlink() and
+               stat.S_IMODE(visual.stat().st_mode) == 0o600 and
+               not dashboard.exists() and
+               perms.is_file() and not perms.is_symlink() and
+               stat.S_IMODE(perms.stat().st_mode) == 0o600,
+               "Visual dashboard and parent image pins are not private/exclusive")
+        pin = json.loads(visual.read_text())
+        parent = json.loads(perms.read_text())
+        tag = "v79hub:pos-hubqa-dashboard-visual-20261109-r1"
+        source = "localhost/v79-hub-login-connected:20261109-r1"
+        base = "v79hub:pos-hubqa-ui-v3-styled-perms-20261109-r1"
+        approved_image = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", tag], text=True))[0]
+        candidate = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", source], text=True))[0]
+        expected_visual = {
+            "src/components/HubOverview.tsx":
+                "b00c05056dd7a8dfcfb6055425644d26ac6880472b714b17461995b16a381096",
+            "src/components/Sidebar.tsx":
+                "c690df486b7f43d606ce50486bb94e077eccd33a8ed090e1009920537de5cce0",
+        }
+        source_map = pin.get("changed_files_sha256")
+        protected_map = pin.get("protected_file_sha256")
+        expected_protected = (
+            "src/App.tsx",
+            "src/components/Login.tsx",
+            "src/index.css",
+            "src/types.ts",
+            "src/lib/appLaunch.ts",
+            "src/lib/dashboardTruth.ts",
+            "src/components/AdminConsole.tsx",
+            "src/components/OwnerAssistant.tsx",
+            "src/components/WorkforceActionPanel.tsx",
+        )
+        ensure(pin.get("dashboard_image") == tag and
+               pin.get("base_stage_image") == base and
+               pin.get("base_stage_image_id") == parent.get("image_id") and
+               pin.get("dashboard_source_image") == source and
+               pin.get("dashboard_source_image_id") == candidate["Id"] and
+               stage_hub["Config"]["Image"] == tag and
+               stage_hub["Image"] == pin.get("image_id") and
+               approved_image["Id"] == pin.get("image_id") and
+               source_map == expected_visual and
+               isinstance(protected_map, dict) and
+               set(protected_map) == set(expected_protected),
+               "Visual stage image or immutable component source pin mismatch")
+        for path, sha in {**source_map, **protected_map}.items():
+            ensure(isinstance(sha, str) and
+                   re.fullmatch("[a-f0-9]{64}", sha) is not None,
+                   "Invalid visual stage hash")
+            actual = subprocess.check_output(
+                ["docker", "exec", "v79-hub-pos-hubqa", "sha256sum",
+                 "/app/" + path], text=True).split()[0]
+            ensure(actual == sha,
+                   "Visual stage source changed: " + path)
+        return
+
     if dashboard.exists():
         ensure(dashboard.is_file() and not dashboard.is_symlink() and
                stat.S_IMODE(dashboard.stat().st_mode) == 0o600 and
