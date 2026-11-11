@@ -65,7 +65,7 @@ export function Sidebar({
 
   return (
     <>
-      <aside aria-label="Primary workspace navigation" className="hub-sidebar hidden lg:flex w-[252px] h-screen shrink-0 flex-col bg-[#06101d] border-r border-[#17324d]/70 text-slate-300 select-none relative overflow-hidden">
+      <aside aria-label="Primary workspace navigation" className="vision79-sidebar hub-sidebar hidden lg:flex w-[252px] h-screen shrink-0 flex-col bg-[#06101d] border-r border-[#17324d]/70 text-slate-300 select-none relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-56 bg-[radial-gradient(circle_at_30%_0%,rgba(10,134,255,0.16),transparent_62%)] pointer-events-none" />
         <div className="relative px-5 pt-5 pb-6">
           <div className="flex items-center gap-3">
@@ -76,7 +76,7 @@ export function Sidebar({
               </div>
             </div>
             <div>
-              <div className="text-[14px] font-black tracking-tight text-white">V79 <span className="text-[#55c7ff]">Digital</span></div>
+              <div className="text-[17px] font-black tracking-tight text-white">Vision<span className="text-[#55c7ff]">79</span></div>
               <div className="text-[10px] text-slate-400 mt-0.5">From Idea to Advantage.</div>
             </div>
           </div>
@@ -84,7 +84,7 @@ export function Sidebar({
 
         <nav className="relative flex-1 px-3.5 pb-5 overflow-y-auto">
           <div className="px-3 mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">
-            Command centre
+            WORKSPACE NAVIGATION
           </div>
           <div className="space-y-1">
             {primary.filter((item) => item.visible).map((item) => {
