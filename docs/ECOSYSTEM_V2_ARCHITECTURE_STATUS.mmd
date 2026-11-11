@@ -25,6 +25,8 @@ flowchart LR
     SCOPE["Tiquet scope PDF versions + customer acknowledgement<br/>code / CI verified; not cross-app staged"]
     EVIDENCE["Tenant/correlation event evidence + reviewed retries<br/>coded; latest Hub validation pending"]
     COSTREAD["POS FIFO job-usage evidence<br/>CI verified; linkage provisional"]
+    TIME["Tiquet recorded work durations<br/>CI verified; no historical labour cost rates"]
+    CONTRACT["V2 event catalogue and tenant correlation controls<br/>code pending current-source CI"]
 
     MK["V79 Marketing"]
     POS["V79 POS"]
@@ -33,7 +35,7 @@ flowchart LR
     SN["V79 Sentinel"]
     MCP["V79 MCP draft proposals"]
   end
-  class HI,TP,SCOPE,EVIDENCE,COSTREAD,MK,POS,FF,AC,SN,MCP amber
+  class HI,TP,SCOPE,EVIDENCE,COSTREAD,TIME,CONTRACT,MK,POS,FF,AC,SN,MCP amber
 
   subgraph OUT["RED — Missing proof or unreconciled integration"]
     STOCK["Ticket ↔ stock / job costs"]
@@ -63,6 +65,9 @@ flowchart LR
   TJ -.-> SCOPE
   HE -.-> EVIDENCE
   POS -.-> COSTREAD
+  TJ -.-> TIME
+  HE -.-> CONTRACT
+  TIME -.-> LINKEDCOST
   COSTREAD -.-> LINKEDCOST
   TJ -.-> LINKEDCOST
   LINKEDCOST -.-> PROFIT
