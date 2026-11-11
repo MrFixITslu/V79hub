@@ -1,0 +1,54 @@
+name: Hub + Academy real HTTP contract (synthetic-only, nondeploying)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server.ts'
+      - 'server/wipay-provider.mjs'
+      - 'server/billing-contract.mjs'
+      - 'server/wipay-callback-guard.mjs'
+      - 'tests/wipay-academy-two-app-http.test.mjs'
+      - '.github/workflows/wipay-academy-two-app-isolated.yml'
+permissions:
+  contents: read
+jobs:
+  cross-repo-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ACADEMY_TEST_ROOT: ${{ github.workspace }}/academy-checkout
+    steps:
+      - name: Checkout isolated Hub PR source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact Academy combined PR #32 commit (pricing + billing boundary + payer identity)
+        uses: actions/checkout@v4
+        with:
+          repository: MrFixITslu/V79acaedmy
+          ref: c748e3ecc3dfe94d8a15fe0a6015870aac498132
+          path: academy-checkout
+          persist-credentials: false
+      - name: Verify exact immutable Academy source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C academy-checkout rev-parse HEAD)" = c748e3ecc3dfe94d8a15fe0a6015870aac498132
+          test ! -e academy-checkout/.env
+          test ! -e .env
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build and validate isolated Academy application
+        working-directory: academy-checkout
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run build
+      - name: Install isolated Hub dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Real signed Hub-Academy HTTP with synthetic sandbox return
+        run: node --test --test-concurrency=1 tests/wipay-academy-two-app-http.test.mjs
+# No merchant requests, real users, production DB, provider credentials or deploy.
+# The hosted checkout points to sandbox.example.invalid and is NEVER submitted.
+# No packages:write, SSH, environment credentials or workflow_dispatch.

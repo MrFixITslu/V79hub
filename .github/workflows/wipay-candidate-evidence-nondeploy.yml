@@ -1,0 +1,62 @@
+name: WiPay candidate evidence and regression (source only, never deploy)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server.ts'
+      - 'server/wipay-*.mjs'
+      - 'server/runtime-store.mjs'
+      - 'server/postgres-store.mjs'
+      - 'server/trial-reminder-postgres.mjs'
+      - 'server/billing-contract.mjs'
+      - 'tests/*.test.mjs'
+      - 'tests/wipay-atomic-ledger-child.mjs'
+      - 'docs/launch/wipay-prelive-source-candidate-20261024.json'
+      - 'scripts/verify-wipay-source-candidate.mjs'
+      - '.github/workflows/wipay-candidate-evidence-nondeploy.yml'
+permissions:
+  contents: read
+concurrency:
+  group: wipay-candidate-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  source-evidence:
+    name: Preserve accepted R18 evidence, validate unapproved candidate source
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify original source and all proposed Git blobs exactly
+        run: node scripts/verify-wipay-source-candidate.mjs
+  candidate-regression:
+    name: Full synthetic regression separately from immutable R18 release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: source-evidence
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Entire synthetic Hub regression on candidate (historic pin remains separate)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' cases < <(find tests -maxdepth 1 -type f -name '*.test.mjs' ! -name 'r18-reconciled-candidate.test.mjs' -print0)
+          test "${#cases[@]}" -ge 60
+          NODE_OPTIONS='--import=./tests/isolated-env.mjs' node --test --test-concurrency=2 "${cases[@]}"
+      - run: npm run lint
+      - run: npm run build
+# This is source-only evidence. R18 historical checks are NOT removed or
+# rewritten, and the protected main release workflow remains unchanged.
+# No workflow_dispatch, no deployment or Docker registry push, no SSH, no
+# environment secrets, no merchant/API calls, no production database.

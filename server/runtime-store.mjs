@@ -7,6 +7,7 @@ export function createHubStorePersistence({
   storeFile,
   databaseUrl = "",
   pool = null,
+  storeKey = "main",
 } = {}) {
   const mode = String(backend || "json").trim().toLowerCase();
   if (!["json", "postgres"].includes(mode)) {
@@ -21,7 +22,7 @@ export function createHubStorePersistence({
     ? (pool || new Pool({ connectionString: String(databaseUrl) }))
     : null;
   const ownsPool = Boolean(activePool && !pool);
-  const repository = activePool ? new PostgresStoreRepository(activePool) : null;
+  const repository = activePool ? new PostgresStoreRepository(activePool, { storeKey }) : null;
   let revision = 0;
   let envelope = {};
   let persistChain = Promise.resolve();
@@ -60,12 +61,17 @@ export function createHubStorePersistence({
     return initial;
   }
 
-  async function save(nextStore) {
+  async function save(nextStore, { expectedRevision = revision } = {}) {
     const snapshot = structuredClone(nextStore);
+    // The Hub supplies the revision from when the snapshot/request was made.
+    // Default to the current revision only for legacy direct test callers.
     persistChain = persistChain.catch(() => {}).then(async () => {
       const persisted = { ...envelope, ...snapshot };
       if (mode === "postgres") {
-        const updated = await repository.replace(revision, persisted);
+        if (expectedRevision !== revision) {
+          throw new Error("Stale Hub store snapshot; reload and reconcile before retrying.");
+        }
+        const updated = await repository.replace(expectedRevision, persisted);
         revision = updated.revision;
         envelope = updated.state;
         return;
@@ -80,6 +86,36 @@ export function createHubStorePersistence({
     return persistChain;
   }
 
+  async function transact(mutator, options = {}) {
+    if (mode !== "postgres" || !repository) throw new Error("PostgreSQL transactions are required.");
+    if (typeof mutator !== "function") throw new TypeError("Hub transaction requires a mutator.");
+    // Serialize with normal Hub saves in THIS process. Separate instances
+    // remain protected by the PostgreSQL row lock and revision/CAS.
+    persistChain = persistChain.catch(() => {}).then(async () => {
+      // A previously queued save (or another process) may have advanced the
+      // revision; repository transaction always reads the latest DB row.
+      const outcome = await repository.transact(mutator, options);
+      revision = outcome.revision;
+      envelope = outcome.state;
+      return outcome;
+    });
+    return persistChain;
+  }
+
+  async function refresh() {
+    if (mode !== "postgres" || !repository) return structuredClone(envelope);
+    // Service-to-service order status must read the durable DB after another
+    // Hub process receives the provider callback. Serialize with local writes.
+    persistChain = persistChain.catch(() => {}).then(async () => {
+      const current = await repository.load();
+      if (!current) throw new Error("Hub PostgreSQL state disappeared; fail closed.");
+      revision = current.revision;
+      envelope = current.state;
+      return structuredClone(current.state);
+    });
+    return persistChain;
+  }
+
   async function close() {
     await persistChain.catch(() => {});
     if (ownsPool) await activePool.end();
@@ -89,6 +125,8 @@ export function createHubStorePersistence({
     mode,
     load,
     save,
+    transact,
+    refresh,
     close,
     revision: () => revision,
     envelope: () => structuredClone(envelope),

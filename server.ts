@@ -9,6 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import crypto from "crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
@@ -47,12 +48,15 @@ import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs"
 import { manualInvoiceEligibility, manualReceiptDecision, recentManualPaymentMfa } from "./server/manual-payment-contract.mjs";
 import { beginTrial, accessDecision } from "./server/subscription-access.mjs";
 import { dispatchDueTrialReminders } from "./server/trial-reminder-dispatch.mjs";
+import { dispatchTransactionalTrialReminders } from "./server/trial-reminder-postgres.mjs";
 import { createResendTransactionalSender } from "./server/resend-transactional.mjs";
 import { validateProductEntitlement, PRODUCTS as ENTITLEMENT_PRODUCTS } from "./server/entitlement-validation.mjs";
 import { SERVICE_PATH as SENTINEL_SERVICE_PATH, sentinelServiceRouter } from "./server/sentinel-service-entitlement.mjs";
 import { registerSentinelGrant, revokeSentinelGrant, validateSentinelGrantCollection } from "./server/sentinel-service-grants.mjs";
 import { validateSentinelOwnerGrantRequest, validateSentinelOwnerRevocation } from "./server/sentinel-grant-operator.mjs";
 import { createWipayCheckout, getWipayConfig, publicWipayConfig, verifyWipayReturn } from "./server/wipay-provider.mjs";
+import { assessWipayCallback, createWipayCallbackGuard, liveWipayStoreSupported } from "./server/wipay-callback-guard.mjs";
+import { reconcileWipayInPostgres } from "./server/wipay-atomic-ledger.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,6 +64,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = createServer(app);
 const sentinelWriteFence = createSentinelWriteFence();
+// Process-local protection only; durable cross-process finance acceptance remains a separate GO/NO-GO gate.
+const wipayCallbackGuard = createWipayCallbackGuard();
 app.use(sentinelWriteFence.middleware);
 sentinelWriteFence.installHandlerTracking(app);
 const wss = new WebSocketServer({ noServer: true });
@@ -154,6 +160,7 @@ interface BillingOrder {
   id: string;
   organizationId?: string;
   subjectReference?: string;
+  payerEmail?: string;
   sourceApp: "hub" | "academy" | "tiquet";
   kind: "subscription" | "course" | "invoice";
   externalReference?: string;
@@ -730,10 +737,28 @@ const storePersistence = createHubStorePersistence({
 
 let store = await storePersistence.load(normalizeLoadedStore, initialStore) as AppStore;
 
+// PostgreSQL writes must retain their original snapshot revision. A request
+// that started before an accepted payment may NEVER submit a newer revision
+// while carrying an old state clone.
+const snapshotRevision = new WeakMap<AppStore, number>();
+snapshotRevision.set(store, storePersistence.revision());
+const hubRequestRevision = new AsyncLocalStorage<{ revision: number }>();
+app.use((_req, _res, next) => {
+  hubRequestRevision.run({ revision: storePersistence.revision() }, next);
+});
+
 async function saveStore(nextStore: AppStore, sentinel = false): Promise<void> {
+  const expectedRevision = snapshotRevision.get(nextStore) ?? hubRequestRevision.getStore()?.revision;
+  if (storePersistence.mode === "postgres" && expectedRevision === undefined) {
+    throw new Error("Cannot commit Hub PostgreSQL state without an originating snapshot revision.");
+  }
   const endWrite = sentinelWriteFence.beginStoreSave({ sentinel });
-  try { await storePersistence.save(nextStore); }
-  finally { endWrite(); }
+  try {
+    await storePersistence.save(nextStore, { expectedRevision });
+    // The same startup root state is legitimately updated in sequence.
+    // Only refresh its origin after a successful durable CAS.
+    snapshotRevision.set(nextStore, storePersistence.revision());
+  } finally { endWrite(); }
 }
 
 async function commitStore(nextStore: AppStore) {
@@ -747,7 +772,9 @@ async function commitSentinelStore(nextStore: AppStore) {
 }
 
 function cloneStore() {
-  return structuredClone(store) as AppStore;
+  const snapshot = structuredClone(store) as AppStore;
+  snapshotRevision.set(snapshot, storePersistence.revision());
+  return snapshot;
 }
 
 const knownDemoPasswords = new Set(["password123", "manager123", "viewer123"]);
@@ -2561,14 +2588,35 @@ async function dispatchTrialReminders() {
   if (!trialReminderLeader || !recoveryEmailEnabled || reminderBusy) return;
   reminderBusy=true;
   try {
-    await dispatchDueTrialReminders({
-      ownerOrganizationId:posIdentity.organizationId,
-      getStore:()=>store,
-      commit:async (next: AppStore)=>commitStore(next),
-      send:dispatchTrialReminderEmail,
-    });
-  } catch {console.warn("[Hub Trial] Review stuck notification claims before next attempt");}
-  finally {reminderBusy=false;}
+    if (storePersistence.mode === "postgres") {
+      await dispatchTransactionalTrialReminders({
+        persistence: storePersistence,
+        ownerOrganizationId: posIdentity.organizationId,
+        send: dispatchTrialReminderEmail,
+      });
+      // A completed claim advances the durable revision. Rebase the root
+      // snapshot; request-level snapshots still fail closed if they predate it.
+      store = normalizeLoadedStore(await storePersistence.refresh());
+      snapshotRevision.set(store, storePersistence.revision());
+    } else {
+      await dispatchDueTrialReminders({
+        ownerOrganizationId:posIdentity.organizationId,
+        getStore:()=>store,
+        commit:async (next: AppStore)=>commitStore(next),
+        send:dispatchTrialReminderEmail,
+      });
+    }
+  } catch {
+    console.warn("[Hub Trial] Review stuck notification claims before next attempt");
+    // Even if email delivery failed after a durable claim, never reuse stale
+    // Hub state or infer that a retry is safe.
+    if (storePersistence.mode === "postgres") {
+      try {
+        store = normalizeLoadedStore(await storePersistence.refresh());
+        snapshotRevision.set(store, storePersistence.revision());
+      } catch { console.warn("[Hub Trial] PostgreSQL reminder recovery needs operator review"); }
+    }
+  } finally {reminderBusy=false;}
 }
 
 async function deliverPasswordReset(email: string, resetUrl: string) {
@@ -2972,6 +3020,10 @@ app.post("/api/admin/billing/manual/orders/:orderId/reject", requireAuth, requir
   }
 });
 
+function liveWiPayLedgerReady(config: { environment: string }) {
+  return liveWipayStoreSupported(config.environment, storePersistence.mode);
+}
+
 function billingServiceFromRequest(req: Request) {
   const source = String(req.get("x-v79-service-id") || "");
   const entries: Record<string, { sourceApp: "academy" | "tiquet"; secret: string }> = {
@@ -3018,6 +3070,7 @@ app.post("/api/billing/internal/order", async (req, res) => {
 
   const config = getWipayConfig(process.env);
   if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+  if (!liveWiPayLedgerReady(config)) return res.status(503).json({ error: "Live WiPay requires the PostgreSQL Hub billing store.", code: "BILLING_LIVE_STORE_NOT_READY" });
 
   const kind = String(req.body?.kind || "");
   const externalReference = String(req.body?.externalReference || "").trim();
@@ -3026,6 +3079,7 @@ app.post("/api/billing/internal/order", async (req, res) => {
   const returnPath = validBillingReturnPath(req.body?.returnPath);
   const amount = normalizeMoney(req.body?.amount);
   const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
+  const payerEmail = normalizeEmail(req.body?.payerEmail);
 
   if ((service.sourceApp === "academy" && kind !== "course") ||
       (service.sourceApp === "tiquet" && kind !== "invoice") ||
@@ -3034,7 +3088,8 @@ app.post("/api/billing/internal/order", async (req, res) => {
       !description || description.length > 220 ||
       !returnPath ||
       amount === null || amount <= 0 || amount > 1_000_000 ||
-      !/^[A-Z]{3}$/.test(sourceCurrency)) {
+      !/^[A-Z]{3}$/.test(sourceCurrency) ||
+      payerEmail.length > 50 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payerEmail)) {
     return res.status(400).json({ error: "Valid billing order details are required." });
   }
   if (config.environment === "live" && sourceCurrency !== config.currency) {
@@ -3056,6 +3111,7 @@ app.post("/api/billing/internal/order", async (req, res) => {
     subjectReference,
     sourceApp: service.sourceApp,
     kind: kind as BillingOrder["kind"],
+    payerEmail,
     externalReference,
     returnPath,
     description,
@@ -3105,15 +3161,17 @@ app.post("/api/billing/internal/capabilities", (req, res) => {
   const sourceCurrency = String(req.body?.currency || "").trim().toUpperCase();
   const currencyCompatible = /^[A-Z]{3}$/.test(sourceCurrency) &&
     (provider.environment !== "live" || sourceCurrency === provider.currency);
+  const liveLedgerReady = liveWiPayLedgerReady(provider);
   const checkoutAvailable = service.sourceApp === "tiquet"
-    ? Boolean(provider.ready && currencyCompatible && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
-    : Boolean(provider.ready && currencyCompatible);
+    ? Boolean(provider.ready && currencyCompatible && liveLedgerReady && requestedOrganizationId && requestedOrganizationId === posIdentity.organizationId)
+    : Boolean(provider.ready && currencyCompatible && liveLedgerReady);
 
   res.setHeader("Cache-Control", "no-store");
   res.json({
     sourceApp: service.sourceApp,
     checkoutAvailable,
     currencyCompatible,
+    liveLedgerReady,
     provider: {
       provider: provider.provider,
       environment: provider.environment,
@@ -3124,11 +3182,15 @@ app.post("/api/billing/internal/capabilities", (req, res) => {
   });
 });
 
-app.post("/api/billing/internal/status", (req, res) => {
+app.post("/api/billing/internal/status", async (req, res) => {
   const service = billingServiceFromRequest(req);
   if (!service) return res.status(401).json({ error: "Invalid billing service signature." });
   const orderId = String(req.body?.orderId || "").trim();
   if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return res.status(400).json({ error: "Invalid billing order." });
+  if (storePersistence.mode === "postgres") {
+    try { store = normalizeLoadedStore(await storePersistence.refresh()); }
+    catch { return res.status(503).json({ error: "Current payment status is unavailable. Check the ledger before retrying." }); }
+  }
   const order = (store.billingOrders || []).find(item => item.id === orderId && item.sourceApp === service.sourceApp);
   if (!order) return res.status(404).json({ error: "Billing order not found." });
   res.setHeader("Cache-Control", "no-store");
@@ -3149,8 +3211,12 @@ app.post("/api/billing/internal/status", (req, res) => {
   });
 });
 
-app.get("/api/billing/orders", requireAuth, requirePermission("billing"), (req, res) => {
+app.get("/api/billing/orders", requireAuth, requirePermission("billing"), async (req, res) => {
   const session = (req as any).user;
+  if (storePersistence.mode === "postgres") {
+    try { store = normalizeLoadedStore(await storePersistence.refresh()); }
+    catch { return res.status(503).json({ error: "Current billing history is unavailable. Check the ledger." }); }
+  }
   const orders = (store.billingOrders || [])
     .filter(order => order.organizationId === session.organizationId)
     .slice(-25)
@@ -3177,6 +3243,7 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
   const session = (req as any).user;
   const config = getWipayConfig(process.env);
   if (!config.ready) return res.status(503).json({ error: "WiPay checkout is not configured.", problems: config.problems });
+  if (!liveWiPayLedgerReady(config)) return res.status(503).json({ error: "Live WiPay requires the PostgreSQL Hub billing store.", code: "BILLING_LIVE_STORE_NOT_READY" });
 
   if (config.environment !== "live") {
     return res.status(409).json({ error: "Use the dedicated sandbox test checkout while WiPay is in sandbox mode." });
@@ -3194,6 +3261,10 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
   }
   const amount = normalizeMoney(plan.priceXcd);
   if (amount === null || amount <= 0) return res.status(409).json({ error: "A positive workspace plan price must be configured before checkout." });
+  const payerEmail = normalizeEmail(store.users.find(user => user.id === session.userId)?.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payerEmail) || payerEmail.length > 50) {
+    return res.status(409).json({ error: "A valid billing email is required on your Hub account before checkout." });
+  }
 
   const now = new Date().toISOString();
   const order: BillingOrder = {
@@ -3201,6 +3272,8 @@ app.post("/api/billing/checkout", requireAuth, requirePermission("billing"), asy
     organizationId: session.organizationId,
     sourceApp: "hub",
     kind: "subscription",
+    billingCycleAtOrder: plan.billingCycle as "monthly" | "annual",
+    payerEmail,
     description: `${plan.planName} ${plan.billingCycle} renewal`,
     amount,
     currency: config.currency,
@@ -3244,6 +3317,10 @@ app.post("/api/billing/sandbox-test", requireAuth, requirePermission("billing"),
     return res.status(409).json({ error: "WiPay sandbox testing is not enabled." });
   }
 
+  const payerEmail = normalizeEmail(store.users.find(user => user.id === session.userId)?.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payerEmail) || payerEmail.length > 50) {
+    return res.status(409).json({ error: "A valid billing email is required on your Hub account before sandbox checkout." });
+  }
   const amount = 10;
   const now = new Date().toISOString();
   const order: BillingOrder = {
@@ -3252,6 +3329,7 @@ app.post("/api/billing/sandbox-test", requireAuth, requirePermission("billing"),
     sourceApp: "hub",
     kind: "subscription",
     description: "WiPay sandbox integration test",
+    payerEmail,
     amount,
     currency: config.currency,
     provider: "wipay",
@@ -3286,6 +3364,9 @@ app.post("/api/billing/sandbox-test", requireAuth, requirePermission("billing"),
 
 app.get("/api/billing/wipay/return", async (req, res) => {
   const config = getWipayConfig(process.env);
+  if (!liveWiPayLedgerReady(config)) {
+    return res.status(503).send("Live payment verification requires the PostgreSQL Hub store. No payment status was changed.");
+  }
   const orderId = String(req.query.order_id || "").trim();
   const appUrl = String(process.env.APP_URL || "https://hub.v79sl.com").replace(/\/$/, "");
   const redirect = (status: string, reason = "", order?: BillingOrder) => {
@@ -3296,7 +3377,84 @@ app.get("/api/billing/wipay/return", async (req, res) => {
     return res.redirect(302, url.toString());
   };
 
-  if (!orderId || orderId.length > 64) return redirect("error", "invalid_order");
+  if (!/^v79_[A-Za-z0-9_]+$/.test(orderId) || orderId.length > 64) return redirect("error", "invalid_order");
+  const releaseCallback = wipayCallbackGuard.tryAcquire();
+  if (!releaseCallback) {
+    res.setHeader("Retry-After", "2");
+    return res.status(503).send("Payment verification is in progress. Check order status before retrying.");
+  }
+  try {
+  if (storePersistence.mode === "postgres") {
+    // For PostgreSQL use the row-locked transaction over the LATEST durable
+    // state, not the in-memory clone. Every competing old snapshot is rejected
+    // by the runtime persistence revision/CAS gate.
+    const outcome = await (async () => {
+      // Preserve Sentinel maintenance exclusivity for transactional payment
+      // writes, just as commitStore does for ordinary Hub mutations.
+      const releasePaymentWrite = sentinelWriteFence.beginStoreSave();
+      try {
+        return await reconcileWipayInPostgres({
+      repository: storePersistence,
+      orderId,
+      query: req.query as Record<string, unknown>,
+      config,
+      applyEntitlement: (state: AppStore, paidOrder: BillingOrder, when: string) => {
+        if (paidOrder.sourceApp === "hub" && paidOrder.kind === "subscription") {
+          const organizationId = paidOrder.organizationId;
+          const cycle = paidOrder.billingCycleAtOrder;
+          if (!organizationId || (cycle !== "monthly" && cycle !== "annual")) {
+            throw new Error("Live subscription order lacks original organization or cycle.");
+          }
+          let plan = state.organizationPlans.find(item => item.organizationId === organizationId);
+          if (!plan) {
+            const fallback = organizationPlanFor(state, organizationId);
+            plan = { ...fallback, createdAt: when, updatedAt: when };
+            state.organizationPlans.push(plan);
+          }
+          if (plan.billingCycle !== cycle) {
+            throw new Error("Order billing cycle differs from current plan; manual reconciliation required.");
+          }
+          const prior = plan.accessPolicyType === "paid" && plan.paidThroughAt
+            ? new Date(plan.paidThroughAt) : null;
+          const paidThroughBase = prior && Number.isFinite(prior.getTime()) &&
+            prior.getTime() > Date.parse(when) ? prior : new Date(when);
+          const paidThroughAt = addBillingPeriod(paidThroughBase, cycle).toISOString();
+          plan.renewalDate = paidThroughAt.slice(0, 10);
+          plan.paidThroughAt = paidThroughAt;
+          plan.accessPolicyType = "paid";
+          plan.status = "active";
+          plan.updatedAt = when;
+        }
+        onboardingAudit(state, "billing_payment_verified", {
+          orderId: paidOrder.id,
+          transactionId: paidOrder.providerTransactionId,
+          amount: paidOrder.amount, currency: paidOrder.currency,
+          providerEnvironment: paidOrder.providerEnvironment,
+        }, paidOrder.createdByUserId, paidOrder.organizationId);
+      },
+        });
+      } finally {
+        releasePaymentWrite();
+      }
+    })();
+    // PostgreSQL state and local revision now refer to the same commit.
+    store = normalizeLoadedStore(outcome.state);
+    snapshotRevision.set(store, storePersistence.revision());
+    const persistedOrder = store.billingOrders.find(item => item.id === orderId);
+    const decision = outcome.result;
+    if (decision.decision === "accepted") {
+      if (persistedOrder?.providerEnvironment === "sandbox") {
+        return redirect("success", "sandbox_verified_no_entitlement_change", persistedOrder);
+      }
+      return redirect("success", "", persistedOrder);
+    }
+    if (decision.decision === "already_paid") {
+      return redirect("success", "already_processed", persistedOrder);
+    }
+    return redirect("failed", decision.reason || "payment_not_verified", persistedOrder);
+  }
+  // JSON is retained for sandbox-only compatibility and cannot accept live
+  // checkouts. Read its order only after acquiring the process-local guard.
   const nextStore = cloneStore();
   const order = nextStore.billingOrders.find(item => item.id === orderId);
   if (!order) return redirect("error", "order_not_found");
@@ -3306,16 +3464,13 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   const verification = verifyWipayReturn({ query, expectedOrder: order, config });
   const now = new Date().toISOString();
 
-  if (order.status === "paid") {
-    const sameTransaction = Boolean(order.providerTransactionId && order.providerTransactionId === verification.transactionId);
-    return redirect(sameTransaction ? "success" : "error", sameTransaction ? "already_processed" : "order_already_paid", order);
+  const assessment = assessWipayCallback({ order, verification, orders: nextStore.billingOrders });
+  if (assessment.decision === "already_paid") return redirect("success", "already_processed", order);
+  if (order.status === "paid" || order.status === "cancelled" || order.status === "failed") {
+    return redirect("error", assessment.reason, order);
   }
-
-  const replay = verification.ok && nextStore.billingOrders.some(
-    item => item.id !== order.id && item.providerTransactionId && item.providerTransactionId === verification.transactionId,
-  );
-  const verified = Boolean(verification.ok && !replay);
-  const reason = replay ? "transaction_replay" : verification.reason;
+  const verified = assessment.decision === "accept";
+  const reason = assessment.reason;
 
   nextStore.billingPaymentEvents.push({
     id: crypto.randomUUID(),
@@ -3333,10 +3488,9 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   if (nextStore.billingPaymentEvents.length > 5000) nextStore.billingPaymentEvents = nextStore.billingPaymentEvents.slice(-5000);
 
   if (!verified) {
-    if (["failed", "error"].includes(String(req.query.status || "").toLowerCase())) {
-      order.status = "failed";
-      order.updatedAt = now;
-    }
+    // Browser/provider returns with a failed/error status are NOT cryptographically
+    // authenticated by this success-only contract. Never mutate a pending order
+    // to terminal 'failed' based on untrusted query parameters.
     onboardingAudit(nextStore, "billing_payment_rejected", { orderId: order.id, reason }, order.createdByUserId, order.organizationId);
     await commitStore(nextStore);
     return redirect("failed", reason, order);
@@ -3398,6 +3552,15 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   }, order.createdByUserId, order.organizationId);
   await commitStore(nextStore);
   return redirect("success", "", order);
+  } catch {
+    // A failed or interrupted commit may have an uncertain persisted outcome.
+    // Do not manufacture success or re-run the charge from an error handler.
+    if (res.headersSent) return;
+    res.setHeader("Retry-After", "3");
+    return res.status(503).send("Payment status is uncertain. Check the payment ledger before retrying.");
+  } finally {
+    releaseCallback();
+  }
 });
 
 app.get("/api/security/mfa/status", requireAuth, (req, res) => {
@@ -3706,6 +3869,26 @@ function customerAdminRecord(currentStore: AppStore, organization: Organization)
   };
 }
 
+/**
+ * Tenant activation helpers return a new immutable Hub store object. Because
+ * a single platform-admin request may provision several products sequentially,
+ * each new object must inherit the exact revision of the source store it
+ * transformed—not the request's initial revision.
+ *
+ * Payment safety: only commit with source revision provenance; a concurrent
+ * settlement or another instance's write still triggers PostgreSQL CAS failure.
+ */
+async function commitProvisionedTenantMapping(nextStore: AppStore, sourceStore: AppStore) {
+  const originatingRevision = snapshotRevision.get(sourceStore);
+  if (storePersistence.mode === "postgres" && originatingRevision === undefined) {
+    throw new Error("Cannot persist tenant provisioning without the source-store revision.");
+  }
+  if (originatingRevision !== undefined) {
+    snapshotRevision.set(nextStore, originatingRevision);
+  }
+  await commitStore(nextStore);
+}
+
 async function provisionCustomerProduct(product: CustomerProvisionProduct, organizationId: string, actorUserId: string) {
   const appId = customerProvisionProducts[product];
   const existing = store.appTenantMappings.find(mapping => mapping.organizationId === organizationId && mapping.appId === appId);
@@ -3715,22 +3898,22 @@ async function provisionCustomerProduct(product: CustomerProvisionProduct, organ
     const target = posProvisioningTarget(store, organizationId);
     const provisioned = await provisionPosWorkspace(target.organization, target.owner.id);
     if (!provisioned.ok) throw new Error(provisioned.error);
-    await commitStore(activatePosTenantMapping(store, organizationId, provisioned.organizationId, actorUserId, new Date().toISOString()) as AppStore);
+    await commitProvisionedTenantMapping(activatePosTenantMapping(store, organizationId, provisioned.organizationId, actorUserId, new Date().toISOString()) as AppStore, store);
   } else if (product === "ffpro") {
     const target = ffproProvisioningTarget(store, organizationId);
     const provisioned = await provisionFfproWorkspace(target.organization, target.owner);
     if (!provisioned.ok) throw new Error(provisioned.error);
-    await commitStore(activateFfproTenantMapping(store, organizationId, provisioned.organizationId, provisioned.financeUserId, actorUserId, new Date().toISOString()) as AppStore);
+    await commitProvisionedTenantMapping(activateFfproTenantMapping(store, organizationId, provisioned.organizationId, provisioned.financeUserId, actorUserId, new Date().toISOString()) as AppStore, store);
   } else if (product === "tiquet") {
     const target = tiquetProvisioningTarget(store, organizationId);
     const provisioned = await provisionTiquetWorkspace(target.organization, target.owner);
     if (!provisioned.ok) throw new Error(provisioned.error);
-    await commitStore(activateTiquetTenantMapping(store, organizationId, provisioned.organizationId, provisioned.accountId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore);
+    await commitProvisionedTenantMapping(activateTiquetTenantMapping(store, organizationId, provisioned.organizationId, provisioned.accountId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore, store);
   } else {
     const target = marketingProvisioningTarget(store, organizationId);
     const provisioned = await provisionMarketingWorkspace(target.organization, target.owner);
     if (!provisioned.ok) throw new Error(provisioned.error);
-    await commitStore(activateMarketingTenantMapping(store, organizationId, provisioned.organizationId, provisioned.businessId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore);
+    await commitProvisionedTenantMapping(activateMarketingTenantMapping(store, organizationId, provisioned.organizationId, provisioned.businessId, provisioned.userId, actorUserId, new Date().toISOString()) as AppStore, store);
   }
 
   return { product, appId, status: "active" as const, skipped: false };
