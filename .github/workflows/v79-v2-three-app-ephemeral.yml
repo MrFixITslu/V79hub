@@ -35,7 +35,7 @@ jobs:
             tag: v79-01-tiquet:test
           - service: website
             repo: MrFixITslu/V79Website
-            source_sha: c64d7ba1fbdd92b033d28e88608e464af941eefc
+            source_sha: 69b365d4621e25a454832cd7aee527547daac2a5
             tag: v79-v2-website:test
     steps:
       - name: Checkout exact public candidate
