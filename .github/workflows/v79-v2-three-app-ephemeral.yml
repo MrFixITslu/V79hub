@@ -54,7 +54,15 @@ jobs:
           test "${#EXPECTED}" -eq 40
           test "$(git -C source rev-parse HEAD)" = "$EXPECTED"
           test ! -e source/.env
-          test -z "$(git -C source ls-files -- data uploads backups logs)"
+          test -z "$(git -C source ls-files -- uploads backups logs)"
+          if [ "${{ matrix.service }}" = website ]; then
+            # The public website repository intentionally versions editorial
+            # articles under data/articles; never accept tracked runtime DBs.
+            unexpected="$(git -C source ls-files -- data | grep -v '^data/articles/' || true)"
+            test -z "$unexpected"
+          else
+            test -z "$(git -C source ls-files -- data)"
+          fi
       - name: Build private image from exact candidate
         env:
           IMAGE: ${{ matrix.tag }}
