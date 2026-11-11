@@ -12,7 +12,7 @@ import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
 import { Pool } from "pg";
-import { createEcosystemEventInbox, createTiquetEventHandler } from "./server/ecosystem-v2-event-ingress.mjs";
+import { createEcosystemEventInbox, createTiquetEventHandler, createWebsiteEventHandler } from "./server/ecosystem-v2-event-ingress.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -3493,12 +3493,25 @@ const ecosystemV2Pool = ecosystemV2EventsEnabled &&
 const ecosystemV2Inbox = ecosystemV2Pool ? createEcosystemEventInbox(ecosystemV2Pool) : null;
 // Signed service ingress is outside cookie authentication, protected by HMAC,
 // exact service allowlist and an active Hub<->Tiquet tenant mapping.
-app.post("/api/platform/events", createTiquetEventHandler({
+const ecosystemV2TiquetHandler = createTiquetEventHandler({
   enabled: ecosystemV2EventsEnabled,
   secret: process.env.V79_TIQUET_EVENT_SECRET || "",
   getStore: () => store,
   inbox: ecosystemV2Inbox,
-}));
+});
+const ecosystemV2WebsiteHandler = createWebsiteEventHandler({
+  enabled: ecosystemV2EventsEnabled,
+  secret: process.env.V79_WEBSITE_EVENT_SECRET || "",
+  ownerOrganizationId: posIdentity.organizationId,
+  getStore: () => store,
+  inbox: ecosystemV2Inbox,
+});
+app.post("/api/platform/events", (req, res) => {
+  const service = req.get("x-v79-service-id");
+  if (service === "tiquet") return ecosystemV2TiquetHandler(req, res);
+  if (service === "website") return ecosystemV2WebsiteHandler(req, res);
+  return res.status(401).json({ error: "Invalid service identity" });
+});
 // Event receipts are NOT provider-settled financial transactions.
 app.get("/api/ecosystem/v2/events", requireAuth, async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
@@ -3510,7 +3523,7 @@ app.get("/api/ecosystem/v2/events", requireAuth, async (req, res) => {
     return res.status(503).json({ status: "unavailable", events: [] });
   try {
     const events = await ecosystemV2Inbox.latest(context.organizationId, 30);
-    return res.json({ status: "event_receipts_only", source: "tiquet",
+    return res.json({ status: "event_receipts_only", source: "signed_external_events",
       dataFreshness: "per_event", events });
   } catch {
     return res.status(503).json({ status: "unavailable", events: [] });
