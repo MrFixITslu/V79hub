@@ -112,3 +112,17 @@ No production secrets should enter GitHub, CI logs or the browser.
 - The next exact-SHA rerun also pins the latest Website commit with a corrected source-only test. No customer data or production credentials used.
 
 **Release state labels:** planned → coded → CI verified → isolated staging verified → browser/customer accepted → explicitly approved → deployed.
+
+
+## Code-first reconciliation additions — 11 November 2026
+
+The following are draft-source changes **after** the previously passing three-app stage. They are not live and require new exact-commit staging:
+
+- **Tiquet PR #64**: existing file path boundary hardened; tenant+job-scoped immutable PDF scope versions, SHA-256 integrity, explicit portal acknowledgment, separate delivery acceptance; customer approval + audit + outbound Hub event committed in one database transaction; uncertain DB outcomes retain archived evidence; tenant-scoped signed event status and reviewed retries; separate read-only duration evidence with no fabricated historic labour costs. Feature switches `V79_ECOSYSTEM_V2_SCOPE_ENABLED`, `V79_ECOSYSTEM_V2_EVENT_ADMIN_ENABLED` and `V79_ECOSYSTEM_V2_WORK_EVIDENCE_ENABLED` default OFF. Scope portal acknowledgement is **not certified e-signature**.
+- **Hub PR #251**: canonical versioned event catalogue; account-scoped UUID event correlation lookup; signed Tiquet job receipt required before provisional POS cost lookup; minimal `job.scope_acknowledged` event; read-only server image provenance script. `V79_ECOSYSTEM_V2_POS_COST_READ_ENABLED=0`.
+- **POS PR #19**, based on existing technician candidate PR #17: signed, read-only FIFO technician usage evidence by exact job UUID; currency, quantities, immutable cost snapshots; marks human-entered job linkage UNVERIFIED and verified margin NULL. `V79_ECOSYSTEM_V2_JOB_COST_READ_ENABLED=0`. POS CI passed on commit `5cc2160008317165b4712435798d35f82eac10ea`.
+- **Website PR #86** remains the prior approved-lead integration candidate. Deployed Website source/branding has not yet been reconciled against unmerged production overlays.
+
+**Outstanding code / integration scope (RED):** proof of staff-entered POS stock usage association to a real tenant-scoped Tiquet job; historical labour-rate snapshots and project expenses, signed/verified true margin projection, authoritative business-name sync across app branches, reconciliation of the older Tiquet PDF invoice workflow, and owner-reviewed actual deployed baseline. These are not implied by CI success.
+
+**Release hold:** No production merges, emails, stock movements, payment postings or site changes. Record current exact source SHA and test run before accepting any status as green. The earlier synthetic three-app PASS applies to the previously pinned release, not automatically to new modules.
