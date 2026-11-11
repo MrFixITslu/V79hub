@@ -1,0 +1,55 @@
+{
+  "schema": "v79.hub.live-source-observation.v1",
+  "observedDate": "2026-11-11",
+  "evidenceType": "user-observed-docker-inspection",
+  "releaseStatus": "HOLD_UNTIL_EXACT_LIVE_SOURCE_RECONCILED",
+  "production": {
+    "container": "v79-hub",
+    "imageId": "sha256:5d11cfdb424e793441615038e2fa1de7c1143deb69a915d0c5d94f99edb0ab1d",
+    "imageSourceRevisionLabel": "a7cfeb3141e103ee4ee7d88d14d32f50eac48b8c",
+    "sourceRevisionLabelIsNotVerifiedMatch": true,
+    "websiteSsoHubFlag": "enabled",
+    "browserSsoAcceptance": "owner-reported-working",
+    "filesSha256": {
+      "server.ts": "e562ac823168c3feb722d5876bcd4eae4d7c6c439ab07abab25476baeed6fe34",
+      "src/App.tsx": "2750709f3f856cd6b1bd19114af8268af96c66f779d4197fd385e1c8b95b2abf",
+      "src/components/Login.tsx": "cb250f00742c5bc3f40f119cbc51f626a1fb94f542f254e27b0d3c6884b4c49b",
+      "src/components/HubOverview.tsx": "b00c05056dd7a8dfcfb6055425644d26ac6880472b714b17461995b16a381096",
+      "src/components/Sidebar.tsx": "c690df486b7f43d606ce50486bb94e077eccd33a8ed090e1009920537de5cce0",
+      "server/website-sso.mjs": "34e909e15647a0de677c567528fc11e440e04fe85e788a2cc113f4192518e99d",
+      "server/owner-mfa-step-up.mjs": "e595f26e39daa7b1352af7f93529b841cf24a3b5749f6b1b534dc4f19bebb5a0",
+      "server/customer-help-routes.mjs": "31513151d649bfbf428e8113a681263b3b6b821b85828803de4f4eaa02a665b1",
+      "server/workforce-skill-registry.mjs": "d2557ad09c967315726f1e39aafe13b4eef234cac220f3d7f8fdcf51f114474d",
+      "server/workforce-skill-routes.mjs": "138cfab3ec38d95d3dbb73c3523a19faa1292fd8c4ded24686887724429dc2af",
+      "package.json": "ad8bfc8578312d68804b55df7d0bdf78b63123be3742eb8421501bd1833b5b30",
+      "package-lock.json": "c864d0134d8a05cf2e8cc499c08709ca834f9e6819c1c6439391a6e69fc11f5e"
+    },
+    "absentFiles": [
+      "server/organization-name.mjs",
+      "server/organization-name-sync.mjs",
+      "server/ecosystem-v2-event-ingress.mjs"
+    ],
+    "registeredRoutes": [
+      "/api/auth/google/config",
+      "/api/auth/google/login",
+      "/api/website-sso/authorize",
+      "/api/website-sso/exchange",
+      "/api/website-sso/introspect",
+      "/api/website-sso/revoke",
+      "/api/help",
+      "/api/security/mfa/step-up",
+      "/api/agent/skills"
+    ]
+  },
+  "isolatedStaging": {
+    "container": "v79-hub-pos-hubqa",
+    "imageId": "sha256:b083c87da392cce87d110003088041630c4bd5d72dda06c591eb19b1928b836b",
+    "serverTsSha256": "775cf18c85c5a6c22b00ad5cb14b004ff4af44f284e23dd28d94a8f6eb37bc45"
+  },
+  "preparationBranch": {
+    "name": "review/hub-live-source-reconciliation-20261111",
+    "seedCommit": "d0e46c0d85175eb21fdd85cd4a58dce00252fea0",
+    "seedSource": "PR #237 Sales Review guidance, NOT exact production image source",
+    "note": "No production source overlay, feature activation, merge or deployment permitted from this seed alone."
+  }
+}
