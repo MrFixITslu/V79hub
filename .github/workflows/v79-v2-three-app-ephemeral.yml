@@ -1,0 +1,211 @@
+name: V79 V2 Three-App End-to-End Disposable Stage
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/v79-v2-three-app-ephemeral.yml"
+      - "staging/v2-ephemeral-*"
+      - "server/ecosystem-v2-event-ingress.mjs"
+      - "tests/ecosystem-v2-*"
+permissions:
+  contents: read
+concurrency:
+  group: v79-v2-ephemeral-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# No release job, no SSH, no cloud API credentials, no publishing to GHCR,
+# no real mail delivery, no production network and no persistent volumes.
+jobs:
+  build:
+    name: Candidate image - ${{ matrix.service }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: hub
+            repo: MrFixITslu/V79hub
+            source_sha: pr-head
+            tag: v79-01-hub:test
+          - service: tiquet
+            repo: MrFixITslu/V79Tiquet
+            source_sha: 5962af400f8af8c7a766a0b7886928dfb814051b
+            tag: v79-01-tiquet:test
+          - service: website
+            repo: MrFixITslu/V79Website
+            source_sha: c64d7ba1fbdd92b033d28e88608e464af941eefc
+            tag: v79-v2-website:test
+    steps:
+      - name: Checkout exact public candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.source_sha == 'pr-head' && github.event.pull_request.head.sha || matrix.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Verify source pinned to the expected SHA
+        env:
+          EXPECTED: ${{ matrix.source_sha == 'pr-head' && github.event.pull_request.head.sha || matrix.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${#EXPECTED}" -eq 40
+          test "$(git -C source rev-parse HEAD)" = "$EXPECTED"
+          test ! -e source/.env
+          test -z "$(git -C source ls-files -- data uploads backups logs)"
+      - name: Build private image from exact candidate
+        env:
+          IMAGE: ${{ matrix.tag }}
+        run: |
+          set -euo pipefail
+          docker build --tag "$IMAGE" --file source/Dockerfile source
+          docker image inspect "$IMAGE" >/dev/null
+      - name: Export image for isolated contract runner
+        env:
+          IMAGE: ${{ matrix.tag }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          docker save "$IMAGE" | gzip -1 > "${RUNNER_TEMP}/v79-v2-$SERVICE.tar.gz"
+      - name: Transfer temporary container
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-stage-image-${{ matrix.service }}
+          path: ${{ runner.temp }}/v79-v2-*.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  integrate:
+    name: Real Hub + Tiquet + Website isolated customer journey
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v2-stage-image-*
+          path: ${{ runner.temp }}/images
+          merge-multiple: true
+      - name: Load exact candidate containers and private database dependencies
+        run: |
+          set -euo pipefail
+          for app in hub tiquet website; do
+            gzip -dc "${RUNNER_TEMP}/images/v79-v2-$app.tar.gz" | docker load
+          done
+          docker pull postgres:17-alpine
+          docker pull postgres:16-alpine
+      - name: Generate random disposable identities and signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          from pathlib import Path
+          from os import environ
+          from secrets import token_hex
+          keys=[
+            "STAGE_DB_PASSWORD","STAGE_ADMIN_PASSWORD","STAGE_CUSTOMER_PASSWORD",
+            "STAGE_GENERAL_SECRET","STAGE_POS_SECRET","STAGE_FFPRO_SECRET",
+            "STAGE_TIQUET_SECRET","STAGE_MARKETING_SECRET",
+            "STAGE_TIQUET_EVENT_SECRET","STAGE_WEB_EVENT_SECRET",
+            "STAGE_INTAKE_SECRET","STAGE_WEB_ADMIN_PASSWORD",
+            "STAGE_WEB_ENCRYPTION_KEY","STAGE_FFPRO_ENCRYPTION_KEY",
+          ]
+          p=Path(environ["RUNNER_TEMP"])/"v79-v2-stage.env"
+          with p.open("x") as f:
+            for key in keys: f.write(f"{key}={token_hex(32)}\n")
+          print("SYNTHETIC_RANDOM_KEYS_GENERATED names_only")
+          PY
+      - name: Start isolated Hub + Tiquet from candidate images
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage() {
+            docker compose --project-name v79-v2-ephemeral \
+              --file staging/gha-compose.yml \
+              --file staging/v2-ephemeral-overlay.yml \
+              --env-file "${RUNNER_TEMP}/v79-v2-stage.env" "$@"
+          }
+          stage config --quiet
+          stage up --wait -d hub-db tiquet-db
+          stage run --rm hub-seed
+          stage up --no-deps --wait -d v79-hub tiquet
+          stage exec -T v79-hub node staging/v2-ephemeral-smoke.mjs provision
+      - name: Resolve actual provisioned local account from isolated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage() {
+            docker compose --project-name v79-v2-ephemeral \
+              --file staging/gha-compose.yml \
+              --file staging/v2-ephemeral-overlay.yml \
+              --env-file "${RUNNER_TEMP}/v79-v2-stage.env" "$@"
+          }
+          account="$(stage exec -T tiquet-db psql -U stage -d tiquet -Atc \
+            "SELECT id FROM accounts WHERE hub_organization_id='synthetic-customer-a' LIMIT 1" | tr -d '\r')"
+          [[ "$account" =~ ^[a-f0-9-]{36}$ ]] || { echo 'Missing real Tiquet provisioned tenant'; exit 1; }
+          printf 'STAGE_INTAKE_ACCOUNT_ID=%s\n' "$account" >> "${RUNNER_TEMP}/v79-v2-stage.env"
+          # Never publish or print customer or synthetic account credentials.
+          stage up --no-deps --force-recreate -d tiquet
+          stage up --no-deps --wait -d website
+      - name: Live HTTP lead capture and no unauthorised ticket creation
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage() {
+            docker compose --project-name v79-v2-ephemeral \
+              --file staging/gha-compose.yml \
+              --file staging/v2-ephemeral-overlay.yml \
+              --env-file "${RUNNER_TEMP}/v79-v2-stage.env" "$@"
+          }
+          stage exec -T v79-hub node staging/v2-ephemeral-smoke.mjs submit
+          count="$(stage exec -T tiquet-db psql -U stage -d tiquet -Atc \
+            "SELECT count(*) FROM jobs WHERE intakeEventId IS NOT NULL" | tr -d '\r')"
+          test "$count" = 0 || { echo 'Unapproved website lead created Tiquet ticket'; exit 1; }
+          echo "PRE_APPROVAL_TICKET_COUNT=0 PASS"
+      - name: Live HTTP CRM approval and Tiquet/HUB correlation
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage() {
+            docker compose --project-name v79-v2-ephemeral \
+              --file staging/gha-compose.yml \
+              --file staging/v2-ephemeral-overlay.yml \
+              --env-file "${RUNNER_TEMP}/v79-v2-stage.env" "$@"
+          }
+          stage exec -T v79-hub node staging/v2-ephemeral-smoke.mjs convert
+          count="$(stage exec -T tiquet-db psql -U stage -d tiquet -Atc \
+            "SELECT count(*) FROM jobs j JOIN clients c ON c.id=j.clientId AND c.account_id=j.account_id WHERE j.intakeEventId IS NOT NULL" | tr -d '\r')"
+          test "$count" = 1 || { echo 'Approved CRM lead did not create exactly one customer-linked job'; exit 1; }
+          echo "V2_THREE_APP_STAGE_PASS exactly_one_linked_job=true"
+      - name: Inspect service status without disclosing credentials
+        if: failure()
+        run: |
+          stage() {
+            docker compose --project-name v79-v2-ephemeral \
+              --file staging/gha-compose.yml \
+              --file staging/v2-ephemeral-overlay.yml \
+              --env-file "${RUNNER_TEMP}/v79-v2-stage.env" "$@"
+          }
+          stage ps || true
+          for app in v79-hub tiquet website hub-seed; do
+            echo "SERVICE=$app"
+            stage logs --no-color --tail 35 "$app" 2>/dev/null | \
+              sed -E 's/(secret|token|password|authorization)([^:=]*[:=])[^ ]+/\1\2[REDACTED]/Ig' || true
+          done
+      - name: Destroy disposable containers, networks and DBs
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/v79-v2-stage.env" ]; then
+            docker compose --project-name v79-v2-ephemeral \
+              --file staging/gha-compose.yml \
+              --file staging/v2-ephemeral-overlay.yml \
+              --env-file "${RUNNER_TEMP}/v79-v2-stage.env" \
+              down --volumes --remove-orphans --timeout 10 || true
+          fi
