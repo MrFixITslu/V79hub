@@ -106,9 +106,9 @@ if(mode==="provision"){
   });
   const different=await json(second,"Second website enquiry",201);
   assert.notEqual(different.id,lead.id);
-  assert.equal(different.crmLeadId,lead.crmLeadId,
-    "A repeated contact must be detected as the same CRM prospect");
+  assert.notEqual(different.crmLeadId,lead.crmLeadId);
   assert.equal(different.isDuplicate,true);
+  assert.equal(different.duplicateOf,lead.crmLeadId);
   const operator=await ownerLogin("admin",process.env.STAGE_ADMIN_PASSWORD);
   const receipt=await poll(async()=>{
     const items=await receipts(operator);
