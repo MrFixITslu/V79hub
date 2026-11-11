@@ -193,14 +193,25 @@ export function createEcosystemEventInbox(pool) {
         prior.rows[0].account_ref !== event.accountRef) throw reject("event_replay_conflict");
     return "duplicate";
   }
-  async function latest(organizationId, limit = 30) {
-    if (!ID.test(organizationId || "") || !Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+  async function latest(organizationId, limit = 30, correlationId = null) {
+    if (!ID.test(organizationId || "") || !Number.isSafeInteger(limit) ||
+        limit < 1 || limit > 100 ||
+        (correlationId !== null && !UUID.test(correlationId)))
       throw reject("invalid_read_scope");
     await ensureSchema();
-    const data = await pool.query(
-      `SELECT source,event_id,event_type,subject_id,correlation_id,occurred_at,received_at,payload
-       FROM v79_ecosystem_events_v2
-       WHERE organization_id=$1 ORDER BY received_at DESC,event_id DESC LIMIT $2`, [organizationId,limit]);
+    // Every query requires an authenticated organisation; correlation IDs
+    // alone never grant access to another tenant's event history.
+    const query = correlationId === null
+      ? `SELECT source,event_id,event_type,subject_id,correlation_id,occurred_at,received_at,payload
+         FROM v79_ecosystem_events_v2
+         WHERE organization_id=$1 ORDER BY received_at DESC,event_id DESC LIMIT $2`
+      : `SELECT source,event_id,event_type,subject_id,correlation_id,occurred_at,received_at,payload
+         FROM v79_ecosystem_events_v2
+         WHERE organization_id=$1 AND correlation_id=$2
+         ORDER BY occurred_at,event_id LIMIT $3`;
+    const params = correlationId === null ? [organizationId,limit] :
+      [organizationId,correlationId,limit];
+    const data = await pool.query(query,params);
     return data.rows;
   }
   return Object.freeze({ write, latest, ensureSchema });
