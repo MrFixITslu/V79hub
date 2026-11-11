@@ -30,6 +30,9 @@ Considered three approaches: direct cross-application mutation, a new external i
 | Website | `V79_ECOSYSTEM_V2_REVIEW_MODE=0` | Enable only after historical lead mapping review |
 | Tiquet | `V79_ECOSYSTEM_V2_INTAKE_ACK_ENABLED=0` | Verified SMTP credentials, explicit SMTP_FROM, mailbox delivery proof |
 | Tiquet | `V79_ECOSYSTEM_V2_CANCEL_ENABLED=0` | Payment/portal race and refund exception acceptance |
+| Tiquet | `V79_ECOSYSTEM_V2_INVOICE_SEND_ENABLED=0` | SMTP verified and invoice-link idempotency tested |
+| Tiquet | `V79_TIQUET_INVOICE_CC_ACCOUNT_ID` | Exact owner workspace ID only; never another tenant |
+| Tiquet | `V79_TIQUET_INVOICE_CC_EMAIL` | Set to `vision79slu@gmail.com` for the owner workspace before enabled sending |
 
 No production secrets should enter GitHub, CI logs or the browser.
 
@@ -55,6 +58,7 @@ No production secrets should enter GitHub, CI logs or the browser.
 - Positive: website form → one website lead + one CRM task, staff reviews scope, approves once, Tiquet returns **real** client/job IDs; subsequent retry returns the same IDs; signed event receipts join by opaque correlation ID.
 - Negative: duplicate request with changed content, missing mapping, inactive entitlement, wrong organisation, cross-tenant query, wrong HMAC, wrong service identity, expired signature, future event, PII in Hub payload, concurrent/out-of-order deliveries.
 - Tiquet: one acknowledgement per ticket, test actual designated mailbox, SMTP absent, SMTP temporary failure, duplicate submission, process crash after mail may have sent, manual review queue. Never report `sent` for a skipped email.
+- Invoice link: user-triggered send only, real invoiced job with a positive value, mandatory request idempotency, SMTP positive and skipped-negative checks, copy only to Vision79's own configured account and address, no CC for a second tenant. Confirm the portal presents the actual invoice and does not claim payment was received.
 - Billing: no synthetic amounts reach Hub receipts; settled WiPay-only ledger; cancellation with unpaid request allowed, recorded payment/invoiced work blocked, in-flight gateway settlement recorded with human finance exception.
 - Client feedback is one submission per job and account, only after review/completion, free-text stays in Tiquet, contact permission is not marketing opt-in.
 - Repeat success and denial tests after container restart and database restore.
