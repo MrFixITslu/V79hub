@@ -1,0 +1,86 @@
+name: Current P1 Hub Tiquet Isolated Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tests/paired-hub-tiquet-current-security.test.mjs"
+      - ".github/workflows/hub-tiquet-current-p1-isolated.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  current-pinned-two-tenant:
+    name: Current exact Hub and Tiquet - disposable PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    services:
+      postgres:
+        image: docker.io/library/postgres:16-alpine
+        env:
+          POSTGRES_DB: tiquet_test
+          POSTGRES_USER: tiquet_test
+          POSTGRES_PASSWORD: tiquet_test_password
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tiquet_test -d tiquet_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      V79_PAIRED_TEST_SCOPE: github-ci-disposable
+      DATABASE_URL: postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test
+      NODE_ENV: test
+      WIPAY_ENABLED: "0"
+      V79_MCP_READONLY_ENABLE: "0"
+      V79_ALLOW_PRODUCTION_DEPLOY: "0"
+      V79_ALLOW_LEGACY_AUTH: "0"
+    steps:
+      - name: Fetch current Hub test candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fetch exact current Tiquet source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: MrFixITslu/V79Tiquet
+          ref: 7da53ebb71530366168bd72a7efd52b57d34a23c
+          path: .paired-tiquet
+          persist-credentials: false
+      - name: Validate exact source and reject production paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .paired-tiquet rev-parse HEAD)" = 7da53ebb71530366168bd72a7efd52b57d34a23c
+          git merge-base --is-ancestor df1046151a02dd27db746a2ec5b928f03dcb9b1d HEAD
+          test "$V79_PAIRED_TEST_SCOPE" = github-ci-disposable
+          test "$DATABASE_URL" = postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test
+          test "$WIPAY_ENABLED" = 0
+          test "$V79_ALLOW_PRODUCTION_DEPLOY" = 0
+          test -z "$(git ls-files -- data uploads backups logs)"
+          test -z "$(git -C .paired-tiquet ls-files -- data uploads backups logs)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Install lockfile dependencies without lifecycle scripts
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm ci --prefix .paired-tiquet --ignore-scripts --no-audit --no-fund
+      - name: Check security test and dependencies without starting real services
+        run: |
+          set -euo pipefail
+          node --check tests/paired-hub-tiquet-current-security.test.mjs
+          node --check .paired-tiquet/server/index.js
+          node --check .paired-tiquet/server/tokenRevocation.js
+      - name: Execute local two-tenant replay/write/logout security checks
+        run: node --test tests/paired-hub-tiquet-current-security.test.mjs
+      - name: Confirm no tracked source files were changed
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git -C .paired-tiquet status --porcelain --untracked-files=no)"
+
+# PR-only and strictly nondeploying. No production credentials, SSH, Tailscale,
+# Docker image publication, server mutation, real customers or WiPay.
