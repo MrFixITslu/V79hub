@@ -3535,6 +3535,75 @@ app.get("/api/ecosystem/v2/events", requireAuth, async (req, res) => {
   }
 });
 
+// Read-only provisional POS usage evidence. Never call it a verified margin:
+// POS staff enter jobReference, and no cross-ledger write is permitted.
+app.get("/api/ecosystem/v2/job-cost-evidence/:jobId", requireAuth,
+  async (req,res) => {
+    res.setHeader("Cache-Control","no-store");
+    if(process.env.V79_ECOSYSTEM_V2_POS_COST_READ_ENABLED!=="1" ||
+       !ecosystemV2EventsEnabled || !ecosystemV2Inbox)
+      return res.status(404).json({error:"Not available"});
+    const ctx=(req as any).user;
+    const membership=ctx?activeMembership(store,ctx.userId,ctx.organizationId):null;
+    if(!membership || !["owner","admin"].includes(membership.role))
+      return res.status(403).json({error:"Access denied"});
+    const jobId=String(req.params.jobId||"");
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId))
+      return res.status(400).json({error:"Invalid ticket reference"});
+    const org=ctx.organizationId;
+    const activePos=store.appEntitlements.some(v=>v.organizationId===org &&
+      v.appId==="app-pos" && v.enabled===true);
+    const activeTiquet=store.appEntitlements.some(v=>v.organizationId===org &&
+      v.appId==="app-tiquet" && v.enabled===true);
+    if(!activePos||!activeTiquet)
+      return res.status(403).json({error:"Required application entitlement missing"});
+    if(!process.env.V79_POS_PLATFORM_SHARED_SECRET ||
+       process.env.V79_POS_PLATFORM_SHARED_SECRET.length<32)
+      return res.status(503).json({error:"POS integration unavailable"});
+    try{
+      // A staff-typed job ID cannot be trusted as a Tiquet record.
+      // Confirm there is a tenant-bound, signed job.created receipt first.
+      if(!await ecosystemV2Inbox.hasTiquetJob(org,jobId))
+        return res.status(409).json({error:"Signed Tiquet job receipt not available"});
+      const pathname="/api/platform/job-cost-evidence/"+
+        encodeURIComponent(org)+"/"+encodeURIComponent(jobId);
+      const timestamp=String(Date.now());
+      const signed=signPlatformRequest({method:"GET",pathname,timestamp,body:"",
+        secret:process.env.V79_POS_PLATFORM_SHARED_SECRET});
+      const upstream=await fetch(new URL(pathname,posServiceUrl),{
+        method:"GET",redirect:"error",
+        headers:{"x-v79-service-id":"v79-hub",
+          "x-v79-timestamp":timestamp,"x-v79-signature":signed},
+        signal:AbortSignal.timeout(5000),
+      });
+      if(!upstream.ok)
+        return res.status(503).json({error:"POS cost evidence unavailable"});
+      const body=await upstream.json() as any;
+      if(body?.contract!=="v79.pos.job-cost-evidence.v1" ||
+         body.organizationId!==org || body.jobId!==jobId ||
+         body.linkage!=="staff_entered_reference_unverified" ||
+         body.costCompleteness!=="unverified" ||
+         body.isPaymentReceipt!==false ||
+         !/^[A-Z]{3}$/.test(String(body.currency||"")) ||
+         !/^[0-9]{1,15}\.[0-9]{2}$/.test(String(body.materialCost||"")) ||
+         !Number.isSafeInteger(body.recordedUsageCount))
+        return res.status(503).json({error:"Untrusted POS evidence response"});
+      return res.json({
+        status:"provisional_cost_evidence",
+        organizationId:org,jobId,
+        materialCost:body.materialCost,currency:body.currency,
+        recordedUsageCount:body.recordedUsageCount,
+        lastUsageAt:body.lastUsageAt||null,
+        verifiedTiquetJobReceipt:true,
+        verifiedPosJobAssociation:false,
+        confirmedMargin:null,
+        paymentSettlementVerified:false,
+      });
+    }catch{
+      return res.status(503).json({error:"POS cost evidence unavailable"});
+    }
+  });
+
 app.use("/api", requireAuth);
 
 app.get("/api/team/invitations", requireWorkspaceOwner, (req, res) => {
