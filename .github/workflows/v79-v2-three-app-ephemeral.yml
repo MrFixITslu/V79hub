@@ -31,7 +31,7 @@ jobs:
             tag: v79-01-hub:test
           - service: tiquet
             repo: MrFixITslu/V79Tiquet
-            source_sha: e2372e4ad72e4920d79ca50a38d0f5f85b773353
+            source_sha: 1947ab773ede7e29abec7cf1a1c6a1a8d45686af
             tag: v79-01-tiquet:test
           - service: website
             repo: MrFixITslu/V79Website
