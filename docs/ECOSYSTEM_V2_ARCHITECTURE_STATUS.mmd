@@ -1,0 +1,58 @@
+flowchart LR
+  %% V79 architecture evidence snapshot: 11 November 2026.
+  %% GREEN means integration code proven in disposable CI. NOT live production.
+  %% AMBER means app code / draft exists but its V2 release is unverified.
+  %% RED means cross-app capability or release acceptance is outstanding.
+  classDef green fill:#dcfce7,stroke:#15803d,color:#14532d,stroke-width:2px
+  classDef amber fill:#fef3c7,stroke:#b45309,color:#78350f,stroke-width:2px
+  classDef red fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+
+  subgraph VERIFIED["GREEN — Tested together in disposable staging"]
+    WEB["Website lead capture"]
+    CRM["Website CRM: review and approval"]
+    TJ["Tiquet: one linked customer and service ticket"]
+    HE["Hub: signed, tenant-isolated lead/job event receipts"]
+    WEB -->|capture| CRM
+    CRM -->|approved intake + stable IDs| TJ
+    TJ -->|signed job and customer events| HE
+    WEB -->|signed lead receipt| HE
+  end
+  class WEB,CRM,TJ,HE green
+
+  subgraph PARTIAL["YELLOW — Implemented partly or cross-app acceptance pending"]
+    HI["Hub identity, entitlements and launch"]
+    TP["Tiquet: acknowledgement, invoice link, delivery acceptance, cancellation"]
+    MK["V79 Marketing"]
+    POS["V79 POS"]
+    FF["FFPRO"]
+    AC["V79 Academy"]
+    SN["V79 Sentinel"]
+    MCP["V79 MCP draft proposals"]
+  end
+  class HI,TP,MK,POS,FF,AC,SN,MCP amber
+
+  subgraph OUT["RED — Missing proof or unreconciled integration"]
+    STOCK["Ticket ↔ stock / job costs"]
+    PROFIT["Verified cost, expense and margin reporting"]
+    ATTR["Marketing attribution → CRM"]
+    LEARN["Academy completion → Hub"]
+    ALERT["Sentinel alert → ticket / owner task"]
+    RELEASE["Live SSO/MFA, email, WiPay, restore and rollback"]
+  end
+  class STOCK,PROFIT,ATTR,LEARN,ALERT,RELEASE red
+
+  HI -.->|live SSO still pending| TJ
+  HI -.-> MK
+  HI -.-> POS
+  HI -.-> FF
+  TJ -.-> TP
+  TJ -.-> STOCK
+  POS -.-> STOCK
+  FF -.-> PROFIT
+  HE -.-> PROFIT
+  MK -.-> ATTR
+  CRM -.-> ATTR
+  AC -.-> LEARN
+  SN -.-> ALERT
+  MCP -.-> ALERT
+  TP -.-> RELEASE
