@@ -202,6 +202,11 @@ jobs:
               --env-file "${RUNNER_TEMP}/v79-v2-stage.env" "$@"
           }
           stage ps || true
+          echo "===== SYNTHETIC EVENT OUTBOX DIAGNOSTICS ====="
+          stage exec -T tiquet-db psql -U stage -d tiquet -Atc             "SELECT event_type,status,attempts,LEFT(COALESCE(last_error,''),120) FROM platform_event_outbox ORDER BY created_at DESC LIMIT 8"             2>/dev/null || true
+          echo "===== SYNTHETIC ORG MAPPING COUNTS ====="
+          stage exec -T tiquet-db psql -U stage -d tiquet -Atc             "SELECT COUNT(*),COUNT(hub_organization_id) FROM accounts" 2>/dev/null || true
+          stage exec -T hub-db psql -U stage -d hub_staging -Atc             "SELECT source,event_type,COUNT(*) FROM v79_ecosystem_events_v2 GROUP BY source,event_type ORDER BY source,event_type"             2>/dev/null || true
           for app in v79-hub tiquet website hub-seed; do
             echo "SERVICE=$app"
             stage logs --no-color --tail 35 "$app" 2>/dev/null | \
