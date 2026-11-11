@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "decisionStatus": "coded_and_partially_staged",
+  "deploymentStatus": "unverified",
+  "deliveryGuarantee": "at-least-once-attempts-with-idempotent-consumer_receipts",
+  "ordering": "not_guaranteed_across_services",
+  "security": {
+    "transport": "HMAC_SHA256_timestamp_and_raw_body",
+    "tenantEnforcement": "Hub active organisation + explicit app tenant mapping",
+    "payload": "allowlist minimal, no PII",
+    "replay": "dedupe source+eventId, altered digest rejected"
+  },
+  "envelope": {
+    "id": "uuid",
+    "type": "versioned event name",
+    "version": 1,
+    "occurredAt": "UTC_ISO8601",
+    "organizationRef": "Hub organisation ID",
+    "accountRef": "source tenant ID (except website owner receipts)",
+    "subjectId": "opaque source record ID",
+    "correlationId": "optional UUID",
+    "payload": "type-specific allowlist"
+  },
+  "events": [
+    {
+      "type": "lead.created",
+      "source": "website",
+      "subject": "lead ID",
+      "payload": [
+        "source"
+      ],
+      "status": "isolated_staging_passed",
+      "notes": "Customer PII remains Website CRM; event correlation is opaque"
+    },
+    {
+      "type": "job.created",
+      "source": "tiquet",
+      "subject": "job UUID",
+      "payload": [
+        "status",
+        "priority",
+        "origin"
+      ],
+      "status": "isolated_staging_passed"
+    },
+    {
+      "type": "customer.created",
+      "source": "tiquet",
+      "subject": "Tiquet client UUID",
+      "payload": [
+        "origin"
+      ],
+      "status": "isolated_staging_passed"
+    },
+    {
+      "type": "job.status_changed",
+      "source": "tiquet",
+      "subject": "job UUID",
+      "payload": [
+        "status",
+        "previousStatus"
+      ],
+      "status": "code_ci_only"
+    },
+    {
+      "type": "job.paid",
+      "source": "tiquet",
+      "subject": "job UUID",
+      "payload": [],
+      "status": "code_ci_only",
+      "notes": "Not a verified financial settlement record"
+    },
+    {
+      "type": "payment.recorded",
+      "source": "tiquet",
+      "subject": "job UUID",
+      "payload": [
+        "currency",
+        "method",
+        "provider"
+      ],
+      "status": "code_ci_only",
+      "notes": "No amount or provider reference passes to Hub"
+    },
+    {
+      "type": "customer.feedback_submitted",
+      "source": "tiquet",
+      "subject": "job UUID",
+      "payload": [
+        "rating",
+        "contactAllowed"
+      ],
+      "status": "code_ci_only",
+      "notes": "Feedback text remains Tiquet; contact permission is not marketing consent"
+    },
+    {
+      "type": "job.scope_acknowledged",
+      "source": "tiquet",
+      "subject": "job UUID",
+      "payload": [
+        "version"
+      ],
+      "status": "code_ci_only",
+      "notes": "Acknowledgement, not certified signature; file stays tenant-bound in Tiquet"
+    }
+  ],
+  "releaseRules": [
+    "Do not rename existing event types without version migration",
+    "Never infer exactly-once delivery",
+    "Hold malformed/permanent failures for manual review",
+    "Do not create invoice, inventory, refund or customer email from read-only receipt",
+    "Do not label new events production live until direct evidence exists"
+  ]
+}
