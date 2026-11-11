@@ -1,0 +1,8 @@
+{
+  "name": "v79-website-studio",
+  "version": "1.2.0",
+  "source_v11_full_sha256": "59f443ba0cd279f920adf78488b0d8061c799655a0cb44b13a29b0ebc5917433",
+  "source_v11_ref_sha256": "8b79b0379e7f31197c5c0395a2e471004339065d4595911e2cd5f826ae57e539",
+  "master_bytes": 25061,
+  "notes": "Full original v1.1 preserved aside from version header; v1.2 addendum appended. No scripts or executables."
+}
