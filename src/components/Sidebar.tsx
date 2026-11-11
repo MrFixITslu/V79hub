@@ -49,6 +49,8 @@ export function Sidebar({
     { view: "team", label: "Team & Access", icon: Users, visible: can("team") },
     { view: "security", label: "Security", icon: ShieldCheck, visible: can("security") },
     { view: "billing", label: "Billing", icon: CreditCard, visible: can("billing") },
+    { view: "marketing-approvals", label: "Marketing Approvals", icon: ShieldCheck,
+      visible: user.role==="admin"||user.role==="manager"||user.workspaceOwner===true },
   ];
 
   const active = (view: ViewState) =>

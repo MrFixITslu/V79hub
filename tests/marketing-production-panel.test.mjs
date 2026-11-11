@@ -31,6 +31,13 @@ async function harness(t){
     }
     if(body.action==='configure'){if(body.config.expectedRevision!==state.configRevision)return {ok:false,json:async()=>({error:'Configuration revision changed'})};state={...state,brand:body.config.brand,plan:body.config.plan,configRevision:state.configRevision+1};return {ok:true,json:async()=>({ok:true})};}
     if(body.action==='queue'){state.jobs=[{id:'campaign',status:'queued',factId:body.request.factId,angle:body.request.angle,deliveries:[]}];return {ok:true,json:async()=>({ok:true})};}
+    if(body.action==='approve_batch'){
+      if(!state.publishEnabled||!state.approvalBatch||body.batchDigest!==state.approvalBatch.batchDigest)
+        return {ok:false,json:async()=>({error:'Exact batch changed'})};
+      const approved=state.approvalBatch.deliveries.length;
+      state.approvalBatch={batchDigest:null,deliveries:[]};
+      return {ok:true,json:async()=>({approved})};
+    }
     if(body.action==='cancel'){
       if(body.jobId===cancelFailure)return {ok:false,json:async()=>({error:'Fresh founder MFA required'})};
       const job=state.jobs.find(j=>j.id===body.jobId);
@@ -54,6 +61,33 @@ async function harness(t){
   return {container,button,click,input,change,upload,finishLogo,reads,calls,timers,poll,get state(){return state;},set state(v){state=v;},set failure(v){failure=v;},set slowList(v){slowList=v;},set cancelFailure(v){cancelFailure=v;},async visible(v){visibility=v;await act(async()=>document.dispatchEvent(new window.Event('visibilitychange')));}};
 }
 
+test('one approval presents all exact accounts, captions and Saint Lucia schedules and rejects stale action',async t=>{
+  const h=await harness(t);
+  h.state.publishEnabled=true;
+  h.state.approvalBatch={batchDigest:'b'.repeat(64),deliveries:[
+    {jobId:'job-1',deliveryId:'delivery-1',digest:'1'.repeat(64),channel:'linkedin',
+      providerAccountId:'v79-business',accountId:'a-1',scheduledAt:'2026-11-05T14:00:00Z',
+      payload:{caption:'Exact LinkedIn copy'},assets:[{name:'image.png',sha256:'f'.repeat(64),mime:'image/png'}],
+      material:{title:'Business efficiency',caption:'Approved LinkedIn caption',altText:'ICT service image',videoScript:'Approved script'}},
+    {jobId:'job-1',deliveryId:'delivery-2',digest:'2'.repeat(64),channel:'youtube',
+      providerAccountId:'v79-channel',accountId:'a-2',scheduledAt:'2026-11-06T18:00:00Z',
+      payload:{caption:'Exact YouTube copy'},assets:[],
+      material:{title:'Short video',caption:'Approved YouTube caption',altText:'Video cover',videoScript:'Approved script'}},
+  ]};
+  await h.poll();
+  assert.match(h.container.textContent,/Approved LinkedIn caption/);
+  assert.match(h.container.textContent,/Approved YouTube caption/);
+  assert.match(h.container.textContent,/v79-business/);
+  assert.match(h.container.textContent,/v79-channel/);
+  assert.match(h.container.textContent,/AST/);
+  window.confirm=()=>false;
+  await h.click('Approve all 2 scheduled posts');
+  assert.equal(h.calls.filter(v=>v.action==='approve_batch').length,0);
+  window.confirm=()=>true;
+  await h.click('Approve all 2 scheduled posts');
+  assert.deepEqual(h.calls.filter(v=>v.action==='approve_batch'),[{action:'approve_batch',batchDigest:'b'.repeat(64)}]);
+  assert.match(h.container.textContent,/2 exact publication\(s\) approved/);
+});
 test('worker readiness appears automatically, reads alone never approve or publish, closed and hidden panels stop polling',async t=>{
   const h=await harness(t);await h.click('Produce a campaign package');
   assert.match(h.container.textContent,/updates automatically when the materials are ready/);

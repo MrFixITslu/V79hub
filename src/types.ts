@@ -9,7 +9,8 @@ export type ViewState =
   | 'admin'
   | 'dashboard'
   | 'users'
-  | 'assistant';
+  | 'assistant'
+  | 'marketing-approvals';
 
 export interface User {
   id: string;
