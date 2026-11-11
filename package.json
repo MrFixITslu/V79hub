@@ -14,8 +14,6 @@
     "store:migrate:postgres": "node scripts/migrate-store-to-postgres.mjs"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.3.3",
-    "@vitejs/plugin-react": "^5.1.4",
     "dotenv": "^17.2.3",
     "express": "^4.22.3",
     "html5-qrcode": "^2.3.8",
@@ -24,8 +22,9 @@
     "pg": "^8.23.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^8.3.0",
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "tsx": "^4.21.0",
+    "vite": "^8.3.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
@@ -39,7 +38,8 @@
     "happy-dom": "20.8.9",
     "pg-mem": "^3.0.14",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.21.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^5.1.4"
   }
 }
