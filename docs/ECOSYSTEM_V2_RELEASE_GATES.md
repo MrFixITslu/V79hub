@@ -30,6 +30,7 @@ Considered three approaches: direct cross-application mutation, a new external i
 | Website | `V79_ECOSYSTEM_V2_REVIEW_MODE=0` | Enable only after historical lead mapping review |
 | Tiquet | `V79_ECOSYSTEM_V2_INTAKE_ACK_ENABLED=0` | Verified SMTP credentials, explicit SMTP_FROM, mailbox delivery proof |
 | Tiquet | `V79_ECOSYSTEM_V2_CANCEL_ENABLED=0` | Payment/portal race and refund exception acceptance |
+| Tiquet | `V79_ECOSYSTEM_V2_FEEDBACK_ENABLED=0` | Client consent and tenant-isolated feedback acceptance |
 | Tiquet | `V79_ECOSYSTEM_V2_INVOICE_SEND_ENABLED=0` | SMTP verified and invoice-link idempotency tested |
 | Tiquet | `V79_TIQUET_INVOICE_CC_ACCOUNT_ID` | Exact owner workspace ID only; never another tenant |
 | Tiquet | `V79_TIQUET_INVOICE_CC_EMAIL` | Set to `vision79slu@gmail.com` for the owner workspace before enabled sending |
