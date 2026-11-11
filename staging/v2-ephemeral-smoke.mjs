@@ -152,7 +152,7 @@ if(mode==="provision"){
     process.env.STAGE_CUSTOMER_PASSWORD,"synthetic-customer-a");
   const event=await poll(async()=>{
     const events=await receipts(customer);
-    return events.find(x=>x.source==="tiquet"&&x.type==="job.created"&&
+    return events.find(x=>x.source==="tiquet"&&x.event_type==="job.created"&&
       x.correlation_id===correlationId);
   },"signed Tiquet job event");
   assert.ok(event.subject_id);
