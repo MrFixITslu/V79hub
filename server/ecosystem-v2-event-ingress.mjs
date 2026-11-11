@@ -13,6 +13,7 @@ const TYPES = Object.freeze({
   "job.paid": ["status"],
   "customer.created": ["origin"],
   "payment.recorded": ["currency", "method", "provider"],
+  "customer.feedback_submitted": ["rating", "contactAllowed"],
 });
 const ID = /^[A-Za-z0-9._:@-]{4,180}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -62,6 +63,10 @@ export function projectTiquetEvent(input, verifiedOrg, nowMs = Date.now()) {
     if (typeof value !== "string" || !SAFE.test(value) || /@|https?:|bearer|token|secret/i.test(value)) throw reject("unsafe_event_value");
     payload[key] = value;
   }
+  if (input.type === "customer.feedback_submitted" &&
+      (!/^[1-5]$/.test(payload.rating || "") ||
+       !["yes","no"].includes(payload.contactAllowed)))
+    throw reject("invalid_feedback_category");
   if (payload.currency && !/^[A-Z]{3}$/.test(payload.currency)) throw reject("invalid_currency");
   return Object.freeze({
     id: input.id, source: "tiquet", type: input.type,
