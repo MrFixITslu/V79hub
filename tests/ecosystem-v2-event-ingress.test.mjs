@@ -187,3 +187,21 @@ test("website and Tiquet secrets remain independent",async()=>{
   assert.equal(wrong.code,401);
   assert.equal(writes.length,1);
 });
+
+test("versioned scope acknowledgement preserves only a numeric version in Hub",()=>{
+  const base={
+    id:randomUUID(),version:1,type:"job.scope_acknowledged",
+    occurredAt:new Date(now).toISOString(),
+    organizationRef:org,accountRef:account,subjectId:"job-12345678",
+    payload:{version:"3"},
+  };
+  const event=projectTiquetEvent(base,{organizationId:org,externalAccountId:account},now);
+  assert.equal(event.type,"job.scope_acknowledged");
+  assert.deepEqual(event.payload,{version:"3"});
+  assert.throws(()=>projectTiquetEvent({
+    ...base,payload:{version:"three"}
+  },{organizationId:org,externalAccountId:account},now));
+  assert.throws(()=>projectTiquetEvent({
+    ...base,payload:{version:"3",scope:"Client confidential contract"}
+  },{organizationId:org,externalAccountId:account},now));
+});
