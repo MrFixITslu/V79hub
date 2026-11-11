@@ -1,0 +1,32 @@
+name: P1 current offhost archive format audit (no production access)
+on:
+  push:
+    paths:
+      - scripts/p1-current-offhost-archive-audit.py
+      - scripts/p1-current-offhost-archive-audit-guard.sh
+      - tests/p1-current-offhost-archive-audit.test.py
+      - tests/p1-current-offhost-audit-guard.test.py
+      - tests/p1-current-offhost-docker-format.test.py
+      - .github/workflows/p1-current-offhost-archive-audit.yml
+  pull_request:
+    paths:
+      - scripts/p1-current-offhost-archive-audit.py
+      - scripts/p1-current-offhost-archive-audit-guard.sh
+      - tests/p1-current-offhost-archive-audit.test.py
+      - tests/p1-current-offhost-audit-guard.test.py
+      - tests/p1-current-offhost-docker-format.test.py
+      - .github/workflows/p1-current-offhost-archive-audit.yml
+permissions:
+  contents: read
+jobs:
+  archive-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/p1-current-offhost-archive-audit.test.py
+      - run: bash -n scripts/p1-current-offhost-archive-audit-guard.sh
+      - run: python3 -B tests/p1-current-offhost-audit-guard.test.py
+      - run: python3 -B tests/p1-current-offhost-docker-format.test.py
