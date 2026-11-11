@@ -1,0 +1,144 @@
+name: Recovery-anchored baseline safety
+on:
+  push:
+    paths:
+      - scripts/portfolio-remaining-recovery-baseline.py
+      - scripts/portfolio-existing-recovery-baseline-inspect.py
+      - scripts/portfolio-recovery-candidate-inventory.py
+      - scripts/portfolio-isolated-games-startup.py
+      - scripts/portfolio-games-cleanup-readonly.py
+      - scripts/portfolio-isolated-academy-startup.py
+      - scripts/portfolio-academy-probe-readonly.py
+      - tests/portfolio-remaining-recovery-baseline.test.py
+      - .github/workflows/portfolio-remaining-recovery-baseline.yml
+  pull_request:
+    paths:
+      - scripts/portfolio-remaining-recovery-baseline.py
+      - scripts/portfolio-existing-recovery-baseline-inspect.py
+      - scripts/portfolio-recovery-candidate-inventory.py
+      - scripts/portfolio-isolated-games-startup.py
+      - scripts/portfolio-games-cleanup-readonly.py
+      - scripts/portfolio-isolated-academy-startup.py
+      - scripts/portfolio-academy-probe-readonly.py
+      - tests/portfolio-remaining-recovery-baseline.test.py
+      - .github/workflows/portfolio-remaining-recovery-baseline.yml
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test fail-closed baseline
+        run: |
+          python3 -m py_compile scripts/portfolio-remaining-recovery-baseline.py
+          python3 -B tests/portfolio-remaining-recovery-baseline.test.py
+          python3 -m py_compile scripts/portfolio-existing-recovery-baseline-inspect.py
+          python3 -B scripts/portfolio-existing-recovery-baseline-inspect.py --self-test
+          python3 -m py_compile scripts/portfolio-recovery-candidate-inventory.py
+          python3 -B scripts/portfolio-recovery-candidate-inventory.py --self-test
+          python3 -m py_compile scripts/portfolio-isolated-games-startup.py
+          python3 -B scripts/portfolio-isolated-games-startup.py --self-test
+          python3 -m py_compile scripts/portfolio-games-cleanup-readonly.py
+          python3 -B scripts/portfolio-games-cleanup-readonly.py --self-test
+          python3 -m py_compile scripts/portfolio-isolated-academy-startup.py
+          python3 -B scripts/portfolio-isolated-academy-startup.py --self-test
+          python3 -m py_compile scripts/portfolio-academy-probe-readonly.py
+          python3 -B scripts/portfolio-academy-probe-readonly.py --self-test
+      - name: Verify script cannot deploy, restart, or alter application containers
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          src=Path('scripts/portfolio-remaining-recovery-baseline.py').read_text()
+          ast.parse(src)
+          assert not any(x in src for x in (
+              "['docker','stop'", "['docker','start'", "['docker','rm'",
+              "['docker','exec'", "['docker','logs'", "'up','-d'",
+              "['docker','compose','up'", "['systemctl'", "['gpg','--decrypt'"
+          ))
+          inspector=Path('scripts/portfolio-existing-recovery-baseline-inspect.py').read_text()
+          ast.parse(inspector)
+          assert not any(x in inspector for x in (
+              "['docker','stop'", "['docker','start'", "['docker','rm'",
+              "['docker','exec'", "['docker','logs'", "['docker','compose','up'",
+              "['systemctl'", "['gpg'"
+          ))
+          assert "receipt.get('deployment_authorization')!='NO'" in inspector
+          assert "emit('R1_CUSTOMER_RELEASE','NO_GO')" in inspector
+          assert "'RECOVERY_BASELINE_PREPARED_NOT_DEPLOYABLE'" in inspector
+          candidate=Path('scripts/portfolio-recovery-candidate-inventory.py').read_text()
+          ast.parse(candidate)
+          assert not any(x in candidate for x in (
+              "['docker','stop'", "['docker','start'", "['docker','rm'",
+              "['docker','exec'", "['docker','logs'", "['docker','compose','up'",
+              "['systemctl'", "['gpg'", "docker create"
+          ))
+          games=Path('scripts/portfolio-isolated-games-startup.py').read_text()
+          ast.parse(games)
+          assert "['docker','create'" in games
+          assert "'--network','none'" in games
+          assert "'--read-only'" in games
+          assert "'--tmpfs','/app/runtime:" in games
+          assert "'--cap-drop','ALL','--cap-add','NET_BIND_SERVICE'" in games
+          assert "'--memory','256m'" in games
+          assert "'--pids-limit','64'" in games
+          assert "OWNERSHIP+'='+identity" in games
+          assert "['docker','rm','-fv',probe]" in games
+          assert "cleanup(probe,identity,candidate)" in games
+          assert "r.fingerprint(now)==r.fingerprint(before)" in games
+          assert "'PRODUCTION_CONTAINERS','UNCHANGED'" in games
+          assert not any(x in games for x in (
+              "['docker','compose','up'", "['systemctl'",
+              "['docker','image','rm'", "['docker','volume','rm'"
+          ))
+          assert "NEW_RELEASE_DEPLOYMENT':'NOT_AUTHORIZED'" in candidate
+          assert "R1_CUSTOMER_RELEASE':'NO_GO'" in candidate
+          cleanup=Path('scripts/portfolio-games-cleanup-readonly.py').read_text()
+          ast.parse(cleanup)
+          assert "['docker','container','inspect',name]" in cleanup
+          assert "'--filter','label='+OWNER" in cleanup
+          assert "PRODUCTION_CHANGED_DURING_AUDIT" in cleanup
+          assert "GAMES_ISOLATED_PROBE_COUNT" in cleanup
+          assert not any(token in cleanup for token in (
+              "['docker','rm'", "['docker','start'", "['docker','stop'",
+              "['docker','create'", "['docker','run'", "['docker','exec'",
+              "['docker','logs'", "['docker','compose','up'",
+              "['systemctl'", "['gpg'"
+          ))
+          academy=Path('scripts/portfolio-isolated-academy-startup.py').read_text()
+          ast.parse(academy)
+          assert "['docker','create'" in academy
+          assert "'--network','none','--no-healthcheck'" in academy
+          assert "'--cap-drop','ALL'" in academy
+          assert "'--security-opt','no-new-privileges:true'" in academy
+          assert "'--read-only'" in academy
+          assert "'--tmpfs','/app/data:" in academy
+          assert "'--tmpfs','/tmp:" in academy
+          assert "ACADEMY_STANDALONE_ADMIN_ENABLED=0" in academy
+          assert "V79_PLATFORM_SHARED_SECRET=" in academy
+          assert "r.fingerprint(now)==r.fingerprint(prev)" in academy
+          assert "cleanup(probe,token,image,container_id)" in academy
+          assert "ACADEMY_UNSIGNED_ADMIN" in academy
+          assert not any(x in academy for x in (
+              "['docker','compose','up'", "['systemctl'", "['docker','volume','rm'",
+              "['docker','image','rm'", "['gpg'"
+          ))
+          acadprobe=Path('scripts/portfolio-academy-probe-readonly.py').read_text()
+          ast.parse(acadprobe)
+          assert "'--filter','label='+OWNER" in acadprobe
+          assert "PRODUCTION_CHANGED_DURING_AUDIT" in acadprobe
+          assert "STRICT_FAILURE_ONLY_MOUNTS" in acadprobe
+          assert "ACADEMY_CLEANUP_READ_ONLY" in acadprobe
+          assert not any(x in acadprobe for x in (
+              "['docker','rm'", "['docker','start'", "['docker','stop'",
+              "['docker','create'", "['docker','run'", "['docker','exec'",
+              "['docker','logs'", "['docker','compose','up'",
+              "['systemctl'", "['gpg'"
+          ))
+          assert "'RECOVERY_BASELINE_PREPARED_NOT_DEPLOYABLE'" in src
+          assert "R1_CUSTOMER_RELEASE','NO_GO" in src
+          print('NO_SWITCH_RESTART_OR_PRIVATE_OUTPUT=PASS')
+          PY
+
