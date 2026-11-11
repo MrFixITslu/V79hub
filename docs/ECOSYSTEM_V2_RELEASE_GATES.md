@@ -29,6 +29,9 @@ Considered three approaches: direct cross-application mutation, a new external i
 | Hub | `V79_WEBSITE_EVENT_SECRET` | Separate, unique secret, paired with Website's `V79_HUB_EVENT_SECRET` |
 | Website | `V79_ECOSYSTEM_V2_REVIEW_MODE=0` | Enable only after historical lead mapping review |
 | Tiquet | `V79_ECOSYSTEM_V2_INTAKE_ACK_ENABLED=0` | Verified SMTP credentials, explicit SMTP_FROM, mailbox delivery proof |
+| Tiquet | `V79_ECOSYSTEM_V2_EVENT_DELIVERY=0` | Enable signed outbound outbox only with Hub receiver and mapping tested |
+| Tiquet | `V79_ECOSYSTEM_V2_STRICT_INTAKE_IDENTITY=0` | Enable only with reviewed CRM-to-client reconciliation; no email/phone-based merge |
+| Tiquet | `V79_ECOSYSTEM_V2_DELIVERY_ACCEPTANCE_REQUIRED=0` | Explicit customer delivery acceptance, audited and distinct from invoice payment |
 | Tiquet | `V79_ECOSYSTEM_V2_CANCEL_ENABLED=0` | Payment/portal race and refund exception acceptance |
 | Tiquet | `V79_ECOSYSTEM_V2_FEEDBACK_ENABLED=0` | Client consent and tenant-isolated feedback acceptance |
 | Tiquet | `V79_ECOSYSTEM_V2_INVOICE_SEND_ENABLED=0` | SMTP verified and invoice-link idempotency tested |
@@ -85,5 +88,14 @@ No production secrets should enter GitHub, CI logs or the browser.
 - Connected host remote-command usage limit prevents direct production/staging server execution from this ChatGPT session.
 - A passing GitHub Action or disposable test is **not** an acceptance of live SMTP, Google/MFA, Tiquet reconciliation, payment processing or recovery on the actual deployment host.
 - Do not merge drafts or enable flags from an automated CI success alone.
+
+### Evidence from first combined three-app staging (11 Nov 2026)
+
+- Passing run: https://github.com/MrFixITslu/V79hub/actions/runs/43017059324
+- Exact initial candidate SHAs: Hub `fa7908a842b346b29cc9a09c91742fc40c1cfa70`, Tiquet `eb90d4581a8e5906cbe1ad3cd90b05188176ef61`, Website `c64d7ba1fbdd92b033d28e88608e464af941eefc` (same runtime source as later test-only Website SHA).
+- Passed synthetic real HTTP/SQL checks: two isolated tenants; real Tiquet provisioning; website lead + CRM capture; request replay and duplicate review; zero unapproved Tiquet tickets; approved CRM conversion; one customer-linked Tiquet job; stable repeat conversion; signed Website and Tiquet events in Hub with correlation; second tenant cannot read the event.
+- Previous failure was an erroneous CI assertion of `type`; the Hub SQL-backed receipt contract exposes `event_type`. This was corrected without changing the server output.
+- **Not tested** by this run: external email, WiPay, Google OAuth/MFA, website owner SSO browser journey, actual production account mapping, or disaster recovery.
+- The next exact-SHA rerun also pins the latest Website commit with a corrected source-only test. No customer data or production credentials used.
 
 **Release state labels:** planned → coded → CI verified → isolated staging verified → browser/customer accepted → explicitly approved → deployed.
