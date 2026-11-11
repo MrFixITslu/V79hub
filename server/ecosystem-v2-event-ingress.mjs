@@ -219,7 +219,18 @@ export function createEcosystemEventInbox(pool) {
     const data = await pool.query(query,params);
     return data.rows;
   }
-  return Object.freeze({ write, latest, ensureSchema });
+  async function hasTiquetJob(organizationId,jobId) {
+    if(!ID.test(organizationId||"")||!UUID.test(jobId||""))
+      throw reject("invalid_job_scope");
+    await ensureSchema();
+    const result=await pool.query(`
+      SELECT 1 FROM v79_ecosystem_events_v2
+      WHERE organization_id=$1 AND source='tiquet'
+        AND event_type='job.created' AND subject_id=$2 LIMIT 1
+    `,[organizationId,jobId]);
+    return result.rowCount===1;
+  }
+  return Object.freeze({ write, latest, hasTiquetJob, ensureSchema });
 }
 
 export function createTiquetEventHandler({ enabled = false, secret, getStore, inbox, now = Date.now }) {
