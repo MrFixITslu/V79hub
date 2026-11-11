@@ -1,0 +1,45 @@
+name: V8 Postcutover Encrypted Recovery — Nondeploying
+
+on:
+  push:
+    branches: [ops/post-v8-encrypted-recovery-20261025]
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/capture-post-v8-encrypted-checkpoint.py
+      - tests/test_post_v8_encrypted_checkpoint.py
+      - .github/workflows/post-v8-recovery-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  offline-safety-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile, run original synthetic recovery tests and read-only embedded readiness tests
+        run: |
+          set -euo pipefail
+          python3 -B -m py_compile scripts/capture-post-v8-encrypted-checkpoint.py
+          python3 -B -m unittest -v tests/test_post_v8_encrypted_checkpoint.py
+          python3 -B scripts/capture-post-v8-encrypted-checkpoint.py --self-test
+          python3 -B - <<'PY'
+          import ast,base64
+          from pathlib import Path
+          tree=ast.parse(Path('scripts/capture-post-v8-encrypted-checkpoint.py').read_text())
+          raw=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign)
+              and any(isinstance(t,ast.Name) and t.id=='READINESS_B64' for t in n.targets))
+          content=base64.b64decode(raw).decode()
+          compile(content,'embedded-v8-readiness','exec')
+          namespace={'__name__':'v8_capture_readiness_test'}
+          exec(compile(content,'embedded-v8-readiness','exec'),namespace)
+          namespace['self_test']()
+          PY
+      - name: Confirm no import-time access to actual server
+        run: |
+          set -euo pipefail
+          echo "PRODUCTION_CONTACT=NONE"
+          echo "BACKUP_CAPTURE=NOT_RUN"
+          echo "RELEASE=HOLD_UNTIL_OWNER_REAL_READ_ONLY_PREFLIGHT"
