@@ -83,7 +83,7 @@ function response(){
 }
 function request(raw,secret="s".repeat(40),custom={}){
   const body=Buffer.from(JSON.stringify(raw));
-  const timestamp=String(now);
+  const timestamp=String(Date.now());
   const signature=signPlatformRequest({method:"POST",pathname:"/api/platform/events",timestamp,body:body.toString(),secret});
   const headers={"x-v79-service-id":"tiquet","x-v79-timestamp":timestamp,"x-v79-signature":signature,...custom};
   return {body:raw,rawBody:body,get:(k)=>headers[k]||""};
