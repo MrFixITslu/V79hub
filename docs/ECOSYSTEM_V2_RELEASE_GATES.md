@@ -34,6 +34,11 @@ Considered three approaches: direct cross-application mutation, a new external i
 | Tiquet | `V79_ECOSYSTEM_V2_DELIVERY_ACCEPTANCE_REQUIRED=0` | Explicit customer delivery acceptance, audited and distinct from invoice payment |
 | Tiquet | `V79_ECOSYSTEM_V2_CANCEL_ENABLED=0` | Payment/portal race and refund exception acceptance |
 | Tiquet | `V79_ECOSYSTEM_V2_FEEDBACK_ENABLED=0` | Client consent and tenant-isolated feedback acceptance |
+| Tiquet | `V79_ECOSYSTEM_V2_SCOPE_ENABLED=0` | Files path security, immutable scope PDF versions, client acknowledgement, document restore |
+| Tiquet | `V79_ECOSYSTEM_V2_EVENT_ADMIN_ENABLED=0` | Tenant-only event evidence and reviewed replay after rejection |
+| POS | `V79_ECOSYSTEM_V2_JOB_COST_READ_ENABLED=0` | Hub-signed read-only FIFO usage; staff-entered job linkage remains provisional |
+| Hub | `V79_ECOSYSTEM_V2_POS_COST_READ_ENABLED=0` | Confirm signed Tiquet job receipt, both entitlements, POS HMAC and provisional response |
+
 | Tiquet | `V79_ECOSYSTEM_V2_INVOICE_SEND_ENABLED=0` | SMTP verified and invoice-link idempotency tested |
 | Tiquet | `V79_TIQUET_INVOICE_CC_ACCOUNT_ID` | Exact owner workspace ID only; never another tenant |
 | Tiquet | `V79_TIQUET_INVOICE_CC_EMAIL` | Set to `vision79slu@gmail.com` for the owner workspace before enabled sending |
@@ -55,6 +60,14 @@ No production secrets should enter GitHub, CI logs or the browser.
 - Run fresh migrations, verify old data restore and prove a clean rolling rollback from each new schema.
 - Verify website/homepage/CRM, Hub login via Google then MFA, Hub-to-Tiquet SSO, customer portal, quotes and invoices, due date editing, mobile layout, icons and themes.
 - Confirm all three apps are independently healthy and routes give `404` or `unavailable` when gated OFF.
+
+**New code contract gates before enabling stage flags**
+- Upload a job PDF, publish immutable scope v1, verify hash and tenant, acknowledge exact version; publish v2 and prove v1 acknowledgement is NOT reused. Once delivery has been accepted, scope change must require a new ticket.
+- Verify deleted/moved/symlink files cannot reach outside a tenant, and archived PDF remains readable after a customer display name changes. Back up and restore scope snapshots as part of the file restore.
+- Force failed Hub events, inspect tenant-filtered status, re-enable delivery, and make an explicitly approved retry; receipt status cannot claim successful customer communication or settled payment.
+- POS usage evidence returns real FIFO snapshots only; typed jobReference alone is not verified Tiquet association, so cost is provisional and margin remains null.
+- Hub cost read must require a signed tenant-specific Tiquet job receipt, both app entitlements and POS HMAC; cross-tenant, absent source or cost corruption must fail closed.
+- The cross-app material job association and complete expense/labour rate mapping are **OUTSTANDING** and cannot be called verified margin.
 
 **Stage 2: Enable V2 in staging only**
 
