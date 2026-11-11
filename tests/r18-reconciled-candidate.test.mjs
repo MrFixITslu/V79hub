@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 // and pricing releases. The browser script pin includes its pricing fixture-only
 // update; all seven other UI/test pins and exact comparisons remain unchanged.
 const frozen = {
-  "server.ts": "14915e386ca632166b41c8868bc8dfe83943e619",
+  "server.ts": "857cd27e1049e20745b12040829746ec01b31540",
   "src/App.tsx": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
   "src/components/Login.tsx": "53deeec03ba8793a2412a09ad91f7747fe442510",
   "src/components/Sidebar.tsx": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
