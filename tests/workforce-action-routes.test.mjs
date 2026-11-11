@@ -39,6 +39,12 @@ test("HTTP owner approval flow and separate worker boundary fail closed", async 
   assert.equal((await call("/owner/" + j.id + "/decision", { ...decision, digest: "0".repeat(64) }, owner)).status, 409);
   const approved = (await (await call("/owner/" + j.id + "/decision", decision, { ...owner, "x-test-stale": "1" })).json()).job;
   assert.equal(approved.status, "approved");
+  assert.equal((await call("/owner/pause", {paused:true}, owner)).status,200);
+  const blocked = await call("/owner/" + j.id + "/execute", {expectedRevision:2}, owner);
+  assert.equal(blocked.status,409);
+  assert.equal((await blocked.json()).code,"QUEUE_PAUSED");
+  assert.equal((await (await call("/owner",undefined,owner)).json()).tasks.length,0);
+  assert.equal((await call("/owner/pause", {paused:false}, owner)).status,200);
   assert.equal((await call("/owner/" + j.id + "/execute", { expectedRevision: 2 }, owner)).status, 200);
   assert.equal((await call("/owner/" + j.id + "/execute", { expectedRevision: 3 }, owner)).status, 409);
   assert.equal((await (await call("/owner", undefined, owner)).json()).tasks.length, 1);

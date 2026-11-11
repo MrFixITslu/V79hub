@@ -25,11 +25,20 @@ function statusStyle(job: Job) {
   if (job.status === "succeeded") return "border-emerald-600/50 bg-emerald-400/10 text-emerald-200";
   return "border-slate-600 bg-slate-800 text-slate-200";
 }
+class WorkRequestError extends Error {
+  constructor(message: string, public code: string, public status: number) { super(message); }
+}
 async function request(suffix = "", body?: unknown) {
   const res = await fetch("/api/agent/work-actions" + suffix, { credentials: "same-origin", cache: "no-store",
     ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
-  const data = await res.json();
-  if (!res.ok) throw new Error(res.status === 403 ? "Sign in with your owner account to view or change actions." : data.error || "Approved actions unavailable");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const code = typeof data.code === "string" ? data.code : "";
+    const message = res.status === 401 ? "Your session has expired. Sign in to Hub again."
+      : res.status === 403 && !code ? "Your owner session needs MFA verification."
+      : typeof data.error === "string" ? data.error : "The action could not be confirmed. Refresh status before trying again.";
+    throw new WorkRequestError(message, code, res.status);
+  }
   return data;
 }
 export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embedded = false, active = true }: {
@@ -41,7 +50,9 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
   const [open, setOpen] = useState(false), [enabled, setEnabled] = useState(false), [paused, setPaused] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]), [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState("");
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(""), [syncIssue, setSyncIssue] = useState("");
+  const [mfaNeeded, setMfaNeeded] = useState(false), [mfaCode, setMfaCode] = useState("");
+  const [mfaBusy, setMfaBusy] = useState(false), [mfaIssue, setMfaIssue] = useState("");
   const [operation, setOperation] = useState("create_work_item"), [system, setSystem] = useState("hub");
   const [summary, setSummary] = useState(""), [detail, setDetail] = useState("");
   const [commitSha, setCommitSha] = useState(""), [manifestSha256, setManifestSha256] = useState("");
@@ -49,9 +60,9 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
   const serial = useRef(0), mutation = useRef(false);
   const proposalRetry = useRef<{ signature: string; key: string } | null>(null);
   const shown = active && (embedded || open);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (background = false) => {
     const current = ++serial.current;
-    setLoading(true);
+    if (!background) setLoading(true);
     try {
       const data = await request();
       if (current !== serial.current) return;
@@ -59,21 +70,38 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
         !data.jobs.every((j: Job) => j && typeof j.id === "string" && typeof j.summary === "string" && typeof j.status === "string" &&
           typeof j.operation === "string" && typeof j.system === "string" && j.payload && typeof j.payload === "object" &&
           Number.isInteger(j.revision) && typeof j.digest === "string")) throw new Error("Unexpected action queue response");
-      setEnabled(data.enabled === true); setPaused(data.paused === true); setJobs(data.jobs); setCheckedAt(new Date()); setError("");
+      setEnabled(data.enabled === true); setPaused(data.paused === true); setJobs(data.jobs); setCheckedAt(new Date());
+      setSyncIssue("");
     } catch (e) {
       if (current === serial.current) {
-        setJobs([]); setEnabled(false); setCheckedAt(null);
-        setError(e instanceof Error ? e.message : "Action queue unavailable");
+        // Authentication denial is not a transient network failure. Remove
+        // private queue data and disable every action, including during polling.
+        // A delayed older response cannot restore it because of the serial guard.
+        const accessDenied = e instanceof WorkRequestError && (e.status === 401 || e.status === 403);
+        if (accessDenied) {
+          setJobs([]);
+          setEnabled(false);
+          setPaused(false);
+          setCheckedAt(null);
+          setMfaNeeded(false);
+        } else {
+          // For temporary non-authentication failures, retain the last
+          // verified read-only list and the user's draft without flashing errors.
+          if (!background) setEnabled(false);
+        }
+        setSyncIssue(accessDenied
+          ? "Owner access could not be verified. Sign in with your owner account and complete MFA before viewing actions."
+          : "Live updates are unavailable. Showing the last verified information.");
       }
       throw e;
-    } finally { if (current === serial.current) setLoading(false); }
+    } finally { if (current === serial.current && !background) setLoading(false); }
   }, []);
   useEffect(() => {
     if (!shown) return;
     void refresh().catch(() => {});
     const timer = window.setInterval(() => {
-      if (!mutation.current && !document.hidden) void refresh().catch(() => {});
-    }, 15000);
+      if (!mutation.current && !document.hidden) void refresh(true).catch(() => {});
+    }, 45000);
     return () => { window.clearInterval(timer); serial.current++; };
   }, [shown, refresh]);
   useEffect(() => {
@@ -87,10 +115,33 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
   }, [preparedTask, onPreparedTaskApplied]);
   const perform = async (fn: () => Promise<void>) => {
     if (mutation.current) return;
-    mutation.current = true; serial.current++; setBusy(true); setError(""); setNotice("");
-    try { await fn(); await refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : "Action unavailable"); setJobs([]); setEnabled(false); setCheckedAt(null); }
-    finally { mutation.current = false; setBusy(false); }
+    mutation.current = true; serial.current++; setBusy(true); setError(""); setNotice(""); setMfaNeeded(false);
+    try {
+      await fn();
+      // An action response and a subsequent display refresh are separate.
+      // Never report a confirmed action as failed merely because refresh failed.
+      await refresh().catch(() => setSyncIssue("Action response received, but the updated list could not be loaded. Refresh status."));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Action unavailable.");
+      setMfaNeeded(e instanceof WorkRequestError && ["RECENT_MFA_REQUIRED", "FRESH_MFA_REQUIRED"].includes(e.code));
+      // Keep verified jobs and revisions visible. Never auto-retry a mutation.
+    } finally { mutation.current = false; setBusy(false); }
+  };
+  const reverifyMfa = async () => {
+    if (mfaBusy || !/^\d{6}$/.test(mfaCode)) return;
+    setMfaBusy(true); setMfaIssue("");
+    try {
+      const res = await fetch("/api/security/mfa/step-up", { credentials: "same-origin", cache: "no-store",
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: mfaCode }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Verification was not accepted.");
+      setMfaNeeded(false); setError("");
+      setNotice("Owner MFA verified for five minutes. Review the action and choose it again when ready.");
+    } catch (e) {
+      setMfaIssue(e instanceof Error ? e.message : "Verification unavailable.");
+    } finally {
+      setMfaCode(""); setMfaBusy(false);
+    }
   };
   const queue = () => perform(async () => {
     // The server accepts one-line plain text. Review still binds the saved exact scope.
@@ -127,6 +178,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={busy || loading} onClick={() => void refresh().catch(() => {})} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 hover:bg-slate-800 disabled:opacity-50"><RefreshCcw className="h-4 w-4" aria-hidden="true" />{loading ? "Checking…" : "Refresh status"}</button>
           {enabled && <button type="button" disabled={busy} onClick={() => void perform(async () => { await request("/pause", { paused: !paused }); })} className="min-h-11 rounded-lg border border-amber-600/60 px-3 py-2 text-amber-200 disabled:opacity-50">{paused ? "Resume queue" : "Pause new execution"}</button>}
+          {enabled && <button type="button" disabled={busy || mfaBusy} onClick={() => { setMfaNeeded(v => !v); setMfaIssue(""); }} className="min-h-11 rounded-lg border border-slate-600 px-3 py-2 text-slate-200 disabled:opacity-50">Security verification</button>}
         </div>
       </div>
       <ol aria-label="Task workflow" className="grid gap-2 sm:grid-cols-3">
@@ -134,10 +186,20 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
       </ol>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
         <span>{!checkedAt ? loading ? "Checking action queue…" : "Queue status unverified" : !enabled ? "Actions disabled" : paused ? "Queue paused" : "Owner approval required"}</span>
-        {checkedAt && <span>Checked {checkedAt.toLocaleTimeString()} · Refreshes every 15s while visible</span>}
+        {checkedAt && <span>Checked {checkedAt.toLocaleTimeString()} · Auto-refreshes every 45s</span>}
       </div>
+      {paused && <p role="status" className="rounded-lg border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-100"><strong>Execution paused.</strong> Approved tasks cannot run. Resume the queue only when you intend to permit execution, then pause it again afterwards.</p>}
       {notice && <p role="status" className="rounded-lg border border-cyan-800 bg-cyan-950/40 p-3 text-sm text-cyan-100">{notice}</p>}
+      {syncIssue && <p role="status" className="rounded-lg border border-slate-700 p-3 text-xs text-slate-300">{syncIssue}</p>}
       {error && <p role="alert" className="rounded-lg border border-red-800 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
+      {mfaNeeded && <form aria-label="Reverify owner MFA" className="rounded-lg border border-slate-600 p-4 space-y-3" onSubmit={e => { e.preventDefault(); void reverifyMfa(); }}>
+        <h3 className="font-semibold">Verify once to continue</h3>
+        <p className="text-xs text-slate-300">Enter your current authenticator code to renew the five-minute security window. You remain signed in. We will not repeat or approve any previous action automatically.</p>
+        <label className="block text-sm" htmlFor="workforce-mfa-step-up">Six-digit authenticator code</label>
+        <input id="workforce-mfa-step-up" inputMode="numeric" autoComplete="one-time-code" type="text" maxLength={6} value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))} className={field} placeholder="000000" required />
+        {mfaIssue && <p role="alert" className="text-sm text-amber-200">{mfaIssue}</p>}
+        <button type="submit" disabled={mfaBusy || mfaCode.length !== 6} className="min-h-11 rounded-lg border border-emerald-600 px-4 py-2 font-semibold disabled:opacity-50">{mfaBusy ? "Verifying…" : "Verify securely"}</button>
+      </form>}
       {checkedAt && !enabled && <p className="rounded-xl border border-slate-700 p-4 text-slate-300">Task actions are disabled. You can review available history; an operator must enable actions before queueing work.</p>}
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
         <form aria-label="New work item" onSubmit={e => { e.preventDefault(); if (enabled && checkedAt && !busy && summary.trim().length >= 8 && (operation !== "create_work_item" || detail.trim().length >= 8)) void queue(); }} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4 sm:p-5">
@@ -181,7 +243,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
             {job.status === "uncertain" && <p className="text-xs text-amber-200">Execution outcome is uncertain. An operator must reconcile the result before any retry.</p>}
             {job.status === "succeeded" && job.operation === "create_work_item" && <p className="flex items-start gap-2 text-xs leading-5 text-slate-300"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" />Assigned to COO. Creation is verified; completion of the underlying work is not verified here.</p>}
             {enabled && job.status === "pending" && <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => decide(job, "approve")} className="min-h-11 rounded-lg bg-emerald-300 px-3 py-2 font-semibold text-slate-950 disabled:opacity-50">Approve exact action</button><button type="button" disabled={busy} onClick={() => decide(job, "reject")} className="min-h-11 rounded-lg border border-slate-600 px-3 py-2 disabled:opacity-50">Reject</button></div>}
-            {enabled && job.status === "approved" && job.operation === "create_work_item" && !expired(job) && <details className="rounded-lg border border-slate-700 p-3"><summary className="cursor-pointer text-xs text-slate-300">Manual execution option</summary><p className="mt-2 text-xs leading-5 text-slate-400">Use only if you intend to execute this approved creation manually. Leave this untouched when verifying the scheduled worker.</p><button type="button" disabled={busy || paused} onClick={() => void perform(async () => { await request("/" + encodeURIComponent(job.id) + "/execute", { expectedRevision: job.revision }); setNotice("Engineering work item created and assigned to COO. Underlying delivery remains separate."); })} className="mt-2 min-h-11 rounded-lg border border-emerald-700 px-3 py-2 text-emerald-200 disabled:opacity-50">Create approved work item</button></details>}
+            {enabled && job.status === "approved" && job.operation === "create_work_item" && !expired(job) && <details className="rounded-lg border border-slate-700 p-3"><summary className="cursor-pointer text-xs text-slate-300">Manual execution option</summary><p className="mt-2 text-xs leading-5 text-slate-400">Use only if you intend to execute this approved creation manually. Leave this untouched when verifying the scheduled worker.</p><button type="button" disabled={busy || paused} onClick={() => void perform(async () => { await request("/" + encodeURIComponent(job.id) + "/execute", { expectedRevision: job.revision }); setNotice("Engineering work item created and assigned to COO. Underlying delivery remains separate."); })} className="mt-2 min-h-11 rounded-lg border border-emerald-700 px-3 py-2 text-emerald-200 disabled:opacity-50">Create approved work item</button>{paused && <p className="mt-2 text-xs text-amber-200">This button is disabled because the execution queue is paused.</p>}</details>}
             {enabled && ["pending", "approved"].includes(job.status) && <button type="button" disabled={busy} onClick={() => void perform(async () => { await request("/" + encodeURIComponent(job.id) + "/cancel", { expectedRevision: job.revision }); setNotice("Action cancelled."); })} className="min-h-10 rounded-lg px-2 py-2 text-xs text-slate-400 underline underline-offset-4 hover:text-white disabled:opacity-50">Cancel action</button>}
             {job.result && <details className="text-xs text-slate-400"><summary className="cursor-pointer">Result reference</summary><p className="mt-2 break-all font-mono">{job.result.taskId ? "Work item: " + job.result.taskId : "Receipt: " + job.result.receiptSha256}</p></details>}
           </article>)}</div>

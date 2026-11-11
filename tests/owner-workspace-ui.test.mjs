@@ -53,7 +53,7 @@ test('workboard handoff opens task view with an exact draft and never queues or 
 test('polling observes worker success without execution POST; created work is not labelled complete',async t=>{
  let state=job('approved');const h=await mount(t,WorkforceActionPanel,{embedded:true},()=>queue([state]));
  assert.match(h.box.textContent,/Approved · awaiting execution/);
- assert.equal(h.timers.size,1);const timer=[...h.timers.values()][0];assert.equal(timer.delay,15000);
+ assert.equal(h.timers.size,1);const timer=[...h.timers.values()][0];assert.equal(timer.delay,45000,'Background refresh should use the non-intrusive 45-second interval');
  state=job('succeeded');await act(async()=>timer.fn());
  assert.match(h.box.textContent,/Work item created/);
  assert.match(h.box.textContent,/completion of the underlying work is not verified/);
@@ -99,7 +99,7 @@ test('MFA failure clears private actions and controls; an outdated response cann
  const timer=[...h.timers.values()][0];
  await act(async()=>{void timer.fn();});
  await act(async()=>timer.fn());
- assert.match(h.box.textContent,/Sign in with your owner account/);assert.equal(h.box.querySelectorAll('article').length,0);
+ assert.match(h.box.textContent,/Owner access could not be verified/);assert.equal(h.box.querySelectorAll('article').length,0);
  assert.equal(h.box.querySelectorAll('form').length,1,'Draft editor remains visible to explain unavailable task creation');
  assert.equal(h.box.querySelector('form button[type="submit"]').disabled,true,'MFA denial disables task submission');
  await act(async()=>resolveOld(queue([job()])));
@@ -152,7 +152,7 @@ test('Owner action GET unavailable still displays a safe local draft and never p
  const form=h.box.querySelector('form[aria-label="New work item"]');
  assert.ok(form);
  assert.equal(form.querySelector('button[type="submit"]').disabled,true);
- assert.match(form.textContent,/could not be verified/);
+ assert.match(form.textContent,/Waiting for verified owner action queue access/);
  await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
  assert.ok(h.calls.every(c=>!c.opts?.method),'No mutation on denied queue read');
  assert.ok(h.calls.some(c=>c.url==='/api/agent/work-actions'));
