@@ -68,6 +68,8 @@ export function projectTiquetEvent(input, verifiedOrg, nowMs = Date.now()) {
     organizationId: verifiedOrg.organizationId,
     accountRef: verifiedOrg.externalAccountId,
     subjectId: input.subjectId, occurredAt: new Date(occurred).toISOString(),
+    correlationId: input.correlationId == null ? null :
+      (UUID.test(input.correlationId) ? input.correlationId : null),
     payload: Object.freeze(payload),
   });
 }
@@ -76,6 +78,68 @@ export function projectTiquetEvent(input, verifiedOrg, nowMs = Date.now()) {
  * Separate append-only PostgreSQL inbox, not the Hub JSON document.
  * ON CONFLICT + comparison makes duplicates safe and conflicting replays fail.
  */
+/**
+ * Website only reports opaque lead IDs and attribution. The contact details,
+ * consent records and messages remain in the Website CRM.
+ */
+export function projectWebsiteLeadEvent(input, trustedOwnerOrgId, store, nowMs = Date.now()) {
+  if (!input || typeof input !== "object" || Array.isArray(input) ||
+      !UUID.test(input.id || "") || input.type !== "lead.created" ||
+      input.version !== 1 || !ID.test(trustedOwnerOrgId || "") ||
+      input.organizationRef !== trustedOwnerOrgId ||
+      !/^[1-9][0-9]{0,12}$/.test(input.subjectId || "") ||
+      !(store?.organizations || []).some(o => o.id === trustedOwnerOrgId && o.status === "active"))
+    throw reject("invalid_website_lead");
+  const t = Date.parse(input.occurredAt);
+  if (!Number.isFinite(t) || t > nowMs + MAX_FUTURE_MS || t < nowMs - WINDOW_MS)
+    throw reject("invalid_website_event_time");
+  if (!input.payload || typeof input.payload !== "object" || Array.isArray(input.payload) ||
+      JSON.stringify(input.payload).length > MAX_STORED ||
+      !Object.keys(input.payload).every(k => ["leadId","interest","leadSource","pageOrigin","employeesBand"].includes(k)))
+    throw reject("invalid_website_payload");
+  if (String(input.payload.leadId) !== input.subjectId)
+    throw reject("lead_id_mismatch");
+  const referral = input.payload.leadSource;
+  const safeReferral = typeof referral === "string" &&
+    /^[A-Za-z0-9 _.-]{1,60}$/.test(referral) ? referral : "unclassified";
+  return Object.freeze({
+    id:input.id,source:"website",type:"lead.created",
+    organizationId:trustedOwnerOrgId, accountRef:"website",
+    subjectId:"lead:"+input.subjectId,
+    correlationId:UUID.test(input.correlationId || "") ? input.correlationId : null,
+    occurredAt:new Date(t).toISOString(),
+    payload:Object.freeze({source:safeReferral}),
+  });
+}
+
+export function createWebsiteEventHandler({
+  enabled=false, secret, ownerOrganizationId, getStore, inbox, now=Date.now
+}) {
+  return async function handle(req,res) {
+    res.setHeader("Cache-Control","no-store");
+    if (!enabled) return res.status(404).json({error:"Not available"});
+    if (typeof secret !== "string" || secret.length < 32 || !inbox ||
+        typeof getStore !== "function" || !Buffer.isBuffer(req.rawBody))
+      return res.status(503).json({error:"Integration unavailable"});
+    const body=req.rawBody.toString("utf8");
+    if(req.get("x-v79-service-id")!=="website" ||
+       !verifyPlatformRequest({method:"POST",pathname:"/api/platform/events",
+         timestamp:req.get("x-v79-timestamp")||"",
+         signature:req.get("x-v79-signature")||"",body,secret}))
+      return res.status(401).json({error:"Invalid service signature"});
+    try {
+      const event=projectWebsiteLeadEvent(req.body,ownerOrganizationId,getStore(),now());
+      const status=await inbox.write(event);
+      return res.status(status==="duplicate"?200:202).json({status,eventId:event.id});
+    }catch(err){
+      if(err?.reason==="event_replay_conflict")
+        return res.status(409).json({error:"Event conflict"});
+      if(err?.reason) return res.status(422).json({error:"Invalid event contract"});
+      return res.status(503).json({error:"Event acceptance unavailable"});
+    }
+  };
+}
+
 export function createEcosystemEventInbox(pool) {
   if (!pool || typeof pool.query !== "function") throw new Error("PostgreSQL pool required");
   let schemaReady;
@@ -88,6 +152,7 @@ export function createEcosystemEventInbox(pool) {
         account_ref TEXT NOT NULL,
         event_type TEXT NOT NULL,
         subject_id TEXT NOT NULL,
+        correlation_id TEXT,
         occurred_at TIMESTAMPTZ NOT NULL,
         payload JSONB NOT NULL,
         digest CHAR(64) NOT NULL,
@@ -102,11 +167,11 @@ export function createEcosystemEventInbox(pool) {
     const digest = createHash("sha256").update(JSON.stringify(event)).digest("hex");
     const inserted = await pool.query(
       `INSERT INTO v79_ecosystem_events_v2
-         (source,event_id,organization_id,account_ref,event_type,subject_id,occurred_at,payload,digest)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
+         (source,event_id,organization_id,account_ref,event_type,subject_id,correlation_id,occurred_at,payload,digest)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
        ON CONFLICT (source,event_id) DO NOTHING RETURNING event_id`,
       [event.source,event.id,event.organizationId,event.accountRef,event.type,event.subjectId,
-       event.occurredAt,JSON.stringify(event.payload),digest],
+       event.correlationId || null,event.occurredAt,JSON.stringify(event.payload),digest],
     );
     if (inserted.rowCount === 1) return "accepted";
     const prior = await pool.query(
@@ -124,7 +189,7 @@ export function createEcosystemEventInbox(pool) {
       throw reject("invalid_read_scope");
     await ensureSchema();
     const data = await pool.query(
-      `SELECT source,event_id,event_type,subject_id,occurred_at,received_at,payload
+      `SELECT source,event_id,event_type,subject_id,correlation_id,occurred_at,received_at,payload
        FROM v79_ecosystem_events_v2
        WHERE organization_id=$1 ORDER BY received_at DESC,event_id DESC LIMIT $2`, [organizationId,limit]);
     return data.rows;
