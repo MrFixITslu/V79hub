@@ -539,3 +539,188 @@ html .hub-theme-light .hub-sidebar .text-white:not([class*="bg-"]) {
 .hub-theme-light .vision79-release-v1 .vision79-metric-card .text-slate-300 {
   color:#c9d9e9 !important;
 }
+
+
+/* V79 Hub Connected Workspace login. Scoped exclusively to signed-out page. */
+.hub-login-connected {
+  --login-text: #192c40;
+  --login-muted: #657d91;
+  --login-accent: #0879de;
+  color: var(--login-text);
+  background: #edf4f9;
+}
+.hub-login-connected .hub-login-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(410px, .88fr);
+  min-height: 100svh;
+}
+.hub-login-connected .hub-login-story {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  background: radial-gradient(ellipse 90% 110% at 100% 0%, #d9eafa 0%, #eaf2f7 76%);
+  padding: clamp(28px, 3.3vw, 54px) clamp(28px, 5vw, 82px) 34px;
+  overflow: hidden;
+}
+.hub-login-connected .hub-login-story-top {
+  display: flex; gap: 18px; align-items: center; justify-content: space-between;
+}
+.hub-login-connected .hub-login-brand,
+.hub-login-connected .hub-login-mobile-brand {
+  display: flex; align-items: center; gap: 10px;
+}
+.hub-login-connected .hub-login-brand img { object-fit: contain; flex-shrink: 0; }
+.hub-login-connected .hub-login-brand-name {
+  font-size: 25px; font-weight: 820; letter-spacing: -.07em; white-space: nowrap;
+}
+.hub-login-connected .hub-login-brand-name span,
+.hub-login-connected .hub-login-mobile-brand strong,
+.hub-login-connected .hub-login-welcome span { color: var(--login-accent); }
+.hub-login-connected .hub-login-brand-kicker {
+  max-width: 142px; font-size: 10px; line-height: 1.5; text-align: right;
+  letter-spacing: .12em; font-weight: 750; color: #768ea2;
+}
+.hub-login-connected .hub-login-story-content { position: relative; width: min(100%, 570px); margin: 52px 0 40px; }
+.hub-login-connected .hub-login-eyebrow {
+  color: var(--login-accent); font-size: 11px; font-weight: 820; letter-spacing: .17em;
+}
+.hub-login-connected .hub-login-welcome {
+  margin: 18px 0 22px; font-size: clamp(44px, 4.9vw, 74px);
+  font-weight: 750; letter-spacing: -.058em; line-height: 1.08;
+}
+.hub-login-connected .hub-login-pitch {
+  max-width: 400px; color: #627b90; font-size: 16px; line-height: 1.7;
+  margin-bottom: 32px;
+}
+.hub-login-connected .hub-login-products {
+  max-width: 460px; padding: 18px; background: #fff; border: 1px solid #dae7f0;
+  border-radius: 18px; box-shadow: 0 17px 45px rgba(51,109,152,.12);
+  transform: rotate(-1.5deg);
+}
+.hub-login-connected .hub-login-products-title {
+  display: flex; justify-content: space-between; gap: 8px; align-items: center;
+  margin-bottom: 14px; font-size: 10px; font-weight: 800; letter-spacing: .12em;
+  color: #7d95a9;
+}
+.hub-login-connected .hub-login-products-title span:first-child { display: flex; gap: 8px; align-items: center; }
+.hub-login-connected .hub-login-products-title i {
+  width: 7px; height: 7px; border-radius: 50%; background: #19a5f3; display: inline-block;
+}
+.hub-login-connected .hub-login-products-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 9px;
+}
+.hub-login-connected .hub-login-product {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  border: 1px solid #e7edf3; border-radius: 11px;
+  padding: 9px; background: #fbfdff; font-size: 12px; font-weight: 760;
+}
+.hub-login-connected .hub-login-product-icon {
+  display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px;
+  border-radius: 9px; background: #e5f2ff; color: #077add;
+}
+.hub-login-connected .product-ffpro { background: #e5f7ed; color: #129c61; }
+.hub-login-connected .product-pos { background: #f7eafa; color: #954dbc; }
+.hub-login-connected .product-marketing { background: #fff0df; color: #c37420; }
+.hub-login-connected .product-academy { background: #edf4ff; color: #5479c3; }
+.hub-login-connected .hub-login-story-foot {
+  color: #7793a8; font-size: 10px; font-weight: 800; letter-spacing: .13em;
+}
+.hub-login-connected .hub-login-panel {
+  min-width: 0; display: flex; flex-direction: column; justify-content: center;
+  padding: 48px clamp(26px, 5.5vw, 90px) 30px; background: #fff;
+}
+.hub-login-connected .hub-login-card { width: min(100%, 430px); margin: auto; }
+.hub-login-connected .hub-login-mobile-brand { display: none; }
+.hub-login-connected .hub-login-mobile-brand span {
+  font-size: 23px; font-weight: 760; letter-spacing: -.05em;
+}
+.hub-login-connected .hub-login-form { background: transparent; box-shadow: none; border: 0; min-height: unset; padding: 0; }
+.hub-login-connected .hub-login-form :is(h1,h2) { color: var(--login-text) !important; letter-spacing: -.042em; }
+.hub-login-connected .hub-login-form p { color: var(--login-muted); }
+.hub-login-connected .hub-login-form .hub-login-fields > div:first-child { margin-bottom: 30px; }
+.hub-login-connected .hub-login-form .hub-login-fields > div:first-child p { margin-top: 8px; font-size: 15px; }
+.hub-login-connected .hub-login-form label:not(.hub-login-remember) { color: #334a5e !important; }
+.hub-login-connected .hub-login-form input:not([type=checkbox]),
+.hub-login-connected .hub-login-form select {
+  color: #1a2f43 !important; background: #f8fbfd !important;
+  border: 1px solid #d4e2ed !important; border-radius: 10px !important;
+  min-height: 52px; font-size: 15px; box-shadow: none !important;
+}
+.hub-login-connected .hub-login-form input::placeholder { color: #91a3b2; }
+.hub-login-connected .hub-login-form input:focus-visible,
+.hub-login-connected .hub-login-form select:focus-visible {
+  outline: 2px solid #0a83e6 !important; outline-offset: 1px;
+}
+.hub-login-connected .hub-login-form .hub-login-submit {
+  width: 100%; border-radius: 10px; min-height: 53px; padding: 12px 18px;
+  background: #0b78dd; color: #fff; font-weight: 730;
+  box-shadow: 0 10px 21px rgba(11,120,221,.16);
+}
+.hub-login-connected .hub-login-form .hub-login-submit:hover { background: #086ac5; }
+.hub-login-connected .hub-login-remember {
+  display: flex; gap: 10px; align-items: center; font-size: 13px;
+  font-weight: 520; color: #586f83; cursor: pointer;
+}
+.hub-login-connected .hub-login-remember input {
+  width: 17px; height: 17px; accent-color: #0c7bdf;
+}
+.hub-login-connected .hub-login-form .text-white:not(button) { color: var(--login-text) !important; }
+.hub-login-connected .hub-login-form .text-slate-400,
+.hub-login-connected .hub-login-form .text-slate-500,
+.hub-login-connected .hub-login-form .text-slate-600 { color: #667e91 !important; }
+.hub-login-connected .hub-login-form [class*="text-[#65c9ff]"] { color: #086dc4 !important; }
+.hub-login-connected .hub-login-form .text-rose-200 { color: #8d1930 !important; }
+.hub-login-connected .hub-login-form .text-emerald-200 { color: #086747 !important; }
+.hub-login-connected .hub-login-form .hub-login-security { margin-top: 30px; align-items: center; font-size: 12px; }
+.hub-login-connected .hub-login-form .hub-login-security p { line-height: 1.6; }
+.hub-login-connected .hub-login-form .hub-login-divider { color: #8295a7; }
+.hub-login-connected .hub-login-form .hub-login-divider:before,
+.hub-login-connected .hub-login-form .hub-login-divider:after { background: #dce5ed; }
+.hub-login-connected .hub-login-google { margin-top: 18px; }
+.hub-login-connected .hub-login-google > div:nth-child(2) { max-width: 100%; }
+.hub-login-connected .hub-login-panel-foot {
+  display: flex; justify-content: space-between; gap: 12px; margin-top: 30px;
+  color: #8a9aab; font-size: 11px; font-weight: 520;
+}
+.hub-login-connected .hub-login-form code { color: #086dc4; }
+@media (max-width: 1040px) {
+  .hub-login-connected .hub-login-main { grid-template-columns: minmax(0, 1fr) minmax(390px, 1fr); }
+  .hub-login-connected .hub-login-story { padding: 30px; }
+  .hub-login-connected .hub-login-panel { padding: 36px 6%; }
+  .hub-login-connected .hub-login-welcome { font-size: 50px; }
+}
+@media (max-width: 800px) {
+  .hub-login-connected .hub-login-main { display: block; }
+  .hub-login-connected .hub-login-story { display: none; }
+  .hub-login-connected .hub-login-panel { min-height: 100svh; padding: 28px 22px; }
+  .hub-login-connected .hub-login-card { margin: auto; }
+  .hub-login-connected .hub-login-mobile-brand { display: flex; margin: 0 0 42px; }
+}
+@media (max-width: 450px) {
+  .hub-login-connected .hub-login-mobile-brand { margin-bottom: 28px; }
+  .hub-login-connected .hub-login-form .hub-login-fields > div:first-child { margin-bottom: 20px; }
+  .hub-login-connected .hub-login-panel { padding: 22px 20px; }
+  .hub-login-connected .hub-login-panel-foot { margin-top: 25px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub-login-connected .hub-login-products { transform: none; }
+}
+
+.hub-login-connected .hub-login-hub-tag {
+  font-size: 10px; letter-spacing: .1em; font-weight: 820;
+  color: #075eae; border-radius: 6px;
+  padding: 5px 7px; background: #e0effc; border: 1px solid #c2e0fa;
+}
+.hub-login-connected .hub-login-brand .hub-login-hub-tag { margin-left: 6px; }
+.hub-login-connected .hub-login-mobile-brand .hub-login-hub-tag { margin-left: auto; }
+
+/* Actual site-approved per-product icons; no generic pictograms. */
+.hub-login-connected .hub-login-product img {
+  display: block;
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  flex: 0 0 38px;
+  border-radius: 10px;
+}
