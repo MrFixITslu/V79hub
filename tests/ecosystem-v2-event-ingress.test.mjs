@@ -69,8 +69,7 @@ test("money cannot be smuggled in as Hub settlement",()=>{
 });
 test("invalid type, subject and time reject",()=>{
   assert.throws(()=>projectTiquetEvent(event("invoice.settled",{}),mapped,now));
-  assert.throws(()=>projectTiquetEvent({...event(),subjectId:"bad
-id"},mapped,now));
+  assert.throws(()=>projectTiquetEvent({...event(),subjectId:"bad\nid"},mapped,now));
   assert.throws(()=>projectTiquetEvent({...event(),occurredAt:"2025-01-01"},mapped,now));
   assert.throws(()=>projectTiquetEvent({...event(),occurredAt:"2030-01-01"},mapped,now));
   assert.throws(()=>projectTiquetEvent({...event(),id:"not-uuid"},mapped,now));
