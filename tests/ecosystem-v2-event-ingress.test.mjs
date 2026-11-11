@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { signPlatformRequest } from "../server/platform-contract.mjs";
 import {
   mapTiquetAccount, projectTiquetEvent,
-  createTiquetEventHandler, createEcosystemEventInbox,
+  createTiquetEventHandler, createWebsiteEventHandler, projectWebsiteLeadEvent, createEcosystemEventInbox,
 } from "../server/ecosystem-v2-event-ingress.mjs";
 
 const org = "org_v79_example_customer";
@@ -133,7 +133,7 @@ test("database inbox inserts once and detects conflicting replay",async()=>{
     if(sql.includes("INSERT INTO")){
       const key=values[0]+":"+values[1];
       if(rows.has(key))return {rowCount:0,rows:[]};
-      rows.set(key,{organization_id:values[2],account_ref:values[3],digest:values[8]});
+      rows.set(key,{organization_id:values[2],account_ref:values[3],digest:values[9]});
       return {rowCount:1,rows:[{event_id:values[1]}]};
     }
     if(sql.includes("SELECT organization_id")){
@@ -147,4 +147,43 @@ test("database inbox inserts once and detects conflicting replay",async()=>{
   assert.equal(await inbox.write(first),"accepted");
   assert.equal(await inbox.write(first),"duplicate");
   await assert.rejects(inbox.write({...first,subjectId:"job_different"}));
+});
+
+test("signed website receipts preserve the lead reference, not customer PII",()=>{
+  const web={
+    id:randomUUID(),type:"lead.created",version:1,occurredAt:new Date(now).toISOString(),
+    organizationRef:org,subjectId:"2",correlationId:randomUUID(),
+    payload:{leadId:2,interest:"Medical consultation for Jane Smith",leadSource:"Website Contact Form",
+      pageOrigin:"/contact?email=jane@example.com",employeesBand:"10-20"},
+  };
+  const projected=projectWebsiteLeadEvent(web,org,store(),now);
+  assert.equal(projected.source,"website");
+  assert.equal(projected.subjectId,"lead:2");
+  assert.equal(projected.correlationId,web.correlationId);
+  assert.deepEqual(projected.payload,{source:"Website Contact Form"});
+  assert.equal(JSON.stringify(projected).includes("Jane"),false);
+  assert.equal(JSON.stringify(projected).includes("email="),false);
+});
+test("website event must match the operator organisation and lead ID",()=>{
+  const web={id:randomUUID(),type:"lead.created",version:1,
+    occurredAt:new Date(now).toISOString(),organizationRef:org,subjectId:"27",
+    payload:{leadId:27,leadSource:"Website Contact Form"}};
+  assert.throws(()=>projectWebsiteLeadEvent({...web,organizationRef:"org_other_customer"},org,store(),now));
+  assert.throws(()=>projectWebsiteLeadEvent({...web,payload:{leadId:26}},org,store(),now));
+  assert.throws(()=>projectWebsiteLeadEvent({...web,payload:{leadId:27,email:"someone@example.com"}},org,store(),now));
+  assert.throws(()=>projectWebsiteLeadEvent(web,org,{organizations:[]},now));
+});
+test("website and Tiquet secrets remain independent",async()=>{
+  const web={id:randomUUID(),type:"lead.created",version:1,occurredAt:new Date(now).toISOString(),
+    organizationRef:org,subjectId:"38",payload:{leadId:38,leadSource:"Website Contact Form"}};
+  const tSecret="t".repeat(40),wSecret="w".repeat(40);
+  const writes=[];
+  const handler=createWebsiteEventHandler({enabled:true,secret:wSecret,
+    ownerOrganizationId:org,getStore:store,now:()=>now,
+    inbox:{write:async(e)=>{writes.push(e);return "accepted"}}});
+  const req=request(web,wSecret,{"x-v79-service-id":"website"});
+  const good=response();await handler(req,good);assert.equal(good.code,202);
+  const wrong=response();await handler(request(web,tSecret,{"x-v79-service-id":"website"}),wrong);
+  assert.equal(wrong.code,401);
+  assert.equal(writes.length,1);
 });
