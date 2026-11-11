@@ -1,0 +1,26 @@
+name: Hub-Only Visual Guard — Read-Only Code Contract
+
+on:
+  push:
+    branches: [ops/hub-visual-single-app-20261026]
+  pull_request:
+    paths:
+      - scripts/vision79-hub-only-model-review.py
+      - tests/test_vision79_hub_only_model_review.py
+      - .github/workflows/vision79-hub-only-guard.yml
+
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile read-only checker, verify synthetic image-only change
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m py_compile scripts/vision79-hub-only-model-review.py
+          python3 -B -m unittest -v tests/test_vision79_hub_only_model_review.py
+          echo "NO_DOCKER_WRITE_NO_PRODUCTION_CONTACT=PASS"
