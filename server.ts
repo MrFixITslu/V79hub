@@ -3521,8 +3521,13 @@ app.get("/api/ecosystem/v2/events", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Access denied" });
   if (!ecosystemV2EventsEnabled || !ecosystemV2Inbox)
     return res.status(503).json({ status: "unavailable", events: [] });
+  const correlation = req.query?.correlationId;
+  if (correlation !== undefined && (typeof correlation !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(correlation)))
+    return res.status(400).json({error:"Invalid event correlation"});
   try {
-    const events = await ecosystemV2Inbox.latest(context.organizationId, 30);
+    const events = await ecosystemV2Inbox.latest(
+      context.organizationId, 30, typeof correlation === "string" ? correlation : null);
     return res.json({ status: "event_receipts_only", source: "signed_external_events",
       dataFreshness: "per_event", events });
   } catch {
