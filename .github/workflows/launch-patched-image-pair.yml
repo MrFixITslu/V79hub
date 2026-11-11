@@ -1,0 +1,107 @@
+name: Patched Hub Tiquet exact OCI pair (isolated)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/launch-patched-image-pair.yml
+      - tests/launch-patched-image-pair.test.mjs
+concurrency:
+  group: patched-pair-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  exact-images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tiquet_test
+          POSTGRES_USER: tiquet_test
+          POSTGRES_PASSWORD: tiquet_test_password
+        ports: [127.0.0.1:5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U tiquet_test -d tiquet_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      hub-postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hub_test
+          POSTGRES_USER: hub_test
+          POSTGRES_PASSWORD: hub_test_password
+        ports: [127.0.0.1:5433:5432]
+        options: >-
+          --health-cmd "pg_isready -U hub_test -d hub_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      V79_PAIR_HUB_PG_URL: postgresql://hub_test:hub_test_password@127.0.0.1:5433/hub_test
+      V79_PAIRED_TEST_SCOPE: github-ci-disposable
+      DATABASE_URL: postgresql://tiquet_test:tiquet_test_password@127.0.0.1:5432/tiquet_test
+      NODE_ENV: test
+      WIPAY_ENABLED: '0'
+      V79_ALLOW_PRODUCTION_DEPLOY: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: MrFixITslu/V79hub
+          ref: 48c3facacb049610862203535ffee54616573a81
+          path: .candidate-hub
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: MrFixITslu/V79Tiquet
+          ref: f1c336bc4406b9c38c23df44a84609bf744512a6
+          path: .paired-tiquet
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Verify exact inputs and no tracked runtime data
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .candidate-hub rev-parse HEAD)" = 48c3facacb049610862203535ffee54616573a81
+          test "$(git -C .paired-tiquet rev-parse HEAD)" = f1c336bc4406b9c38c23df44a84609bf744512a6
+          for path in .candidate-hub .paired-tiquet; do
+            test ! -e "$path/.env"
+            test -z "$(git -C "$path" ls-files -- data uploads backups logs)"
+          done
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm ci --prefix .paired-tiquet --ignore-scripts --no-audit --no-fund
+          node --check tests/launch-patched-image-pair.test.mjs
+      - name: Build exact source-labelled disposable images
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --build-arg NODE_BASE=node:22-alpine --label org.opencontainers.image.revision=48c3facacb049610862203535ffee54616573a81 -t v79-ci-patched-hub .candidate-hub
+          docker build --build-arg NODE_BASE=node:20-alpine --label org.opencontainers.image.revision=f1c336bc4406b9c38c23df44a84609bf744512a6 -t v79-ci-patched-tiquet .paired-tiquet
+          mkdir -p pair-evidence
+          for image in v79-ci-patched-hub v79-ci-patched-tiquet; do
+            docker image inspect "$image" --format '{{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}}' >> pair-evidence/images.txt
+          done
+      - name: Exercise actual images with synthetic A/B tenants
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/launch-patched-image-pair.test.mjs | tee pair-evidence/test.txt
+          test -z "$(git -C .candidate-hub status --porcelain --untracked-files=no)"
+          test -z "$(git -C .paired-tiquet status --porcelain --untracked-files=no)"
+      - name: Export only the exact images that passed acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save v79-ci-patched-hub v79-ci-patched-tiquet | gzip -1 > pair-evidence/patched-pair.docker.tar.gz
+          test "$(stat -c %s pair-evidence/patched-pair.docker.tar.gz)" -lt 1073741824
+          (cd pair-evidence && sha256sum patched-pair.docker.tar.gz images.txt test.txt > SHA256SUMS.txt)
+      - name: Retain acceptance evidence and clean source-only images
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: patched-pair-evidence
+          path: pair-evidence/
+          retention-days: 3
