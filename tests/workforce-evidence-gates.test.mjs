@@ -181,3 +181,17 @@ test('even a claimed empty 30-day receipt inventory needs independent proof',()=
   verifyReceipt:()=>true,verifyCompleteness:()=>true,nowMs:NOW,
  }).allowed,true);
 });
+
+// Policy amendment: the founder's limit is strictly below US$20, not <= 20.
+test('verified model receipts cannot reach exact US$20 rolling 30-day ceiling',()=>{
+  const receipts=[{id:'verified-model-cost',usd:19.95,recordedAt:'2026-10-16T22:00:00Z'}];
+  const args={receipts,receiptsComplete:true,verifyReceipt:()=>true,
+    verifyCompleteness:()=>true,nowMs:NOW};
+  const exact=checkModelBudget({...args,estimateUsd:0.05});
+  assert.equal(exact.allowed,false);
+  assert.equal(exact.reason,'BUDGET_CAP');
+  assert.equal(exact.estimatedAfterUsd,20);
+  assert.equal(checkModelBudget({...args,estimateUsd:0.049999}).allowed,true);
+  assert.equal(checkModelBudget({...args,estimateUsd:0.050001}).allowed,false);
+  assert.equal(checkModelBudget({...args,estimateUsd:0,receiptsComplete:false}).allowed,false);
+});
