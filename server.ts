@@ -11,6 +11,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
+import { Pool } from "pg";
+import { createEcosystemEventInbox, createTiquetEventHandler } from "./server/ecosystem-v2-event-ingress.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -3481,6 +3483,38 @@ app.post("/api/security/mfa/disable", requireAuth, async (req, res) => {
   onboardingAudit(store, "mfa_disabled", {}, user.id, session.organizationId);
   await saveStore(store);
   res.json({ success: true, enabled: false });
+});
+
+// Ecosystem v2: OFF by default. A dedicated signing secret is required.
+const ecosystemV2EventsEnabled = process.env.V79_ECOSYSTEM_V2_EVENTS_ENABLED === "1";
+const ecosystemV2Pool = ecosystemV2EventsEnabled &&
+  process.env.V79_HUB_STORE_BACKEND === "postgres" && process.env.DATABASE_URL
+    ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
+const ecosystemV2Inbox = ecosystemV2Pool ? createEcosystemEventInbox(ecosystemV2Pool) : null;
+// Signed service ingress is outside cookie authentication, protected by HMAC,
+// exact service allowlist and an active Hub<->Tiquet tenant mapping.
+app.post("/api/platform/events", createTiquetEventHandler({
+  enabled: ecosystemV2EventsEnabled,
+  secret: process.env.V79_TIQUET_EVENT_SECRET || "",
+  getStore: () => store,
+  inbox: ecosystemV2Inbox,
+}));
+// Event receipts are NOT provider-settled financial transactions.
+app.get("/api/ecosystem/v2/events", requireAuth, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const context = (req as any).user;
+  const membership = context ? activeMembership(store, context.userId, context.organizationId) : null;
+  if (!membership || !["owner", "admin"].includes(membership.role))
+    return res.status(403).json({ error: "Access denied" });
+  if (!ecosystemV2EventsEnabled || !ecosystemV2Inbox)
+    return res.status(503).json({ status: "unavailable", events: [] });
+  try {
+    const events = await ecosystemV2Inbox.latest(context.organizationId, 30);
+    return res.json({ status: "event_receipts_only", source: "tiquet",
+      dataFreshness: "per_event", events });
+  } catch {
+    return res.status(503).json({ status: "unavailable", events: [] });
+  }
 });
 
 app.use("/api", requireAuth);
