@@ -205,3 +205,24 @@ test("versioned scope acknowledgement preserves only a numeric version in Hub",(
     ...base,payload:{version:"3",scope:"Client confidential contract"}
   },{organizationId:org,externalAccountId:account},now));
 });
+
+test("event correlation queries never omit organisation scope",async()=>{
+ const observed=[];
+ const fakePool={async query(sql,args=[]){
+   if(sql.includes("CREATE TABLE"))return {rowCount:0,rows:[]};
+   observed.push({sql,args});
+   return {rowCount:1,rows:[{source:"tiquet",event_type:"job.created"}]};
+ }};
+ const inbox=createEcosystemEventInbox(fakePool);
+ const correlation=randomUUID();
+ const entries=await inbox.latest(org,25,correlation);
+ assert.equal(entries.length,1);
+ assert.equal(observed.length,1);
+ assert.match(observed[0].sql,/WHERE organization_id=\$1 AND correlation_id=\$2/);
+ assert.deepEqual(observed[0].args,[org,correlation,25]);
+ await assert.rejects(inbox.latest(org,25,"../../other-tenant"));
+ await assert.rejects(inbox.latest("org_other",0,correlation));
+ const unfiltered=await inbox.latest(org,10);
+ assert.match(observed.at(-1).sql,/WHERE organization_id=\$1 ORDER BY received_at/);
+ assert.deepEqual(observed.at(-1).args,[org,10]);
+});
