@@ -1,0 +1,23 @@
+name: P1 installed security read-only scope
+on:
+  push:
+    paths:
+      - scripts/p1-installed-security-readonly.py
+      - tests/p1-installed-security-readonly.test.py
+      - .github/workflows/p1-installed-security-readonly.yml
+  pull_request:
+    paths:
+      - scripts/p1-installed-security-readonly.py
+      - tests/p1-installed-security-readonly.test.py
+      - .github/workflows/p1-installed-security-readonly.yml
+permissions:
+  contents: read
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/p1-installed-security-readonly.test.py
