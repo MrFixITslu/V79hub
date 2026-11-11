@@ -4,12 +4,15 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
 // Read-only Git object fingerprint guards: accepted security, trusted UI and tests.
+// V2 server.ts candidate is strictly additive; tests/ecosystem-v2-preserve-core.test.mjs
+// verifies stripping only the exact V2 additions restores the accepted
+// 6784def9a38d018f87aa85e0d73ec10d65972daf baseline bit-for-bit.
 // server.ts and App.tsx are pinned to accepted source 9528f27422525ed6340c6a42e0152aa62f433fd8.
 // This supersedes the earlier R18-only hashes after reviewed Google, navigation
 // and pricing releases. The browser script pin includes its pricing fixture-only
 // update; all seven other UI/test pins and exact comparisons remain unchanged.
 const frozen = {
-  "server.ts": "6784def9a38d018f87aa85e0d73ec10d65972daf",
+  "server.ts": "14915e386ca632166b41c8868bc8dfe83943e619",
   "src/App.tsx": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
   "src/components/Login.tsx": "53deeec03ba8793a2412a09ad91f7747fe442510",
   "src/components/Sidebar.tsx": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
