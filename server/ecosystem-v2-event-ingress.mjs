@@ -193,6 +193,11 @@ export function createEcosystemEventInbox(pool) {
         prior.rows[0].account_ref !== event.accountRef) throw reject("event_replay_conflict");
     return "duplicate";
   }
+  /**
+   * @param {string} organizationId
+   * @param {number} [limit]
+   * @param {string | null} [correlationId]
+   */
   async function latest(organizationId, limit = 30, correlationId = null) {
     if (!ID.test(organizationId || "") || !Number.isSafeInteger(limit) ||
         limit < 1 || limit > 100 ||
