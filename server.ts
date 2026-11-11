@@ -11,6 +11,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
+import { Pool } from "pg";
+import { createEcosystemEventInbox, createTiquetEventHandler, createWebsiteEventHandler } from "./server/ecosystem-v2-event-ingress.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -3482,6 +3484,125 @@ app.post("/api/security/mfa/disable", requireAuth, async (req, res) => {
   await saveStore(store);
   res.json({ success: true, enabled: false });
 });
+
+// Ecosystem v2: OFF by default. A dedicated signing secret is required.
+const ecosystemV2EventsEnabled = process.env.V79_ECOSYSTEM_V2_EVENTS_ENABLED === "1";
+const ecosystemV2Pool = ecosystemV2EventsEnabled &&
+  process.env.V79_HUB_STORE_BACKEND === "postgres" && process.env.DATABASE_URL
+    ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
+const ecosystemV2Inbox = ecosystemV2Pool ? createEcosystemEventInbox(ecosystemV2Pool) : null;
+// Signed service ingress is outside cookie authentication, protected by HMAC,
+// exact service allowlist and an active Hub<->Tiquet tenant mapping.
+const ecosystemV2TiquetHandler = createTiquetEventHandler({
+  enabled: ecosystemV2EventsEnabled,
+  secret: process.env.V79_TIQUET_EVENT_SECRET || "",
+  getStore: () => store,
+  inbox: ecosystemV2Inbox,
+});
+const ecosystemV2WebsiteHandler = createWebsiteEventHandler({
+  enabled: ecosystemV2EventsEnabled,
+  secret: process.env.V79_WEBSITE_EVENT_SECRET || "",
+  ownerOrganizationId: posIdentity.organizationId,
+  getStore: () => store,
+  inbox: ecosystemV2Inbox,
+});
+app.post("/api/platform/events", (req, res) => {
+  const service = req.get("x-v79-service-id");
+  if (service === "tiquet") return ecosystemV2TiquetHandler(req, res);
+  if (service === "website") return ecosystemV2WebsiteHandler(req, res);
+  return res.status(401).json({ error: "Invalid service identity" });
+});
+// Event receipts are NOT provider-settled financial transactions.
+app.get("/api/ecosystem/v2/events", requireAuth, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const context = (req as any).user;
+  const membership = context ? activeMembership(store, context.userId, context.organizationId) : null;
+  if (!membership || !["owner", "admin"].includes(membership.role))
+    return res.status(403).json({ error: "Access denied" });
+  if (!ecosystemV2EventsEnabled || !ecosystemV2Inbox)
+    return res.status(503).json({ status: "unavailable", events: [] });
+  const correlation = req.query?.correlationId;
+  if (correlation !== undefined && (typeof correlation !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(correlation)))
+    return res.status(400).json({error:"Invalid event correlation"});
+  try {
+    const events = await ecosystemV2Inbox.latest(
+      context.organizationId, 30, typeof correlation === "string" ? correlation : null);
+    return res.json({ status: "event_receipts_only", source: "signed_external_events",
+      dataFreshness: "per_event", events });
+  } catch {
+    return res.status(503).json({ status: "unavailable", events: [] });
+  }
+});
+
+// Read-only provisional POS usage evidence. Never call it a verified margin:
+// POS staff enter jobReference, and no cross-ledger write is permitted.
+app.get("/api/ecosystem/v2/job-cost-evidence/:jobId", requireAuth,
+  async (req,res) => {
+    res.setHeader("Cache-Control","no-store");
+    if(process.env.V79_ECOSYSTEM_V2_POS_COST_READ_ENABLED!=="1" ||
+       !ecosystemV2EventsEnabled || !ecosystemV2Inbox)
+      return res.status(404).json({error:"Not available"});
+    const ctx=(req as any).user;
+    const membership=ctx?activeMembership(store,ctx.userId,ctx.organizationId):null;
+    if(!membership || !["owner","admin"].includes(membership.role))
+      return res.status(403).json({error:"Access denied"});
+    const jobId=String(req.params.jobId||"");
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId))
+      return res.status(400).json({error:"Invalid ticket reference"});
+    const org=ctx.organizationId;
+    const activePos=store.appEntitlements.some(v=>v.organizationId===org &&
+      v.appId==="app-pos" && v.enabled===true);
+    const activeTiquet=store.appEntitlements.some(v=>v.organizationId===org &&
+      v.appId==="app-tiquet" && v.enabled===true);
+    if(!activePos||!activeTiquet)
+      return res.status(403).json({error:"Required application entitlement missing"});
+    if(!process.env.V79_POS_PLATFORM_SHARED_SECRET ||
+       process.env.V79_POS_PLATFORM_SHARED_SECRET.length<32)
+      return res.status(503).json({error:"POS integration unavailable"});
+    try{
+      // A staff-typed job ID cannot be trusted as a Tiquet record.
+      // Confirm there is a tenant-bound, signed job.created receipt first.
+      if(!await ecosystemV2Inbox.hasTiquetJob(org,jobId))
+        return res.status(409).json({error:"Signed Tiquet job receipt not available"});
+      const pathname="/api/platform/job-cost-evidence/"+
+        encodeURIComponent(org)+"/"+encodeURIComponent(jobId);
+      const timestamp=String(Date.now());
+      const signed=signPlatformRequest({method:"GET",pathname,timestamp,body:"",
+        secret:process.env.V79_POS_PLATFORM_SHARED_SECRET});
+      const upstream=await fetch(new URL(pathname,posServiceUrl),{
+        method:"GET",redirect:"error",
+        headers:{"x-v79-service-id":"v79-hub",
+          "x-v79-timestamp":timestamp,"x-v79-signature":signed},
+        signal:AbortSignal.timeout(5000),
+      });
+      if(!upstream.ok)
+        return res.status(503).json({error:"POS cost evidence unavailable"});
+      const body=await upstream.json() as any;
+      if(body?.contract!=="v79.pos.job-cost-evidence.v1" ||
+         body.organizationId!==org || body.jobId!==jobId ||
+         body.linkage!=="staff_entered_reference_unverified" ||
+         body.costCompleteness!=="unverified" ||
+         body.isPaymentReceipt!==false ||
+         !/^[A-Z]{3}$/.test(String(body.currency||"")) ||
+         !/^[0-9]{1,15}\.[0-9]{2}$/.test(String(body.materialCost||"")) ||
+         !Number.isSafeInteger(body.recordedUsageCount))
+        return res.status(503).json({error:"Untrusted POS evidence response"});
+      return res.json({
+        status:"provisional_cost_evidence",
+        organizationId:org,jobId,
+        materialCost:body.materialCost,currency:body.currency,
+        recordedUsageCount:body.recordedUsageCount,
+        lastUsageAt:body.lastUsageAt||null,
+        verifiedTiquetJobReceipt:true,
+        verifiedPosJobAssociation:false,
+        confirmedMargin:null,
+        paymentSettlementVerified:false,
+      });
+    }catch{
+      return res.status(503).json({error:"POS cost evidence unavailable"});
+    }
+  });
 
 app.use("/api", requireAuth);
 
