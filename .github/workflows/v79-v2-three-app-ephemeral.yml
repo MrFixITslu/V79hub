@@ -172,6 +172,13 @@ jobs:
               --file staging/v2-ephemeral-overlay.yml \
               --env-file "${RUNNER_TEMP}/v79-v2-stage.env" "$@"
           }
+          stage exec -T tiquet node -e '
+            const enabled=process.env.V79_ECOSYSTEM_V2_EVENT_DELIVERY==="1";
+            const url=Boolean(process.env.V79_HUB_EVENT_URL);
+            const secret=String(process.env.V79_HUB_EVENT_SECRET||"").length>=32;
+            console.log("STAGE_TIQUET_EVENT_PREFLIGHT",JSON.stringify({enabled,url,secret}));
+            if(!enabled||!url||!secret)process.exit(2);
+          '
           stage exec -T v79-hub node staging/v2-ephemeral-smoke.mjs submit
           count="$(stage exec -T tiquet-db psql -U stage -d tiquet -Atc \
             "SELECT count(*) FROM jobs WHERE intakeEventId IS NOT NULL" | tr -d '\r')"
@@ -202,6 +209,13 @@ jobs:
               --env-file "${RUNNER_TEMP}/v79-v2-stage.env" "$@"
           }
           stage ps || true
+          stage exec -T tiquet node -e '
+            console.log("TIQUET_EVENT_RUNTIME_FLAGS",JSON.stringify({
+              enabled:process.env.V79_ECOSYSTEM_V2_EVENT_DELIVERY==="1",
+              urlConfigured:Boolean(process.env.V79_HUB_EVENT_URL),
+              secretLongEnough:String(process.env.V79_HUB_EVENT_SECRET||"").length>=32
+            }));
+          ' || true
           echo "===== SYNTHETIC EVENT OUTBOX DIAGNOSTICS ====="
           stage exec -T tiquet-db psql -U stage -d tiquet -Atc             "SELECT event_type,status,attempts,LEFT(COALESCE(last_error,''),120) FROM platform_event_outbox ORDER BY created_at DESC LIMIT 8"             2>/dev/null || true
           echo "===== SYNTHETIC ORG MAPPING COUNTS ====="
