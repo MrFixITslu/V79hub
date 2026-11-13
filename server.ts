@@ -1,3 +1,4 @@
+import { createMarketingRenameHandler } from "./server/marketing-rename-endpoint.mjs";
 import {registerEvidenceGatewayBridge} from './server/evidence-gateway-owner-bridge.mjs';
 import { createPricingRequestStore } from "./server/pricing-request-store.mjs";
 import { pricingRequestRouter } from "./server/pricing-request-routes.mjs";
@@ -54,6 +55,7 @@ import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchR
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
 import { activateMarketingTenantMapping, marketingProvisioningTarget, marketingTenantLaunchReady, marketingTenantMapping } from "./server/marketing-provisioning.mjs";
 import { createHubStorePersistence } from "./server/runtime-store.mjs";
+import { createOrganizationNameDeliveryLifecycle } from "./server/organization-name-worker-lifecycle.mjs";
 import { createWebsiteLeadEventReceiver } from "./server/website-lead-events.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
@@ -745,20 +747,27 @@ const storePersistence = createHubStorePersistence({
 
 let store = await storePersistence.load(normalizeLoadedStore, initialStore) as AppStore;
 
-async function saveStore(nextStore: AppStore, sentinel = false): Promise<void> {
+// Disabled unless explicitly enabled after isolated PostgreSQL integration QA.
+const organizationNameDeliveryLifecycle = createOrganizationNameDeliveryLifecycle({
+  persistence: storePersistence,
+  env: process.env,
+});
+server.on("close", () => organizationNameDeliveryLifecycle.stop());
+
+async function saveStore(nextStore: AppStore, sentinel = false): Promise<any> {
   const endWrite = sentinelWriteFence.beginStoreSave({ sentinel });
-  try { await storePersistence.save(nextStore); }
+  try { return await storePersistence.save(nextStore); }
   finally { endWrite(); }
 }
 
 async function commitStore(nextStore: AppStore) {
-  await saveStore(nextStore);
-  store = nextStore;
+  const committed = await saveStore(nextStore);
+  store = normalizeLoadedStore(committed) as AppStore;
 }
 
 async function commitSentinelStore(nextStore: AppStore) {
-  await saveStore(nextStore, true);
-  store = nextStore;
+  const committed = await saveStore(nextStore, true);
+  store = normalizeLoadedStore(committed) as AppStore;
 }
 
 function cloneStore() {
@@ -3695,6 +3704,18 @@ app.post("/api/website-sso/revoke", (req, res) => {
   return res.json({ revoked: true });
 });
 
+
+// Signed service endpoint; intentionally registered before browser authentication.
+app.post("/api/platform/organization/rename", createMarketingRenameHandler({
+  verify: verifyPlatformRequest,
+  secret: () => process.env.V79_MARKETING_LAUNCH_SECRET || "",
+  rename: async (input: any) => {
+    const result = await storePersistence.renameOrganizationWithOutbox(input);
+    store = normalizeLoadedStore(result.state) as AppStore;
+    return result;
+  },
+}));
+
 app.use("/api", requireAuth);
 
 // Customer documentation is independent of the privileged Owner Assistant.
@@ -6200,6 +6221,7 @@ async function startServer() {
     throw new Error("V79_HUB_BIND_HOST must be 0.0.0.0, 127.0.0.1 or ::1.");
   }
   server.listen(PORT, HOST, () => {
+    organizationNameDeliveryLifecycle.start();
     if (trialReminderLeader && recoveryEmailEnabled) {
       void dispatchTrialReminders();
       const reminderTimer=setInterval(()=>{void dispatchTrialReminders();},3600000);
