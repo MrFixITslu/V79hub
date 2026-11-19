@@ -9,6 +9,7 @@ on:
       - "src/lib/dashboardTruth.ts"
       - "tests/hub-dashboard-truth.test.mjs"
       - ".github/workflows/hub-dashboard-truth-browser.yml"
+      - "scripts/hub-r3-isolated-browser-preview.mjs"
 
 permissions:
   contents: read
@@ -46,7 +47,7 @@ jobs:
           done
           echo "Synthetic UI server unavailable"; exit 1
       - name: Capture browser screenshots with synthetic API data
-        run: node scripts/hub-isolated-browser-preview.mjs
+        run: node scripts/hub-r3-isolated-browser-preview.mjs
       - name: Preserve screenshot gallery for owner review
         if: always()
         uses: actions/upload-artifact@v4
