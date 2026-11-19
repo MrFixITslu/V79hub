@@ -37,6 +37,7 @@ import { createPythonBriefingStatus } from "./server/workforce-python-report-rea
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
 import { mcpReadAccessDecision } from "./server/mcp-owner-readonly.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
+import { validatePosTeamAcknowledgement } from "./server/pos-team-acknowledgement.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
 import { activateMarketingTenantMapping, marketingProvisioningTarget, marketingTenantLaunchReady, marketingTenantMapping } from "./server/marketing-provisioning.mjs";
@@ -1181,19 +1182,14 @@ async function provisionPosTeamMember(organization: Organization, hubUserId: str
     if (!response.ok) {
       return { ok: false as const, status: 502, error: "POS team member provisioning failed", upstreamStatus: response.status };
     }
-    const expectedRoleKey = posTeamRoleMap[role];
-    if (
-      payload.provisioned !== true ||
-      payload.organizationId !== organization.id ||
-      payload.userId !== userId ||
-      payload.roleKey !== expectedRoleKey ||
-      !Array.isArray(payload.locationIds) ||
-      payload.locationIds.length !== 1 ||
-      typeof payload.locationIds[0] !== "string"
-    ) {
+    const acknowledged = validatePosTeamAcknowledgement(payload, {
+      organizationId: organization.id, userId, hubRole: role,
+    });
+    if (!acknowledged) {
       return { ok: false as const, status: 502, error: "POS returned a mismatched team member identity" };
     }
-    return { ok: true as const, organizationId: organization.id, userId, roleKey: expectedRoleKey, locationId: payload.locationIds[0] as string };
+    return { ok: true as const, organizationId: organization.id, userId,
+      roleKey: acknowledged.roleKey, locationId: acknowledged.locationId };
   } catch {
     return { ok: false as const, status: 503, error: "POS service is unavailable" };
   }
