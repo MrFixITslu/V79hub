@@ -1,0 +1,165 @@
+name: V79 Disposable Customer Journey
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/v79-customer-journey.yml
+      - staging/gha-journey-**
+
+# Synthetic customer data and isolated CI only; no production delivery.
+permissions:
+  contents: read
+concurrency:
+  group: v79-customer-journey-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.service }} on isolated runner
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: hub
+            repo: MrFixITslu/V79hub
+            sha: 13d01a82d4f382459a2899303100715f177ddde7
+            dockerfile: Dockerfile
+          - service: ffpro
+            repo: MrFixITslu/FFPRO2
+            sha: 127009da684733a49ed7bdb348ca09c93f0c98cc
+            dockerfile: Dockerfile
+          - service: tiquet
+            repo: MrFixITslu/V79Tiquet
+            sha: 0a1e157d5f8c45dcc5852649d9b2dfbedb331bac
+            dockerfile: Dockerfile
+          - service: website
+            repo: MrFixITslu/V79website
+            sha: eb8f336cb209ad2d1f88f404a05a1d2380e0942a
+            dockerfile: Dockerfile
+    steps:
+      - name: Checkout immutable app source (Hub follows same PR)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.service == 'hub' && github.event.pull_request.head.sha || matrix.sha }}
+          path: source
+          persist-credentials: false
+      - name: Build application image locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --file "source/${{ matrix.dockerfile }}" \
+            --tag "v79-01-${{ matrix.service }}:test" source
+          docker image inspect "v79-01-${{ matrix.service }}:test" --format 'Built {{.RepoTags}}'
+      - name: Pack disposable image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save "v79-01-${{ matrix.service }}:test" |
+            gzip -1 > "${{ runner.temp }}/v79-01-${{ matrix.service }}.tar.gz"
+      - name: Transfer image to isolated network-test runner
+        uses: actions/upload-artifact@v4
+        with:
+          name: ephemeral-image-${{ matrix.service }}
+          path: ${{ runner.temp }}/v79-01-${{ matrix.service }}.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  integrate:
+    name: Four-app customer journey with actual API and ledger
+    needs: build
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout this branch without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download four independently built images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ephemeral-image-*
+          path: ${{ runner.temp }}/images
+          merge-multiple: true
+      - name: Load app images and public database dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for image in hub ffpro tiquet website; do
+            gzip -dc "${{ runner.temp }}/images/v79-01-$image.tar.gz" | docker load
+          done
+          docker pull postgres:17-alpine
+          docker pull postgres:16-alpine
+      - name: Generate CI-only random signing keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          import os,secrets
+          names=["STAGE_DB_PASSWORD","STAGE_ADMIN_PASSWORD","STAGE_CUSTOMER_PASSWORD",
+            "STAGE_GENERAL_SECRET","STAGE_POS_SECRET","STAGE_FFPRO_SECRET",
+            "STAGE_TIQUET_SECRET","STAGE_MARKETING_SECRET",
+            "STAGE_SITE_ADMIN_PASSWORD","STAGE_INTAKE_SECRET","STAGE_PAYMENT_SECRET",
+            "STAGE_PLANNING_SECRET","STAGE_CALLBACK_SECRET","STAGE_SITE_ENCRYPTION_KEY"]
+          import base64
+          with open(os.path.join(os.environ["RUNNER_TEMP"],"v79-stage.env"),"x") as f:
+            for name in names:
+              f.write(name+"="+secrets.token_hex(32)+"\n")
+            f.write("STAGE_FFPRO_ENCRYPTION_KEY="+base64.b64encode(secrets.token_bytes(32)).decode()+"\n")
+          print("EPHEMERAL_SECRETS_GENERATED key_names_only")
+          PY
+      - name: Create disposable HTTPS trust for the internal gateways
+        shell: bash
+        run: |
+          set -euo pipefail
+          tls="${{ runner.temp }}/v79-journey-tls"
+          install -d -m 700 "$tls"
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
+            -subj /CN=journey-proxy -addext subjectAltName=DNS:journey-proxy \
+            -addext basicConstraints=critical,CA:TRUE \
+            -keyout "$tls/key.pem" -out "$tls/cert.pem" >/dev/null 2>&1
+          chmod 600 "$tls/key.pem"
+          chmod 644 "$tls/cert.pem"
+          printf 'STAGE_TLS_DIR=%s\n' "$tls" >> "${{ runner.temp }}/v79-stage.env"
+      - name: Provision real synthetic tenant and execute customer journey
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage() {
+            docker compose --project-name v79-customer-journey \
+              --file staging/gha-compose.yml --file staging/gha-journey-compose.yml \
+              --env-file "${{ runner.temp }}/v79-stage.env" "$@"
+          }
+          stage config --quiet
+          stage up --wait -d hub-db ffpro-db tiquet-db
+          stage run --rm hub-seed
+          stage up --no-deps -d v79-hub ffpro tiquet journey-proxy
+          result="$(stage exec -T v79-hub node staging/gha-journey.mjs --provision)"
+          account="$(printf '%s\n' "$result" | sed -n 's/^INTAKE_ACCOUNT_ID=//p')"
+          [[ "$account" =~ ^[0-9a-fA-F-]{36}$ ]]
+          printf 'STAGE_INTAKE_ACCOUNT_ID=%s\n' "$account" >> "${{ runner.temp }}/v79-stage.env"
+          stage up --no-deps -d tiquet website
+          stage exec -T v79-hub node staging/gha-journey.mjs
+      - name: Container status on failure
+        if: failure()
+        shell: bash
+        run: |
+          docker compose --project-name v79-customer-journey \
+            --file staging/gha-compose.yml --file staging/gha-journey-compose.yml \
+            --env-file "${{ runner.temp }}/v79-stage.env" ps || true
+      - name: Destroy all ephemeral containers, networks and databases
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "${{ runner.temp }}/v79-stage.env" ]; then
+            docker compose --project-name v79-customer-journey \
+              --file staging/gha-compose.yml --file staging/gha-journey-compose.yml \
+              --env-file "${{ runner.temp }}/v79-stage.env" \
+              down --volumes --remove-orphans --timeout 10 || true
+          fi
