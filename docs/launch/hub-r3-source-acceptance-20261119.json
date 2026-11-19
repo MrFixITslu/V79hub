@@ -1,0 +1,70 @@
+{
+  "date": "2026-11-19",
+  "status": "SOURCE_CANDIDATE_OWNER_AUTHORISED_FOR_FINAL_VALIDATION_ONLY",
+  "pr": 257,
+  "prior_main": "afefdb92158113e3771426c6a976aec917beeecc",
+  "recovered_source": "99f26acae61f11e8855b1f05dfb1471609fdfa4e",
+  "validated_candidate": "96cf12f5164e511de60883fa0a1c191e08476576",
+  "owner_authorisation": "Recovered R3 baseline approved for final validation, source reconciliation and merge once all security and CI checks pass; deployment only after recovery verification passes.",
+  "prior_pins": {
+    "server.ts": "6784def9a38d018f87aa85e0d73ec10d65972daf",
+    "src/App.tsx": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
+    "src/components/Login.tsx": "53deeec03ba8793a2412a09ad91f7747fe442510",
+    "src/components/Sidebar.tsx": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
+    "src/components/AdminConsole.tsx": "a809f9bb614ff547d28eeab8d15535652c3b7d5c",
+    "scripts/hub-isolated-browser-preview.mjs": "f7761f0fa93d9bc279ac28514fab95e72bfca894",
+    "src/components/HubOverview.tsx": "937247e63571b310f30c2dd21ce8af972386bd07",
+    "src/index.css": "566570e28c95d58697f391cf2b7b67be2290eefe",
+    "src/lib/dashboardTruth.ts": "fe60c5afc82f8f093ec94923fcbec9d40e267e7d",
+    "tests/hub-dashboard-truth.test.mjs": "13350b4437668d7d13792ca2def755fa545d2739"
+  },
+  "updated_pins": {
+    "server.ts": {
+      "previous": "6784def9a38d018f87aa85e0d73ec10d65972daf",
+      "recovered": "7d8b791f7416ebc9f36fabb70473c674e7c973ed"
+    },
+    "src/App.tsx": {
+      "previous": "37815fc308b2fc52da7e6c1533a7180a6adb312f",
+      "recovered": "1cc808958b331124f7c0476a065e44bc80ccd831"
+    },
+    "src/components/Login.tsx": {
+      "previous": "53deeec03ba8793a2412a09ad91f7747fe442510",
+      "recovered": "98cf523d2bc8b8ac8ff5c75896e9913a37e353a5"
+    },
+    "src/components/Sidebar.tsx": {
+      "previous": "39391d6121b7d8435e8886241a1b9fa0740e2bb6",
+      "recovered": "e3ac9f4eb15345cf00786ec51755fdbf5515dda6"
+    },
+    "src/components/AdminConsole.tsx": {
+      "previous": "a809f9bb614ff547d28eeab8d15535652c3b7d5c",
+      "recovered": "e21c2fe167c53f180ce0f2b1dff8071bf834b0b7"
+    },
+    "src/components/HubOverview.tsx": {
+      "previous": "937247e63571b310f30c2dd21ce8af972386bd07",
+      "recovered": "088094e8afd16832499454b729a2d42e9318c629"
+    },
+    "src/index.css": {
+      "previous": "566570e28c95d58697f391cf2b7b67be2290eefe",
+      "recovered": "05395ab058ef7b4a58140b94a761a2d7052b306e"
+    }
+  },
+  "additional_pins": {
+    "server/google-login.mjs": "ee9f40c65ba661c2fb9b0e3e67f1f07ea64a0602",
+    "server/pos-team-acknowledgement.mjs": "1415a351786d6478e73830d6ce5647a26c712a61",
+    "src/components/GoogleSignIn.tsx": "1f597890e965edb4ac3a95bfb7087aea9937c3ab",
+    "scripts/hub-r3-isolated-browser-preview.mjs": "2cdd84705eb50f9d2c42ab47c119e8e33d07c56d",
+    "tests/google-login-verifier.test.mjs": "c90279b5bc7a8b166a8a53c1fd3cb82d8c463e78"
+  },
+  "evidence": {
+    "full_ci_run": 44553791991,
+    "test_pass": 715,
+    "test_fail_historical_pins": 7,
+    "skipped": 4,
+    "five_app_stage_run": 44553792168,
+    "g3_run": 44553792000,
+    "bound_logout_run": 44553791890,
+    "browser_run": 44553791938,
+    "browser_status": "NOT_YET_VERIFIED"
+  },
+  "release_hold": "No production release approval, publication, deployment or recovery certification. Merge requires all final CI checks to pass."
+}
