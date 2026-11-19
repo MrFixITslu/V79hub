@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-19",
+  "scope": "SOURCE_QA_ONLY",
+  "applications": {
+    "hub": {
+      "repository": "MrFixITslu/V79hub",
+      "main_sha": "b9ebe6c821b8f6f84d5f3032e7c0e4eb152867a1"
+    },
+    "pos": {
+      "repository": "MrFixITslu/v79pos",
+      "main_sha": "f3afbb2e47101acd8dce0a391b5c4891111ea421"
+    },
+    "ffpro": {
+      "repository": "MrFixITslu/FFPRO2",
+      "main_sha": "127009da684733a49ed7bdb348ca09c93f0c98cc"
+    },
+    "tiquet": {
+      "repository": "MrFixITslu/V79Tiquet",
+      "main_sha": "0a1e157d5f8c45dcc5852649d9b2dfbedb331bac"
+    },
+    "marketing": {
+      "repository": "MrFixITslu/V79Marketing",
+      "main_sha": "c2657d5c5dcd45a14d8dde64979a7759d29be5ac"
+    },
+    "website": {
+      "repository": "MrFixITslu/V79website",
+      "main_sha": "eb8f336cb209ad2d1f88f404a05a1d2380e0942a"
+    },
+    "academy": {
+      "repository": "MrFixITslu/V79acaedmy",
+      "main_sha": "e3805f3df66cc529e25b8572cb5a8ed63f21ee93"
+    },
+    "sentinel": {
+      "repository": "MrFixITslu/V79-Sentinel",
+      "main_sha": "e814c1b5e38584befc0b0b63a1c3830c5737cc3e"
+    }
+  },
+  "runtime_workflow": ".github/workflows/v79-01-ephemeral-staging.yml",
+  "runtime_scope": [
+    "hub",
+    "pos",
+    "ffpro",
+    "tiquet",
+    "marketing"
+  ],
+  "hub_runtime_ref": "same-repository pull request head; require no application-source changes relative to recorded main",
+  "remaining_runtime_acceptance": [
+    "website",
+    "academy",
+    "sentinel"
+  ],
+  "recovery": "UNKNOWN",
+  "deployment_authorized": false
+}
