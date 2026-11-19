@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { User } from "../types";
+import { GoogleSignIn } from "./GoogleSignIn";
 
 interface LoginProps {
   onLoginSuccess: (user: User, token: string) => void;
@@ -22,7 +23,15 @@ export function Login({ onLoginSuccess }: LoginProps) {
   const initialResetToken = useMemo(() => new URLSearchParams(window.location.search).get("reset") || "", []);
   const [mode, setMode] = useState<LoginMode>(initialResetToken ? "reset" : "login");
   const [resetToken] = useState(initialResetToken);
-  const [username, setUsername] = useState("");
+  // Remember an optional identifier only; never persist passwords or tokens.
+  const [username, setUsername] = useState(() => {
+    try { return localStorage.getItem("v79-hub-remembered-identifier") || ""; }
+    catch { return ""; }
+  });
+  const [rememberEmail, setRememberEmail] = useState(() => {
+    try { return Boolean(localStorage.getItem("v79-hub-remembered-identifier")); }
+    catch { return false; }
+  });
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -51,6 +60,18 @@ export function Login({ onLoginSuccess }: LoginProps) {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    try {
+      if (rememberEmail && username.trim().includes("@")) {
+        localStorage.setItem("v79-hub-remembered-identifier", username.trim());
+      } else {
+        localStorage.removeItem("v79-hub-remembered-identifier");
+      }
+    } catch {
+      // Login remains fully usable when browser storage is disabled.
+    }
+  }, [rememberEmail, username]);
 
   const clearMessages = () => {
     setError("");
@@ -95,6 +116,47 @@ export function Login({ onLoginSuccess }: LoginProps) {
       onLoginSuccess(data.user, "cookie");
     } catch (err: any) {
       setError(err.message || "Failed to sign in. Please check your credentials.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleCredential = async (credential: string, nonce: string, selectedOrganization: string) => {
+    setIsLoading(true);
+    clearMessages();
+    try {
+      const res = await fetch("/api/auth/google/login", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          credential,
+          nonce,
+          ...(selectedOrganization ? { organizationId: selectedOrganization } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 409 && Array.isArray(data.organizations)) {
+        setWorkspaces(data.organizations);
+        setOrganizationId("");
+        setError("Choose your business workspace, then select Google again.");
+        return;
+      }
+      if (res.status === 202 && data.mfaRequired) {
+        setChallengeId(data.challengeId || "");
+        setMfaSetupSecret(data.secret || "");
+        setMfaProvisioningUri(data.provisioningUri || "");
+        setMfaCode("");
+        setMode("mfa");
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || "Google account could not sign in to Hub.");
+      if (!data.user) throw new Error("Google sign-in response was incomplete.");
+      onLoginSuccess(data.user, "cookie");
+    } catch (err: any) {
+      setError(err.message || "Google sign-in failed. Try again or use your password.");
     } finally {
       setIsLoading(false);
     }
@@ -205,45 +267,45 @@ export function Login({ onLoginSuccess }: LoginProps) {
   );
 
   return (
-    <div className="hub-login hub-login-reference relative isolate min-h-[100svh] overflow-x-hidden bg-[#020813] font-sans text-white">
-      <div className="hub-login-main relative mx-auto grid min-h-[100svh] w-full max-w-[1440px] grid-cols-1 items-center gap-8 px-5 py-8 lg:grid-cols-[minmax(0,1fr)_minmax(420px,560px)] lg:gap-10 lg:px-[52px] lg:py-10">
-        <aside className="hub-login-story relative hidden min-w-0 self-stretch flex-col lg:flex" aria-label="About V79 Digital Hub">
-          <div className="hub-login-network pointer-events-none" aria-hidden="true">
-            <img src="/assets/v79-login-earth.svg" alt="" loading="eager" decoding="async" />
+    <div className="hub-login hub-login-connected min-h-[100svh] font-sans">
+      <div className="hub-login-main">
+        <aside className="hub-login-story" aria-label="About the V79 Digital ecosystem">
+          <div className="hub-login-story-top">
+            <div className="hub-login-brand">
+              <img src="/brand/icon-256.png" alt="V79 Hub app icon" width="46" height="46" />
+              <div className="hub-login-brand-name">V79 <span>Digital</span></div><span className="hub-login-hub-tag">HUB</span>
+            </div>
+            <span className="hub-login-brand-kicker">CONNECTED BUSINESS SOFTWARE</span>
           </div>
-          <div className="hub-login-brand relative z-10">
-            <div className="text-[33px] font-black leading-none tracking-[-0.05em] text-white">V79 <span className="text-[#0A86FF]">Digital</span></div>
-            <p className="mt-2 text-[14px] font-bold text-[#0A86FF]">From Idea to Advantage.</p>
-          </div>
-          <div className="hub-login-story-content relative z-10">
-            <h2 className="hub-login-welcome font-black tracking-[-0.055em] text-[#f7f9ff]">
-              Welcome to<br /><span className="text-[#0A86FF]">V79 Digital Hub</span>
-            </h2>
-            <p className="hub-login-pitch text-slate-400">
-              Your command center for the V79 Digital ecosystem.<br />
-              Access insights. Drive performance.<br />
-              Build what’s next.
-            </p>
-            <div className="hub-login-highlights" aria-label="Platform benefits">
-              <span>Enterprise-grade<br />security</span>
-              <span>Your data.<br /><strong className="text-[#0A86FF]">Always protected.</strong></span>
-              <span>Built for teams<br />across the Caribbean</span>
+          <div className="hub-login-story-content">
+            <div className="hub-login-eyebrow">THE V79 ECOSYSTEM</div>
+            <h2 className="hub-login-welcome">Everything<br />works better<br /><span>together.</span></h2>
+            <p className="hub-login-pitch">One secure place to access the tools that help your business move forward.</p>
+            <div className="hub-login-products" aria-label="V79 business applications">
+              <div className="hub-login-products-title"><span><i aria-hidden="true" /> YOUR WORKSPACE</span><span>5 PRODUCTS</span></div>
+              <div className="hub-login-products-grid">
+                <div className="hub-login-product"><img src="/assets/login-products/tiquet.png" alt="" width="38" height="38" loading="eager" decoding="async" />Tiquet</div>
+                <div className="hub-login-product"><img src="/assets/login-products/ffpro.png" alt="" width="38" height="38" loading="eager" decoding="async" />FFPRO</div>
+                <div className="hub-login-product"><img src="/assets/login-products/pos.png" alt="" width="38" height="38" loading="eager" decoding="async" />POS</div>
+                <div className="hub-login-product"><img src="/assets/login-products/marketing.png" alt="" width="38" height="38" loading="eager" decoding="async" />Marketing</div>
+                <div className="hub-login-product"><img src="/assets/login-products/academy.png" alt="" width="38" height="38" loading="eager" decoding="async" />Academy</div>
+              </div>
             </div>
           </div>
+          <div className="hub-login-story-foot">BUILT FOR REAL BUSINESSES ACROSS THE CARIBBEAN</div>
         </aside>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-          className="hub-login-card relative z-10 mx-auto w-full max-w-[560px]">
-          <div className="hub-login-form rounded-[23px] border border-[#28527d] bg-[#071624]/95 px-6 py-8 shadow-[0_28px_80px_rgba(0,0,0,.48)] sm:px-9 sm:py-10 lg:px-10 lg:py-11">
-            <div className="hub-login-mobile-brand mb-8 lg:hidden">
-              <div className="text-3xl font-black tracking-tight">V79 <span className="text-[#0A86FF]">Digital</span></div>
-              <div className="mt-1 text-sm font-bold text-[#0A86FF]">From Idea to Advantage.</div>
+        <main className="hub-login-panel">
+          <div className="hub-login-card">
+            <div className="hub-login-mobile-brand">
+              <img src="/brand/icon-256.png" alt="V79 Hub app icon" width="38" height="38" />
+              <span>V79 <strong>Digital</strong></span><span className="hub-login-hub-tag">HUB</span>
             </div>
-
+            <div className="hub-login-form">
           {mode === "login" && (
             <form onSubmit={handleLogin} className="hub-login-fields space-y-5">
               <div>
-                <h1 className="text-[25px] font-bold tracking-tight text-white">Sign in to your account</h1>
-                <p className="mt-2 text-[15px] text-slate-400">Secure access to your V79 Digital Hub</p>
+                <h1 className="text-[34px] font-bold tracking-tight text-white">Hello again.</h1>
+                <p className="mt-2 text-[15px] text-slate-400">Your workspace is ready when you are.</p>
               </div>
               {renderMessage()}
               <div>
@@ -275,6 +337,12 @@ export function Login({ onLoginSuccess }: LoginProps) {
                 </div>
               </div>
 
+              <label className="hub-login-remember">
+                <input type="checkbox" checked={rememberEmail}
+                  onChange={e => setRememberEmail(e.target.checked)} />
+                Remember my email on this device
+              </label>
+
               {workspaces.length > 0 && (
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Business workspace</label>
@@ -289,23 +357,14 @@ export function Login({ onLoginSuccess }: LoginProps) {
               <button type="submit" disabled={isLoading}
                 className="hub-login-submit flex w-full items-center justify-center gap-2 rounded-lg bg-[#0A86FF] py-4 text-[16px] font-semibold text-white shadow-[0_10px_25px_rgba(0,113,255,.24)] transition-colors hover:bg-[#167cff] disabled:opacity-60">
                 {isLoading ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> :
-                  <>Sign in</>}
+                  <>Sign in to Hub</>}
               </button>
             </form>
           )}
 
           {mode === "login" && (
             <>
-              <div className="hub-login-divider" aria-label="Other sign-in methods">
-                <span>or</span>
-              </div>
-              <button type="button" disabled aria-disabled="true" title="Google sign-in is not yet configured"
-                className="hub-login-google flex w-full items-center justify-center gap-3 rounded-lg border border-[#46607c] bg-[#34445b] px-4 py-3.5 text-sm font-semibold text-slate-200 disabled:cursor-not-allowed">
-                <span aria-hidden="true" className="hub-login-google-icon">G</span>
-                <span>Continue with Google</span>
-                <span className="sr-only">Not yet available</span>
-              </button>
-              <p className="mt-2 text-center text-[11px] text-slate-400">Google sign-in is not yet available.</p>
+              <GoogleSignIn organizationId={organizationId} onCredential={handleGoogleCredential} />
               <div className="hub-login-security mt-10 flex items-start gap-3 text-[13px] leading-5 text-slate-400">
                 <Lock className="mt-0.5 h-5 w-5 shrink-0 text-[#0A86FF]" aria-hidden="true" />
                 <p>Secure encryption. Multi-factor authentication.<br />We never share your information.</p>
@@ -402,8 +461,10 @@ export function Login({ onLoginSuccess }: LoginProps) {
               </button>
             </form>
           )}
-        </div>
-        </motion.div>
+            </div>
+            <div className="hub-login-panel-foot"><span>V79 Digital</span><span>From Vision to Value.</span></div>
+          </div>
+        </main>
       </div>
     </div>
   );

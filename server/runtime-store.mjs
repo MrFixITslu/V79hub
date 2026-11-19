@@ -60,15 +60,29 @@ export function createHubStorePersistence({
     return initial;
   }
 
-  async function save(nextStore) {
+  /**
+   * @template T
+   * @param {() => Promise<T>} task
+   * @returns {Promise<T>}
+   */
+  function enqueuePersistence(task) {
+    const operation = persistChain.catch(() => {}).then(task);
+    persistChain = operation.then(() => {}, () => {});
+    return operation;
+  }
+
+  function save(nextStore) {
     const snapshot = structuredClone(nextStore);
-    persistChain = persistChain.catch(() => {}).then(async () => {
+    const expectedRevision = revision;
+
+    return enqueuePersistence(async () => {
       const persisted = { ...envelope, ...snapshot };
+
       if (mode === "postgres") {
-        const updated = await repository.replace(revision, persisted);
+        const updated = await repository.replace(expectedRevision, persisted);
         revision = updated.revision;
-        envelope = updated.state;
-        return;
+        envelope = structuredClone(updated.state);
+        return structuredClone(updated.state);
       }
 
       const tempFile = storeFile + ".tmp";
@@ -76,8 +90,24 @@ export function createHubStorePersistence({
       fs.renameSync(tempFile, storeFile);
       fs.chmodSync(storeFile, 0o600);
       envelope = persisted;
+      return structuredClone(persisted);
     });
-    return persistChain;
+  }
+
+  function renameOrganizationWithOutbox(input) {
+    if (mode !== "postgres") {
+      throw new Error("Organisation rename outbox requires the PostgreSQL backend.");
+    }
+
+    return enqueuePersistence(async () => {
+      const result = await repository.renameOrganizationWithOutbox(input);
+      revision = result.revision;
+      envelope = structuredClone(result.state);
+      return {
+        ...result,
+        state: structuredClone(result.state),
+      };
+    });
   }
 
   async function close() {
@@ -89,6 +119,8 @@ export function createHubStorePersistence({
     mode,
     load,
     save,
+    renameOrganizationWithOutbox,
+    deliveryRepository: repository,
     close,
     revision: () => revision,
     envelope: () => structuredClone(envelope),

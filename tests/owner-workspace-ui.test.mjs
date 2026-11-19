@@ -23,18 +23,22 @@ async function mount(t,Component,props={},handler=()=>queue([])){
  const click=async(text,scope=box)=>{const button=[...scope.querySelectorAll('button')].find(b=>b.textContent.trim()===text||b.getAttribute('aria-label')===text);assert.ok(button,'Button: '+text);await act(async()=>button.click());};
  return {box,calls,timers,click,render:async next=>act(async()=>root.render(React.createElement(Component,next)))};
 }
-test('workspace starts in chat without fetching private tools; navigation only reads and keeps a prepared chat prompt',async t=>{
+test('workspace starts with a read-only Today summary; navigation keeps a prepared chat prompt',async t=>{
  const h=await mount(t,OwnerAssistant);
- assert.equal(h.calls.length,0);
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].url,'/api/agent/work-actions');
+ assert.equal(h.calls[0].opts.method,undefined);
+ assert.equal(h.box.querySelector('#workspace-today').hidden,false);
+ await h.click('Ask Assistant',h.box.querySelector('nav'));
  assert.equal(h.box.querySelector('#workspace-agents').hidden,false);
  await h.click('CEO · DirectionPriorities, tradeoffs and decisions');
  const draft=h.box.querySelector('textarea').value;assert.match(draft,/CEO review/);
- assert.equal(h.calls.length,0,'Choosing an agent prepares a prompt; it does not send');
+ assert.equal(h.calls.length,1,'Choosing an agent prepares a prompt; it does not send');
  await h.click('New task');
  assert.equal(h.box.querySelector('#workspace-tasks').hidden,false);
  assert.ok(h.box.querySelector('form[aria-label="New work item"]'));
- assert.equal(h.calls.length,1);assert.equal(h.calls[0].url,'/api/agent/work-actions');assert.equal(h.calls[0].opts.method,undefined);
- await h.click('Agents',h.box.querySelector('nav'));
+ assert.equal(h.calls.length,2);assert.ok(h.calls.every(c=>c.url==='/api/agent/work-actions'&&!c.opts.method));
+ await h.click('Ask Assistant',h.box.querySelector('nav'));
  assert.equal(h.box.querySelector('textarea').value,draft);
  assert.equal(h.timers.size,0,'Leaving actions stops polling');
 });
@@ -47,13 +51,13 @@ test('workboard handoff opens task view with an exact draft and never queues or 
  assert.equal(h.box.querySelector('input[minlength="8"]').value,'Review: Delivery evidence');
  assert.match(h.box.querySelector('#workspace-tasks textarea').value,/issues\/152/);
  assert.ok(h.calls.every(c=>!c.opts?.method),'Draft handoff must issue no mutations');
- await h.click('Agents',h.box.querySelector('nav'));await h.click('New task');
+ await h.click('Ask Assistant',h.box.querySelector('nav'));await h.click('New task');
  assert.equal(h.box.querySelector('input[minlength="8"]').value,'Review: Delivery evidence','Switching views preserves task draft');
 });
 test('polling observes worker success without execution POST; created work is not labelled complete',async t=>{
  let state=job('approved');const h=await mount(t,WorkforceActionPanel,{embedded:true},()=>queue([state]));
  assert.match(h.box.textContent,/Approved · awaiting execution/);
- assert.equal(h.timers.size,1);const timer=[...h.timers.values()][0];assert.equal(timer.delay,15000);
+ assert.equal(h.timers.size,1);const timer=[...h.timers.values()][0];assert.equal(timer.delay,45000);
  state=job('succeeded');await act(async()=>timer.fn());
  assert.match(h.box.textContent,/Work item created/);
  assert.match(h.box.textContent,/completion of the underlying work is not verified/);
@@ -89,12 +93,12 @@ test('queueing a prepared work item creates only a pending proposal and highligh
  assert.match(h.box.querySelector('[aria-pressed="true"]').textContent,/Needs approval/);
  assert.match(h.box.textContent,/Needs your approval/);
 });
-test('MFA failure clears private actions and controls; an outdated response cannot restore them',async t=>{
+for (const deniedStatus of [401,403]) test('Access denial '+deniedStatus+' clears private actions and controls; an outdated response cannot restore them',async t=>{
  let count=0,resolveOld;
  const h=await mount(t,WorkforceActionPanel,{embedded:true},()=>{
   count++;if(count===1)return queue([job()]);
   if(count===2)return new Promise(resolve=>{resolveOld=resolve;});
-  return {ok:false,status:403,json:async()=>({})};
+  return {ok:false,status:deniedStatus,json:async()=>({})};
  });
  const timer=[...h.timers.values()][0];
  await act(async()=>{void timer.fn();});
@@ -177,4 +181,13 @@ test('owner task composer submits only after a verified enabled response',async 
  // This test validates the editor is available; existing queue submission tests
  // cover React-controlled input and exact body validation separately.
  assert.ok(h.calls.every(c=>!c.opts?.method),'Opening or typing a draft never mutates');
+});
+
+for(const deniedStatus of [401,403]) test('Mutation denial '+deniedStatus+' clears private action rows without retrying',async t=>{
+ const h=await mount(t,WorkforceActionPanel,{embedded:true},(_url,opts)=>opts?.method==='POST'?{ok:false,status:deniedStatus,json:async()=>({error:'Denied'})}:queue([job()]));
+ assert.equal(h.box.querySelectorAll('article').length,1);
+ await h.click('Reject');
+ assert.equal(h.box.querySelectorAll('article').length,0);
+ assert.equal(h.box.querySelector('form[aria-label="New work item"] button[type="submit"]').disabled,true);
+ assert.equal(h.calls.filter(c=>c.opts?.method==='POST').length,1);
 });
