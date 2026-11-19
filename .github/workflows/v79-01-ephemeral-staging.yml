@@ -43,23 +43,23 @@ jobs:
         include:
           - service: hub
             repo: MrFixITslu/V79hub
-            sha: e2e7c9c75ee31d25e4ab3445588f635c772716ec
+            sha: b9ebe6c821b8f6f84d5f3032e7c0e4eb152867a1
             dockerfile: Dockerfile
           - service: pos
             repo: MrFixITslu/v79pos
-            sha: 6abebb01d4e4c3d86798c947ec94cf9d3d5b211f
+            sha: f3afbb2e47101acd8dce0a391b5c4891111ea421
             dockerfile: Dockerfile
           - service: ffpro
             repo: MrFixITslu/FFPRO2
-            sha: 71cdde7c506b64d4c9239c359672efb5621200f6
+            sha: 127009da684733a49ed7bdb348ca09c93f0c98cc
             dockerfile: Dockerfile
           - service: tiquet
             repo: MrFixITslu/V79Tiquet
-            sha: 7bbc86172d5cc4c806c86f5b9050efe8b24140bf
+            sha: 0a1e157d5f8c45dcc5852649d9b2dfbedb331bac
             dockerfile: Dockerfile
           - service: marketing
             repo: MrFixITslu/V79Marketing
-            sha: 5c3fcc9b900a121e161c2b7fdf0b842963df0b7d
+            sha: c2657d5c5dcd45a14d8dde64979a7759d29be5ac
             dockerfile: Dockerfile
     steps:
       - name: Checkout immutable app source (Hub follows same PR)
