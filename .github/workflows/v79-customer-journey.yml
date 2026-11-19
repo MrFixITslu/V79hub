@@ -118,7 +118,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tls="\${{ runner.temp }}/v79-journey-tls"
+          tls="${{ runner.temp }}/v79-journey-tls"
           install -d -m 700 "$tls"
           openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
             -subj /CN=journey-proxy -addext subjectAltName=DNS:journey-proxy \
@@ -126,7 +126,7 @@ jobs:
             -keyout "$tls/key.pem" -out "$tls/cert.pem" >/dev/null 2>&1
           chmod 600 "$tls/key.pem"
           chmod 644 "$tls/cert.pem"
-          printf 'STAGE_TLS_DIR=%s\n' "$tls" >> "\${{ runner.temp }}/v79-stage.env"
+          printf 'STAGE_TLS_DIR=%s\n' "$tls" >> "${{ runner.temp }}/v79-stage.env"
       - name: Provision real synthetic tenant and execute customer journey
         shell: bash
         run: |
@@ -134,7 +134,7 @@ jobs:
           stage() {
             docker compose --project-name v79-customer-journey \
               --file staging/gha-compose.yml --file staging/gha-journey-compose.yml \
-              --env-file "\${{ runner.temp }}/v79-stage.env" "$@"
+              --env-file "${{ runner.temp }}/v79-stage.env" "$@"
           }
           stage config --quiet
           stage up --wait -d hub-db ffpro-db tiquet-db
@@ -143,7 +143,7 @@ jobs:
           result="$(stage exec -T v79-hub node staging/gha-journey.mjs --provision)"
           account="$(printf '%s\n' "$result" | sed -n 's/^INTAKE_ACCOUNT_ID=//p')"
           [[ "$account" =~ ^[0-9a-fA-F-]{36}$ ]]
-          printf 'STAGE_INTAKE_ACCOUNT_ID=%s\n' "$account" >> "\${{ runner.temp }}/v79-stage.env"
+          printf 'STAGE_INTAKE_ACCOUNT_ID=%s\n' "$account" >> "${{ runner.temp }}/v79-stage.env"
           stage up --no-deps -d tiquet website
           stage exec -T v79-hub node staging/gha-journey.mjs
       - name: Container status on failure
@@ -152,14 +152,14 @@ jobs:
         run: |
           docker compose --project-name v79-customer-journey \
             --file staging/gha-compose.yml --file staging/gha-journey-compose.yml \
-            --env-file "\${{ runner.temp }}/v79-stage.env" ps || true
+            --env-file "${{ runner.temp }}/v79-stage.env" ps || true
       - name: Destroy all ephemeral containers, networks and databases
         if: always()
         shell: bash
         run: |
-          if [ -f "\${{ runner.temp }}/v79-stage.env" ]; then
+          if [ -f "${{ runner.temp }}/v79-stage.env" ]; then
             docker compose --project-name v79-customer-journey \
               --file staging/gha-compose.yml --file staging/gha-journey-compose.yml \
-              --env-file "\${{ runner.temp }}/v79-stage.env" \
+              --env-file "${{ runner.temp }}/v79-stage.env" \
               down --volumes --remove-orphans --timeout 10 || true
           fi
