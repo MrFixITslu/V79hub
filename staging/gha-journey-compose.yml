@@ -1,0 +1,62 @@
+# CI-only overlay. All services share the existing internal sandbox network.
+services:
+  v79-hub:
+    environment:
+      STAGE_SITE_ADMIN_PASSWORD: "${STAGE_SITE_ADMIN_PASSWORD:?CI password}"
+      STAGE_INTAKE_SECRET: "${STAGE_INTAKE_SECRET:?CI intake secret}"
+      STAGE_PAYMENT_SECRET: "${STAGE_PAYMENT_SECRET:?CI payment secret}"
+  tiquet:
+    environment:
+      INTAKE_ACCOUNT_ID: "${STAGE_INTAKE_ACCOUNT_ID:-default_account}"
+      INTAKE_SECRET: "${STAGE_INTAKE_SECRET}"
+      FFPRO_PLANNING_GATEWAY_URL: https://journey-proxy:3443
+      FFPRO_PLANNING_GATEWAY_SECRET: "${STAGE_PLANNING_SECRET}"
+      FFPRO_PLANNING_CALLBACK_SECRET: "${STAGE_CALLBACK_SECRET}"
+      FFPRO_GATEWAY_URL: https://journey-proxy:3443
+      FFPRO_GATEWAY_SECRET: "${STAGE_PAYMENT_SECRET}"
+      NODE_EXTRA_CA_CERTS: /run/v79-stage-ca.pem
+    volumes:
+      - "${STAGE_TLS_DIR}/cert.pem:/run/v79-stage-ca.pem:ro"
+  ffpro:
+    environment:
+      TIQUET_PLANNING_GATEWAY_SECRET: "${STAGE_PLANNING_SECRET}"
+      TIQUET_PLANNING_CALLBACK_URL: https://journey-proxy:3444
+      TIQUET_PLANNING_CALLBACK_SECRET: "${STAGE_CALLBACK_SECRET}"
+      TIQUET_GATEWAY_SECRET: "${STAGE_PAYMENT_SECRET}"
+      NODE_EXTRA_CA_CERTS: /run/v79-stage-ca.pem
+    volumes:
+      - "${STAGE_TLS_DIR}/cert.pem:/run/v79-stage-ca.pem:ro"
+  journey-proxy:
+    image: v79-01-hub:test
+    restart: "no"
+    networks: [sandbox]
+    security_opt: ["no-new-privileges:true"]
+    command: ["node","staging/gha-journey-proxy.mjs"]
+    environment:
+      GITHUB_ACTIONS: "true"
+      V79_EPHEMERAL_CI: "1"
+    volumes:
+      - "${STAGE_TLS_DIR}:/run/v79-stage-tls:ro"
+  website:
+    image: v79-01-website:test
+    restart: "no"
+    networks: [sandbox]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      CANONICAL_DOMAIN: http://website:3000
+      ADMIN_PASSWORD: "${STAGE_SITE_ADMIN_PASSWORD}"
+      ENCRYPTION_KEY: "${STAGE_SITE_ENCRYPTION_KEY}"
+      CAPTCHA_MODE: disabled
+      WEBSITE_HUB_SSO_ENABLED: "false"
+      WEBSITE_HUB_SSO_ENFORCED: "false"
+      CRM_PUBLIC_DISCOVERY_ENABLED: "false"
+      CRM_GEOAPIFY_DISCOVERY_ENABLED: "false"
+      OLLAMA_BASE_URL: http://127.0.0.1:9
+      V79TIQUET_INTAKE_URL: http://tiquet:3050/api/public/intake
+      V79TIQUET_INTAKE_SECRET: "${STAGE_INTAKE_SECRET}"
+    volumes: ["journey-website-data:/app/data","journey-website-uploads:/app/uploads"]
+volumes:
+  journey-website-data:
+  journey-website-uploads:
