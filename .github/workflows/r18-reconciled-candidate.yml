@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   verify-source-and-visual:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.56.1 supported runner
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +58,7 @@ jobs:
           done
           exit 1
       - name: Browser smoke/screenshots using synthetic data only
-        run: node scripts/hub-isolated-browser-preview.mjs
+        run: node scripts/hub-r3-isolated-browser-preview.mjs
       - name: Upload screenshots for owner review
         if: always()
         uses: actions/upload-artifact@v4

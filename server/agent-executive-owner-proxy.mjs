@@ -1,6 +1,7 @@
 // Owner-only, MFA-verified, read-only executive endpoints.
 // Fixed upstream paths; no arbitrary client path, URL or evidence is forwarded.
 const ROUTES = Object.freeze({
+  integrations: Object.freeze({method:"POST",path:"/api/agent/specialist-integrations"}),
   structure: Object.freeze({ method: "GET", path: "/api/agent/executive-structure" }),
   handoff: Object.freeze({ method: "POST", path: "/api/agent/executive-handoff" }),
   preview: Object.freeze({ method: "POST", path: "/api/agent/executive-preview" }),

@@ -24,6 +24,8 @@ import { createLocalDevelopmentProposer } from "./ollama-development.js";
 import { runEvidenceBoundOwnerAssistant } from "./evidence-answer.js";
 
 import { resolveChatRole, chatRoleRoster } from "./chat-roles.js";
+import { verifyManagedSkills, managedSkillGuidance } from "./managed-skills.js";
+import { runSkillAdvisoryDraft } from "./skill-advisory.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3055);
@@ -240,10 +242,21 @@ app.post("/api/agent/chat", async (req, res) => {
   if (!context || !isValidOwnerContext(context)) {
     return res.status(403).json({ error: "Vision79 Owner Assistant access required." });
   }
+  let attachedSkills: ReturnType<typeof verifyManagedSkills> | null = null;
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "managedSkills")) {
+    const apiToken = readApiToken();
+    if (!apiToken || req.header("x-v79-agent-token") !== apiToken)
+      return res.status(403).json({ error: "Trusted Hub service required for managed skills" });
+    try { attachedSkills = verifyManagedSkills(req.body.managedSkills); }
+    catch { return res.status(400).json({ error: "Managed skill integrity check failed" }); }
+    if (agentModelRuntime.provider !== "ollama" && Object.values(attachedSkills).some(items => items.length))
+      return res.status(503).json({ error: "Managed skills require local Ollama mode" });
+  }
   try {
     const snapshot = await readBusinessSnapshot(context);
     const localFastPath = agentModelRuntime.provider === "ollama";
     const chatRole = localFastPath ? resolveChatRole(message) : null;
+    const managed = chatRole && attachedSkills ? managedSkillGuidance(attachedSkills, chatRole.id) : null;
     const chosenSpecialist = chatRole?.specialist || routeWorkforceRequest(message);
     const evidence = buildEvidenceLedger(snapshot, chosenSpecialist);
     const investigation = buildInvestigationBrief(evidence);
@@ -308,8 +321,30 @@ app.post("/api/agent/chat", async (req, res) => {
           domain: factual.domain,
         });
       }
+      if (managed?.versions.length) {
+        const proposal = await runSkillAdvisoryDraft(message, evidence, {
+          specialistInstructions: [chatRole?.instructions || specialistInstructions(chosenSpecialist), managed.instructions]
+            .filter(Boolean).join("\n\n"),
+        });
+        return res.json({
+          output: proposal.output,
+          evidence,
+          investigation,
+          specialist: chosenSpecialist.name,
+          roleId: chatRole?.id,
+          skillSha: chatRole?.skillSha,
+          evidenceScopeId: chosenSpecialist.id,
+          mode: "read-only",
+          modelProvider: "ollama",
+          model: agentModelRuntime.model,
+          responseMode: proposal.responseMode,
+          advisoryOutcome: proposal.advisoryOutcome,
+          managedSkillVersionsApplied: proposal.advisoryOutcome === "accepted" ? managed.versions : [],
+        });
+      }
       const result = await runEvidenceBoundOwnerAssistant(message, evidence, {
-        specialistInstructions: chatRole?.instructions || specialistInstructions(chosenSpecialist),
+        specialistInstructions: [chatRole?.instructions || specialistInstructions(chosenSpecialist), managed?.instructions]
+          .filter(Boolean).join("\n\n"),
       });
       return res.json({
         output: result.output,
@@ -324,6 +359,7 @@ app.post("/api/agent/chat", async (req, res) => {
         model: agentModelRuntime.model,
         responseMode: result.responseMode,
         selectionOutcome: result.selectionOutcome,
+        managedSkillVersionsApplied: managed?.versions || [],
       });
     }
 

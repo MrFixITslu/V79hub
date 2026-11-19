@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, Building2, CheckCircle2, CreditCard,
+  ArrowRight, Activity, AlertTriangle, Building2, CheckCircle2, CreditCard,
   GraduationCap, Headphones, Megaphone, RefreshCw, ShoppingCart, Wallet,
 } from "lucide-react";
 
@@ -25,6 +25,9 @@ interface OverviewResponse {
   apps: Record<Product, ProductResult>;
 }
 
+export function countMetric(value: unknown): number | "—" {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : "—";
+}
 const productConfig: Array<{
   id: Product;
   name: string;
@@ -38,10 +41,10 @@ const productConfig: Array<{
     description: "Commerce tenants, locations and purchasing activity",
     icon: ShoppingCart,
     metric: (m) => [
-      { label: "Tenants", value: Number(m.totalTenants || 0) },
-      { label: "Active", value: Number(m.activeTenants || 0) },
-      { label: "Sales", value: Number(m.completedSales || 0) },
-      { label: "Open POs", value: Number(m.openPurchaseOrders || 0) },
+      { label: "Tenants", value: countMetric(m.totalTenants) },
+      { label: "Active", value: countMetric(m.activeTenants) },
+      { label: "Sales", value: countMetric(m.completedSales) },
+      { label: "Open POs", value: countMetric(m.openPurchaseOrders) },
     ],
   },
   {
@@ -50,10 +53,10 @@ const productConfig: Array<{
     description: "Finance account adoption and service activity",
     icon: Wallet,
     metric: (m) => [
-      { label: "Accounts", value: Number(m.totalAccounts || 0) },
-      { label: "Hub managed", value: Number(m.hubManagedAccounts || 0) },
-      { label: "Active 30d", value: Number(m.activeAccounts30d || 0) },
-      { label: "Saved profiles", value: Number(m.accountsWithSavedData || 0) },
+      { label: "Accounts", value: countMetric(m.totalAccounts) },
+      { label: "Hub managed", value: countMetric(m.hubManagedAccounts) },
+      { label: "Active 30d", value: countMetric(m.activeAccounts30d) },
+      { label: "Saved profiles", value: countMetric(m.accountsWithSavedData) },
     ],
   },
   {
@@ -62,10 +65,10 @@ const productConfig: Array<{
     description: "Service workspaces, users and subscriptions",
     icon: Headphones,
     metric: (m) => [
-      { label: "Accounts", value: Number(m.totalAccounts || 0) },
-      { label: "Active", value: Number(m.activeAccounts || 0) },
-      { label: "Users", value: Number(m.totalUsers || 0) },
-      { label: "Jobs", value: Number(m.totalJobs || 0) },
+      { label: "Accounts", value: countMetric(m.totalAccounts) },
+      { label: "Active", value: countMetric(m.activeAccounts) },
+      { label: "Users", value: countMetric(m.totalUsers) },
+      { label: "Jobs", value: countMetric(m.totalJobs) },
     ],
   },
   {
@@ -74,10 +77,10 @@ const productConfig: Array<{
     description: "Marketing workspaces, campaigns and subscriptions",
     icon: Megaphone,
     metric: (m) => [
-      { label: "Businesses", value: Number(m.totalBusinesses || 0) },
-      { label: "Users", value: Number(m.totalUsers || 0) },
-      { label: "Campaigns", value: Number(m.totalCampaigns || 0) },
-      { label: "Subscriptions", value: Number(m.activeSubscriptions || 0) },
+      { label: "Businesses", value: countMetric(m.totalBusinesses) },
+      { label: "Users", value: countMetric(m.totalUsers) },
+      { label: "Campaigns", value: countMetric(m.totalCampaigns) },
+      { label: "Subscriptions", value: countMetric(m.activeSubscriptions) },
     ],
   },
   {
@@ -86,44 +89,56 @@ const productConfig: Array<{
     description: "Course catalogue, learners and memberships",
     icon: GraduationCap,
     metric: (m) => [
-      { label: "Courses", value: Number(m.totalCourses || 0) },
-      { label: "Published", value: Number(m.publishedCourses || 0) },
-      { label: "Learners", value: Number(m.totalLearners || 0) },
-      { label: "Memberships", value: Number(m.activeMemberships || 0) },
+      { label: "Courses", value: countMetric(m.totalCourses) },
+      { label: "Published", value: countMetric(m.publishedCourses) },
+      { label: "Learners", value: countMetric(m.totalLearners) },
+      { label: "Memberships", value: countMetric(m.activeMemberships) },
     ],
   },
 ];
 
-export function PlatformAdminOverview({ onOpen }: { onOpen: (product: Product) => void }) {
+export function PlatformAdminOverview({ onOpen, onCustomers }: { onOpen: (product: Product) => void; onCustomers: () => void }) {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
-
+  const [now, setNow] = useState(Date.now());
+  const request = useRef<AbortController | null>(null);
   const refresh = async () => {
-    setBusy(true);
-    setError("");
+    request.current?.abort();
+    const controller = new AbortController(); request.current = controller;
+    setBusy(true); setError("");
     try {
-      const response = await fetch("/api/admin/platform/overview", { cache: "no-store" });
+      const response = await fetch("/api/admin/platform/overview", { cache: "no-store", signal: controller.signal });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || `Platform overview failed (${response.status})`);
-      setData(payload);
+      if (controller.signal.aborted) return;
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) setData(null);
+        throw new Error(response.status === 401 || response.status === 403 ? "Sign in with an authorized platform administrator session." : payload?.error || `Platform overview failed (${response.status})`);
+      }
+      if (!payload || typeof payload !== "object" || !payload.hub || typeof payload.hub !== "object" || Array.isArray(payload.hub) ||
+        !payload.apps || typeof payload.apps !== "object" || Array.isArray(payload.apps) || !Number.isFinite(Date.parse(payload.generatedAt))) {
+        throw new Error("Platform statistics could not be verified.");
+      }
+      setData(payload); setNow(Date.now());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Platform overview could not be loaded.");
-    } finally {
-      setBusy(false);
-    }
+      if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Platform overview could not be loaded.");
+    } finally { if (!controller.signal.aborted) setBusy(false); }
   };
-
-  useEffect(() => { void refresh(); }, []);
-
-  const onlineCount = productConfig.filter((product) => data?.apps?.[product.id]?.status === "ok").length;
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => { request.current?.abort(); window.clearInterval(timer); };
+  }, []);
+  const age = data ? now - Date.parse(data.generatedAt) : 0;
+  const stale = !!data && (!!error || age > 5 * 60 * 1000 || age < -60000);
+  const availableCount = productConfig.filter(p => data?.apps?.[p.id]?.status === "ok").length;
 
   const issues = useMemo(() => {
-    if (!data) return [] as Array<{ product: Product; title: string; detail: string; severity: "error" | "warning" }>;
-    const result: Array<{ product: Product; title: string; detail: string; severity: "error" | "warning" }> = [];
+    if (!data) return [] as Array<{ product: Product | "customers"; title: string; detail: string; severity: "error" | "warning" }>;
+    const result: Array<{ product: Product | "customers"; title: string; detail: string; severity: "error" | "warning" }> = [];
     if ((data.hub?.provisioningCustomers || 0) > 0) {
       result.push({
-        product: "pos",
+        product: "customers",
         title: "Customers awaiting provisioning",
         detail: `${data.hub.provisioningCustomers} customer workspace(s) still have tenant-mapped apps pending.`,
         severity: "warning",
@@ -133,16 +148,16 @@ export function PlatformAdminOverview({ onOpen }: { onOpen: (product: Product) =
     for (const product of productConfig) {
       const item = data.apps?.[product.id];
       if (!item || item.status !== "ok") {
-        result.push({ product: product.id, title: `${product.name} unavailable`, detail: item?.error || "Platform statistics could not be retrieved.", severity: "error" });
+        result.push({ product: product.id, title: `${product.name} statistics unavailable`, detail: item?.error || "Platform statistics could not be retrieved.", severity: "error" });
       }
     }
 
-    const pos = data.apps?.pos?.metrics || {};
+    const pos = data.apps?.pos?.status === "ok" ? data.apps.pos.metrics || {} : {};
     if (Number(pos.inactiveTenants || 0) > 0) {
       result.push({ product: "pos", title: "Inactive POS tenants", detail: `${pos.inactiveTenants} tenant(s) are currently inactive.`, severity: "warning" });
     }
 
-    const tiquet = data.apps?.tiquet?.metrics || {};
+    const tiquet = data.apps?.tiquet?.status === "ok" ? data.apps.tiquet.metrics || {} : {};
     if (Number(tiquet.suspendedAccounts || 0) > 0) {
       result.push({ product: "tiquet", title: "Suspended Tiquet workspaces", detail: `${tiquet.suspendedAccounts} workspace(s) are suspended.`, severity: "warning" });
     }
@@ -151,100 +166,48 @@ export function PlatformAdminOverview({ onOpen }: { onOpen: (product: Product) =
   }, [data]);
 
   return (
-    <div className="space-y-5">
-      {error && <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 text-sm">{error}</div>}
-
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div>
-          <h2 className="font-bold text-slate-900">Platform operations overview</h2>
-          <p className="text-xs text-slate-500 mt-1">Customer lifecycle, provisioning workload and real service health. Private customer and learner content is not exposed here.</p>
-        </div>
-        <button onClick={() => void refresh()} className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 self-start md:self-auto">
-          <RefreshCw className={`w-3.5 h-3.5 ${busy ? "animate-spin" : ""}`} /> Refresh
-        </button>
+    <div className="v79-admin-overview">
+      {error && <div role="alert" className="v79-notice">{error}</div>}
+      {stale && <div role="status" className="v79-notice">Stale snapshot · these figures do not describe verified current conditions. Refresh to retrieve new statistics.</div>}
+      <div className="v79-area-heading">
+        <div><p className="v79-eyebrow">OPERATIONS AT A GLANCE</p><h2>Platform overview</h2><p>Customer lifecycle and application statistics. Statistics availability is not a service health check.</p></div>
+        <button onClick={() => void refresh()} disabled={busy} className="v79-secondary"><RefreshCw size={16} className={busy ? "animate-spin" : ""} />{busy ? "Refreshing…" : "Refresh"}</button>
       </div>
-
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-        <Summary icon={Building2} label="Customers" value={busy && !data ? "…" : String(data?.hub?.customers ?? 0)} />
-        <Summary icon={CheckCircle2} label="Active" value={busy && !data ? "…" : String(data?.hub?.activeCustomers ?? 0)} />
-        <Summary icon={AlertTriangle} label="Provisioning" value={busy && !data ? "…" : String(data?.hub?.provisioningCustomers ?? 0)} />
-        <Summary icon={CreditCard} label="Pending invites" value={busy && !data ? "…" : String(data?.hub?.pendingInvitations ?? 0)} />
-        <Summary icon={Activity} label="Core services healthy" value={busy && !data ? "…" : `${onlineCount}/5`} />
+      <section className="v79-admin-metrics" aria-label="Customer and statistics summary">
+        <Summary icon={Building2} label="Customers" value={busy && !data ? "…" : String(countMetric(data?.hub?.customers))} />
+        <Summary icon={CheckCircle2} label="Not suspended" value={busy && !data ? "…" : String(countMetric(data?.hub?.activeCustomers))} />
+        <Summary icon={AlertTriangle} label="Provisioning" value={busy && !data ? "…" : String(countMetric(data?.hub?.provisioningCustomers))} />
+        <Summary icon={CreditCard} label="Pending invites" value={busy && !data ? "…" : String(countMetric(data?.hub?.pendingInvitations))} />
+        <Summary icon={Activity} label={stale ? "Statistics · stale snapshot" : "Statistics responses"} value={!data ? busy ? "…" : "—" : `${availableCount}/${productConfig.length}`} />
       </section>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {productConfig.map((product) => {
+      <section className="v79-area-card v79-admin-attention" aria-label="Attention needed">
+        <div className="v79-area-heading"><div><h2>Attention needed</h2><p>{stale ? "Signals from the retained snapshot; current status is unverified." : "Review provisioning and application statistics that need a closer look."}</p></div><AlertTriangle size={20} /></div>
+        {issues.length ? <div className="v79-admin-issues">{issues.map((issue, index) => <button key={issue.product + index} onClick={() => issue.product === "customers" ? onCustomers() : onOpen(issue.product)}>
+          <span className="v79-issue-dot" data-severity={issue.severity} /><span><strong>{issue.title}</strong><small>{issue.detail}</small></span><ArrowRight size={17} />
+        </button>)}</div> : <p className="v79-source-note">{!data ? "No verified snapshot is available yet." : "No configured attention signals in this snapshot. This does not establish service health."}</p>}
+      </section>
+      <div className="v79-area-heading"><div><h2>Your applications</h2><p>Open an application to manage its customers and configuration. Missing counts are shown as —.</p></div></div>
+      <div className="v79-admin-app-grid">
+        {productConfig.map(product => {
           const item = data?.apps?.[product.id];
-          const healthy = item?.status === "ok";
+          const available = item?.status === "ok";
           const Icon = product.icon;
-          const metrics = product.metric(item?.metrics || {});
-          return (
-            <button
-              key={product.id}
-              onClick={() => onOpen(product.id)}
-              className="text-left bg-white border border-slate-200 rounded-2xl p-5 hover:border-cyan-300 hover:shadow-sm transition-all"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-slate-950 flex items-center justify-center">
-                    <Icon className="w-5 h-5 text-cyan-400" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-900">{product.name}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">{product.description}</div>
-                  </div>
-                </div>
-                <span className={`px-2 py-1 rounded-full border text-[9px] font-bold ${healthy ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
-                  {healthy ? "Healthy" : busy && !item ? "Loading" : "Needs attention"}
-                </span>
-              </div>
-              <div className="grid grid-cols-4 gap-2 mt-4">
-                {metrics.map((metric) => (
-                  <div key={metric.label} className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 min-w-0">
-                    <div className="text-sm font-bold text-slate-900 truncate">{metric.value}</div>
-                    <div className="text-[9px] text-slate-400 mt-0.5 truncate">{metric.label}</div>
-                  </div>
-                ))}
-              </div>
-            </button>
-          );
+          const metrics = product.metric(available ? item?.metrics || {} : {});
+          const partial = available && metrics.some(m => m.value === "—");
+          const status = !data ? busy ? "Loading" : "Not loaded" : stale ? "Stale snapshot" : busy ? "Refreshing" : !available ? "Statistics unavailable" : partial ? "Partial statistics" : "Statistics available";
+          return <button key={product.id} onClick={() => onOpen(product.id)} className="v79-admin-app" data-product={product.id}>
+            <div className="v79-card-top"><span className="v79-product-icon"><Icon className="w-5 h-5" /></span><span className="v79-data-status" data-state={stale || partial ? "warning" : !available ? "unknown" : "available"}>{status}</span></div>
+            <h3>{product.name}</h3><p>{product.description}</p>
+            <dl>{metrics.map(metric => <div key={metric.label}><dt>{metric.label}</dt><dd>{typeof metric.value === "number" ? metric.value.toLocaleString() : metric.value}</dd></div>)}</dl>
+            <span className="v79-admin-app-footer">Manage application <ArrowRight size={16} /></span>
+          </button>;
         })}
       </div>
-
-      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <div className="p-4 border-b border-slate-200">
-          <h3 className="font-bold text-sm text-slate-900">Attention needed</h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">Operational signals that may require platform-administrator review.</p>
-        </div>
-        {issues.length ? (
-          <div className="divide-y divide-slate-100">
-            {issues.map((issue, index) => (
-              <button key={issue.product + index} onClick={() => onOpen(issue.product)} className="w-full text-left p-4 hover:bg-slate-50 flex items-start gap-3">
-                <AlertTriangle className={`w-4 h-4 mt-0.5 ${issue.severity === "error" ? "text-rose-600" : "text-amber-600"}`} />
-                <div>
-                  <div className="text-xs font-bold text-slate-900">{issue.title}</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">{issue.detail}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        ) : !data ? (
-          <div className="p-5 text-sm text-slate-500">Platform status has not been loaded yet.</div>
-        ) : (
-          <div className="p-5 flex items-center gap-3 text-sm text-emerald-700 bg-emerald-50/40">
-            <CheckCircle2 className="w-4 h-4" />
-            No platform-level issues are currently being surfaced.
-          </div>
-        )}
-      </section>
-
-      <div className="text-[10px] text-slate-400">
-        Last refreshed {data?.generatedAt ? new Date(data.generatedAt).toLocaleString() : "—"}.
-      </div>
+      <p className="v79-source-note">Snapshot generated {data?.generatedAt ? new Date(data.generatedAt).toLocaleString() : "—"}. Snapshots older than five minutes are marked stale. “Not suspended” includes customers still provisioning.</p>
     </div>
   );
 }
 
 function Summary({ icon: Icon, label, value }: { icon: React.ComponentType<{className?:string}>; label:string; value:string }) {
-  return <div className="bg-slate-950 text-white rounded-xl p-4 border border-slate-800"><Icon className="w-4 h-4 text-cyan-400" /><div className="text-xl font-extrabold mt-2">{value}</div><div className="text-[10px] text-slate-400 mt-0.5">{label}</div></div>;
+  return <div className="v79-admin-metric"><Icon className="w-5 h-5" /><strong>{value}</strong><span>{label}</span></div>;
 }

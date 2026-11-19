@@ -1,3 +1,5 @@
+import { createMarketingRenameHandler } from "./server/marketing-rename-endpoint.mjs";
+import {registerEvidenceGatewayBridge} from './server/evidence-gateway-owner-bridge.mjs';
 import { createPricingRequestStore } from "./server/pricing-request-store.mjs";
 import { pricingRequestRouter } from "./server/pricing-request-routes.mjs";
 import { marketingProductionRouter, marketingWorkerAuthorization } from "./server/marketing-production-routes.mjs";
@@ -9,8 +11,13 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import crypto from "crypto";
+import {verifyGoogleJwt} from "./server/google-login.mjs";
 import { platformOwnerBillingAllowed } from "./server/platform-owner-billing.mjs";
 import { signPlatformRequest, verifyPlatformRequest } from "./server/platform-contract.mjs";
+import { createWebsiteSsoGrants } from "./server/website-sso.mjs";
+import { customerHelpRouter } from "./server/customer-help-routes.mjs";
+import { createHelpTicketBridge } from "./server/customer-help-tickets.mjs";
+import { createHelpFeedback } from "./server/customer-help-feedback.mjs";
 import { migrateLegacyOrganization } from "./server/organization-store.mjs";
 import { activeMembership, activeMembershipsForUser, enabledAppIds, organizationCanAccessApp, organizationCanMutateApp, sessionRole, validLegacyLaunch, visibleEcosystemApps } from "./server/organization-access.mjs";
 import { canReadConnectionsStatus } from "./server/connections-status-access.mjs";
@@ -23,6 +30,13 @@ import { hasOwnerAssistantAccess, normalizeEmail } from "./server/agent-access.m
 import { createAgentProposal, decideAgentProposal, listAgentProposals, appendAgentProposalAudit } from "./server/agent-approval-ledger.mjs";
 import { createWorkActionStore } from "./server/workforce-action-store.mjs";
 import { workforceActionRouters } from "./server/workforce-action-routes.mjs";
+import { createOwnerMfaStepUp } from "./server/owner-mfa-step-up.mjs";
+import { createOwnerStepUpRouter, rotateVerifiedSession } from "./server/owner-step-up.mjs";
+import { createSkillRegistry } from "./server/workforce-skill-registry.mjs";
+import {createExecutiveGovernanceStore,createExecutiveGovernanceRouter} from "./server/executive-governance.mjs";
+import { createPackageStore } from "./server/workforce-skill-packages.mjs";
+import {scheduledSkillRouter} from "./server/workforce-skill-scheduled.mjs";
+import { workforceSkillRouter } from "./server/workforce-skill-routes.mjs";
 import { googleCredentialBroker } from "./server/workforce-google-credentials.mjs";
 import { googleWorkforceClient } from "./server/workforce-google.mjs";
 import { workforceGoogleRouter } from "./server/workforce-google-routes.mjs";
@@ -37,10 +51,13 @@ import { createPythonBriefingStatus } from "./server/workforce-python-report-rea
 import { readSignedTiquetMetrics } from "./server/tiquet-signed-source-reader.mjs";
 import { mcpReadAccessDecision } from "./server/mcp-owner-readonly.mjs";
 import { activatePosTenantMapping, posProvisioningTarget, posTenantLaunchReady, posTenantMapping } from "./server/pos-provisioning.mjs";
+import { validatePosTeamAcknowledgement } from "./server/pos-team-acknowledgement.mjs";
 import { activateFfproTenantMapping, ffproProvisioningTarget, ffproTenantLaunchReady, ffproTenantMapping } from "./server/ffpro-provisioning.mjs";
 import { activateTiquetTenantMapping, tiquetProvisioningTarget, tiquetTenantLaunchReady, tiquetTenantMapping } from "./server/tiquet-provisioning.mjs";
 import { activateMarketingTenantMapping, marketingProvisioningTarget, marketingTenantLaunchReady, marketingTenantMapping } from "./server/marketing-provisioning.mjs";
 import { createHubStorePersistence } from "./server/runtime-store.mjs";
+import { createOrganizationNameDeliveryLifecycle } from "./server/organization-name-worker-lifecycle.mjs";
+import { createWebsiteLeadEventReceiver } from "./server/website-lead-events.mjs";
 import { retryTransient } from "./server/transient-retry.mjs";
 import { createOpaqueToken, decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret, generateTotpSecret, opaqueTokenHash, totpProvisioningUri, verifyTotp } from "./server/security-contract.mjs";
 import { addBillingPeriod, normalizeMoney } from "./server/billing-contract.mjs";
@@ -101,6 +118,7 @@ interface StoredUser {
   mfaSecretEnc?: string;
   mfaPendingSecretEnc?: string;
   mfaPendingCreatedAt?: string;
+  googleSub?: string;
 }
 
 interface WorkspaceProfile {
@@ -730,20 +748,27 @@ const storePersistence = createHubStorePersistence({
 
 let store = await storePersistence.load(normalizeLoadedStore, initialStore) as AppStore;
 
-async function saveStore(nextStore: AppStore, sentinel = false): Promise<void> {
+// Disabled unless explicitly enabled after isolated PostgreSQL integration QA.
+const organizationNameDeliveryLifecycle = createOrganizationNameDeliveryLifecycle({
+  persistence: storePersistence,
+  env: process.env,
+});
+server.on("close", () => organizationNameDeliveryLifecycle.stop());
+
+async function saveStore(nextStore: AppStore, sentinel = false): Promise<any> {
   const endWrite = sentinelWriteFence.beginStoreSave({ sentinel });
-  try { await storePersistence.save(nextStore); }
+  try { return await storePersistence.save(nextStore); }
   finally { endWrite(); }
 }
 
 async function commitStore(nextStore: AppStore) {
-  await saveStore(nextStore);
-  store = nextStore;
+  const committed = await saveStore(nextStore);
+  store = normalizeLoadedStore(committed) as AppStore;
 }
 
 async function commitSentinelStore(nextStore: AppStore) {
-  await saveStore(nextStore, true);
-  store = nextStore;
+  const committed = await saveStore(nextStore, true);
+  store = normalizeLoadedStore(committed) as AppStore;
 }
 
 function cloneStore() {
@@ -1181,19 +1206,14 @@ async function provisionPosTeamMember(organization: Organization, hubUserId: str
     if (!response.ok) {
       return { ok: false as const, status: 502, error: "POS team member provisioning failed", upstreamStatus: response.status };
     }
-    const expectedRoleKey = posTeamRoleMap[role];
-    if (
-      payload.provisioned !== true ||
-      payload.organizationId !== organization.id ||
-      payload.userId !== userId ||
-      payload.roleKey !== expectedRoleKey ||
-      !Array.isArray(payload.locationIds) ||
-      payload.locationIds.length !== 1 ||
-      typeof payload.locationIds[0] !== "string"
-    ) {
+    const acknowledged = validatePosTeamAcknowledgement(payload, {
+      organizationId: organization.id, userId, hubRole: role,
+    });
+    if (!acknowledged) {
       return { ok: false as const, status: 502, error: "POS returned a mismatched team member identity" };
     }
-    return { ok: true as const, organizationId: organization.id, userId, roleKey: expectedRoleKey, locationId: payload.locationIds[0] as string };
+    return { ok: true as const, organizationId: organization.id, userId,
+      roleKey: acknowledged.roleKey, locationId: acknowledged.locationId };
   } catch {
     return { ok: false as const, status: 503, error: "POS service is unavailable" };
   }
@@ -1892,6 +1912,18 @@ function requirePlatformOperator(req: Request, res: Response, next: () => void) 
   }
   next();
 }
+// Website metadata receipts are confined to the verified platform workspace.
+// This receiver does not provision accounts, schedule tasks or change billing.
+const websiteLeadEvents = createWebsiteLeadEventReceiver({
+  dataDir: DATA_DIR,
+  organizationAllowed: (id: string) => id === posIdentity.organizationId &&
+    store.organizations.some(org => org.id === id),
+  beginWrite: () => sentinelWriteFence.beginStoreSave({ sentinel: false }),
+});
+app.post("/api/platform/events", websiteLeadEvents.receive);
+app.get("/api/admin/website-lead-events/:eventId", requireAuth,
+  requirePlatformOperator, websiteLeadEvents.receipt);
+
 function requireRole(...roles: StoredUser["role"][]) {
   return (req: Request, res: Response, next: () => void) => {
     if (!roles.includes((req as any).user.role)) return res.status(403).json({ error: "Permission denied" });
@@ -1943,7 +1975,7 @@ function requirePermission(permission: string) {
   };
 }
 function sanitizeUser(u: StoredUser) {
-  const { password, mfaSecretEnc, mfaPendingSecretEnc, mfaPendingCreatedAt, ...safeUser } = u;
+  const { password, mfaSecretEnc, mfaPendingSecretEnc, mfaPendingCreatedAt, googleSub, ...safeUser } = u;
   return { ...safeUser, mfaEnabled: Boolean(u.mfaEnabled), permissions: normalizePermissions(safeUser.permissions, safeUser.role) };
 }
 function sanitizeUserForOrganization(u: StoredUser, organizationId: string) {
@@ -2245,6 +2277,12 @@ async function completeTeamInvitationAcceptance(
 // ==========================================
 // AUTHENTICATION ROUTES
 // ==========================================
+const googleClientId=String(process.env.V79_GOOGLE_LOGIN_CLIENT_ID||"").trim();
+const hubGoogleLoginEnabled=process.env.V79_GOOGLE_LOGIN_ENABLED==="1" &&
+  /^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(googleClientId);
+const googleNonces=new Map<string,number>();
+const googlePendingMfaLinks=new Map<string,string>();
+const googleNonceCounts=new Map<string,{n:number,expires:number}>();
 
 async function completeHubLogin(foundUser: StoredUser, organizationId: string, res: Response, { mfaVerified = false }: { mfaVerified?: boolean } = {}) {
   const token = createHubSession(foundUser.id, organizationId, { mfaVerified });
@@ -2260,7 +2298,7 @@ async function completeHubLogin(foundUser: StoredUser, organizationId: string, r
   });
 }
 
-async function startLoginMfa(foundUser: StoredUser, organizationId: string, res: Response) {
+async function startLoginMfa(foundUser: StoredUser, organizationId: string, res: Response, googleSubToLink?: string) {
   const platformOperator = isPlatformOperatorIdentity(foundUser.id, organizationId);
   const adminMfaRequired = platformOperator && process.env.V79_REQUIRE_ADMIN_MFA === "1";
   if (!adminMfaRequired && !foundUser.mfaEnabled) return null;
@@ -2283,6 +2321,7 @@ async function startLoginMfa(foundUser: StoredUser, organizationId: string, res:
     }
   }
   const challenge = createMfaChallenge(foundUser.id, organizationId, mode, secret);
+  if(googleSubToLink)googlePendingMfaLinks.set(challenge.id,googleSubToLink);
   return res.status(202).json({
     mfaRequired: true,
     setupRequired: mode === "setup",
@@ -2298,6 +2337,70 @@ async function startLoginMfa(foundUser: StoredUser, organizationId: string, res:
     } : {}),
   });
 }
+
+// Public configuration exposes a client ID, never a secret.
+app.get("/api/auth/google/config",(_req,res)=>
+  res.json({enabled:hubGoogleLoginEnabled,clientId:hubGoogleLoginEnabled?googleClientId:null}));
+
+app.post("/api/auth/google/challenge",(req,res)=>{
+  if(!hubGoogleLoginEnabled)return res.status(503).json({error:"Google sign-in is not configured."});
+  if(!sameOriginMutation(req))return res.status(403).json({error:"Invalid request origin"});
+  const now=Date.now();
+  for(const [k,expiry] of googleNonces)if(expiry<=now)googleNonces.delete(k);
+  for(const [k,entry] of googleNonceCounts)if(entry.expires<=now)googleNonceCounts.delete(k);
+  const ip=String(req.ip||"");
+  const prior=googleNonceCounts.get(ip);
+  if(prior&&prior.n>=30)return res.status(429).json({error:"Too many Google sign-in attempts."});
+  if(googleNonces.size>=1500)return res.status(503).json({error:"Google sign-in is busy."});
+  googleNonceCounts.set(ip,{n:(prior?.n||0)+1,expires:prior?.expires||now+15*60000});
+  const nonce=crypto.randomBytes(24).toString("base64url");
+  googleNonces.set(nonce,now+15*60000);
+  res.json({nonce});
+});
+
+app.post("/api/auth/google/login",async(req,res)=>{
+  if(!hubGoogleLoginEnabled)return res.status(503).json({error:"Google sign-in is not configured."});
+  if(!sameOriginMutation(req))return res.status(403).json({error:"Invalid request origin"});
+  const {credential,nonce,organizationId}=req.body||{};
+  if(typeof credential!=="string"||credential.length>12000||typeof nonce!=="string"||nonce.length>100||
+     (organizationId!==undefined&&(typeof organizationId!=="string"||organizationId.length>160)))
+    return res.status(400).json({error:"Invalid Google sign-in request."});
+  const expires=googleNonces.get(nonce);
+  googleNonces.delete(nonce);
+  if(!expires||expires<=Date.now())return res.status(401).json({error:"Google sign-in expired. Try again."});
+  let identity:{sub:string,email:string};
+  try{identity=await verifyGoogleJwt(credential,{clientId:googleClientId,nonce});}
+  catch{return res.status(401).json({error:"Google identity could not be verified."});}
+  // Never provision users or grants from a Google credential.
+  const candidates=store.users.filter(u=>normalizeEmail(u.email)===identity.email);
+  if(candidates.length!==1)return res.status(403).json({error:"This Google account cannot sign in to Hub."});
+  const user=candidates[0];
+  if((user.googleSub&&user.googleSub!==identity.sub)||
+     store.users.some(u=>u.id!==user.id&&u.googleSub===identity.sub))
+    return res.status(403).json({error:"Google identity does not match the linked Hub account."});
+  const memberships=activeMembershipsForUser(store,user.id) as Membership[];
+  const selected=typeof organizationId==="string"&&organizationId
+    ? memberships.find(m=>m.organizationId===organizationId)
+    : user.id===posIdentity.ownerUserId
+      ? memberships.find(m=>m.organizationId===posIdentity.organizationId)
+      : memberships.length===1?memberships[0]:null;
+  if(!selected){
+    if(memberships.length>1&&!organizationId)return res.status(409).json({
+      error:"Workspace selection required",
+      organizations:memberships.map(m=>store.organizations.find(o=>o.id===m.organizationId))
+        .filter((o):o is Organization=>Boolean(o)).map(o=>({id:o.id,name:o.name,slug:o.slug}))
+    });
+    return res.status(403).json({error:"Hub workspace is unavailable."});
+  }
+  // This is the SAME MFA gate and session writer as password login.
+  const mfa=await startLoginMfa(user,selected.organizationId,res,user.googleSub?undefined:identity.sub);
+  if(mfa)return mfa;
+  if(!user.googleSub){
+    user.googleSub=identity.sub;
+    onboardingAudit(store,"google_signin_linked",{provider:"google"},user.id,selected.organizationId);
+  }
+  return completeHubLogin(user,selected.organizationId,res);
+});
 
 app.post("/api/auth/login", async (req, res) => {
   const { username, password, organizationId } = req.body || {};
@@ -2378,6 +2481,18 @@ app.post("/api/auth/mfa/complete-login", async (req, res) => {
     delete user.mfaPendingSecretEnc;
     delete user.mfaPendingCreatedAt;
     onboardingAudit(store, "mfa_enabled", { method: "totp", mandatory: isPlatformOperatorIdentity(user.id, challenge.organizationId) && process.env.V79_REQUIRE_ADMIN_MFA === "1" }, user.id, challenge.organizationId);
+    await saveStore(store);
+  }
+  const googleSub=googlePendingMfaLinks.get(challengeId);
+  googlePendingMfaLinks.delete(challengeId);
+  if(googleSub){
+    if((user.googleSub&&user.googleSub!==googleSub)||
+       store.users.some(item=>item.id!==user.id&&item.googleSub===googleSub)){
+      mfaChallenges.delete(challengeId);
+      return res.status(403).json({error:"Google identity could not be linked."});
+    }
+    user.googleSub=googleSub;
+    onboardingAudit(store,"google_signin_linked",{provider:"google"},user.id,challenge.organizationId);
     await saveStore(store);
   }
   mfaChallenges.delete(challengeId);
@@ -3400,6 +3515,19 @@ app.get("/api/billing/wipay/return", async (req, res) => {
   return redirect("success", "", order);
 });
 
+app.use("/api/security/mfa/step-up", requireAuth, createOwnerStepUpRouter({
+  ownerContext: ownerApprovalContext,
+  binding: (req:Request) => { const auth=req.headers.authorization; const token=auth?.startsWith("Bearer ")?auth.slice(7):cookieToken(req.headers.cookie);return token?sessionKey(token):null; },
+  session: (req:Request)=>(req as any).user,
+  sameOrigin:sameOriginMutation,
+  verifyCode: async (_req:Request,owner:any,code:string)=>{const user=store.users.find(u=>u.id===owner.userId);if(!user?.mfaEnabled||!user.mfaSecretEnc)return false;return verifyTotp(decryptTotpSecret(user.mfaSecretEnc,hubSecurityKey),code,Date.now(),2);},
+  rotate: async (req:Request,res:Response,owner:any,oldKey:string,at:number)=>{
+    const old=sessions.get(oldKey);if(!old||old!==(req as any).user||!ownerApprovalContext(req)||old.userId!==owner.userId||old.expiresAt<=at)throw Error("Session changed");
+    const next=rotateVerifiedSession({sessions,oldKey,oldSession:old,userId:owner.userId,at,persist:persistSessions,makeToken:()=>"v79_tok_"+crypto.randomBytes(24).toString("hex"),hashToken:sessionKey});
+    res.setHeader("Set-Cookie",sessionCookie(next.token,Math.max(0,Math.floor((next.expiresAt-at)/1000))));
+  },
+}));
+
 app.get("/api/security/mfa/status", requireAuth, (req, res) => {
   const session = (req as any).user;
   const user = store.users.find(item => item.id === session.userId);
@@ -3483,7 +3611,135 @@ app.post("/api/security/mfa/disable", requireAuth, async (req, res) => {
   res.json({ success: true, enabled: false });
 });
 
+/**
+ * Scoped SSO for the Vision79 website admin. This is not a general-purpose
+ * OAuth provider; no Hub cookies, MFA seeds, passwords or refresh tokens leave Hub.
+ * Endpoint remains unavailable until deliberately enabled on BOTH applications.
+ */
+const websiteSsoGrants = createWebsiteSsoGrants();
+const websiteSsoReady = () => process.env.V79_HUB_WEBSITE_SSO_ENABLED === "1" &&
+  String(process.env.V79_WEBSITE_SSO_SHARED_SECRET || "").length >= 32;
+const websiteSsoCallback = "https://v79sl.com/api/admin/hub-sso/callback";
+function websiteSsoAuth(req: Request, res: Response): boolean {
+  if (!websiteSsoReady()) { res.status(404).json({ error: "Not found" }); return false; }
+  const configured = String(process.env.V79_WEBSITE_SSO_SHARED_SECRET || "");
+  const provided = String(req.get("x-v79-website-sso-key") || "");
+  if (!provided || provided.length !== configured.length ||
+      !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(configured))) {
+    res.status(401).json({ error: "Service authentication required" }); return false;
+  }
+  return true;
+}
+function validWebsiteSsoSession(sessionKeyHash: string, recent = false) {
+  const session = sessions.get(sessionKeyHash);
+  if (!session || session.expiresAt <= Date.now() || session.mfaVerified !== true ||
+      !Number.isFinite(session.mfaVerifiedAt)) return null;
+  if (Date.now() - session.mfaVerifiedAt! > (recent ? 15 : 8 * 60) * 60_000 ||
+      session.mfaVerifiedAt! > Date.now() + 60_000 ||
+      !isPlatformOperatorIdentity(session.userId, session.organizationId)) return null;
+  const user = store.users.find(u => u.id === session.userId);
+  if (!user?.mfaEnabled || !activeMembership(store, session.userId, session.organizationId)) return null;
+  return { userId: session.userId, organizationId: session.organizationId,
+    email: normalizeEmail(user.email), mfaVerifiedAt: session.mfaVerifiedAt };
+}
+app.get("/api/website-sso/authorize", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  if (!websiteSsoReady()) return res.status(404).send("Not found");
+  // Browser login only; never accept bearer tokens for this redirect route.
+  const token = cookieToken(req.headers.cookie);
+  // Routine website access may reuse the existing MFA-verified Hub session;
+   // sensitive payment approvals retain their independent 15-minute MFA check.
+   const session = token ? validWebsiteSsoSession(sessionKey(token)) : null;
+  if (!session) {
+    return res.status(403).type("text/plain").send(
+      "Sign in to hub.v79sl.com with MFA, then return to v79sl.com/admin and select Sign in with V79 Hub again."
+    );
+  }
+  const state = String(req.query.state || "");
+  const challenge = String(req.query.code_challenge || "");
+  const callback = String(req.query.redirect_uri || "");
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(state) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(challenge) || callback !== websiteSsoCallback) {
+    return res.status(400).json({ error: "Invalid website sign-in request" });
+  }
+  const code = websiteSsoGrants.issue({ challenge, sessionHash: sessionKey(token) });
+  const dest = new URL(websiteSsoCallback);
+  dest.searchParams.set("code", code);
+  dest.searchParams.set("state", state);
+  return res.redirect(302, dest.toString());
+});
+app.post("/api/website-sso/exchange", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!websiteSsoAuth(req, res)) return;
+  const handle = websiteSsoGrants.consume({
+    code: req.body?.code, verifier: req.body?.code_verifier
+  });
+  const identity = handle && validWebsiteSsoSession(websiteSsoGrants.lookup(handle) || "");
+  if (!handle || !identity) {
+    if (handle) websiteSsoGrants.revoke(handle);
+    return res.status(401).json({ error: "Invalid or expired website sign-in code" });
+  }
+  return res.json({ handle, subject: identity.userId, organizationId: identity.organizationId,
+    mfaVerifiedAt: identity.mfaVerifiedAt, email: identity.email, issuer: "V79 Hub",
+    audience: "V79website-admin" });
+});
+app.post("/api/website-sso/introspect", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!websiteSsoAuth(req, res)) return;
+  const handle = String(req.body?.handle || "");
+  const key = websiteSsoGrants.lookup(handle);
+  const identity = key ? validWebsiteSsoSession(key) : null;
+  if (!identity) return res.status(401).json({ active: false });
+  return res.json({ active: true, subject: identity.userId, organizationId: identity.organizationId,
+    mfaVerifiedAt: identity.mfaVerifiedAt, email: identity.email });
+});
+app.post("/api/website-sso/revoke", (req, res) => {
+  if (!websiteSsoAuth(req, res)) return;
+  websiteSsoGrants.revoke(req.body?.handle);
+  return res.json({ revoked: true });
+});
+
+
+// Signed service endpoint; intentionally registered before browser authentication.
+app.post("/api/platform/organization/rename", createMarketingRenameHandler({
+  verify: verifyPlatformRequest,
+  secret: () => process.env.V79_MARKETING_LAUNCH_SECRET || "",
+  rename: async (input: any) => {
+    const result = await storePersistence.renameOrganizationWithOutbox(input);
+    store = normalizeLoadedStore(result.state) as AppStore;
+    return result;
+  },
+}));
+
 app.use("/api", requireAuth);
+
+// Customer documentation is independent of the privileged Owner Assistant.
+// General guidance grants no entitlement and reads no business record.
+app.use("/api/help", customerHelpRouter({
+  supportTickets: createHelpTicketBridge({identity: actor => {
+    const user=store.users.find(u=>u.id===actor.userId);
+    const org=store.organizations.find(o=>o.id===actor.organizationId&&o.status==="active");
+    if(!user||!org||!activeMembership(store,actor.userId,actor.organizationId))return null;
+    return {name:user.fullName||user.username,email:user.email||"",workspace:org.name};
+  }}),
+  feedbackStore: createHelpFeedback({file:path.join(DATA_DIR,"help-feedback-v1.json"),secret:hubSecurityKey,
+    beginWrite:()=>sentinelWriteFence.beginStoreSave({sentinel:false})}),
+  reportAccess: (req: Request) => {
+    const session=(req as any).user;
+    const workspace=Boolean(session&&activeMembership(store,session.userId,session.organizationId)?.role==="owner");
+    const operator=workspace&&isPlatformOperatorIdentity(session.userId,session.organizationId);
+    const mfa=process.env.V79_REQUIRE_ADMIN_MFA!=="1"||session?.mfaVerified===true&&store.users.find(u=>u.id===session.userId)?.mfaEnabled===true;
+    return {workspace,all:Boolean(operator&&mfa)};
+  },
+  sameOrigin: sameOriginMutation,
+  context: (req: Request) => {
+    const session = (req as any).user;
+    if (!session || !activeMembership(store, session.userId, session.organizationId) ||
+        !store.organizations.some(org => org.id === session.organizationId && org.status === "active")) return null;
+    return { userId: session.userId, organizationId: session.organizationId };
+  },
+}));
 
 app.get("/api/team/invitations", requireWorkspaceOwner, (req, res) => {
   const organizationId = (req as any).user.organizationId;
@@ -4826,6 +5082,20 @@ function ownerApprovalContext(req: Request) {
   return ownerAssistantContext(req);
 }
 
+// Recent MFA is renewed inside an existing authenticated owner session.
+// It grants no new role or permissions and never repeats a queued action.
+app.post("/api/security/mfa/step-up", requireAuth, createOwnerMfaStepUp({
+  ownerContext: ownerApprovalContext,
+  sameOrigin: sameOriginMutation,
+  getSecret: (userId: string) => {
+    const user = store.users.find(item => item.id === userId);
+    if (!user?.mfaEnabled || !user.mfaSecretEnc) return "";
+    return decryptTotpSecret(user.mfaSecretEnc, hubSecurityKey);
+  },
+  verifyCode: (secret: string, code: string, at: number) => verifyTotp(secret, code, at, 1),
+  persistSession: persistSessions,
+}));
+
 // G2: separate durable execution ledger. Existing G1 evidence endpoints and
 // planning approvals cannot authorize any action in this queue.
 const workforceLedgerKey = String(process.env.V79_WORKFORCE_AUDIT_KEY || "");
@@ -4841,6 +5111,7 @@ function readWorkforceToken() {
 }
 const workforceRouters = workforceActionRouters({
   ledger: workforceLedger,
+  specialistEnabled: () => process.env.V79_WORKFORCE_SPECIALIST_REVIEWS_ENABLED === "1",
   enabled: () => process.env.V79_WORKFORCE_ACTIONS_ENABLED === "1",
   ownerContext: ownerApprovalContext, sameOrigin: sameOriginMutation,
   googleEnabled: () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1",
@@ -4855,7 +5126,67 @@ const workforceRouters = workforceActionRouters({
   },
 });
 app.use("/api/agent/work-actions", workforceRouters.owner);
+// Isolated owner skills: do not replace the built-in workforce or its permissions.
+const skillRegistryKey = String(process.env.V79_WORKFORCE_SKILL_REGISTRY_KEY || "");
+const skillRegistry = skillRegistryKey.length >= 32 ? createSkillRegistry({
+  file: path.join(DATA_DIR, "workforce-skill-registry.json"), secret: skillRegistryKey,
+}) : null;
+const skillManagerEnabled = () => process.env.V79_WORKFORCE_SKILL_MANAGER_ENABLED === "1";
+const skillPackages = skillRegistry ? createPackageStore({
+  directory: path.join(DATA_DIR,"workforce-skill-packages"),
+  secret: skillRegistryKey,
+}) : null;
+app.use("/internal/workforce/skill-guidance",scheduledSkillRouter({
+  packages:skillPackages,enabled:skillManagerEnabled,workerToken:readWorkforceToken,
+}));
+// Keep approved action endpoints separate from advisory-only scheduled guidance.
 app.use("/internal/workforce", workforceRouters.worker);
+app.use("/api/agent/skills", workforceSkillRouter({
+  registry: skillRegistry, packages: skillPackages, enabled: skillManagerEnabled,
+  ownerContext: ownerAssistantContext,
+  freshOwnerContext: (req: Request) => {
+    if (!ownerApprovalContext(req)) return null;
+    const at = (req as any).user?.mfaVerifiedAt;
+    return Number.isFinite(at) && Date.now() >= at && Date.now() - at <= 5 * 60 * 1000
+      ? ownerApprovalContext(req) : null;
+  },
+  sameOrigin: sameOriginMutation,
+}));
+// Founder-only executive governance FOUNDATION; does not authorise any AI tool execution.
+// Signed preferences require fresh MFA to change. Protected actions are never delegable.
+const governanceSecret = skillRegistryKey.length >= 32
+  ? crypto.createHmac("sha256", skillRegistryKey).update("v79-executive-governance-v1").digest("hex")
+  : "";
+const executiveGovernanceStore = governanceSecret
+  ? createExecutiveGovernanceStore({
+      file:path.join(DATA_DIR, "executive-governance-policy.json"),
+      secret:governanceSecret,
+    })
+  : null;
+if (executiveGovernanceStore) {
+  app.use("/api/agent/executive-governance", createExecutiveGovernanceRouter({
+    store:executiveGovernanceStore,
+    enabled:()=>process.env.V79_EXECUTIVE_GOVERNANCE_ENABLED === "1",
+    ownerContext:ownerApprovalContext,
+    freshOwnerContext:(req:Request)=>{
+      const context=ownerApprovalContext(req);
+      const at=(req as any).user?.mfaVerifiedAt;
+      return context && Number.isFinite(at) && Date.now() >= at &&
+        Date.now()-at <= 5*60*1000 ? context : null;
+    },
+    sameOrigin:sameOriginMutation,
+  }));
+}
+app.get("/workforce/command", (req:Request,res:Response)=>{
+  res.setHeader("Cache-Control","no-store");
+  res.setHeader("X-Robots-Tag","noindex, nofollow, noarchive");
+  if(process.env.V79_EXECUTIVE_GOVERNANCE_ENABLED !== "1" || !executiveGovernanceStore)
+    return res.status(503).send("Executive Governance is not enabled");
+  if(!ownerApprovalContext(req))
+    return res.status(403).send("Founder MFA session required. Sign into V79 Hub, then return here.");
+  return res.sendFile(path.join(__dirname,"executive/command.html"));
+});
+
 // Owner-only Google boundary. Tokens remain in Hub, never in the model service.
 const googleEnabled = () => process.env.V79_GOOGLE_WORKFORCE_ENABLED === "1";
 const googleCredentials = googleCredentialBroker({
@@ -5218,12 +5549,18 @@ app.post("/api/agent/chat", async (req, res) => {
   if (!agentApiToken) return res.status(503).json({ error: "Owner Assistant service is not configured." });
   const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
   if (!message) return res.status(400).json({ error: "message is required" });
+  let managedSkills: ReturnType<NonNullable<typeof skillRegistry>["assignedSkills"]> | undefined;
+  if (skillManagerEnabled()) {
+    if (!skillRegistry) return res.status(503).json({ error: "Skill registry key is unavailable" });
+    try { managedSkills = skillRegistry.assignedSkills(); }
+    catch { return res.status(503).json({ error: "Skill registry verification failed" }); }
+  }
 
   try {
     const response = await fetch(`${agentInternalUrl}/api/agent/chat`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-v79-agent-token": agentApiToken },
-      body: JSON.stringify({ message, context }),
+      body: JSON.stringify({ message, context, ...(managedSkills ? { managedSkills } : {}) }),
       signal: AbortSignal.timeout(90000),
     });
     const body = await response.text();
@@ -5252,11 +5589,21 @@ app.post("/api/agent/chat", async (req, res) => {
 
 // G1.2: owner-MFA-only read-only executive endpoints. A browser-supplied
 // context, URL or model command is never accepted as authority.
+registerEvidenceGatewayBridge(app,{
+ ownerMfaContext:ownerApprovalContext,sameOrigin:sameOriginMutation,
+ readBridgeToken:()=>{let fd:number|null=null;try{fd=fs.openSync(path.join(DATA_DIR,'evidence-gateway-bridge.token'),fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.size>256||(stat.mode&0o077)!==0)return '';return fs.readFileSync(fd,'utf8').trim();}catch{return '';}finally{if(fd!==null)fs.closeSync(fd);}},
+ ownerSubject:()=>posIdentity.ownerUserId,
+ ownerActive:()=>{const user=store.users.find(u=>u.id===posIdentity.ownerUserId);const membership=activeMembership(store,posIdentity.ownerUserId,posIdentity.organizationId);return Boolean(user?.mfaEnabled&&hasOwnerAssistantAccess({user,membership,organizationId:posIdentity.organizationId,ownerOrganizationId:posIdentity.organizationId,ownerUserId:posIdentity.ownerUserId,ownerEmail:process.env.V79_HUB_ADMIN_EMAIL})&&membership?.role==='owner'&&store.organizations.some(o=>o.id===posIdentity.organizationId&&o.status==='active'));},
+ gatewayBaseUrl:'http://172.25.0.1:8765',
+});
+
 const executiveProxyDeps = {
   ownerMfaContext: ownerApprovalContext,
   readServiceToken: readAgentApiToken,
   agentBaseUrl: agentInternalUrl,
 };
+app.get("/api/agent/specialist-integrations",
+  createOwnerExecutiveProxy("integrations", executiveProxyDeps));
 app.get("/api/agent/executive-structure",
   createOwnerExecutiveProxy("structure", executiveProxyDeps));
 app.post("/api/agent/executive-handoff",
@@ -5870,6 +6217,7 @@ async function startServer() {
     throw new Error("V79_HUB_BIND_HOST must be 0.0.0.0, 127.0.0.1 or ::1.");
   }
   server.listen(PORT, HOST, () => {
+    organizationNameDeliveryLifecycle.start();
     if (trialReminderLeader && recoveryEmailEnabled) {
       void dispatchTrialReminders();
       const reminderTimer=setInterval(()=>{void dispatchTrialReminders();},3600000);

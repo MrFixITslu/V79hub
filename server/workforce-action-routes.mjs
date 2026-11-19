@@ -1,3 +1,6 @@
+import {specialistSystems} from './workforce-specialist-scopes.mjs';
+import {REVIEW_OPERATION, REVIEW_WORKER, REVIEW_ROLES, publicReviewTask, verifiedReviewTask, finishSpecialistReview, acceptSpecialistReview, reconcileSpecialistReview} from "./workforce-specialist-delivery.mjs";
+import {builtinSkillCatalog} from "./workforce-builtins.mjs";
 import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import { GOOGLE_OPERATIONS } from './workforce-google.mjs';
@@ -7,12 +10,19 @@ import { WORK_OPERATIONS, WORK_SYSTEMS, proposeWork, decideWork, cancelWork, cla
 const exact = (body, fields) => body && typeof body === "object" && !Array.isArray(body) &&
   Object.keys(body).sort().join(",") === fields.slice().sort().join(",");
 export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrigin, workerToken,
-  ownerOrganizationId, ownerReady, googleEnabled = () => false, now = Date.now }) {
+  ownerOrganizationId, ownerReady, googleEnabled = () => false, specialistEnabled = () => false, now = Date.now }) {
   const owner = express.Router(), worker = express.Router();
   const wrap = fn => async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try { return await fn(req, res); }
-    catch { return res.status(409).json({ error: "Action rejected or storage unavailable. Refresh and verify the current state before retrying." }); }
+    catch (e) {
+      if(e?.code==="REVIEW_MFA_REQUIRED")return res.status(403).json({code:"FRESH_MFA_REQUIRED",error:"Refresh owner MFA verification to approve this exact review."});
+      if(e?.message==="Action revision conflict")return res.status(409).json({code:"ACTION_CHANGED",error:"This action changed since it was displayed. Refresh status and review its current state."});
+      if(e?.message==="Work item requires current approval")return res.status(409).json({code:"CURRENT_APPROVAL_REQUIRED",error:"This action needs a current unused approval. Refresh status; an expired or completed action cannot be executed again."});
+      if(e?.message==="Action cannot be approved")return res.status(409).json({code:"APPROVAL_STATE_CHANGED",error:"The action is no longer awaiting this decision. Refresh status and review the current scope."});
+      if(["EACCES","EROFS","ENOSPC","ECONNREFUSED","57P01","53300"].includes(e?.code))return res.status(503).json({code:"STORAGE_UNAVAILABLE",error:"Action storage is temporarily unavailable. No success is confirmed; check status before retrying."});
+      return res.status(409).json({code:"ACTION_NOT_COMPLETED",error:"This action was not completed. Refresh its current status before retrying."});
+    }
   };
   owner.use((req, res, next) => {
     const context = ownerContext(req);
@@ -30,12 +40,14 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
   owner.get("/", wrap(async (req, res) => {
     const state = await ledger.read(), org = req.workOwner.organizationId;
     return res.json({ mode: "owner-approved-actions", enabled: enabled(), paused: state.paused,
-      operations: WORK_OPERATIONS.filter(op=>googleEnabled() || !GOOGLE_OPERATIONS.includes(op)),
+      specialistReviewsEnabled: specialistEnabled(), specialists: builtinSkillCatalog().map(({id,name,skillSha})=>({id,name,skillSha,systems:specialistSystems(id)})),
+      operations: WORK_OPERATIONS.filter(op=>(specialistEnabled() || op!==REVIEW_OPERATION) && (googleEnabled() || !GOOGLE_OPERATIONS.includes(op))),
       systems: WORK_SYSTEMS.filter(system=>googleEnabled() || !['gmail','calendar'].includes(system)),
       jobs: state.jobs.filter(j => j.organizationId === org).slice(-200).reverse().map(publicWorkJob),
-      tasks: state.tasks.filter(j => j.organizationId === org).slice(-200).reverse() });
+      tasks: state.tasks.filter(j => j.organizationId === org).slice(-200).reverse().map(publicReviewTask) });
   }));
   owner.post("/", wrap(async (req, res) => {
+    if(req.body?.operation===REVIEW_OPERATION&&!specialistEnabled())return res.status(503).json({error:"Specialist reviews disabled"});
     if (GOOGLE_OPERATIONS.includes(req.body?.operation) && !googleEnabled()) return res.status(503).json({ error: "Google workforce integration is disabled" });
     const job = await ledger.transact(s => proposeWork(s, req.body, {
       organizationId: req.workOwner.organizationId, actor: req.workOwner.userId, now: now() }));
@@ -50,6 +62,10 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
     if (!exact(req.body, ["decision", "expectedRevision", "digest"])) return res.status(400).json({ error: "Invalid action decision" });
     const job = await ledger.transact(s => {
       const existing = s.jobs.find(j=>j.id===req.params.id && j.organizationId===req.workOwner.organizationId);
+      if(existing?.operation===REVIEW_OPERATION && req.body.decision==='approve') {
+        if(!specialistEnabled() || now()-req.user.mfaVerifiedAt>300000)throw Object.assign(Error("Fresh owner MFA required"),{code:"REVIEW_MFA_REQUIRED"});
+        verifiedReviewTask(s,existing.payload,req.workOwner.organizationId);
+      }
       if (req.body.decision === 'approve' && GOOGLE_OPERATIONS.includes(existing?.operation) && !googleEnabled()) throw new Error('Google integration disabled');
       return decideWork(s, req.params.id, req.body.decision, {
       organizationId: req.workOwner.organizationId, actor: req.workOwner.userId,
@@ -71,6 +87,20 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
       expectedRevision: req.body.expectedRevision, now: now() }));
     return res.json({ job: publicWorkJob(job) });
   }));
+  owner.post("/:id/reconcile-review",wrap(async(req,res)=>{
+    if(!specialistEnabled()||!exact(req.body,["expectedRevision","digest"])||
+      now()-req.user.mfaVerifiedAt>300000)return res.status(403).json({error:"Fresh owner MFA required"});
+    const job=await ledger.transact(s=>reconcileSpecialistReview(s,req.params.id,{
+      ...req.body,organizationId:req.workOwner.organizationId,actor:req.workOwner.userId,now:now()}));
+    return res.json({job:publicWorkJob(job)});
+  }));
+  owner.post("/:id/accept-review",wrap(async(req,res)=>{
+    if(!specialistEnabled()||!exact(req.body,["expectedRevision","digest","outputSha256"])||
+      now()-req.user.mfaVerifiedAt>300000)return res.status(403).json({error:"Fresh owner MFA and exact review result required"});
+    const job=await ledger.transact(s=>acceptSpecialistReview(s,req.params.id,{
+      ...req.body,organizationId:req.workOwner.organizationId,actor:req.workOwner.userId,now:now()}));
+    return res.json({job:publicWorkJob(job)});
+  }));
   worker.use((req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
     if (!enabled() || !ledger || !ownerReady()) return res.status(503).json({ error: "Worker execution unavailable" });
@@ -82,7 +112,7 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
     next();
   });
   worker.post("/propose", wrap(async (req, res) => {
-    if (GOOGLE_OPERATIONS.includes(req.body?.operation)) return res.status(403).json({ error: "Google proposals require the owner session" });
+    if (req.body?.operation===REVIEW_OPERATION || GOOGLE_OPERATIONS.includes(req.body?.operation)) return res.status(403).json({ error: "Google proposals require the owner session" });
     const job = await ledger.transact(s => proposeWork(s, req.body, {
       organizationId: ownerOrganizationId(), actor: "coo-worker", now: now() }));
     return res.status(201).json({ job: publicWorkJob(job) });
@@ -102,6 +132,24 @@ export function workforceActionRouters({ ledger, enabled, ownerContext, sameOrig
         expectedRevision: j.revision, now: now() });
     });
     return res.json({ job: job ? publicWorkJob(job) : null });
+  }));
+  worker.post("/claim-specialist-review",wrap(async(req,res)=>{
+    if(!specialistEnabled())return res.status(503).json({error:"Specialist reviews disabled"});
+    if(!exact(req.body,[]))return res.status(400).json({error:"No worker-selected scope accepted"});
+    const claimed=await ledger.transact(s=>{
+      if(s.jobs.some(j=>j.organizationId===ownerOrganizationId()&&j.operation===REVIEW_OPERATION&&["running","uncertain"].includes(j.status)))return null;
+      const job=claimWork(s,{organizationId:ownerOrganizationId(),worker:REVIEW_WORKER,
+        operations:[REVIEW_OPERATION],systems:WORK_SYSTEMS,now:now()});
+      if(!job)return null;
+      const task=verifiedReviewTask(s,job.payload,ownerOrganizationId());
+      return {job,task:{id:task.id,title:task.title,detail:task.detail,system:task.system}};
+    });
+    return res.json(claimed||{job:null});
+  }));
+  worker.post("/:id/specialist-receipt",wrap(async(req,res)=>{
+    const job=await ledger.transact(s=>finishSpecialistReview(s,req.params.id,req.body,{
+      organizationId:ownerOrganizationId(),now:now()}));
+    return res.json({job:publicWorkJob(job)});
   }));
   worker.post("/claim", wrap(async (req, res) => {
     if (!exact(req.body, ["worker", "operations", "systems"]) ||

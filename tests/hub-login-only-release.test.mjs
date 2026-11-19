@@ -10,14 +10,27 @@ test("login presentation preserves all authentication and recovery routes",()=>{
   }
   for(const method of ["onSubmit={handleLogin}","onSubmit={completeMfa}","onSubmit={requestReset}","onSubmit={completeReset}"])assert.ok(login.includes(method),method);
 });
-test("Google OAuth is clearly disabled; uploaded illustration is local and presentation-only",()=>{
+test("Google login is server-configured and fails closed when unavailable; illustration remains local",()=>{
   const login=read("src/components/Login.tsx");
-  assert.match(login,/disabled aria-disabled="true"/);
-  assert.match(login,/Google sign-in is not yet available/);
-  assert.match(login,/\/assets\/v79-login-earth\.svg/);
-  const image=read("public/assets/v79-login-earth.svg");
-  assert.match(image,/<svg/);
-  assert.match(image,/data:image\/webp;base64,/);
+  const google=read("src/components/GoogleSignIn.tsx");
+  const server=read("server.ts");
+  assert.match(login,/<GoogleSignIn organizationId=\{organizationId\} onCredential=\{handleGoogleCredential\}/);
+  assert.match(google,/config\?\.enabled !== true/);
+  assert.match(google,/if \(status === "off"\) return null/);
+  assert.match(google,/auto_select: false/);
+  assert.match(google,/\/api\/auth\/google\/challenge/);
+  assert.match(google,/You can still sign in with your password/);
+  const route=server.slice(server.indexOf('app.post("/api/auth/google/login"'),server.indexOf('app.post("/api/auth/login"'));
+  for(const marker of ["if(!hubGoogleLoginEnabled)", "sameOriginMutation(req)", "googleNonces.delete(nonce)", "verifyGoogleJwt(credential", "activeMembershipsForUser", "startLoginMfa(user", "completeHubLogin(user"]) assert.ok(route.includes(marker),marker);
+  assert.ok(route.indexOf("googleNonces.delete(nonce)")<route.indexOf("verifyGoogleJwt(credential"));
+  assert.ok(route.indexOf("startLoginMfa(user")<route.indexOf("completeHubLogin(user"));
+  const expected=["/brand/icon-256.png",...["tiquet","ffpro","pos","marketing","academy"].map(x=>"/assets/login-products/"+x+".png")];
+  for(const path of expected) {
+    assert.ok(login.includes('src="'+path+'"'),path);
+    const image=readFileSync(new URL("../public"+path,import.meta.url));
+    assert.equal(image.subarray(0,8).toString("hex"),"89504e470d0a1a0a",path);
+  }
+  for(const match of login.matchAll(/<img\s+src="([^"]+)"/g)) assert.ok(match[1].startsWith("/"),match[1]);
 });
 test("reference CSS is explicitly scoped to the logged-out login surface",()=>{
   const css=read("src/index.css");

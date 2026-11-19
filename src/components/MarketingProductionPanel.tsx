@@ -27,7 +27,7 @@ function deliveryStatus(d:Delivery){return ({awaiting_owner:'Awaiting your appro
 function receiptUrl(d:Delivery){return d.status==='succeeded'&&d.channel==='youtube'&&d.result&&/^[A-Za-z0-9_-]{11}$/.test(d.result.providerPostId)?'https://www.youtube.com/watch?v='+d.result.providerPostId:null;}
 function failedUnstarted(job:Job){return job.status==='blocked'&&!!(job.failure||job.bundle?.review.blockers.length)&&
   job.deliveries.every(d=>!['approved','running','succeeded','uncertain'].includes(d.status)&&!d.approval&&!d.result);}
-const initialBrand:Brand={name:'V79 Digital',tagline:'From Idea to Advantage.',audience:'Caribbean small and medium businesses',
+const initialBrand:Brand={name:'V79 Digital',tagline:'From Vision to Value.',audience:'Caribbean small and medium businesses',
   tone:'Clear, practical, professional and approachable',website:'https://v79sl.com',cta:'Visit our website to discuss your business needs',
   primaryColor:'#081827',accentColor:'#00D5C9',logoPng:null,mailingAddress:null,
   facts:[{id:'ict-support',service:'ICT support',statement:'V79 Digital provides ICT support and business software services.'}]};
