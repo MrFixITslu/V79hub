@@ -58,7 +58,7 @@ export function OwnerToday({ active, onTasks, onDelivery, onAsk }: {
         {!snapshot ? <p>{busy ? "Loading your action queue…" : "No verified action summary is available."}</p> : attention.length ? <ul className="v79-decision-list">{attention.slice(0, 4).map(j => <li key={j.id}><button onClick={onTasks}><span><strong>{j.summary}</strong><small>{j.system} · {j.status === "pending" ? "Awaiting approval" : j.status === "approved" ? "Approval expired" : j.status === "uncertain" ? "Needs reconciliation" : "Failed"}</small></span><ArrowRight size={16} /></button></li>)}</ul> : <p>No pending approvals or follow-up items in this queue snapshot. Delivery completion is tracked separately.</p>}
         <button className="v79-text-button" onClick={onTasks}>Open tasks & approvals <ArrowRight size={16} /></button>
       </section>
-      <aside className="v79-area-card v79-guidance"><p className="v79-eyebrow">FROM IDEA TO ADVANTAGE</p><h2>Turn a question into a clear next step.</h2><p>Ask for a review, check the evidence, then prepare a task for approval.</p>
+      <aside className="v79-area-card v79-guidance"><p className="v79-eyebrow">FROM VISION TO VALUE</p><h2>Turn a question into a clear next step.</h2><p>Ask for a review, check the evidence, then prepare a task for approval.</p>
         <button className="v79-solid-button" onClick={onAsk}>Ask the assistant <ArrowRight size={16} /></button>
         <button className="v79-text-button" onClick={onDelivery}>Review delivery evidence <ArrowRight size={16} /></button>
       </aside>

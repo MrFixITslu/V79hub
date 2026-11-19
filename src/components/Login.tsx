@@ -462,7 +462,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
             </form>
           )}
             </div>
-            <div className="hub-login-panel-foot"><span>V79 Digital</span><span>From Idea to Advantage.</span></div>
+            <div className="hub-login-panel-foot"><span>V79 Digital</span><span>From Vision to Value.</span></div>
           </div>
         </main>
       </div>

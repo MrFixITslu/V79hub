@@ -434,7 +434,7 @@ export function HubOverview({
             })}</div>}
           </section>
         </div>
-        <footer className="v79-footer"><strong>Vision79 <span>From Idea to Advantage.</span></strong><span>Private data stays in each product. Your Hub brings the signals together.</span></footer>
+        <footer className="v79-footer"><strong>Vision79 <span>From Vision to Value.</span></strong><span>Private data stays in each product. Your Hub brings the signals together.</span></footer>
       </div>
     </div>
   );

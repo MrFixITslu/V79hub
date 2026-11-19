@@ -57,7 +57,7 @@ test('workboard handoff opens task view with an exact draft and never queues or 
 test('polling observes worker success without execution POST; created work is not labelled complete',async t=>{
  let state=job('approved');const h=await mount(t,WorkforceActionPanel,{embedded:true},()=>queue([state]));
  assert.match(h.box.textContent,/Approved · awaiting execution/);
- assert.equal(h.timers.size,1);const timer=[...h.timers.values()][0];assert.equal(timer.delay,15000);
+ assert.equal(h.timers.size,1);const timer=[...h.timers.values()][0];assert.equal(timer.delay,45000);
  state=job('succeeded');await act(async()=>timer.fn());
  assert.match(h.box.textContent,/Work item created/);
  assert.match(h.box.textContent,/completion of the underlying work is not verified/);
@@ -93,12 +93,12 @@ test('queueing a prepared work item creates only a pending proposal and highligh
  assert.match(h.box.querySelector('[aria-pressed="true"]').textContent,/Needs approval/);
  assert.match(h.box.textContent,/Needs your approval/);
 });
-test('MFA failure clears private actions and controls; an outdated response cannot restore them',async t=>{
+for (const deniedStatus of [401,403]) test('Access denial '+deniedStatus+' clears private actions and controls; an outdated response cannot restore them',async t=>{
  let count=0,resolveOld;
  const h=await mount(t,WorkforceActionPanel,{embedded:true},()=>{
   count++;if(count===1)return queue([job()]);
   if(count===2)return new Promise(resolve=>{resolveOld=resolve;});
-  return {ok:false,status:403,json:async()=>({})};
+  return {ok:false,status:deniedStatus,json:async()=>({})};
  });
  const timer=[...h.timers.values()][0];
  await act(async()=>{void timer.fn();});
@@ -181,4 +181,13 @@ test('owner task composer submits only after a verified enabled response',async 
  // This test validates the editor is available; existing queue submission tests
  // cover React-controlled input and exact body validation separately.
  assert.ok(h.calls.every(c=>!c.opts?.method),'Opening or typing a draft never mutates');
+});
+
+for(const deniedStatus of [401,403]) test('Mutation denial '+deniedStatus+' clears private action rows without retrying',async t=>{
+ const h=await mount(t,WorkforceActionPanel,{embedded:true},(_url,opts)=>opts?.method==='POST'?{ok:false,status:deniedStatus,json:async()=>({error:'Denied'})}:queue([job()]));
+ assert.equal(h.box.querySelectorAll('article').length,1);
+ await h.click('Reject');
+ assert.equal(h.box.querySelectorAll('article').length,0);
+ assert.equal(h.box.querySelector('form[aria-label="New work item"] button[type="submit"]').disabled,true);
+ assert.equal(h.calls.filter(c=>c.opts?.method==='POST').length,1);
 });

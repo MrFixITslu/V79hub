@@ -61,7 +61,7 @@ export function Sidebar({
   return (
     <>
       <aside aria-label="Primary workspace navigation" className="v79-sidebar hidden lg:flex">
-        <div className="v79-brand"><span className="v79-brand-mark">V<span>79</span></span><div><strong>Vision<span>79</span></strong><small>From Idea to Advantage.</small></div></div>
+        <div className="v79-brand"><span className="v79-brand-mark">V<span>79</span></span><div><strong>Vision<span>79</span></strong><small>From Vision to Value.</small></div></div>
         <nav className="v79-side-nav"><div className="v79-nav-label">WORKSPACE</div>
           {primary.filter((item) => item.visible).map((item) => {
             const Icon = item.icon;

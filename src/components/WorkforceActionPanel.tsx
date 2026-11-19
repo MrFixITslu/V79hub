@@ -59,6 +59,13 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
   const [filter, setFilter] = useState<QueueFilter>("all"), [search, setSearch] = useState("");
   const serial = useRef(0), mutation = useRef(false);
   const proposalRetry = useRef<{ signature: string; key: string } | null>(null);
+  const revokeActionAccess = useCallback(() => {
+    serial.current++;
+    setJobs([]); setEnabled(false); setPaused(false); setCheckedAt(null);
+    setLoading(false); setNotice(""); setMfaNeeded(false); setMfaCode("");
+    setError("Sign in with your owner account and verify MFA to view actions.");
+    setSyncIssue("Owner action access could not be verified. No task will be queued.");
+  }, []);
   const shown = active && (embedded || open);
   const refresh = useCallback(async (background = false) => {
     const current = ++serial.current;
@@ -74,16 +81,20 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
       setSyncIssue("");
     } catch (e) {
       if (current === serial.current) {
-        // Retain the last verified list and current action error. Background
-        // polling must not flash alerts or erase data and draft inputs.
-        setSyncIssue(e instanceof WorkRequestError && e.status === 401
-          ? "Your session expired. Sign in again to update this view."
-          : "Live updates are unavailable. Showing the last verified information.");
-        if (!background) setEnabled(false);
+        if (e instanceof WorkRequestError && [401, 403].includes(e.status)) {
+          // Authorisation denial is not a transient refresh failure. Clear
+          // private rows and invalidate every older response before returning.
+          revokeActionAccess();
+        } else {
+          // Network failures can retain the last verified list, while a
+          // foreground failure disables mutations until access is checked.
+          setSyncIssue("Live updates are unavailable. Showing the last verified information.");
+          if (!background) setEnabled(false);
+        }
       }
       throw e;
     } finally { if (current === serial.current && !background) setLoading(false); }
-  }, []);
+  }, [revokeActionAccess]);
   useEffect(() => {
     if (!shown) return;
     void refresh().catch(() => {});
@@ -110,9 +121,13 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
       // Never report a confirmed action as failed merely because refresh failed.
       await refresh().catch(() => setSyncIssue("Action response received, but the updated list could not be loaded. Refresh status."));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Action unavailable.");
-      setMfaNeeded(e instanceof WorkRequestError && ["RECENT_MFA_REQUIRED", "FRESH_MFA_REQUIRED"].includes(e.code));
-      // Keep verified jobs and revisions visible. Never auto-retry a mutation.
+      if (e instanceof WorkRequestError && [401, 403].includes(e.status)) {
+        revokeActionAccess();
+        setMfaNeeded(["RECENT_MFA_REQUIRED", "FRESH_MFA_REQUIRED"].includes(e.code));
+      } else {
+        setError(e instanceof Error ? e.message : "Action unavailable.");
+      }
+      // Other failures may retain verified rows. Never auto-retry a mutation.
     } finally { mutation.current = false; setBusy(false); }
   };
   const reverifyMfa = async () => {
@@ -122,10 +137,11 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
       const res = await fetch("/api/security/mfa/step-up", { credentials: "same-origin", cache: "no-store",
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: mfaCode }) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Verification was not accepted.");
+      if (!res.ok) throw new WorkRequestError(typeof data.error === "string" ? data.error : "Verification was not accepted.", typeof data.code === "string" ? data.code : "", res.status);
       setMfaNeeded(false); setError("");
       setNotice("Owner MFA verified for five minutes. Review the action and choose it again when ready.");
     } catch (e) {
+      if (e instanceof WorkRequestError && [401, 403].includes(e.status)) revokeActionAccess();
       setMfaIssue(e instanceof Error ? e.message : "Verification unavailable.");
     } finally {
       setMfaCode(""); setMfaBusy(false);
@@ -194,7 +210,7 @@ export function WorkforceActionPanel({ preparedTask, onPreparedTaskApplied, embe
           <fieldset disabled={busy} className="min-w-0 space-y-4 disabled:opacity-60">
           <legend className="sr-only">Describe a work item for owner review</legend>
           <div><h3 className="flex items-center gap-2 text-base font-semibold"><Plus className="h-4 w-4 text-cyan-300" aria-hidden="true" />New work item</h3><p className="mt-1 text-xs leading-5 text-slate-400">Describe the assignment first. Queueing it later requires a verified owner session; opening this form changes nothing on the server.</p></div>
-          {(!enabled || !checkedAt) && <p role="status" aria-live="polite" className="rounded-lg border border-amber-700/60 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">{loading ? "Checking owner-approved task access. You can prepare a draft; submitting is disabled until verification succeeds." : error ? "The owner action queue could not be verified. Drafting is available, but no task can be queued. Refresh status. If your owner session has ended, sign in again." : checkedAt ? "Task actions are disabled on the server. You may prepare a draft, but no task can be queued." : "Waiting for verified owner action queue access. No task will be queued."}</p>}
+          {(!enabled || !checkedAt) && <p role="status" aria-live="polite" className="rounded-lg border border-amber-700/60 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">{loading ? "Checking owner-approved task access. You can prepare a draft; submitting is disabled until verification succeeds." : error ? "The owner action queue could not be verified. Drafting is available, but no task can be queued. Refresh status. If your owner session has ended, sign in again." : checkedAt ? "Task actions are disabled on the server. You may prepare a draft, but no task can be queued." : "Owner action access could not be verified. No task will be queued."}</p>}
           <label className="block text-sm font-medium">App<select value={system} onChange={e => setSystem(e.target.value)} className={field}>{systems.map(s => <option key={s}>{s}</option>)}</select></label>
           <label className="block text-sm font-medium">Task title<input value={summary} onChange={e => setSummary(e.target.value)} maxLength={180} minLength={8} required placeholder="e.g. Review Sentinel monitoring gaps" className={field} /></label>
           {operation === "create_work_item" ? <label className="block text-sm font-medium">Work to complete<textarea value={detail} onChange={e => setDetail(e.target.value)} maxLength={2000} minLength={8} required rows={5} placeholder="Describe the outcome, scope, and evidence you expect." className={field + " resize-y"} /></label> : <>
